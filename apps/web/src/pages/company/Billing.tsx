@@ -98,12 +98,14 @@ export default function Billing() {
 
         <Card kicker="Consumo · al costo, variable" title="Tu operación">
           <ul className="space-y-2 text-sm">
-            <li className="flex justify-between border-b border-line pb-1.5">
+            <li className="flex justify-between border-b border-line pb-1.5 text-ink-3">
               <span>
-                Recursos de IA
-                <span className="block text-[11px] text-ink-3">{fmtNum(summary.consumption.ai.tokens)} tokens</span>
+                Recursos de IA (informativo)
+                <span className="block text-[11px]">
+                  {fmtNum(summary.consumption.ai.tokens)} tokens · lo pagas directo a DeepInfra con tu llave
+                </span>
               </span>
-              <strong>{fmtUsd(summary.consumption.ai.costUsd)}</strong>
+              <span className="tabular-nums">{fmtUsd(summary.consumption.ai.costUsd)}</span>
             </li>
             <li className="flex justify-between border-b border-line pb-1.5">
               <span>
@@ -120,7 +122,7 @@ export default function Billing() {
               <strong>{fmtUsd(summary.consumption.storage.costUsd)}</strong>
             </li>
             <li className="flex justify-between pt-1">
-              <span className="font-semibold">Total consumo</span>
+              <span className="font-semibold">Total consumo (sin IA)</span>
               <strong>{fmtUsd(summary.consumption.totalUsd)}</strong>
             </li>
           </ul>

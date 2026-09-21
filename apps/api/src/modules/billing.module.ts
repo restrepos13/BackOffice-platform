@@ -44,7 +44,9 @@ export class BillingService {
     const storageMb = usage.length
       ? Math.max(...usage.map((u) => u.storageMb))
       : 0;
-    const consumption = aiCostUsd + waCostUsd + storageCostUsd;
+    // BYOK: la IA la paga la empresa directo a DeepInfra con su llave —
+    // se muestra como informativa y NO entra en la mensualidad de BackOffice.
+    const consumption = waCostUsd + storageCostUsd;
     const planAmount = company.plan?.priceMonthly ?? 0;
 
     const round = (n: number) => Math.round(n * 100) / 100;
@@ -56,7 +58,7 @@ export class BillingService {
         ? { name: company.plan.name, code: company.plan.code, priceMonthly: planAmount }
         : null,
       consumption: {
-        ai: { costUsd: round(aiCostUsd), tokens: aiTokens },
+        ai: { costUsd: round(aiCostUsd), tokens: aiTokens, directBilled: true },
         whatsapp: { costUsd: round(waCostUsd), conversations: waConversations },
         storage: { costUsd: round(storageCostUsd), mb: round(storageMb) },
         totalUsd: round(consumption),

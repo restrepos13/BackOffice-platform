@@ -113,10 +113,16 @@ export class CompaniesService {
   ) {}
 
   private serialize(company: any) {
+    const { deepinfraApiKey, ...rest } = company;
     return {
-      ...company,
+      ...rest,
       modules: parseJson<string[]>(company.modulesJson, []),
       limits: parseJson<Record<string, number>>(company.limitsJson, {}),
+      // La llave de DeepInfra jamás sale completa del API
+      hasDeepinfraKey: !!deepinfraApiKey,
+      deepinfraKeyMasked: deepinfraApiKey
+        ? `••••${String(deepinfraApiKey).slice(-4)}`
+        : null,
     };
   }
 
@@ -297,6 +303,10 @@ export class CompaniesService {
         notes: dto.notes,
         planId: dto.planId,
         status: dto.status,
+        // BYOK: la empresa configura su propia llave de DeepInfra
+        ...(dto.deepinfraApiKey !== undefined
+          ? { deepinfraApiKey: dto.deepinfraApiKey || null }
+          : {}),
         ...(dto.modules ? { modulesJson: JSON.stringify(dto.modules) } : {}),
         ...(dto.limits ? { limitsJson: JSON.stringify(dto.limits) } : {}),
       },

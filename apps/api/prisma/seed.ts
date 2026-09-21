@@ -57,6 +57,7 @@ async function main() {
     prisma.payment.deleteMany(),
     prisma.emailMessage.deleteMany(),
     prisma.mediaAsset.deleteMany(),
+    prisma.aiUsageEvent.deleteMany(),
     prisma.aiModel.deleteMany(),
     prisma.user.deleteMany(),
     prisma.company.deleteMany(),
@@ -493,6 +494,8 @@ async function main() {
       contactEmail: 'admin@novastudio.co', contactPhone: '+57 300 555 0101',
       status: 'ACTIVE', planId: growth.id, timezone: 'America/Bogota',
       brandColor: '#7A1F5C',
+      // BYOK demo: llave ficticia para mostrar el estado "conectada" (enmascarada)
+      deepinfraApiKey: 'di_demo_no_real_0000',
       notes: 'Agencia webcam con un número de WhatsApp por modelo. Cada línea tiene personalidad propia (promptMode CUSTOM).',
     },
   });
@@ -941,7 +944,69 @@ async function main() {
     }
   }
 
-  // ── Consumo (45 días) ─────────────────────────────────────────────
+  // ── Eventos de consumo IA (45 días, por línea y modelo) ──────────
+  // Un evento = una respuesta de la IA. Costo según el precio del modelo
+  // (mismo catálogo que se declara al cliente). El costo lo asume la empresa
+  // directo con DeepInfra (BYOK).
+  console.log('Eventos de consumo IA…');
+  const PRICE: Record<string, [number, number]> = {
+    'meta-llama/Llama-3.3-70B-Instruct': [0.23, 0.4],
+    'meta-llama/Meta-Llama-3.1-8B-Instruct': [0.03, 0.05],
+    'deepseek-ai/DeepSeek-V3': [0.49, 0.89],
+    'deepseek-ai/DeepSeek-R1': [0.55, 2.19],
+  };
+  interface LineSpec {
+    companyId: string; integrationId: string | null; botId: string | null;
+    model: string; perDay: number;
+  }
+  const lineSpecs: LineSpec[] = [
+    { companyId: masSalud.id, integrationId: msLineaCitas.id, botId: msBot.id, model: 'meta-llama/Llama-3.3-70B-Instruct', perDay: 14 },
+    { companyId: masSalud.id, integrationId: msLineaVentas.id, botId: msBot.id, model: 'meta-llama/Llama-3.3-70B-Instruct', perDay: 8 },
+    { companyId: masSalud.id, integrationId: null, botId: msAuditor.id, model: 'deepseek-ai/DeepSeek-R1', perDay: 3 },
+    { companyId: hmMotors.id, integrationId: hmLinea.id, botId: hmBot.id, model: 'meta-llama/Llama-3.3-70B-Instruct', perDay: 9 },
+    { companyId: lotes.id, integrationId: null, botId: lotesBot.id, model: 'meta-llama/Meta-Llama-3.1-8B-Instruct', perDay: 1 },
+    ...novaLines.map((id, idx) => ({
+      companyId: nova.id, integrationId: id, botId: novaBot.id,
+      model: 'deepseek-ai/DeepSeek-V3', perDay: [16, 9, 8, 12][idx],
+    })),
+  ];
+  // Acumulado diario por empresa para mantener UsageRecord consistente
+  const aiDaily = new Map<string, { tokens: number; cost: number }>();
+  const eventRows: any[] = [];
+  for (const spec of lineSpecs) {
+    for (let i = 45; i >= 0; i--) {
+      const weekend = [0, 6].includes(day(i).getDay()) ? 0.6 : 1;
+      const n = Math.max(0, Math.round(spec.perDay * weekend * (0.6 + rand() * 0.8)));
+      for (let e = 0; e < n; e++) {
+        const inputTokens = randInt(400, 1600); // prompt + personalidad + historial
+        const outputTokens = randInt(60, 320);
+        const [pi, po] = PRICE[spec.model];
+        const costUsd = (inputTokens * pi + outputTokens * po) / 1_000_000;
+        const at = new Date(day(i));
+        at.setHours(randInt(8, 23), randInt(0, 59), randInt(0, 59));
+        eventRows.push({
+          companyId: spec.companyId,
+          integrationId: spec.integrationId,
+          botId: spec.botId,
+          model: spec.model,
+          inputTokens, outputTokens,
+          costUsd: Math.round(costUsd * 1e6) / 1e6,
+          createdAt: at,
+        });
+        const key = `${spec.companyId}|${i}`;
+        const acc = aiDaily.get(key) ?? { tokens: 0, cost: 0 };
+        acc.tokens += inputTokens + outputTokens;
+        acc.cost += costUsd;
+        aiDaily.set(key, acc);
+      }
+    }
+  }
+  for (let offset = 0; offset < eventRows.length; offset += 500) {
+    await prisma.aiUsageEvent.createMany({ data: eventRows.slice(offset, offset + 500) });
+  }
+  console.log(`  ${eventRows.length} eventos de IA`);
+
+  // ── Registros diarios de consumo (45 días) ────────────────────────
   console.log('Registros de consumo…');
   const usageProfiles: Array<{ companyId: string; base: number }> = [
     { companyId: masSalud.id, base: 320 },
@@ -955,12 +1020,13 @@ async function main() {
       const weekend = [0, 6].includes(day(i).getDay()) ? 0.55 : 1;
       const messagesIn = Math.round(base * factor * weekend);
       const messagesOut = Math.round(messagesIn * (1.05 + rand() * 0.2));
-      const aiTokens = messagesOut * randInt(160, 260);
+      const ai = aiDaily.get(`${companyId}|${i}`) ?? { tokens: 0, cost: 0 };
       await prisma.usageRecord.create({
         data: {
           companyId, date: day(i),
-          messagesIn, messagesOut, aiTokens,
-          aiCostUsd: Math.round(aiTokens * 0.000011 * 100) / 100,
+          messagesIn, messagesOut,
+          aiTokens: ai.tokens,
+          aiCostUsd: Math.round(ai.cost * 100) / 100,
           storageMb: 900 + (45 - i) * 14 + (base / 10),
           storageCostUsd: 0.11,
           waConversations: Math.round(messagesIn / 6),

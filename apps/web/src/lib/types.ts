@@ -45,6 +45,9 @@ export interface Company {
   notes?: string | null;
   modules: string[];
   limits: Record<string, number>;
+  /** BYOK DeepInfra: la llave nunca viaja completa */
+  hasDeepinfraKey: boolean;
+  deepinfraKeyMasked?: string | null;
   trialEndsAt?: string | null;
   createdAt: string;
   users?: UserRow[];
@@ -339,6 +342,45 @@ export interface EmailMessage {
   actorName: string;
   sentAt?: string | null;
   createdAt: string;
+}
+
+export interface AiUsageKpis {
+  costRange: number;
+  tokensIn?: number;
+  tokensOut?: number;
+  events: number;
+  avgCostPerEvent?: number;
+  avgDaily?: number;
+  costMonth: number;
+  projectedMonth: number;
+  tokensMonth: number;
+  eventsMonth: number;
+  dayOfMonth: number;
+  daysInMonth: number;
+  companiesWithKey?: number;
+  companies?: number;
+}
+
+export interface CompanyAiUsage {
+  kpis: AiUsageKpis;
+  hasDeepinfraKey: boolean;
+  series: { date: string; costUsd: number; inputTokens: number; outputTokens: number; events: number }[];
+  byModel: { model: string; costUsd: number; tokens: number; events: number }[];
+  byLine: { integrationId: string | null; name: string; costUsd: number; tokens: number; events: number }[];
+  lines: { id: string; name: string }[];
+  lastEventAt?: string | null;
+  generatedAt: string;
+}
+
+export interface PlatformAiUsage {
+  kpis: AiUsageKpis;
+  series: { date: string; costUsd: number; events: number }[];
+  byCompany: {
+    companyId: string; name: string; status: string; hasKey: boolean;
+    costUsd: number; tokens: number; events: number;
+    costMonth: number; projectedMonth: number;
+  }[];
+  generatedAt: string;
 }
 
 export interface AuditEntry {

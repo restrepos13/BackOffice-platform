@@ -22,6 +22,7 @@ import { PersonasModule } from './modules/personas.module';
 import { PaymentsModule } from './modules/payments.module';
 import { EmailsModule } from './modules/emails.module';
 import { AiModelsModule } from './modules/aimodels.module';
+import { AiUsageModule } from './modules/aiusage.module';
 import { MediaModule } from './modules/media.module';
 
 @Module({
@@ -47,6 +48,7 @@ import { MediaModule } from './modules/media.module';
     PaymentsModule,
     EmailsModule,
     AiModelsModule,
+    AiUsageModule,
     MediaModule,
   ],
   providers: [

@@ -103,6 +103,26 @@ export function CostChart({ data }: { data: any[] }) {
   );
 }
 
+/** Serie simple de costo IA (una sola métrica USD). */
+export function CostSeriesChart({ data, height = 240 }: { data: any[]; height?: number }) {
+  return (
+    <ResponsiveContainer width="100%" height={height}>
+      <AreaChart data={data} margin={{ top: 8, right: 8, left: -8, bottom: 0 }}>
+        <CartesianGrid stroke={LINE} vertical={false} />
+        <XAxis dataKey="date" {...axisProps} tickFormatter={shortDate} minTickGap={28} />
+        <YAxis {...axisProps} tickFormatter={(v: number) => `$${v}`} />
+        <Tooltip
+          content={<BrutalTooltip formatter={(v: number) => `$${Number(v).toFixed(2)}`} />}
+        />
+        <Area
+          type="stepAfter" dataKey="costUsd" name="Costo IA"
+          stroke={INK} fill={INK} fillOpacity={0.85} strokeWidth={1.5}
+        />
+      </AreaChart>
+    </ResponsiveContainer>
+  );
+}
+
 /** Barras horizontales simples (funnel, canales, top empresas). */
 export function BarsChart({
   data,

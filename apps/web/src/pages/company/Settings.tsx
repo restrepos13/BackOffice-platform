@@ -9,6 +9,74 @@ import {
 } from '../../components/ui';
 import { PickCompany, useCompanyScope } from './shared';
 
+function DeepinfraKeyForm({
+  company,
+  canWrite,
+}: {
+  company: Company;
+  canWrite: boolean;
+}) {
+  const queryClient = useQueryClient();
+  const [key, setKey] = useState('');
+  const save = useMutation({
+    mutationFn: (value: string) =>
+      api.patch(`/companies/${company.id}`, { deepinfraApiKey: value }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['companies'] });
+      setKey('');
+      toast.success('Llave actualizada');
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : 'Error'),
+  });
+
+  return (
+    <div className="space-y-3 text-sm">
+      <p className="flex items-center justify-between">
+        <span className="kicker">Estado</span>
+        {company.hasDeepinfraKey ? (
+          <Badge tone="ok">Conectada · {company.deepinfraKeyMasked}</Badge>
+        ) : (
+          <Badge tone="warn">Sin configurar</Badge>
+        )}
+      </p>
+      {canWrite && (
+        <>
+          <Field
+            label={company.hasDeepinfraKey ? 'Reemplazar llave' : 'API key de DeepInfra'}
+            hint="Se obtiene en deepinfra.com → API Keys. Nunca se muestra completa."
+          >
+            <Input
+              type="password"
+              value={key}
+              onChange={(e) => setKey(e.target.value)}
+              placeholder="di_…"
+            />
+          </Field>
+          <div className="flex gap-2">
+            <Button
+              size="sm"
+              className="flex-1"
+              disabled={!key.trim() || save.isPending}
+              onClick={() => save.mutate(key.trim())}
+            >
+              {save.isPending ? 'Guardando…' : 'Guardar llave'}
+            </Button>
+            {company.hasDeepinfraKey && (
+              <Button size="sm" variant="ghost" onClick={() => save.mutate('')}>
+                Quitar
+              </Button>
+            )}
+          </div>
+        </>
+      )}
+      <p className="border-t border-line pt-2 text-xs text-ink-3">
+        Con tu propia llave, el consumo de IA te lo factura DeepInfra directamente
+        — aquí lo ves desglosado y en vivo en <strong>Consumo IA</strong>.
+      </p>
+    </div>
+  );
+}
+
 export default function CompanySettings() {
   const { ready, companyId, canWrite, isPlatform } = useCompanyScope();
   const queryClient = useQueryClient();
@@ -122,6 +190,10 @@ export default function CompanySettings() {
                 escríbenos por WhatsApp y lo ajustamos el mismo día.
               </p>
             </div>
+          </Card>
+
+          <Card kicker="BYOK · el costo de IA lo pagas directo a DeepInfra" title="Llave DeepInfra">
+            <DeepinfraKeyForm company={company} canWrite={canWrite} />
           </Card>
 
           <Card kicker="Panel" title="Módulos activos">

@@ -248,7 +248,7 @@ function SettingsForm({
 
       <div className="border-t-2 border-line pt-3">
         <p className="kicker mb-2">DeepInfra · motor de modelos IA</p>
-        <Field label="API key" hint="De deepinfra.com — el catálogo de modelos y costos se gestiona en Modelos IA">
+        <Field label="API key de pruebas del estudio (opcional)" hint="Cada empresa configura SU propia llave en su panel (BYOK) — esta es solo para pruebas internas">
           <Input type="password" value={form.DEEPINFRA_API_KEY}
             onChange={(e) => set({ DEEPINFRA_API_KEY: e.target.value })} />
         </Field>

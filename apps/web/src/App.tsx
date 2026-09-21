@@ -15,7 +15,9 @@ import DevTools from './pages/platform/DevTools';
 import Personas from './pages/platform/Personas';
 import Emails from './pages/platform/Emails';
 import AiModels from './pages/platform/AiModels';
+import PlatformUsage from './pages/platform/Usage';
 import Media from './pages/company/Media';
+import Usage from './pages/company/Usage';
 import LineDetail from './pages/company/LineDetail';
 import Dashboard from './pages/company/Dashboard';
 import Inbox from './pages/company/Inbox';
@@ -70,6 +72,7 @@ export default function App() {
         <Route path="/platform/personas" element={<RequirePlatform><Personas /></RequirePlatform>} />
         <Route path="/platform/emails" element={<RequirePlatform><Emails /></RequirePlatform>} />
         <Route path="/platform/models" element={<RequirePlatform><AiModels /></RequirePlatform>} />
+        <Route path="/platform/usage" element={<RequirePlatform><PlatformUsage /></RequirePlatform>} />
         <Route path="/platform/users" element={<RequirePlatform><PlatformUsers /></RequirePlatform>} />
         <Route path="/platform/audit" element={<RequirePlatform><Audit /></RequirePlatform>} />
         <Route path="/platform/dev" element={<RequirePlatform><DevTools /></RequirePlatform>} />
@@ -84,6 +87,7 @@ export default function App() {
         <Route path="/app/integrations" element={<Integrations />} />
         <Route path="/app/lines/:id" element={<LineDetail />} />
         <Route path="/app/media" element={<Media />} />
+        <Route path="/app/usage" element={<Usage />} />
         <Route path="/app/analytics" element={<Analytics />} />
         <Route path="/app/billing" element={<Billing />} />
         <Route path="/app/team" element={<Team />} />

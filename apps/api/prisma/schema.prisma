@@ -71,6 +71,9 @@ model Company {
   language     String   @default("es")
   logoUrl      String?
   brandColor   String?
+  // BYOK: llave de DeepInfra de la empresa — el costo de IA lo asume el cliente
+  // directo con el proveedor. Nunca se devuelve completa por el API (se enmascara).
+  deepinfraApiKey String?
   notes        String?
   // Módulos habilitados para el tenant (string[] serializado):
   // inbox, contacts, bots, automations, analytics, billing, team
@@ -95,6 +98,7 @@ model Company {
   payments         Payment[]
   emailMessages    EmailMessage[]
   mediaAssets      MediaAsset[]
+  aiUsageEvents    AiUsageEvent[]
 }
 
 // ─── Bots / Asistentes IA ────────────────────────────────────────────
@@ -128,6 +132,7 @@ model Bot {
 
   conversations Conversation[]
   integrations  Integration[]
+  aiUsageEvents AiUsageEvent[]
 }
 
 // ─── Integraciones / Canales / Líneas ────────────────────────────────
@@ -169,6 +174,7 @@ model Integration {
 
   conversations Conversation[]
   mediaAssets   MediaAsset[]
+  aiUsageEvents AiUsageEvent[]
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
 }
@@ -268,6 +274,29 @@ model MediaAsset {
   timesSent     Int          @default(0)
   messages      Message[]
   createdAt     DateTime     @default(now())
+}
+
+// ─── Consumo de IA a nivel de evento ─────────────────────────────────
+// Un registro por cada respuesta generada por la IA. Lo escribe el motor
+// (fase 2); el seed genera histórico demo. Alimenta los paneles de consumo
+// con filtros por línea/modelo y proyección. El costo lo asume la empresa
+// directo con DeepInfra (BYOK).
+model AiUsageEvent {
+  id            String       @id @default(cuid()) @map("_id")
+  companyId     String
+  company       Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  integrationId String? // línea que originó la respuesta
+  integration   Integration? @relation(fields: [integrationId], references: [id], onDelete: SetNull)
+  botId         String?
+  bot           Bot?         @relation(fields: [botId], references: [id], onDelete: SetNull)
+  model         String // id DeepInfra
+  inputTokens   Int
+  outputTokens  Int
+  costUsd       Float
+  createdAt     DateTime     @default(now())
+
+  @@index([companyId, createdAt])
+  @@index([companyId, integrationId, createdAt])
 }
 
 // ─── Catálogo de modelos IA (DeepInfra) ──────────────────────────────
