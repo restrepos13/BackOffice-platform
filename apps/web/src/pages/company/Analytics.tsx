@@ -1,8 +1,9 @@
 import { useQuery } from '@tanstack/react-query';
+import { Link } from 'react-router-dom';
 import { api } from '../../lib/api';
-import { fmtNum, fmtUsd, STAGE_LABELS } from '../../lib/format';
+import { fmtNum, fmtUsd, INTEGRATION_STATUS_LABELS, STAGE_LABELS } from '../../lib/format';
 import type { CompanyMetrics } from '../../lib/types';
-import { Card, Loading, PageHeader, Stat } from '../../components/ui';
+import { Badge, Card, Loading, PageHeader, Stat, Table, statusTone } from '../../components/ui';
 import { BarsChart, CostChart, MessagesChart } from '../../components/charts';
 import { PickCompany, useCompanyScope, withScope } from './shared';
 
@@ -49,6 +50,52 @@ export default function Analytics() {
           <CostChart data={data.series} />
         </Card>
       </div>
+
+      {/* Ranking por línea — el "analytics por modelo" */}
+      {data.lines.length > 0 && (
+        <div className="mt-6">
+          <div className="mb-3">
+            <p className="kicker">Analytics por línea / perfil</p>
+            <h2 className="display text-2xl">Ranking de líneas</h2>
+          </div>
+          <Table head={['#', 'Línea', 'Estado', 'IA', 'Mensajes 30d', 'Conversaciones', 'Abiertas', 'Atención', '']}>
+            {data.lines.map((line, index) => (
+              <tr key={line.id}>
+                <td className="px-4 py-3 font-display text-lg">{String(index + 1).padStart(2, '0')}</td>
+                <td className="px-4 py-3">
+                  <p className="font-semibold">{line.name}</p>
+                  <p className="font-mono text-xs text-ink-3">{line.displayPhone || '—'}</p>
+                </td>
+                <td className="px-4 py-3">
+                  <Badge tone={statusTone(line.status)}>
+                    {INTEGRATION_STATUS_LABELS[line.status]}
+                  </Badge>
+                </td>
+                <td className="px-4 py-3">
+                  <Badge tone={line.promptMode === 'CUSTOM' ? 'ink' : 'neutral'}>
+                    {line.promptMode === 'CUSTOM' ? 'Propia' : 'Hereda'}
+                  </Badge>
+                </td>
+                <td className="px-4 py-3 font-semibold tabular-nums">{fmtNum(line.messages30d)}</td>
+                <td className="px-4 py-3 tabular-nums">{line.conversations}</td>
+                <td className="px-4 py-3 tabular-nums">{line.open}</td>
+                <td className="px-4 py-3">
+                  {line.attention > 0 ? (
+                    <Badge tone="bad">{line.attention}</Badge>
+                  ) : (
+                    <span className="text-ink-3">0</span>
+                  )}
+                </td>
+                <td className="px-4 py-3 text-right">
+                  <Link to={`/app/lines/${line.id}`} className="text-xs font-semibold uppercase tracking-wider hover:underline">
+                    Configurar →
+                  </Link>
+                </td>
+              </tr>
+            ))}
+          </Table>
+        </div>
+      )}
 
       <div className="mt-6 grid gap-6 lg:grid-cols-2">
         <Card kicker="CRM" title="Embudo de leads">

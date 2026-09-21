@@ -145,12 +145,15 @@ export function statusTone(status: string): keyof typeof BADGE_TONES {
     case 'RESOLVED':
     case 'SUCCESS':
     case 'CLIENTE':
+    case 'APPROVED':
+    case 'SENT':
       return 'ok';
     case 'TRIAL':
     case 'PENDING':
     case 'PAUSED':
     case 'HANDOFF':
     case 'POTENCIAL':
+    case 'QUEUED':
       return 'warn';
     case 'SUSPENDED':
     case 'CANCELLED':
@@ -158,6 +161,8 @@ export function statusTone(status: string): keyof typeof BADGE_TONES {
     case 'OVERDUE':
     case 'FAILED':
     case 'DESCARTADO':
+    case 'DECLINED':
+    case 'VOIDED':
       return 'bad';
     case 'CALIENTE':
       return 'bad';

@@ -93,7 +93,7 @@ export interface Integration {
   companyId: string;
   company?: { name: string; slug: string };
   botId?: string | null;
-  bot?: { id: string; name: string } | null;
+  bot?: { id: string; name: string; model?: string } | null;
   type: string;
   name: string;
   status: 'DISCONNECTED' | 'PENDING' | 'CONNECTED' | 'ERROR';
@@ -102,6 +102,41 @@ export interface Integration {
   webhookUrl?: string | null;
   lastSyncAt?: string | null;
   errorMsg?: string | null;
+  /** INHERIT = usa las instrucciones del bot · CUSTOM = instrucciones propias de la línea */
+  promptMode: 'INHERIT' | 'CUSTOM';
+  overridePrompt: string;
+  overridePersonality: Record<string, string>;
+  overrideWelcome?: string | null;
+  overrideHandoff?: string | null;
+  overrideModel?: string | null;
+  overrideTemperature?: number | null;
+  _count?: { conversations: number };
+}
+
+export interface PersonaTemplate {
+  id: string;
+  companyId?: string | null;
+  company?: { name: string; slug: string } | null;
+  name: string;
+  category: string;
+  description?: string | null;
+  systemPrompt: string;
+  personality: Record<string, string>;
+  welcomeMessage?: string | null;
+  handoffKeywords?: string | null;
+}
+
+export interface LineStat {
+  id: string;
+  name: string;
+  status: string;
+  promptMode: string;
+  botName?: string | null;
+  displayPhone: string;
+  conversations: number;
+  open: number;
+  attention: number;
+  messages30d: number;
 }
 
 export interface Contact {
@@ -140,6 +175,7 @@ export interface Conversation {
   lastMessageAt: string;
   contact: Contact;
   bot?: { id: string; name: string; model?: string } | null;
+  integration?: { id: string; name: string } | null;
   messages: Message[];
 }
 
@@ -201,6 +237,7 @@ export interface CompanyMetrics {
     aiTokens: number;
   }[];
   channelBreakdown: { channel: string; count: number }[];
+  lines: LineStat[];
   funnel: { stage: string; count: number }[];
   bots: { id: string; name: string; status: string }[];
 }
@@ -229,6 +266,40 @@ export interface Invoice {
   status: 'PAID' | 'PENDING' | 'OVERDUE';
   issuedAt: string;
   paidAt?: string | null;
+}
+
+export interface Payment {
+  id: string;
+  companyId: string;
+  company?: { name: string; slug: string };
+  invoiceId?: string | null;
+  invoice?: { period: string } | null;
+  provider: string;
+  reference: string;
+  amountUsd: number;
+  amountInCents: number;
+  currency: string;
+  status: 'PENDING' | 'APPROVED' | 'DECLINED' | 'VOIDED' | 'ERROR';
+  checkoutUrl?: string | null;
+  providerTxId?: string | null;
+  paymentMethod?: string | null;
+  events: { at: string; status: string; verified: boolean }[];
+  createdAt: string;
+  configured?: boolean;
+}
+
+export interface EmailMessage {
+  id: string;
+  companyId?: string | null;
+  company?: { name: string; slug: string } | null;
+  toEmail: string;
+  subject: string;
+  body: string;
+  status: 'QUEUED' | 'SENT' | 'FAILED';
+  error?: string | null;
+  actorName: string;
+  sentAt?: string | null;
+  createdAt: string;
 }
 
 export interface AuditEntry {

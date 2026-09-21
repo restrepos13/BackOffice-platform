@@ -68,6 +68,40 @@ export default function Dashboard() {
         </Card>
       </div>
 
+      {/* Líneas más activas (perfiles / números) */}
+      {data.lines.length > 0 && (
+        <div className="mt-6">
+          <Card
+            kicker="Mensajes 30d por número"
+            title="Tus líneas"
+            actions={
+              <Link to="/app/analytics">
+                <Button size="sm" variant="outline">Ranking completo →</Button>
+              </Link>
+            }
+          >
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+              {data.lines.slice(0, 4).map((line) => (
+                <Link
+                  key={line.id}
+                  to={`/app/lines/${line.id}`}
+                  className="block border-2 border-line bg-bone px-3 py-2 transition-colors hover:border-ink"
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="truncate text-sm font-semibold">{line.name}</p>
+                    {line.attention > 0 && <Badge tone="bad">{line.attention}</Badge>}
+                  </div>
+                  <p className="display mt-1 text-2xl">{fmtNum(line.messages30d)}</p>
+                  <p className="text-[11px] text-ink-3">
+                    {line.conversations} conversaciones · {line.promptMode === 'CUSTOM' ? 'personalidad propia' : 'hereda del bot'}
+                  </p>
+                </Link>
+              ))}
+            </div>
+          </Card>
+        </div>
+      )}
+
       <div className="mt-6 grid gap-6 lg:grid-cols-3">
         <Card kicker="Asistentes" title="Tus bots">
           <ul className="space-y-3">

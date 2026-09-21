@@ -8,7 +8,7 @@ import { api } from '../../lib/api';
 import {
   CHANNEL_LABELS, CONVO_STATUS_LABELS, STAGE_LABELS, fmtDateTime, timeAgo,
 } from '../../lib/format';
-import type { Conversation } from '../../lib/types';
+import type { Conversation, Integration } from '../../lib/types';
 import {
   Badge, Button, Loading, PageHeader, Select, Textarea, statusTone,
 } from '../../components/ui';
@@ -19,13 +19,21 @@ export default function Inbox() {
   const [params] = useSearchParams();
   const queryClient = useQueryClient();
   const [status, setStatus] = useState('');
+  const [lineId, setLineId] = useState(params.get('line') ?? '');
   const [onlyAttention, setOnlyAttention] = useState(params.get('attention') === '1');
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [draft, setDraft] = useState('');
   const scrollRef = useRef<HTMLDivElement>(null);
 
+  const { data: lines } = useQuery({
+    queryKey: ['integrations', q],
+    queryFn: () => api.get<Integration[]>(withScope('/integrations', q)),
+    enabled: ready,
+    select: (items) => items.filter((i) => i.type === 'WHATSAPP'),
+  });
+
   const listPath = withScope(
-    `/conversations?x=1${status ? `&status=${status}` : ''}${onlyAttention ? '&needsAttention=true' : ''}`,
+    `/conversations?x=1${status ? `&status=${status}` : ''}${onlyAttention ? '&needsAttention=true' : ''}${lineId ? `&integrationId=${lineId}` : ''}`,
     q,
   );
   const { data: conversations, isLoading } = useQuery({
@@ -78,6 +86,14 @@ export default function Inbox() {
             <option key={value} value={value}>{label}</option>
           ))}
         </Select>
+        {(lines?.length ?? 0) > 1 && (
+          <Select value={lineId} onChange={(e) => setLineId(e.target.value)} className="max-w-[220px]" aria-label="Filtrar por línea">
+            <option value="">Todas las líneas</option>
+            {lines?.map((line) => (
+              <option key={line.id} value={line.id}>{line.name}</option>
+            ))}
+          </Select>
+        )}
         <button
           onClick={() => setOnlyAttention(!onlyAttention)}
           className={clsx(
@@ -118,9 +134,11 @@ export default function Inbox() {
                 <p className={clsx('mt-0.5 truncate text-xs', selectedId === convo.id ? 'text-line' : 'text-ink-3')}>
                   {convo.messages?.[0]?.content ?? '—'}
                 </p>
-                <div className="mt-1.5 flex gap-1.5">
+                <div className="mt-1.5 flex flex-wrap gap-1.5">
                   <Badge tone={statusTone(convo.status)}>{CONVO_STATUS_LABELS[convo.status]}</Badge>
-                  <Badge tone="neutral">{CHANNEL_LABELS[convo.channel] ?? convo.channel}</Badge>
+                  <Badge tone="neutral">
+                    {convo.integration?.name ?? CHANNEL_LABELS[convo.channel] ?? convo.channel}
+                  </Badge>
                   {convo.unreadCount > 0 && <Badge tone="ink">{convo.unreadCount}</Badge>}
                 </div>
               </button>
@@ -139,7 +157,7 @@ export default function Inbox() {
                 <p className="font-semibold">{detail.contact.name}</p>
                 <p className="text-xs text-ink-3">
                   {detail.contact.phone} · {STAGE_LABELS[detail.contact.stage]}
-                  {detail.bot ? ` · ${detail.bot.name}` : ''}
+                  {detail.integration ? ` · ${detail.integration.name}` : detail.bot ? ` · ${detail.bot.name}` : ''}
                 </p>
               </div>
               {canWrite && (

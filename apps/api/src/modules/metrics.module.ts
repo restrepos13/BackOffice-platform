@@ -128,7 +128,7 @@ export class MetricsService {
           where: { companyId: scoped },
           select: {
             status: true, needsAttention: true, channel: true,
-            lastMessageAt: true, createdAt: true,
+            lastMessageAt: true, createdAt: true, integrationId: true,
           },
         }),
         this.prisma.contact.findMany({
@@ -147,6 +147,45 @@ export class MetricsService {
 
     const stageCount = (stage: string) =>
       contacts.filter((c) => c.stage === stage).length;
+
+    // Ranking por línea/número (los "perfiles" del estudio o áreas de la clínica)
+    const lines = await this.prisma.integration.findMany({
+      where: { companyId: scoped, type: 'WHATSAPP' },
+      select: {
+        id: true, name: true, status: true, promptMode: true,
+        configJson: true, bot: { select: { name: true } },
+      },
+    });
+    const lineStats = await Promise.all(
+      lines.map(async (line) => {
+        const convos = conversations.filter((c) => c.integrationId === line.id);
+        const messages30d = await this.prisma.message.count({
+          where: {
+            conversation: { integrationId: line.id },
+            createdAt: { gte: since },
+          },
+        });
+        let displayPhone = '';
+        try {
+          displayPhone = JSON.parse(line.configJson).displayPhone ?? '';
+        } catch {}
+        return {
+          id: line.id,
+          name: line.name,
+          status: line.status,
+          promptMode: line.promptMode,
+          botName: line.bot?.name ?? null,
+          displayPhone,
+          conversations: convos.length,
+          open: convos.filter((c) =>
+            ['OPEN', 'PENDING', 'HANDOFF'].includes(c.status),
+          ).length,
+          attention: convos.filter((c) => c.needsAttention).length,
+          messages30d,
+        };
+      }),
+    );
+    lineStats.sort((a, b) => b.messages30d - a.messages30d);
 
     const channelBreakdown = Object.entries(
       conversations.reduce<Record<string, number>>((acc, c) => {
@@ -186,6 +225,7 @@ export class MetricsService {
         aiTokens: u.aiTokens,
       })),
       channelBreakdown,
+      lines: lineStats,
       funnel: [
         { stage: 'CURIOSO', count: stageCount('CURIOSO') },
         { stage: 'POTENCIAL', count: stageCount('POTENCIAL') },

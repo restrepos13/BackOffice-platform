@@ -32,7 +32,14 @@ export class IntegrationsService {
   ) {}
 
   private serialize(i: any) {
-    return { ...i, config: parseJson<Record<string, string>>(i.configJson, {}) };
+    return {
+      ...i,
+      config: parseJson<Record<string, string>>(i.configJson, {}),
+      overridePersonality: parseJson<Record<string, string>>(
+        i.overridePersonalityJson,
+        {},
+      ),
+    };
   }
 
   private async assertAccess(user: AuthUser, id: string) {
@@ -51,10 +58,24 @@ export class IntegrationsService {
       orderBy: { createdAt: 'asc' },
       include: {
         company: { select: { name: true, slug: true } },
-        bot: { select: { id: true, name: true } },
+        bot: { select: { id: true, name: true, model: true } },
+        _count: { select: { conversations: true } },
       },
     });
     return items.map((i) => this.serialize(i));
+  }
+
+  async detail(user: AuthUser, id: string) {
+    await this.assertAccess(user, id);
+    const integration = await this.prisma.integration.findUnique({
+      where: { id },
+      include: {
+        company: { select: { name: true, slug: true } },
+        bot: true,
+        _count: { select: { conversations: true } },
+      },
+    });
+    return this.serialize(integration);
   }
 
   async create(user: AuthUser, dto: any) {
@@ -92,6 +113,15 @@ export class IntegrationsService {
         botId: dto.botId,
         connectUrl: dto.connectUrl,
         errorMsg: dto.errorMsg,
+        promptMode: dto.promptMode,
+        overridePrompt: dto.overridePrompt,
+        overrideWelcome: dto.overrideWelcome,
+        overrideHandoff: dto.overrideHandoff,
+        overrideModel: dto.overrideModel,
+        overrideTemperature: dto.overrideTemperature,
+        ...(dto.overridePersonality
+          ? { overridePersonalityJson: JSON.stringify(dto.overridePersonality) }
+          : {}),
         ...(dto.config ? { configJson: JSON.stringify(dto.config) } : {}),
         ...(dto.status === 'CONNECTED' ? { lastSyncAt: new Date() } : {}),
       },
@@ -102,6 +132,39 @@ export class IntegrationsService {
       detail: `${integration.name} → ${integration.status}`,
     });
     return this.serialize(integration);
+  }
+
+  /** Clona una línea con toda su personalidad (queda desconectada). */
+  async clone(user: AuthUser, id: string) {
+    const source = await this.assertAccess(user, id);
+    const company = await this.prisma.company.findUniqueOrThrow({
+      where: { id: source.companyId },
+    });
+    const copy = await this.prisma.integration.create({
+      data: {
+        companyId: source.companyId,
+        botId: source.botId,
+        type: source.type,
+        name: `${source.name} (copia)`,
+        status: 'DISCONNECTED',
+        configJson: '{}',
+        connectUrl: buildConnectUrl(source.type, company.slug),
+        webhookUrl: `http://localhost:4001/api/webhooks/${company.slug}/${source.type.toLowerCase()}`,
+        promptMode: source.promptMode,
+        overridePrompt: source.overridePrompt,
+        overridePersonalityJson: source.overridePersonalityJson,
+        overrideWelcome: source.overrideWelcome,
+        overrideHandoff: source.overrideHandoff,
+        overrideModel: source.overrideModel,
+        overrideTemperature: source.overrideTemperature,
+      },
+    });
+    await this.audit.log({
+      actor: user, companyId: source.companyId, action: 'integration.clone',
+      entity: 'Integration', entityId: copy.id,
+      detail: `${source.name} → ${copy.name}`,
+    });
+    return this.serialize(copy);
   }
 
   async remove(user: AuthUser, id: string) {
@@ -122,6 +185,17 @@ export class IntegrationsController {
   @Get()
   list(@CurrentUser() user: AuthUser, @Query('companyId') companyId?: string) {
     return this.integrations.list(user, companyId);
+  }
+
+  @Get(':id')
+  detail(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.integrations.detail(user, id);
+  }
+
+  @Post(':id/clone')
+  @Roles(ROLES.SUPER_ADMIN, ROLES.DEV, ROLES.COMPANY_ADMIN)
+  clone(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.integrations.clone(user, id);
   }
 
   @Post()

@@ -40,6 +40,7 @@ export class ConversationsService {
     companyId?: string,
     status?: string,
     needsAttention?: string,
+    integrationId?: string,
   ) {
     const scoped = scopeCompanyId(user, companyId);
     return this.prisma.conversation.findMany({
@@ -47,11 +48,13 @@ export class ConversationsService {
         ...(scoped ? { companyId: scoped } : {}),
         ...(status ? { status } : {}),
         ...(needsAttention === 'true' ? { needsAttention: true } : {}),
+        ...(integrationId ? { integrationId } : {}),
       },
       orderBy: { lastMessageAt: 'desc' },
       include: {
         contact: { select: { id: true, name: true, phone: true, stage: true } },
         bot: { select: { id: true, name: true } },
+        integration: { select: { id: true, name: true } },
         company: { select: { name: true, slug: true } },
         messages: { orderBy: { createdAt: 'desc' }, take: 1 },
       },
@@ -66,6 +69,7 @@ export class ConversationsService {
       include: {
         contact: true,
         bot: { select: { id: true, name: true, model: true } },
+        integration: { select: { id: true, name: true } },
         messages: { orderBy: { createdAt: 'asc' } },
       },
     });
@@ -120,8 +124,11 @@ export class ConversationsController {
     @Query('companyId') companyId?: string,
     @Query('status') status?: string,
     @Query('needsAttention') needsAttention?: string,
+    @Query('integrationId') integrationId?: string,
   ) {
-    return this.conversations.list(user, companyId, status, needsAttention);
+    return this.conversations.list(
+      user, companyId, status, needsAttention, integrationId,
+    );
   }
 
   @Get(':id')

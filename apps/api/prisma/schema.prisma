@@ -89,8 +89,11 @@ model Company {
   automations   Automation[]
   usageRecords  UsageRecord[]
   invoices      Invoice[]
-  auditLogs     AuditLog[]
-  apiKeys       ApiKey[]
+  auditLogs        AuditLog[]
+  apiKeys          ApiKey[]
+  personaTemplates PersonaTemplate[]
+  payments         Payment[]
+  emailMessages    EmailMessage[]
 }
 
 // ─── Bots / Asistentes IA ────────────────────────────────────────────
@@ -120,9 +123,13 @@ model Bot {
   integrations  Integration[]
 }
 
-// ─── Integraciones / Canales ─────────────────────────────────────────
+// ─── Integraciones / Canales / Líneas ────────────────────────────────
 // type: WHATSAPP | INSTAGRAM | MESSENGER | TELEGRAM | META_ADS | N8N | GOOGLE_CALENDAR | WEBHOOK
 // status: DISCONNECTED | PENDING | CONNECTED | ERROR
+// Una empresa puede tener VARIAS integraciones WHATSAPP = varias líneas/números.
+// Cada línea decide cómo responde su IA:
+//   promptMode INHERIT → usa las instrucciones generales del bot asignado
+//   promptMode CUSTOM  → instrucciones propias de la línea (100% personalizable)
 model Integration {
   id         String    @id @default(cuid())
   companyId  String
@@ -138,8 +145,38 @@ model Integration {
   webhookUrl String?
   lastSyncAt DateTime?
   errorMsg   String?
-  createdAt  DateTime  @default(now())
-  updatedAt  DateTime  @updatedAt
+
+  // Personalización de IA por línea
+  promptMode              String  @default("INHERIT") // INHERIT | CUSTOM
+  overridePrompt          String  @default("")
+  overridePersonalityJson String  @default("{}") // {tone, style, limits, bio, language}
+  overrideWelcome         String?
+  overrideHandoff         String?
+  overrideModel           String?
+  overrideTemperature     Float?
+
+  conversations Conversation[]
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+}
+
+// ─── Biblioteca de personalidades ────────────────────────────────────
+// Plantillas listas para aplicar a un bot o a una línea con un clic.
+// companyId null = plantilla global de la plataforma (gestionada por BackOffice);
+// con companyId = plantilla propia de esa empresa.
+model PersonaTemplate {
+  id              String   @id @default(cuid())
+  companyId       String?
+  company         Company? @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  name            String
+  category        String   @default("General") // Clínicas, Estudios webcam, Automotriz, Ventas…
+  description     String?
+  systemPrompt    String
+  personalityJson String   @default("{}")
+  welcomeMessage  String?
+  handoffKeywords String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 }
 
 // ─── CRM: contactos / leads ──────────────────────────────────────────
@@ -166,11 +203,13 @@ model Contact {
 // ─── Conversaciones y mensajes ───────────────────────────────────────
 // status: OPEN | PENDING | HANDOFF | RESOLVED
 model Conversation {
-  id             String   @id @default(cuid())
+  id             String       @id @default(cuid())
   companyId      String
-  company        Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  company        Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
   botId          String?
-  bot            Bot?     @relation(fields: [botId], references: [id])
+  bot            Bot?         @relation(fields: [botId], references: [id])
+  integrationId  String? // línea/número por el que entró la conversación
+  integration    Integration? @relation(fields: [integrationId], references: [id])
   contactId      String
   contact        Contact  @relation(fields: [contactId], references: [id], onDelete: Cascade)
   channel        String   @default("WHATSAPP")
@@ -257,6 +296,46 @@ model Invoice {
   status            String   @default("PENDING")
   issuedAt          DateTime @default(now())
   paidAt            DateTime?
+  payments          Payment[]
+}
+
+// ─── Pagos (pasarela) ────────────────────────────────────────────────
+// provider: WOMPI (Colombia, activo) | STRIPE (internacional, pendiente)
+// status: PENDING | APPROVED | DECLINED | VOIDED | ERROR
+model Payment {
+  id                 String    @id @default(cuid())
+  companyId          String
+  company            Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  invoiceId          String?
+  invoice            Invoice?  @relation(fields: [invoiceId], references: [id])
+  provider           String    @default("WOMPI")
+  reference          String    @unique // referencia enviada a la pasarela
+  amountUsd          Float
+  amountInCents      Int // en moneda local (COP centavos)
+  currency           String    @default("COP")
+  status             String    @default("PENDING")
+  checkoutUrl        String?
+  providerTxId       String? // id de transacción en Wompi
+  paymentMethod      String? // CARD, NEQUI, PSE, BANCOLOMBIA_TRANSFER…
+  eventsLog          String    @default("[]") // eventos del webhook, serializados
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+}
+
+// ─── Correos a empresas ──────────────────────────────────────────────
+// status: QUEUED | SENT | FAILED
+model EmailMessage {
+  id        String    @id @default(cuid())
+  companyId String?
+  company   Company?  @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  toEmail   String
+  subject   String
+  body      String // HTML
+  status    String    @default("QUEUED")
+  error     String?
+  actorName String
+  sentAt    DateTime?
+  createdAt DateTime  @default(now())
 }
 
 // ─── Auditoría ───────────────────────────────────────────────────────

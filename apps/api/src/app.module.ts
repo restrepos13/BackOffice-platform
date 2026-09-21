@@ -17,6 +17,9 @@ import { MetricsModule } from './modules/metrics.module';
 import { BillingModule } from './modules/billing.module';
 import { AuditModule } from './modules/audit.module';
 import { DevToolsModule } from './modules/devtools.module';
+import { PersonasModule } from './modules/personas.module';
+import { PaymentsModule } from './modules/payments.module';
+import { EmailsModule } from './modules/emails.module';
 
 @Module({
   imports: [
@@ -35,6 +38,9 @@ import { DevToolsModule } from './modules/devtools.module';
     BillingModule,
     AuditModule,
     DevToolsModule,
+    PersonasModule,
+    PaymentsModule,
+    EmailsModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: JwtAuthGuard },

@@ -1,15 +1,17 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   CalendarDays, Facebook, Instagram, MessageCircle, Megaphone, Send,
-  Workflow as WorkflowIcon, Link2,
+  Workflow as WorkflowIcon, Link2, Settings2,
 } from 'lucide-react';
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { toast } from 'sonner';
 import { api } from '../../lib/api';
 import { CHANNEL_LABELS, INTEGRATION_STATUS_LABELS, timeAgo } from '../../lib/format';
 import type { Bot, Integration } from '../../lib/types';
 import {
-  Badge, Button, Card, Field, Loading, Modal, PageHeader, Select, statusTone,
+  Badge, Button, Card, Field, Input, Loading, Modal, PageHeader, Select,
+  statusTone,
 } from '../../components/ui';
 import { PickCompany, useCompanyScope, withScope } from './shared';
 
@@ -42,6 +44,7 @@ export default function Integrations() {
   const queryClient = useQueryClient();
   const [adding, setAdding] = useState(false);
   const [newType, setNewType] = useState('WHATSAPP');
+  const [newName, setNewName] = useState('');
   const [assigning, setAssigning] = useState<Integration | null>(null);
 
   const { data: integrations, isLoading } = useQuery({
@@ -59,13 +62,14 @@ export default function Integrations() {
     mutationFn: () =>
       api.post('/integrations', {
         type: newType,
-        name: CHANNEL_LABELS[newType],
+        name: newName.trim() || CHANNEL_LABELS[newType],
         ...(companyId ? { companyId } : {}),
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['integrations'] });
-      toast.success('Canal agregado — listo para conectar');
+      toast.success(newType === 'WHATSAPP' ? 'Línea creada — configúrale su IA y conéctala' : 'Canal agregado — listo para conectar');
       setAdding(false);
+      setNewName('');
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : 'Error'),
   });
@@ -106,8 +110,80 @@ export default function Integrations() {
         con el botón <strong>Conectar</strong> — no guardamos credenciales aquí.
       </p>
 
+      {/* ─── Líneas WhatsApp (varios números, personalidad por línea) ─── */}
+      <div className="mb-3 flex items-end justify-between">
+        <div>
+          <p className="kicker">Un número por perfil, área o campaña</p>
+          <h2 className="display text-2xl">Líneas WhatsApp</h2>
+        </div>
+        {canWrite && (
+          <Button
+            size="sm"
+            onClick={() => { setNewType('WHATSAPP'); setAdding(true); }}
+          >
+            + Agregar línea
+          </Button>
+        )}
+      </div>
+      <div className="mb-8 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+        {integrations?.filter((i) => i.type === 'WHATSAPP').map((line) => {
+          const connected = line.status === 'CONNECTED';
+          return (
+            <Card key={line.id}>
+              <div className="flex items-start justify-between">
+                <div className={`flex h-11 w-11 items-center justify-center border-2 border-ink ${connected ? 'bg-ink text-bone' : 'bg-paper'}`}>
+                  <MessageCircle size={20} />
+                </div>
+                <div className="flex flex-col items-end gap-1">
+                  <Badge tone={statusTone(line.status)}>
+                    {INTEGRATION_STATUS_LABELS[line.status]}
+                  </Badge>
+                  <Badge tone={line.promptMode === 'CUSTOM' ? 'ink' : 'neutral'}>
+                    {line.promptMode === 'CUSTOM' ? 'Personalidad propia' : 'Hereda del bot'}
+                  </Badge>
+                </div>
+              </div>
+              <h3 className="display mt-3 text-lg">{line.name}</h3>
+              <p className="mt-0.5 font-mono text-sm">
+                {line.config.displayPhone || 'Número pendiente de conectar'}
+              </p>
+              <div className="mt-2 space-y-1 border-t-2 border-line pt-2 text-xs text-ink-3">
+                <p>
+                  Bot: {line.bot?.name ?? 'Sin asignar'} · {line._count?.conversations ?? 0} conversaciones
+                </p>
+                {line.promptMode === 'CUSTOM' && line.overridePersonality.tone && (
+                  <p className="truncate">Tono: {line.overridePersonality.tone}</p>
+                )}
+              </div>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <Link to={`/app/lines/${line.id}`} className="flex-1">
+                  <Button className="w-full" size="sm" variant={connected ? 'primary' : 'outline'}>
+                    <Settings2 size={12} /> Configurar IA
+                  </Button>
+                </Link>
+                {canWrite && !connected && line.connectUrl && (
+                  <a href={line.connectUrl} target="_blank" rel="noreferrer">
+                    <Button size="sm" variant="outline">Conectar →</Button>
+                  </a>
+                )}
+              </div>
+            </Card>
+          );
+        })}
+        {integrations?.filter((i) => i.type === 'WHATSAPP').length === 0 && (
+          <p className="text-sm text-ink-3 md:col-span-2 xl:col-span-3">
+            Sin líneas todavía. Agrega el primer número de WhatsApp.
+          </p>
+        )}
+      </div>
+
+      {/* ─── Otros canales ─── */}
+      <div className="mb-3">
+        <p className="kicker">Ecosistema</p>
+        <h2 className="display text-2xl">Otros canales</h2>
+      </div>
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-        {integrations?.map((integration) => {
+        {integrations?.filter((i) => i.type !== 'WHATSAPP').map((integration) => {
           const Icon = TYPE_ICONS[integration.type] ?? Link2;
           const connected = integration.status === 'CONNECTED';
           return (
@@ -162,8 +238,13 @@ export default function Integrations() {
         })}
       </div>
 
-      {/* Agregar canal */}
-      <Modal open={adding} onClose={() => setAdding(false)} kicker="Integraciones" title="Agregar canal">
+      {/* Agregar canal / línea */}
+      <Modal
+        open={adding}
+        onClose={() => setAdding(false)}
+        kicker="Integraciones"
+        title={newType === 'WHATSAPP' ? 'Nueva línea WhatsApp' : 'Agregar canal'}
+      >
         <div className="space-y-4">
           <Field label="Tipo de canal">
             <Select value={newType} onChange={(e) => setNewType(e.target.value)}>
@@ -172,6 +253,14 @@ export default function Integrations() {
               ))}
             </Select>
           </Field>
+          {newType === 'WHATSAPP' && (
+            <Field
+              label="Nombre de la línea"
+              hint="Ej: Línea Valentina, Citas sede norte, Campaña Meta…"
+            >
+              <Input value={newName} onChange={(e) => setNewName(e.target.value)} />
+            </Field>
+          )}
           <p className="text-xs text-ink-3">{TYPE_BLURBS[newType]}</p>
           <Button className="w-full" disabled={create.isPending} onClick={() => create.mutate()}>
             {create.isPending ? 'Agregando…' : 'Agregar (queda sin conectar)'}

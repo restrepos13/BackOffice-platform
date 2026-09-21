@@ -5,17 +5,21 @@ import { toast } from 'sonner';
 import { api } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
 import { BOT_STATUS_LABELS, INTEGRATION_STATUS_LABELS, timeAgo } from '../../lib/format';
-import type { Bot } from '../../lib/types';
+import type { Bot, PersonaTemplate } from '../../lib/types';
 import {
   Badge, Button, Card, Field, Input, Loading, PageHeader, Select, Switch,
   Tabs, Textarea, statusTone,
 } from '../../components/ui';
+import { PersonaPicker } from '../../components/PersonaPicker';
+import { useCompanyScope } from './shared';
 
 export default function BotDetail() {
   const { id = '' } = useParams();
   const { canWrite } = useAuth();
+  const { q } = useCompanyScope();
   const queryClient = useQueryClient();
   const [tab, setTab] = useState('personalidad');
+  const [pickerOpen, setPickerOpen] = useState(false);
 
   const { data: bot, isLoading } = useQuery({
     queryKey: ['bot', id],
@@ -115,7 +119,17 @@ export default function BotDetail() {
 
       <fieldset disabled={!canWrite} className="mt-6">
         {tab === 'personalidad' && (
-          <Card kicker="Cómo habla" title="Personalidad">
+          <Card
+            kicker="Cómo habla"
+            title="Personalidad"
+            actions={
+              canWrite ? (
+                <Button size="sm" variant="outline" onClick={() => setPickerOpen(true)}>
+                  Aplicar plantilla
+                </Button>
+              ) : undefined
+            }
+          >
             <div className="grid gap-4 md:grid-cols-2">
               <Field label="Nombre">
                 <Input value={form.name} onChange={(e) => set({ name: e.target.value })} />
@@ -230,6 +244,22 @@ export default function BotDetail() {
           )}
         </div>
       )}
+
+      <PersonaPicker
+        open={pickerOpen}
+        onClose={() => setPickerOpen(false)}
+        scopeQuery={q}
+        onApply={(t: PersonaTemplate) => {
+          set({
+            systemPrompt: t.systemPrompt,
+            tone: t.personality.tone ?? '',
+            style: t.personality.style ?? '',
+            limits: t.personality.limits ?? '',
+            welcomeMessage: t.welcomeMessage ?? form.welcomeMessage,
+            handoffKeywords: t.handoffKeywords ?? form.handoffKeywords,
+          });
+        }}
+      />
     </>
   );
 }

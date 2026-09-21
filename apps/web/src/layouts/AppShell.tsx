@@ -3,6 +3,7 @@ import { clsx } from 'clsx';
 import {
   Activity,
   BarChart3,
+  Mail,
   Bot,
   Building2,
   CircleDollarSign,
@@ -14,6 +15,7 @@ import {
   LogOut,
   Plug,
   ScrollText,
+  Sparkles,
   Settings,
   Terminal,
   UserRound,
@@ -39,7 +41,9 @@ const PLATFORM_NAV: NavItem[] = [
   { to: '/platform', label: 'Resumen', icon: LayoutDashboard, end: true },
   { to: '/platform/companies', label: 'Empresas', icon: Building2 },
   { to: '/platform/plans', label: 'Planes', icon: CircleDollarSign },
+  { to: '/platform/personas', label: 'Personalidades', icon: Sparkles },
   { to: '/platform/users', label: 'Usuarios', icon: Users },
+  { to: '/platform/emails', label: 'Correos', icon: Mail },
   { to: '/platform/audit', label: 'Auditoría', icon: ScrollText },
   { to: '/platform/dev', label: 'Dev Tools', icon: Terminal },
 ];

@@ -1,12 +1,21 @@
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
+import { toast } from 'sonner';
 import { api } from '../../lib/api';
-import { INVOICE_STATUS_LABELS, fmtDate, fmtNum, fmtUsd } from '../../lib/format';
-import type { BillingSummary, Invoice } from '../../lib/types';
+import { INVOICE_STATUS_LABELS, fmtDate, fmtDateTime, fmtNum, fmtUsd, timeAgo } from '../../lib/format';
+import type { BillingSummary, Invoice, Payment } from '../../lib/types';
 import {
-  Badge, Card, Loading, PageHeader, Select, Table, statusTone,
+  Badge, Button, Card, Loading, PageHeader, Select, Table, statusTone,
 } from '../../components/ui';
 import { PickCompany, useCompanyScope, withScope } from './shared';
+
+const PAYMENT_STATUS_LABELS: Record<string, string> = {
+  PENDING: 'Pendiente',
+  APPROVED: 'Aprobado',
+  DECLINED: 'Rechazado',
+  VOIDED: 'Anulado',
+  ERROR: 'Error',
+};
 
 function lastPeriods(n: number): string[] {
   const periods: string[] = [];
@@ -19,7 +28,8 @@ function lastPeriods(n: number): string[] {
 }
 
 export default function Billing() {
-  const { ready, q } = useCompanyScope();
+  const { ready, q, canWrite } = useCompanyScope();
+  const queryClient = useQueryClient();
   const [period, setPeriod] = useState(lastPeriods(1)[0]);
 
   const { data: summary, isLoading } = useQuery({
@@ -32,6 +42,26 @@ export default function Billing() {
     queryKey: ['invoices', q],
     queryFn: () => api.get<Invoice[]>(withScope('/billing/invoices', q)),
     enabled: ready,
+  });
+  const { data: payments } = useQuery({
+    queryKey: ['payments', q],
+    queryFn: () => api.get<Payment[]>(withScope('/payments', q)),
+    enabled: ready,
+  });
+
+  const checkout = useMutation({
+    mutationFn: (invoiceId: string) =>
+      api.post<Payment>('/payments/checkout', { invoiceId }),
+    onSuccess: (payment) => {
+      queryClient.invalidateQueries({ queryKey: ['payments'] });
+      if (!payment.configured) {
+        toast.warning(
+          'Wompi aún sin llaves de comercio: el checkout se generó en modo demostración.',
+        );
+      }
+      if (payment.checkoutUrl) window.open(payment.checkoutUrl, '_blank');
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : 'Error'),
   });
 
   if (!ready) return <PickCompany />;
@@ -117,8 +147,13 @@ export default function Billing() {
 
       {/* Historial */}
       <div className="mt-8">
-        <h2 className="display mb-3 text-2xl">Historial de facturas</h2>
-        <Table head={['Período', 'Plan', 'Consumo', 'Total', 'Estado', 'Pagada']}>
+        <div className="mb-3 flex flex-wrap items-end justify-between gap-2">
+          <h2 className="display text-2xl">Historial de facturas</h2>
+          <p className="kicker">
+            Pagos en Colombia vía Wompi · Internacional: próximamente
+          </p>
+        </div>
+        <Table head={['Período', 'Plan', 'Consumo', 'Total', 'Estado', 'Pagada', '']}>
           {invoices?.map((invoice) => (
             <tr key={invoice.id}>
               <td className="px-4 py-3 font-mono text-sm">{invoice.period}</td>
@@ -131,13 +166,64 @@ export default function Billing() {
               <td className="px-4 py-3 text-xs text-ink-3">
                 {invoice.paidAt ? fmtDate(invoice.paidAt) : '—'}
               </td>
+              <td className="px-4 py-3 text-right">
+                {canWrite && invoice.status !== 'PAID' && (
+                  <Button
+                    size="sm"
+                    disabled={checkout.isPending}
+                    onClick={() => checkout.mutate(invoice.id)}
+                  >
+                    Pagar con Wompi →
+                  </Button>
+                )}
+              </td>
             </tr>
           ))}
           {(invoices?.length ?? 0) === 0 && (
-            <tr><td colSpan={6} className="px-4 py-10 text-center text-ink-3">Sin facturas todavía.</td></tr>
+            <tr><td colSpan={7} className="px-4 py-10 text-center text-ink-3">Sin facturas todavía.</td></tr>
           )}
         </Table>
       </div>
+
+      {/* Pagos */}
+      {(payments?.length ?? 0) > 0 && (
+        <div className="mt-8">
+          <h2 className="display mb-3 text-2xl">Pagos</h2>
+          <Table head={['Fecha', 'Referencia', 'Período', 'Monto', 'Medio', 'Estado']}>
+            {payments?.map((payment) => (
+              <tr key={payment.id}>
+                <td className="whitespace-nowrap px-4 py-3 text-xs text-ink-3">
+                  {fmtDateTime(payment.createdAt)}
+                </td>
+                <td className="px-4 py-3 font-mono text-xs">{payment.reference}</td>
+                <td className="px-4 py-3 font-mono text-sm">{payment.invoice?.period ?? '—'}</td>
+                <td className="px-4 py-3 tabular-nums">
+                  {fmtUsd(payment.amountUsd)}
+                  <span className="block text-[11px] text-ink-3">
+                    {fmtNum(Math.round(payment.amountInCents / 100))} COP
+                  </span>
+                </td>
+                <td className="px-4 py-3 text-sm">{payment.paymentMethod ?? '—'}</td>
+                <td className="px-4 py-3">
+                  <div className="flex items-center gap-2">
+                    <Badge tone={statusTone(payment.status)}>
+                      {PAYMENT_STATUS_LABELS[payment.status] ?? payment.status}
+                    </Badge>
+                    {payment.status === 'PENDING' && payment.checkoutUrl && canWrite && (
+                      <a
+                        href={payment.checkoutUrl} target="_blank" rel="noreferrer"
+                        className="text-xs font-semibold uppercase tracking-wider hover:underline"
+                      >
+                        Reintentar →
+                      </a>
+                    )}
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </Table>
+        </div>
+      )}
     </>
   );
 }

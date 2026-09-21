@@ -216,25 +216,85 @@ function SettingsForm({
     META_REDIRECT_URI: settings.META_REDIRECT_URI ?? '',
     PLATFORM_NAME: settings.PLATFORM_NAME ?? 'BackOffice',
     SUPPORT_WHATSAPP: settings.SUPPORT_WHATSAPP ?? '',
+    WOMPI_ENV: settings.WOMPI_ENV ?? 'test',
+    WOMPI_PUBLIC_KEY: settings.WOMPI_PUBLIC_KEY ?? '',
+    WOMPI_INTEGRITY_SECRET: settings.WOMPI_INTEGRITY_SECRET ?? '',
+    WOMPI_EVENTS_SECRET: settings.WOMPI_EVENTS_SECRET ?? '',
+    WOMPI_REDIRECT_URL: settings.WOMPI_REDIRECT_URL ?? '',
+    USD_COP_RATE: settings.USD_COP_RATE ?? '4000',
+    SMTP_HOST: settings.SMTP_HOST ?? '',
+    SMTP_PORT: settings.SMTP_PORT ?? '587',
+    SMTP_USER: settings.SMTP_USER ?? '',
+    SMTP_PASS: settings.SMTP_PASS ?? '',
+    SMTP_FROM: settings.SMTP_FROM ?? '',
   });
+  const set = (patch: Partial<typeof form>) => setForm((f) => ({ ...f, ...patch }));
+
   return (
     <div className="space-y-3">
       <Field label="Meta App ID" hint="De developers.facebook.com — pendiente de crear">
-        <Input value={form.META_APP_ID}
-          onChange={(e) => setForm({ ...form, META_APP_ID: e.target.value })} />
+        <Input value={form.META_APP_ID} onChange={(e) => set({ META_APP_ID: e.target.value })} />
       </Field>
       <Field label="OAuth Redirect URI">
-        <Input value={form.META_REDIRECT_URI}
-          onChange={(e) => setForm({ ...form, META_REDIRECT_URI: e.target.value })} />
+        <Input value={form.META_REDIRECT_URI} onChange={(e) => set({ META_REDIRECT_URI: e.target.value })} />
       </Field>
       <Field label="Nombre de plataforma">
-        <Input value={form.PLATFORM_NAME}
-          onChange={(e) => setForm({ ...form, PLATFORM_NAME: e.target.value })} />
+        <Input value={form.PLATFORM_NAME} onChange={(e) => set({ PLATFORM_NAME: e.target.value })} />
       </Field>
       <Field label="WhatsApp de soporte">
-        <Input value={form.SUPPORT_WHATSAPP}
-          onChange={(e) => setForm({ ...form, SUPPORT_WHATSAPP: e.target.value })} />
+        <Input value={form.SUPPORT_WHATSAPP} onChange={(e) => set({ SUPPORT_WHATSAPP: e.target.value })} />
       </Field>
+
+      <div className="border-t-2 border-line pt-3">
+        <p className="kicker mb-2">Pasarela Wompi (Colombia) · Internacional: próximamente</p>
+        <div className="grid gap-3 md:grid-cols-2">
+          <Field label="Ambiente">
+            <Input value={form.WOMPI_ENV} onChange={(e) => set({ WOMPI_ENV: e.target.value })} placeholder="test | production" />
+          </Field>
+          <Field label="Tasa USD → COP" hint="Para convertir la mensualidad">
+            <Input value={form.USD_COP_RATE} onChange={(e) => set({ USD_COP_RATE: e.target.value })} />
+          </Field>
+          <Field label="Public key" hint="pub_test_… / pub_prod_…">
+            <Input value={form.WOMPI_PUBLIC_KEY} onChange={(e) => set({ WOMPI_PUBLIC_KEY: e.target.value })} />
+          </Field>
+          <Field label="Integrity secret" hint="Firma del checkout">
+            <Input type="password" value={form.WOMPI_INTEGRITY_SECRET} onChange={(e) => set({ WOMPI_INTEGRITY_SECRET: e.target.value })} />
+          </Field>
+          <Field label="Events secret" hint="Verifica los webhooks">
+            <Input type="password" value={form.WOMPI_EVENTS_SECRET} onChange={(e) => set({ WOMPI_EVENTS_SECRET: e.target.value })} />
+          </Field>
+          <Field label="Redirect tras pagar">
+            <Input value={form.WOMPI_REDIRECT_URL} onChange={(e) => set({ WOMPI_REDIRECT_URL: e.target.value })} />
+          </Field>
+        </div>
+        <p className="mt-2 text-xs text-ink-3">
+          Webhook a registrar en Wompi: <code className="border border-line bg-bone px-1 font-mono">POST /api/payments/wompi/events</code>
+        </p>
+      </div>
+
+      <div className="border-t-2 border-line pt-3">
+        <p className="kicker mb-2">SMTP · correos a empresas</p>
+        <div className="grid gap-3 md:grid-cols-2">
+          <Field label="Host">
+            <Input value={form.SMTP_HOST} onChange={(e) => set({ SMTP_HOST: e.target.value })} placeholder="smtp.resend.com" />
+          </Field>
+          <Field label="Puerto">
+            <Input value={form.SMTP_PORT} onChange={(e) => set({ SMTP_PORT: e.target.value })} />
+          </Field>
+          <Field label="Usuario">
+            <Input value={form.SMTP_USER} onChange={(e) => set({ SMTP_USER: e.target.value })} />
+          </Field>
+          <Field label="Contraseña">
+            <Input type="password" value={form.SMTP_PASS} onChange={(e) => set({ SMTP_PASS: e.target.value })} />
+          </Field>
+          <div className="md:col-span-2">
+            <Field label="Remitente (From)">
+              <Input value={form.SMTP_FROM} onChange={(e) => set({ SMTP_FROM: e.target.value })} placeholder="BackOffice <hola@backoffice.dev>" />
+            </Field>
+          </div>
+        </div>
+      </div>
+
       <div className="flex justify-end">
         <Button disabled={saving} onClick={() => onSave(form)}>
           {saving ? 'Guardando…' : 'Guardar'}

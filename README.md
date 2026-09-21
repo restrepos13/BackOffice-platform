@@ -36,9 +36,10 @@ pnpm dev          # api en :4001 + web en :5173
 
 - `santiago@backoffice.dev` / `daniel@backoffice.dev` — SUPER_ADMIN
 - `dev@backoffice.dev` — DEV
-- `admin@massaludlatam.com` · `vista@massaludlatam.com` — Mas Salud Latam (Growth, activa)
+- `admin@massaludlatam.com` · `vista@massaludlatam.com` — Mas Salud Latam (Growth, activa, 2 líneas WA)
 - `admin@hmmotors.net` · `vista@hmmotors.net` — HM Motors (Starter, activa)
 - `admin@lotesancestral.com` — Lotes Ancestral (trial)
+- `admin@novastudio.co` · `monitor@novastudio.co` — Nova Studio (agencia webcam, 4 líneas con personalidad propia)
 
 ## Qué incluye
 
@@ -63,6 +64,49 @@ mensualidad) e historial de facturas, equipo con invitaciones y configuración.
 Los roles de plataforma tienen un selector "Panel de empresa" en el sidebar para
 entrar al panel de cualquier tenant.
 
+## Líneas WhatsApp (varios números por empresa)
+
+Cada empresa puede tener N números de WhatsApp ("líneas") — un número por
+modelo/perfil (estudios webcam), por área (clínicas) o por campaña. Cada línea
+elige cómo responde su IA:
+
+- **Hereda del bot**: usa las instrucciones generales del bot asignado.
+- **Personalidad propia**: prompt, tono, estilo, límites, bienvenida, handoff y
+  hasta modelo/temperatura de IA propios de ese número — 100% personalizable.
+
+Extras: **clonar línea** con toda su personalidad, **ranking de líneas** en
+Analytics (mensajes, conversaciones, alertas por número = "analytics por
+modelo"), y filtro por línea en la bandeja de conversaciones.
+
+## Biblioteca de personalidades (diferenciador)
+
+Plantillas de personalidad listas para aplicar a un bot o a una línea con un
+clic (recepcionista de clínica, asesora de estudio webcam, vendedor automotriz,
+inmobiliaria, cobranza…). Las globales se gestionan en
+**Plataforma → Personalidades**; cada empresa puede guardar las suyas desde el
+editor de línea ("Guardar como plantilla"). Onboarding de un cliente nuevo en
+minutos.
+
+## Pagos por suscripción (Wompi — Colombia)
+
+- **Checkout**: botón "Pagar con Wompi" en Facturación genera el Web Checkout
+  (`checkout.wompi.co`) con firma de integridad SHA-256 y conversión USD→COP
+  (tasa configurable).
+- **Validación**: webhook `POST /api/payments/wompi/events` verifica la firma
+  de eventos (`WOMPI_EVENTS_SECRET`); un evento `APPROVED` marca el pago y la
+  factura como pagados. Firma inválida → 401.
+- **Config**: llaves en Dev Tools → Pasarela Wompi (public key, integrity
+  secret, events secret, ambiente test/producción, tasa USD→COP).
+- **Internacional**: pendiente (provider reservado en el esquema para Stripe).
+
+## Correos a empresas
+
+**Plataforma → Correos** (solo SUPER_ADMIN/DEV): redacta correos personalizados
+con variables `{{empresa}}`, `{{plan}}`, `{{contacto}}` y plantillas rápidas
+(bienvenida, resumen mensual, factura pendiente). Envío por SMTP configurable en
+Dev Tools; sin SMTP los correos quedan **en cola** y se reenvían con un clic
+cuando haya credenciales. Historial completo con estado y vista previa.
+
 ## Integraciones Meta
 
 Los links de conexión (WhatsApp / Instagram / Messenger / Meta Ads) se generan
@@ -76,3 +120,5 @@ OAuth real. No se guarda ninguna cuenta ni token en esta fase.
 - Base de datos definitiva (cambio de una línea en Prisma).
 - Webhooks reales de WhatsApp/Meta y motor de respuesta IA.
 - Callback OAuth de Meta (`/integrations/meta/callback`).
+- Pasarela internacional (Stripe) — el esquema ya lo contempla.
+- Llaves reales de Wompi y cuenta SMTP (se cargan en Dev Tools, sin tocar código).

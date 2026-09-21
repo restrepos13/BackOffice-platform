@@ -8,6 +8,8 @@
  *   vista@massaludlatam.com  → COMPANY_VIEWER (Mas Salud Latam)
  *   admin@hmmotors.net       → COMPANY_ADMIN (HM Motors)
  *   admin@lotesancestral.com → COMPANY_ADMIN (Lotes Ancestral, en trial)
+ *   admin@novastudio.co      → COMPANY_ADMIN (Nova Studio, agencia webcam multi-línea)
+ *   monitor@novastudio.co    → COMPANY_VIEWER (Nova Studio)
  */
 import { PrismaClient } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
@@ -49,11 +51,85 @@ async function main() {
     prisma.invoice.deleteMany(),
     prisma.auditLog.deleteMany(),
     prisma.apiKey.deleteMany(),
+    prisma.personaTemplate.deleteMany(),
+    prisma.payment.deleteMany(),
+    prisma.emailMessage.deleteMany(),
     prisma.user.deleteMany(),
     prisma.company.deleteMany(),
     prisma.plan.deleteMany(),
     prisma.platformSetting.deleteMany(),
   ]);
+
+  console.log('Biblioteca de personalidades…');
+  await prisma.personaTemplate.createMany({
+    data: [
+      {
+        name: 'Recepcionista de clínica',
+        category: 'Clínicas',
+        description: 'Agenda citas, resuelve dudas de servicios y deriva urgencias a un humano.',
+        systemPrompt:
+          'Eres la recepcionista virtual de una clínica. Atiendes pacientes por WhatsApp: resuelves dudas de servicios, precios y horarios, y agendas citas en el calendario. Nunca das diagnósticos médicos; ante síntomas o urgencias derivas de inmediato a un humano. Tono cálido, profesional y natural.',
+        personalityJson: JSON.stringify({
+          tone: 'Cálido y profesional', style: 'Cercano, frases cortas',
+          limits: 'Sin diagnósticos médicos; urgencias → humano.', language: 'es',
+        }),
+        welcomeMessage: '¡Hola! Soy la asistente de la clínica 😊 ¿En qué te ayudo hoy?',
+        handoffKeywords: 'urgencia, emergencia, dolor fuerte, queja, hablar con humano',
+      },
+      {
+        name: 'Asesora de estudio webcam',
+        category: 'Estudios webcam',
+        description: 'Perfil con identidad propia: conversa con calidez, fideliza y detecta clientes de alto valor.',
+        systemPrompt:
+          'Eres la asistente de un perfil/modelo de un estudio. Conversas con calidez y personalidad propia, recuerdas los detalles de cada cliente y los haces sentir únicos. Detectas clientes de alto valor y los priorizas. Mantienes siempre los límites definidos por el estudio y nunca compartes datos personales reales.',
+        personalityJson: JSON.stringify({
+          tone: 'Coqueta, cercana y segura', style: 'Conversacional, con memoria de detalles',
+          limits: 'Nunca comparte datos personales reales ni links externos; pagos solo por canales oficiales del estudio.',
+          language: 'es',
+        }),
+        welcomeMessage: 'Holaa 💛 qué bueno verte por aquí, ¿cómo va tu día?',
+        handoffKeywords: 'pago, problema, reembolso, supervisor',
+      },
+      {
+        name: 'Vendedor automotriz',
+        category: 'Automotriz',
+        description: 'Califica compradores reales, filtra curiosos y agenda cita con el vendedor.',
+        systemPrompt:
+          'Eres el asesor virtual de un concesionario. Pides al cliente los datos del vehículo que busca, evalúas presupuesto e intención real de compra y, si la hay, agendas cita con el vendedor. Filtras curiosos con amabilidad. No negocias precios finales.',
+        personalityJson: JSON.stringify({
+          tone: 'Comercial y ágil', style: 'Preguntas concretas',
+          limits: 'No negocia precios finales; eso lo cierra el vendedor.', language: 'es',
+        }),
+        welcomeMessage: '¡Hola! 🚗 ¿Qué vehículo estás buscando?',
+        handoffKeywords: 'financiamiento, gerente, queja',
+      },
+      {
+        name: 'Vendedora inmobiliaria',
+        category: 'Inmobiliaria',
+        description: 'Atiende interesados en proyectos, comparte información y agenda visitas.',
+        systemPrompt:
+          'Eres la asesora virtual de un proyecto inmobiliario. Respondes dudas de precios, financiación y disponibilidad, calificas el interés real y agendas visitas al proyecto. Tono aspiracional pero honesto.',
+        personalityJson: JSON.stringify({
+          tone: 'Aspiracional y confiable', style: 'Datos claros, sin presión',
+          limits: 'No promete rentabilidades; cifras solo las oficiales.', language: 'es',
+        }),
+        welcomeMessage: '¡Hola! Bienvenido 🌱 ¿Te cuento sobre el proyecto?',
+        handoffKeywords: 'contrato, abogado, negociar',
+      },
+      {
+        name: 'Cobranza amable',
+        category: 'Ventas',
+        description: 'Recuerda pagos pendientes sin dañar la relación con el cliente.',
+        systemPrompt:
+          'Eres el asistente de cobranza. Recuerdas pagos pendientes con amabilidad y firmeza, ofreces opciones de pago y escalas a un humano si el cliente plantea una disputa. Jamás amenazas ni presionas.',
+        personalityJson: JSON.stringify({
+          tone: 'Amable y firme', style: 'Directo, con opciones',
+          limits: 'Sin amenazas; disputas → humano.', language: 'es',
+        }),
+        handoffKeywords: 'disputa, reclamo, abogado, no voy a pagar',
+      },
+    ],
+  });
 
   console.log('Planes…');
   const [starter, growth, scale] = await Promise.all([
@@ -178,17 +254,40 @@ async function main() {
       }),
     },
   });
+  // Dos líneas de WhatsApp: Citas hereda las instrucciones del bot,
+  // Ventas tiene instrucciones propias (promptMode CUSTOM).
+  const msLineaCitas = await prisma.integration.create({
+    data: {
+      companyId: masSalud.id, botId: msBot.id, type: 'WHATSAPP',
+      name: 'Línea Citas', status: 'CONNECTED', promptMode: 'INHERIT',
+      configJson: JSON.stringify({
+        displayPhone: '+506 8888 1234', phoneNumberId: '1042XXXX', wabaId: '2231XXXX',
+      }),
+      webhookUrl: 'http://localhost:4001/api/webhooks/mas-salud-latam/whatsapp',
+      lastSyncAt: hoursAgo(1),
+    },
+  });
+  const msLineaVentas = await prisma.integration.create({
+    data: {
+      companyId: masSalud.id, botId: msBot.id, type: 'WHATSAPP',
+      name: 'Línea Ventas', status: 'CONNECTED', promptMode: 'CUSTOM',
+      configJson: JSON.stringify({
+        displayPhone: '+506 8888 5678', phoneNumberId: '1043XXXX', wabaId: '2231XXXX',
+      }),
+      webhookUrl: 'http://localhost:4001/api/webhooks/mas-salud-latam/whatsapp',
+      lastSyncAt: hoursAgo(2),
+      overridePrompt:
+        'Eres el asesor comercial de Mas Salud Latam. Este número recibe tráfico de campañas: tu objetivo es convertir interesados en citas valoradas. Presentas promociones vigentes, resuelves objeciones de precio y cierras la cita. Tono vendedor pero humano.',
+      overridePersonalityJson: JSON.stringify({
+        tone: 'Comercial y empático', style: 'Orientado a cierre, sin presión',
+        limits: 'No da diagnósticos; descuentos solo los publicados.', language: 'es',
+      }),
+      overrideWelcome: '¡Hola! 😊 Vi que te interesó nuestra promo, ¿te cuento cómo funciona?',
+      overrideHandoff: 'queja, gerente, reembolso',
+    },
+  });
   await prisma.integration.createMany({
     data: [
-      {
-        companyId: masSalud.id, botId: msBot.id, type: 'WHATSAPP',
-        name: 'WhatsApp Business API', status: 'CONNECTED',
-        configJson: JSON.stringify({
-          displayPhone: '+506 8888 1234', phoneNumberId: '1042XXXX', wabaId: '2231XXXX',
-        }),
-        webhookUrl: 'http://localhost:4001/api/webhooks/mas-salud-latam/whatsapp',
-        lastSyncAt: hoursAgo(1),
-      },
       {
         companyId: masSalud.id, type: 'META_ADS', name: 'Meta Ads',
         status: 'CONNECTED',
@@ -251,17 +350,19 @@ async function main() {
       handoffKeywords: 'financiamiento, gerente, queja',
     },
   });
+  const hmLinea = await prisma.integration.create({
+    data: {
+      companyId: hmMotors.id, botId: hmBot.id, type: 'WHATSAPP',
+      name: 'Línea Ventas', status: 'CONNECTED', promptMode: 'INHERIT',
+      configJson: JSON.stringify({
+        displayPhone: '+506 7000 2222', phoneNumberId: '1099XXXX', wabaId: '2255XXXX',
+      }),
+      webhookUrl: 'http://localhost:4001/api/webhooks/hm-motors/whatsapp',
+      lastSyncAt: hoursAgo(1),
+    },
+  });
   await prisma.integration.createMany({
     data: [
-      {
-        companyId: hmMotors.id, botId: hmBot.id, type: 'WHATSAPP',
-        name: 'WhatsApp Business API', status: 'CONNECTED',
-        configJson: JSON.stringify({
-          displayPhone: '+506 7000 2222', phoneNumberId: '1099XXXX', wabaId: '2255XXXX',
-        }),
-        webhookUrl: 'http://localhost:4001/api/webhooks/hm-motors/whatsapp',
-        lastSyncAt: hoursAgo(1),
-      },
       {
         companyId: hmMotors.id, botId: hmBot.id, type: 'GOOGLE_CALENDAR',
         name: 'Google Calendar', status: 'CONNECTED',
@@ -324,6 +425,101 @@ async function main() {
     ],
   });
 
+  // ── Empresa 4: Nova Studio (agencia webcam — caso multi-línea) ────
+  console.log('Nova Studio…');
+  const nova = await prisma.company.create({
+    data: {
+      name: 'Nova Studio', slug: 'nova-studio',
+      industry: 'Estudio webcam', country: 'Colombia', city: 'Medellín',
+      contactEmail: 'admin@novastudio.co', contactPhone: '+57 300 555 0101',
+      status: 'ACTIVE', planId: growth.id, timezone: 'America/Bogota',
+      brandColor: '#7A1F5C',
+      notes: 'Agencia webcam con un número de WhatsApp por modelo. Cada línea tiene personalidad propia (promptMode CUSTOM).',
+    },
+  });
+  await prisma.user.create({
+    data: {
+      email: 'admin@novastudio.co', name: 'Dirección Nova Studio',
+      role: 'COMPANY_ADMIN', jobTitle: 'Directora', companyId: nova.id,
+      passwordHash: PASSWORD,
+    },
+  });
+  await prisma.user.create({
+    data: {
+      email: 'monitor@novastudio.co', name: 'Monitor Nova',
+      role: 'COMPANY_VIEWER', jobTitle: 'Supervisión', companyId: nova.id,
+      passwordHash: PASSWORD,
+    },
+  });
+  const novaBot = await prisma.bot.create({
+    data: {
+      companyId: nova.id, name: 'Motor IA Nova', status: 'ACTIVE',
+      description: 'Motor común del estudio: reglas generales, memoria y límites. Cada línea define su propia personalidad encima.',
+      model: 'claude-sonnet-5', temperature: 0.8,
+      systemPrompt:
+        'Eres un perfil del estudio Nova. Reglas generales para todas las líneas: conversas con calidez y memoria de cada cliente, priorizas clientes de alto valor, nunca compartes datos personales reales ni links externos, y los pagos van solo por los canales oficiales del estudio. La personalidad concreta la define cada línea.',
+      personalityJson: JSON.stringify({
+        tone: 'Cálido y con personalidad', style: 'Conversacional, con memoria',
+        limits: 'Sin datos personales reales, sin links externos, pagos solo canales oficiales.',
+        language: 'es',
+      }),
+      handoffKeywords: 'pago, problema, reembolso, supervisor',
+    },
+  });
+  const novaPersonas: Array<{
+    name: string; phone: string; tone: string; style: string; welcome: string;
+    prompt: string;
+  }> = [
+    {
+      name: 'Línea Valentina', phone: '+57 300 555 1001',
+      tone: 'Dulce y juguetona', style: 'Emojis con medida, preguntas sobre el día del cliente',
+      welcome: 'Holaa 💛 te estaba esperando, ¿cómo va tu día?',
+      prompt: 'Eres Valentina: dulce, juguetona y atenta. Recuerdas los gustos de cada cliente y les preguntas por lo que te contaron la última vez.',
+    },
+    {
+      name: 'Línea Sofía', phone: '+57 300 555 1002',
+      tone: 'Elegante y misteriosa', style: 'Mensajes cortos, deja con ganas de más',
+      welcome: 'Vaya, mira quién apareció… 😏',
+      prompt: 'Eres Sofía: elegante, segura y un punto misteriosa. Respondes con calma, nunca pareces ansiosa, y haces que el cliente busque tu atención.',
+    },
+    {
+      name: 'Línea Isabella', phone: '+57 300 555 1003',
+      tone: 'Alegre y conversadora', style: 'Charla fluida, humor ligero',
+      welcome: '¡Holaaa! 😄 justo pensaba en ti, ¿todo bien?',
+      prompt: 'Eres Isabella: alegre, espontánea y conversadora. Ríes con facilidad, usas humor ligero y haces sentir al cliente como un amigo cercano.',
+    },
+    {
+      name: 'Línea Luna', phone: '+57 300 555 1004',
+      tone: 'Tranquila y empática', style: 'Escucha activa, mensajes cálidos y largos',
+      welcome: 'Hola 🌙 qué lindo verte por aquí, cuéntame de ti…',
+      prompt: 'Eres Luna: tranquila, empática y buena escuchando. Muchos clientes buscan compañía: les das conversación genuina y recuerdas lo que les importa.',
+    },
+  ];
+  const novaLines: string[] = [];
+  for (const persona of novaPersonas) {
+    const line = await prisma.integration.create({
+      data: {
+        companyId: nova.id, botId: novaBot.id, type: 'WHATSAPP',
+        name: persona.name, status: 'CONNECTED', promptMode: 'CUSTOM',
+        configJson: JSON.stringify({
+          displayPhone: persona.phone,
+          phoneNumberId: `12${randInt(10, 99)}XXXX`, wabaId: '3311XXXX',
+        }),
+        webhookUrl: 'http://localhost:4001/api/webhooks/nova-studio/whatsapp',
+        lastSyncAt: hoursAgo(randInt(1, 5)),
+        overridePrompt: persona.prompt,
+        overridePersonalityJson: JSON.stringify({
+          tone: persona.tone, style: persona.style,
+          limits: 'Los del estudio: sin datos reales, sin links, pagos oficiales.',
+          language: 'es',
+        }),
+        overrideWelcome: persona.welcome,
+        overrideHandoff: 'pago, problema, reembolso, supervisor',
+      },
+    });
+    novaLines.push(line.id);
+  }
+
   // ── Contactos y conversaciones ────────────────────────────────────
   console.log('Contactos y conversaciones…');
 
@@ -336,7 +532,7 @@ async function main() {
   }
 
   async function seedContacts(
-    companyId: string, botId: string, list: SeedContact[],
+    companyId: string, botId: string, list: SeedContact[], integrationId?: string,
   ) {
     for (const c of list) {
       const contact = await prisma.contact.create({
@@ -350,7 +546,7 @@ async function main() {
       if (c.convo) {
         const convo = await prisma.conversation.create({
           data: {
-            companyId, botId, contactId: contact.id,
+            companyId, botId, contactId: contact.id, integrationId,
             channel: c.channel ?? 'WHATSAPP',
             status: c.convo.status,
             needsAttention: !!c.convo.needsAttention,
@@ -425,8 +621,33 @@ async function main() {
     },
     { name: 'Pedro Alfaro', phone: '+506 8366 5544', stage: 'POTENCIAL' },
     { name: 'Sofía Castro', phone: '+506 8277 4433', stage: 'CURIOSO' },
-    { name: 'Daniela Rojas', phone: '+506 8188 3322', stage: 'CALIENTE', tags: ['blanqueamiento'] },
-  ]);
+  ], msLineaCitas.id);
+
+  // Conversaciones de la línea Ventas (tráfico de campañas)
+  await seedContacts(masSalud.id, msBot.id, [
+    {
+      name: 'Daniela Rojas', phone: '+506 8188 3322', stage: 'CALIENTE',
+      tags: ['blanqueamiento', 'promo'], convo: {
+        status: 'OPEN', hoursAgo: 2,
+        messages: [
+          ['CONTACT', 'Hola, vi la promo de blanqueamiento en Instagram'],
+          ['BOT', '¡Hola Daniela! 😊 Sí, la promo está vigente hasta el viernes: ₡89.000 con limpieza incluida. ¿Te reservo un espacio esta semana?'],
+          ['CONTACT', '¿Y se puede pagar en dos partes?'],
+          ['BOT', '¡Claro! 50% al agendar y 50% el día de la cita. ¿Te sirve el miércoles a las 2:00 pm?'],
+        ],
+      },
+    },
+    {
+      name: 'Esteban Quirós', phone: '+506 8099 2211', stage: 'POTENCIAL',
+      tags: ['promo'], convo: {
+        status: 'OPEN', hoursAgo: 8,
+        messages: [
+          ['CONTACT', '¿La promo aplica también para ortodoncia?'],
+          ['BOT', 'La promo actual es de blanqueamiento, pero en ortodoncia tenemos valoración gratis este mes. ¿Te agendo una?'],
+        ],
+      },
+    },
+  ], msLineaVentas.id);
 
   await seedContacts(hmMotors.id, hmBot.id, [
     {
@@ -465,12 +686,76 @@ async function main() {
     },
     { name: 'Karla Herrera', phone: '+506 7433 6677', stage: 'CLIENTE', tags: ['pickup'] },
     { name: 'Luis Chaves', phone: '+506 7544 7788', stage: 'CURIOSO' },
-  ]);
+  ], hmLinea.id);
 
   await seedContacts(lotes.id, lotesBot.id, [
     { name: 'Andrés Zapata', phone: '+57 300 111 2233', stage: 'POTENCIAL', tags: ['lote 120m²'] },
     { name: 'Paula Gómez', phone: '+57 301 222 3344', stage: 'CURIOSO' },
   ]);
+
+  // Nova Studio: conversaciones repartidas por línea/perfil
+  await seedContacts(nova.id, novaBot.id, [
+    {
+      name: 'Cliente VIP · Mark', phone: '+1 305 555 0187', stage: 'CLIENTE',
+      tags: ['alto valor', 'recurrente'], convo: {
+        status: 'OPEN', hoursAgo: 1,
+        messages: [
+          ['CONTACT', 'Hey! Did you have a good weekend?'],
+          ['BOT', 'Holaa 💛 sí, te acordaste de mí… ¿me cuentas cómo te fue en el viaje que me dijiste?'],
+          ['CONTACT', 'It was great, I brought you something 😄'],
+          ['BOT', '¿En serio? Ahora tienes toda mi atención 😄 cuéntame…'],
+        ],
+      },
+    },
+    {
+      name: 'Cliente · Thomas', phone: '+44 20 555 0134', stage: 'CALIENTE',
+      tags: ['nuevo'], convo: {
+        status: 'HANDOFF', needsAttention: true, hoursAgo: 3,
+        messages: [
+          ['CONTACT', 'I have a problem with my last payment'],
+          ['BOT', 'Entiendo, eso lo revisa directamente el equipo del estudio 💛 ya les avisé: te escriben por aquí en unos minutos.'],
+        ],
+      },
+    },
+  ], novaLines[0]);
+  await seedContacts(nova.id, novaBot.id, [
+    {
+      name: 'Cliente · Andrés', phone: '+57 310 555 0122', stage: 'POTENCIAL',
+      convo: {
+        status: 'OPEN', hoursAgo: 5,
+        messages: [
+          ['CONTACT', 'Hola Sofía, ¿estás conectada más tarde?'],
+          ['BOT', 'Puede ser… si me das una buena razón 😏'],
+        ],
+      },
+    },
+  ], novaLines[1]);
+  await seedContacts(nova.id, novaBot.id, [
+    {
+      name: 'Cliente · James', phone: '+1 212 555 0166', stage: 'CLIENTE',
+      tags: ['recurrente'], convo: {
+        status: 'RESOLVED', hoursAgo: 9,
+        messages: [
+          ['CONTACT', 'You always make me laugh 😂'],
+          ['BOT', '¡Es mi superpoder! 😄 ¿viste el final de la serie que me recomendaste?'],
+        ],
+      },
+    },
+  ], novaLines[2]);
+  await seedContacts(nova.id, novaBot.id, [
+    {
+      name: 'Cliente · Omar', phone: '+971 50 555 0143', stage: 'CLIENTE',
+      tags: ['compañía', 'nocturno'], convo: {
+        status: 'OPEN', hoursAgo: 2,
+        messages: [
+          ['CONTACT', 'Hoy fue un día muy largo…'],
+          ['BOT', 'Aquí estoy 🌙 cuéntame, ¿qué fue lo que más te pesó del día?'],
+          ['CONTACT', 'El trabajo, como siempre. Contigo se me olvida'],
+          ['BOT', 'Para eso estoy, siempre. Tómate tu tiempo, no hay prisa 💛'],
+        ],
+      },
+    },
+  ], novaLines[3]);
 
   // ── Automatizaciones ──────────────────────────────────────────────
   console.log('Automatizaciones…');
@@ -535,6 +820,7 @@ async function main() {
     { companyId: masSalud.id, base: 320 },
     { companyId: hmMotors.id, base: 150 },
     { companyId: lotes.id, base: 15 },
+    { companyId: nova.id, base: 540 },
   ];
   for (const { companyId, base } of usageProfiles) {
     for (let i = 45; i >= 0; i--) {
@@ -569,6 +855,8 @@ async function main() {
     { companyId: hmMotors.id, planAmount: 299, monthsBack: 3, status: 'PAID' },
     { companyId: hmMotors.id, planAmount: 299, monthsBack: 2, status: 'PAID' },
     { companyId: hmMotors.id, planAmount: 299, monthsBack: 1, status: 'OVERDUE' },
+    { companyId: nova.id, planAmount: 599, monthsBack: 2, status: 'PAID' },
+    { companyId: nova.id, planAmount: 599, monthsBack: 1, status: 'PAID' },
   ];
   for (const row of invoiceRows) {
     const d = new Date(now.getFullYear(), now.getMonth() - row.monthsBack, 1);
@@ -617,7 +905,56 @@ async function main() {
       { key: 'META_REDIRECT_URI', value: 'http://localhost:4001/integrations/meta/callback' },
       { key: 'PLATFORM_NAME', value: 'BackOffice' },
       { key: 'SUPPORT_WHATSAPP', value: '+57 310 879 0168' },
+      // Pasarela Wompi (Colombia) — llenar con las llaves reales de comercio
+      { key: 'WOMPI_ENV', value: 'test' },
+      { key: 'WOMPI_PUBLIC_KEY', value: '' },
+      { key: 'WOMPI_INTEGRITY_SECRET', value: '' },
+      { key: 'WOMPI_EVENTS_SECRET', value: '' },
+      { key: 'WOMPI_REDIRECT_URL', value: 'http://localhost:5173/app/billing' },
+      { key: 'USD_COP_RATE', value: '4000' },
+      // SMTP para correos a empresas — llenar cuando haya cuenta de envío
+      { key: 'SMTP_HOST', value: '' },
+      { key: 'SMTP_PORT', value: '587' },
+      { key: 'SMTP_USER', value: '' },
+      { key: 'SMTP_PASS', value: '' },
+      { key: 'SMTP_FROM', value: 'BackOffice <hola@backoffice.dev>' },
     ],
+  });
+
+  // Pago de ejemplo (Wompi, Nova Studio) + correo de ejemplo en cola
+  const novaPaidInvoice = await prisma.invoice.findFirst({
+    where: { companyId: nova.id, status: 'PAID' },
+    orderBy: { period: 'desc' },
+  });
+  if (novaPaidInvoice) {
+    await prisma.payment.create({
+      data: {
+        companyId: nova.id,
+        invoiceId: novaPaidInvoice.id,
+        provider: 'WOMPI',
+        reference: `BO-${nova.id.slice(-4)}-${novaPaidInvoice.period.replace('-', '')}-DEMO`,
+        amountUsd: novaPaidInvoice.totalAmount,
+        amountInCents: Math.round(novaPaidInvoice.totalAmount * 4000 * 100),
+        currency: 'COP',
+        status: 'APPROVED',
+        providerTxId: '15113-1755XXXX-demo',
+        paymentMethod: 'NEQUI',
+        eventsLog: JSON.stringify([
+          { at: day(8).toISOString(), status: 'APPROVED', txId: '15113-1755XXXX-demo', verified: true },
+        ]),
+      },
+    });
+  }
+  await prisma.emailMessage.create({
+    data: {
+      companyId: masSalud.id,
+      toEmail: 'gerencia@massaludlatam.com',
+      subject: 'Mas Salud Latam — resumen de tu operación de agosto',
+      body: '<p>Hola equipo de <strong>Mas Salud Latam</strong>,</p><p>Les compartimos el resumen del mes: 9.800 conversaciones atendidas, 62 citas agendadas y consumo dentro del plan Growth.</p><p>— Equipo BackOffice</p>',
+      status: 'QUEUED',
+      error: 'SMTP sin configurar — configúralo en Dev Tools y reenvía.',
+      actorName: 'Santiago Restrepo',
+    },
   });
 
   console.log('Seed listo ✅  (contraseña de todos los usuarios demo: backoffice2026)');
