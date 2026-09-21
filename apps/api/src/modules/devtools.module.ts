@@ -27,7 +27,7 @@ export class DevToolsService {
   async health() {
     let dbOk = true;
     try {
-      await this.prisma.$queryRawUnsafe('SELECT 1');
+      await this.prisma.$runCommandRaw({ ping: 1 });
     } catch {
       dbOk = false;
     }
@@ -39,7 +39,7 @@ export class DevToolsService {
     ]);
     return {
       status: dbOk ? 'ok' : 'degraded',
-      db: dbOk ? 'connected (sqlite dev)' : 'error',
+      db: dbOk ? 'connected (MongoDB Atlas)' : 'error',
       uptimeSeconds: Math.floor((Date.now() - startedAt) / 1000),
       node: process.version,
       env: process.env.NODE_ENV ?? 'development',

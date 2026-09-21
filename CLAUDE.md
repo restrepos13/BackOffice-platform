@@ -19,7 +19,7 @@ todas las empresas, con roles distintos por tipo de usuario.
 Monorepo **pnpm** (sin Docker — el usuario no lo usa; servicios locales).
 
 ```
-apps/api   → NestJS 10 + Prisma (SQLite provisional) — puerto 4001, prefijo /api
+apps/api   → NestJS 10 + Prisma (MongoDB Atlas) — puerto 4001, prefijo /api
 apps/web   → React 18 + Vite + Tailwind 4 + TanStack Query + Recharts + sonner — puerto 5173 (proxy /api → 4001)
 ```
 
@@ -34,11 +34,18 @@ Verificación: `npx tsc --noEmit` en cada app; build con `npx nest build` /
 `npx vite build`.
 
 ⚠️ Reglas del usuario: **no dejar servidores corriendo ni puertos ocupados**
-sin que lo pida (levantar para verificar y apagar está bien). **No subir a
-ningún remoto** sin que lo pida. La **base de datos definitiva está pendiente**:
-cuando la diga, se cambia `provider` en `apps/api/prisma/schema.prisma` y
-`DATABASE_URL` en `apps/api/.env` (por eso los enums son String y los JSON van
-serializados en campos `*Json` — compatibilidad SQLite).
+sin que lo pida (levantar para verificar y apagar está bien; excepción actual:
+la demo por túnel ngrok quedó corriendo a pedido). **No subir a ningún remoto**
+sin que lo pida.
+
+**Base de datos: MongoDB Atlas** (definitiva, desde el 21 sep 2026).
+`DATABASE_URL` en `apps/api/.env` (NO commiteado) con formato
+`mongodb+srv://…mongodb.net/backoffice?retryWrites=true&w=majority` — el nombre
+de la base en la URL es obligatorio. Provider `mongodb` en el schema; todos los
+`@id` son cuid mapeados a `_id` (`@map("_id")`). Los enums siguen siendo String
+y los JSON van serializados en campos `*Json` (funciona igual en Mongo). No usar
+SQL crudo: el health check usa `$runCommandRaw({ ping: 1 })`. `prisma db push`
+sincroniza índices contra Atlas y el seed corre directo contra la nube.
 
 ## Roles (RBAC)
 

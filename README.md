@@ -9,16 +9,16 @@ hueso `#E6E1DD` / tinta `#1A1A1A`, Anton + Playfair Display + Geist.
 ## Stack
 
 - **Monorepo pnpm** — `apps/api` + `apps/web`
-- **API**: NestJS + Prisma. Hoy corre sobre **SQLite** (desarrollo); cuando se
-  defina la base final solo hay que cambiar `provider` en
-  `apps/api/prisma/schema.prisma` y `DATABASE_URL` en `apps/api/.env`.
+- **API**: NestJS + Prisma sobre **MongoDB Atlas** (base definitiva).
+  `DATABASE_URL` va en `apps/api/.env` (no commiteado) e incluye el nombre de
+  la base: `mongodb+srv://…mongodb.net/backoffice?retryWrites=true&w=majority`.
 - **Web**: React 18 + Vite + Tailwind 4 + TanStack Query + Recharts + sonner.
 
 ## Arranque
 
 ```bash
 pnpm install
-pnpm db:push      # crea la base (SQLite dev)
+pnpm db:push      # sincroniza índices en MongoDB Atlas
 pnpm db:seed      # datos demo
 pnpm dev          # api en :4001 + web en :5173
 ```
@@ -156,7 +156,6 @@ control de tenant. En la bandeja hay botón de "enviar foto" con picker.
 
 ## Pendiente (fase 2)
 
-- Base de datos definitiva (cambio de una línea en Prisma).
 - Webhooks reales de WhatsApp/Meta y motor de respuesta IA.
 - Callback OAuth de Meta (`/integrations/meta/callback`).
 - Pasarela internacional (Stripe) — el esquema ya lo contempla.

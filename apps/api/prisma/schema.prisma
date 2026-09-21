@@ -1,22 +1,22 @@
 // BackOffice Platform — esquema de datos multi-tenant.
-// NOTA: hoy corre sobre SQLite (desarrollo). Cuando se defina la base final
-// (Postgres/MySQL/etc.) solo hay que cambiar `provider` y DATABASE_URL.
-// Por compatibilidad con SQLite, los enums son String (constantes en src/common/constants.ts)
-// y los campos JSON se guardan como String serializado.
+// Base definitiva: MongoDB Atlas (provider mongodb, DATABASE_URL en .env).
+// Los enums son String (constantes en src/common/constants.ts) y los campos
+// JSON van como String serializado — decisión heredada de la fase SQLite que
+// funciona igual en Mongo. Los IDs son cuid mapeados a _id.
 
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "mongodb"
   url      = env("DATABASE_URL")
 }
 
 // ─── Usuarios y roles ────────────────────────────────────────────────
 // role: SUPER_ADMIN | DEV | COMPANY_ADMIN | COMPANY_VIEWER
 model User {
-  id           String    @id @default(cuid())
+  id           String    @id @default(cuid()) @map("_id")
   email        String    @unique
   passwordHash String
   name         String
@@ -36,7 +36,7 @@ model User {
 
 // ─── Planes ──────────────────────────────────────────────────────────
 model Plan {
-  id            String    @id @default(cuid())
+  id            String    @id @default(cuid()) @map("_id")
   code          String    @unique // starter | growth | scale | enterprise | custom-xxx
   name          String
   priceMonthly  Float // USD; 0 = a medida
@@ -54,7 +54,7 @@ model Plan {
 // ─── Empresas (tenants) ──────────────────────────────────────────────
 // status: TRIAL | ACTIVE | SUSPENDED | CANCELLED
 model Company {
-  id           String   @id @default(cuid())
+  id           String   @id @default(cuid()) @map("_id")
   name         String
   slug         String   @unique
   legalName    String?
@@ -100,7 +100,7 @@ model Company {
 // ─── Bots / Asistentes IA ────────────────────────────────────────────
 // status: ACTIVE | PAUSED | DRAFT
 model Bot {
-  id              String   @id @default(cuid())
+  id              String   @id @default(cuid()) @map("_id")
   companyId       String
   company         Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
   name            String
@@ -138,7 +138,7 @@ model Bot {
 //   promptMode INHERIT → usa las instrucciones generales del bot asignado
 //   promptMode CUSTOM  → instrucciones propias de la línea (100% personalizable)
 model Integration {
-  id         String    @id @default(cuid())
+  id         String    @id @default(cuid()) @map("_id")
   companyId  String
   company    Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
   botId      String?
@@ -178,7 +178,7 @@ model Integration {
 // companyId null = plantilla global de la plataforma (gestionada por BackOffice);
 // con companyId = plantilla propia de esa empresa.
 model PersonaTemplate {
-  id              String   @id @default(cuid())
+  id              String   @id @default(cuid()) @map("_id")
   companyId       String?
   company         Company? @relation(fields: [companyId], references: [id], onDelete: Cascade)
   name            String
@@ -195,7 +195,7 @@ model PersonaTemplate {
 // ─── CRM: contactos / leads ──────────────────────────────────────────
 // stage: CURIOSO | POTENCIAL | CALIENTE | CLIENTE | DESCARTADO
 model Contact {
-  id             String   @id @default(cuid())
+  id             String   @id @default(cuid()) @map("_id")
   companyId      String
   company        Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
   name           String
@@ -216,7 +216,7 @@ model Contact {
 // ─── Conversaciones y mensajes ───────────────────────────────────────
 // status: OPEN | PENDING | HANDOFF | RESOLVED
 model Conversation {
-  id             String       @id @default(cuid())
+  id             String       @id @default(cuid()) @map("_id")
   companyId      String
   company        Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
   botId          String?
@@ -237,7 +237,7 @@ model Conversation {
 
 // direction: IN | OUT — author: CONTACT | BOT | AGENT
 model Message {
-  id             String       @id @default(cuid())
+  id             String       @id @default(cuid()) @map("_id")
   conversationId String
   conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
   direction      String
@@ -253,7 +253,7 @@ model Message {
 // Fotos que la empresa carga para que la IA (o un agente) las envíe en el chat.
 // priceUsd > 0 = contenido de pago (PPV) — la IA lo ofrece según sus reglas de venta.
 model MediaAsset {
-  id            String       @id @default(cuid())
+  id            String       @id @default(cuid()) @map("_id")
   companyId     String
   company       Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
   integrationId String? // línea a la que pertenece (null = disponible para todas)
@@ -273,7 +273,7 @@ model MediaAsset {
 // ─── Catálogo de modelos IA (DeepInfra) ──────────────────────────────
 // Costos por millón de tokens que se declaran al cliente (consumo al costo).
 model AiModel {
-  id                String   @id @default(cuid())
+  id                String   @id @default(cuid()) @map("_id")
   provider          String   @default("DEEPINFRA")
   modelId           String   @unique // ej. meta-llama/Llama-3.3-70B-Instruct
   name              String
@@ -289,7 +289,7 @@ model AiModel {
 // ─── Automatizaciones ────────────────────────────────────────────────
 // type: FLOW | CONTENT | REPORT | INTERNAL — status: ACTIVE | PAUSED | DRAFT
 model Automation {
-  id          String    @id @default(cuid())
+  id          String    @id @default(cuid()) @map("_id")
   companyId   String
   company     Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
   name        String
@@ -309,7 +309,7 @@ model Automation {
 
 // status: SUCCESS | FAILED | RUNNING
 model AutomationRun {
-  id           String     @id @default(cuid())
+  id           String     @id @default(cuid()) @map("_id")
   automationId String
   automation   Automation @relation(fields: [automationId], references: [id], onDelete: Cascade)
   status       String
@@ -320,7 +320,7 @@ model AutomationRun {
 
 // ─── Consumo y facturación ───────────────────────────────────────────
 model UsageRecord {
-  id              String   @id @default(cuid())
+  id              String   @id @default(cuid()) @map("_id")
   companyId       String
   company         Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
   date            DateTime // día (00:00)
@@ -338,7 +338,7 @@ model UsageRecord {
 
 // status: PAID | PENDING | OVERDUE
 model Invoice {
-  id                String   @id @default(cuid())
+  id                String   @id @default(cuid()) @map("_id")
   companyId         String
   company           Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
   period            String // "2026-08"
@@ -355,7 +355,7 @@ model Invoice {
 // provider: WOMPI (Colombia, activo) | STRIPE (internacional, pendiente)
 // status: PENDING | APPROVED | DECLINED | VOIDED | ERROR
 model Payment {
-  id                 String    @id @default(cuid())
+  id                 String    @id @default(cuid()) @map("_id")
   companyId          String
   company            Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
   invoiceId          String?
@@ -377,7 +377,7 @@ model Payment {
 // ─── Correos a empresas ──────────────────────────────────────────────
 // status: QUEUED | SENT | FAILED
 model EmailMessage {
-  id        String    @id @default(cuid())
+  id        String    @id @default(cuid()) @map("_id")
   companyId String?
   company   Company?  @relation(fields: [companyId], references: [id], onDelete: SetNull)
   toEmail   String
@@ -392,7 +392,7 @@ model EmailMessage {
 
 // ─── Auditoría ───────────────────────────────────────────────────────
 model AuditLog {
-  id        String   @id @default(cuid())
+  id        String   @id @default(cuid()) @map("_id")
   actorId   String?
   actor     User?    @relation(fields: [actorId], references: [id])
   actorName String
@@ -408,7 +408,7 @@ model AuditLog {
 
 // ─── API keys (panel dev) ────────────────────────────────────────────
 model ApiKey {
-  id         String    @id @default(cuid())
+  id         String    @id @default(cuid()) @map("_id")
   companyId  String?
   company    Company?  @relation(fields: [companyId], references: [id], onDelete: Cascade)
   name       String
@@ -422,7 +422,7 @@ model ApiKey {
 
 // ─── Configuración global de plataforma ──────────────────────────────
 model PlatformSetting {
-  key       String   @id
+  key       String   @id @map("_id")
   value     String
   updatedAt DateTime @updatedAt
 }
