@@ -58,6 +58,18 @@ export class AuthService {
     return safe;
   }
 
+  /** Cambio de contraseña propio (cualquier rol). */
+  async changePassword(userId: string, current: string, next: string) {
+    const user = await this.prisma.user.findUniqueOrThrow({ where: { id: userId } });
+    const ok = await bcrypt.compare(current, user.passwordHash);
+    if (!ok) throw new UnauthorizedException('La contraseña actual no coincide');
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { passwordHash: bcrypt.hashSync(next, 10) },
+    });
+    return { ok: true };
+  }
+
   static hashPassword(plain: string): string {
     return bcrypt.hashSync(plain, 10);
   }

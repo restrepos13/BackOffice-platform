@@ -1,4 +1,5 @@
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
+import { toast } from 'sonner';
 import { clsx } from 'clsx';
 import {
   Activity,
@@ -35,7 +36,44 @@ import { api } from '../lib/api';
 import { useActiveCompanyId, useAuth } from '../lib/auth';
 import { ROLE_LABELS } from '../lib/format';
 import type { Company } from '../lib/types';
-import { Badge } from '../components/ui';
+import { Badge, Button, Field, Input, Modal } from '../components/ui';
+
+function ChangePasswordModal({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const [current, setCurrent] = useState('');
+  const [next, setNext] = useState('');
+  const change = useMutation({
+    mutationFn: () =>
+      api.post('/auth/change-password', { currentPassword: current, newPassword: next }),
+    onSuccess: () => {
+      toast.success('Contraseña actualizada');
+      setCurrent('');
+      setNext('');
+      onClose();
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : 'Error'),
+  });
+  return (
+    <Modal open={open} onClose={onClose} kicker="Mi cuenta" title="Cambiar contraseña">
+      <div className="space-y-4">
+        <Field label="Contraseña actual" required>
+          <Input type="password" autoComplete="current-password" value={current}
+            onChange={(e) => setCurrent(e.target.value)} />
+        </Field>
+        <Field label="Nueva contraseña" hint="Mínimo 8 caracteres" required>
+          <Input type="password" autoComplete="new-password" value={next}
+            onChange={(e) => setNext(e.target.value)} />
+        </Field>
+        <Button
+          className="w-full"
+          disabled={!current || next.length < 8 || change.isPending}
+          onClick={() => change.mutate()}
+        >
+          {change.isPending ? 'Guardando…' : 'Actualizar contraseña'}
+        </Button>
+      </div>
+    </Modal>
+  );
+}
 
 interface NavItem {
   to: string;
@@ -108,6 +146,7 @@ export default function AppShell() {
   const navigate = useNavigate();
   const location = useLocation();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [changingPassword, setChangingPassword] = useState(false);
 
   // Cerrar el menú móvil al navegar
   useEffect(() => {
@@ -217,6 +256,12 @@ export default function AppShell() {
             </div>
           </div>
           <button
+            onClick={() => setChangingPassword(true)}
+            className="mb-1.5 flex w-full cursor-pointer items-center justify-center gap-2 border-2 border-line px-2 py-1.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-2 hover:border-ink hover:text-ink"
+          >
+            Cambiar contraseña
+          </button>
+          <button
             onClick={logout}
             className="flex w-full cursor-pointer items-center justify-center gap-2 border-2 border-ink px-2 py-1.5 text-[11px] font-semibold uppercase tracking-[0.08em] hover:bg-ink hover:text-bone"
           >
@@ -224,6 +269,8 @@ export default function AppShell() {
           </button>
         </div>
       </aside>
+
+      <ChangePasswordModal open={changingPassword} onClose={() => setChangingPassword(false)} />
 
       {/* ─── Contenido ─── */}
       <div className="min-w-0 flex-1">

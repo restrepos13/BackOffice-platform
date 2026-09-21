@@ -143,6 +143,25 @@ export class EmailsService {
       take: 200,
     });
   }
+
+  /** Envío del sistema (crons): sin actor humano; queda en cola si no hay SMTP. */
+  async systemSend(params: {
+    companyId?: string | null;
+    toEmail: string;
+    subject: string;
+    body: string;
+  }) {
+    const message = await this.prisma.emailMessage.create({
+      data: {
+        companyId: params.companyId ?? null,
+        toEmail: params.toEmail,
+        subject: params.subject,
+        body: params.body,
+        actorName: 'Sistema BackOffice',
+      },
+    });
+    return this.deliver(message.id);
+  }
 }
 
 @Controller('emails')
@@ -169,5 +188,6 @@ export class EmailsController {
 @Module({
   controllers: [EmailsController],
   providers: [EmailsService],
+  exports: [EmailsService],
 })
 export class EmailsModule {}

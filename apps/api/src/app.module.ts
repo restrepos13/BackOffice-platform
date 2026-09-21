@@ -25,12 +25,16 @@ import { AiModelsModule } from './modules/aimodels.module';
 import { AiUsageModule } from './modules/aiusage.module';
 import { MediaModule } from './modules/media.module';
 import { OpsModule } from './modules/ops.module';
+import { JobsModule } from './modules/jobs.module';
+import { WebhooksModule } from './modules/webhooks.module';
+import { ScheduleModule } from '@nestjs/schedule';
 
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
     // Rate limiting global: 200 peticiones/min por IP (el login tiene su propio límite)
     ThrottlerModule.forRoot([{ ttl: 60_000, limit: 200 }]),
+    ScheduleModule.forRoot(),
     PrismaModule,
     AuthModule,
     UsersModule,
@@ -52,6 +56,8 @@ import { OpsModule } from './modules/ops.module';
     AiUsageModule,
     MediaModule,
     OpsModule,
+    JobsModule,
+    WebhooksModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },

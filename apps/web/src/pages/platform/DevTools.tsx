@@ -63,6 +63,18 @@ export default function DevTools() {
     },
   });
 
+  const runInvoices = useMutation({
+    mutationFn: () => api.post<{ period: string; created: number; skipped: number }>('/jobs/invoices'),
+    onSuccess: (r) =>
+      toast.success(`Facturas ${r.period}: ${r.created} creadas, ${r.skipped} ya existían`),
+    onError: (e) => toast.error(e instanceof Error ? e.message : 'Error'),
+  });
+  const runReports = useMutation({
+    mutationFn: () => api.post<{ sent: number }>('/jobs/executive-emails'),
+    onSuccess: (r) => toast.success(`${r.sent} reporte(s) a gerencia generados (ver Correos)`),
+    onError: (e) => toast.error(e instanceof Error ? e.message : 'Error'),
+  });
+
   const saveSettings = useMutation({
     mutationFn: (values: Record<string, string>) => api.put('/dev/settings', values),
     onSuccess: () => {
@@ -93,6 +105,31 @@ export default function DevTools() {
         <Stat label="Usuarios" value={health?.counts.users ?? '—'} />
         <Stat label="Conversaciones" value={fmtNum(health?.counts.conversations ?? 0)} />
         <Stat label="Mensajes" value={fmtNum(health?.counts.messages ?? 0)} />
+      </div>
+
+      {/* Operación: disparos manuales de los trabajos programados */}
+      <div className="mt-6">
+        <Card kicker="Crons: facturas el día 1 · reporte a gerencia a las 7:00" title="Operación">
+          <div className="flex flex-wrap items-center gap-3">
+            <Button
+              variant="outline"
+              disabled={runInvoices.isPending}
+              onClick={() => runInvoices.mutate()}
+            >
+              {runInvoices.isPending ? 'Generando…' : 'Generar facturas del mes anterior'}
+            </Button>
+            <Button
+              variant="outline"
+              disabled={runReports.isPending}
+              onClick={() => runReports.mutate()}
+            >
+              {runReports.isPending ? 'Enviando…' : 'Enviar reportes a gerencia ahora'}
+            </Button>
+            <p className="text-xs text-ink-3">
+              Ambos corren solos (idempotentes); estos botones son para dispararlos a demanda.
+            </p>
+          </div>
+        </Card>
       </div>
 
       <div className="mt-6 grid gap-6 lg:grid-cols-2">
@@ -214,6 +251,7 @@ function SettingsForm({
   const [form, setForm] = useState({
     META_APP_ID: settings.META_APP_ID ?? '',
     META_REDIRECT_URI: settings.META_REDIRECT_URI ?? '',
+    META_VERIFY_TOKEN: settings.META_VERIFY_TOKEN ?? '',
     PLATFORM_NAME: settings.PLATFORM_NAME ?? 'BackOffice',
     SUPPORT_WHATSAPP: settings.SUPPORT_WHATSAPP ?? '',
     DEEPINFRA_API_KEY: settings.DEEPINFRA_API_KEY ?? '',
@@ -238,6 +276,13 @@ function SettingsForm({
       </Field>
       <Field label="OAuth Redirect URI">
         <Input value={form.META_REDIRECT_URI} onChange={(e) => set({ META_REDIRECT_URI: e.target.value })} />
+      </Field>
+      <Field
+        label="Verify token del webhook"
+        hint="El mismo que se registra en Meta al configurar el webhook (GET /api/webhooks/:slug/whatsapp)"
+      >
+        <Input type="password" value={form.META_VERIFY_TOKEN}
+          onChange={(e) => set({ META_VERIFY_TOKEN: e.target.value })} />
       </Field>
       <Field label="Nombre de plataforma">
         <Input value={form.PLATFORM_NAME} onChange={(e) => set({ PLATFORM_NAME: e.target.value })} />

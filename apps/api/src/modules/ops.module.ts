@@ -217,7 +217,11 @@ export class ExecutiveService {
   async report(user: AuthUser, companyId?: string) {
     const scoped = scopeCompanyId(user, companyId);
     if (!scoped || scoped === '__none__') throw new ForbiddenException('Falta companyId');
+    return this.build(scoped);
+  }
 
+  /** Cálculo del reporte (también lo usa el cron del correo diario). */
+  async build(scoped: string) {
     const today = startOfDay();
     const weekStart = daysFrom(today, -6);
     const prevWeekStart = daysFrom(today, -13);
@@ -462,5 +466,6 @@ export class OpsController {
 @Module({
   controllers: [AppointmentsController, FollowUpsController, OpsController],
   providers: [AppointmentsService, FollowUpsService, ExecutiveService],
+  exports: [ExecutiveService],
 })
 export class OpsModule {}

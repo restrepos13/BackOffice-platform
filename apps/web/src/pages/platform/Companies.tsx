@@ -81,7 +81,11 @@ export default function Companies() {
                 )}
               </td>
               <td className="px-4 py-3">
-                <Badge tone={statusTone(c.status)}>{COMPANY_STATUS_LABELS[c.status]}</Badge>
+                {c.status === 'TRIAL' && c.trialEndsAt && new Date(c.trialEndsAt) < new Date() ? (
+                  <Badge tone="bad">Trial vencido</Badge>
+                ) : (
+                  <Badge tone={statusTone(c.status)}>{COMPANY_STATUS_LABELS[c.status]}</Badge>
+                )}
               </td>
               <td className="px-4 py-3 tabular-nums">{c._count?.users ?? 0}</td>
               <td className="px-4 py-3 tabular-nums">{c._count?.bots ?? 0}</td>
