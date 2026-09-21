@@ -1,17 +1,145 @@
 import { useQuery } from '@tanstack/react-query';
+import { CheckCircle2, Circle } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { api } from '../../lib/api';
+import { useAuth } from '../../lib/auth';
 import { fmtNum, fmtUsd, STAGE_LABELS } from '../../lib/format';
-import type { CompanyMetrics } from '../../lib/types';
+import type {
+  Appointment, Bot, Company, CompanyMetrics, FollowUp, Integration, MediaAsset,
+} from '../../lib/types';
 import { Badge, Button, Card, Loading, PageHeader, Stat, statusTone } from '../../components/ui';
 import { BarsChart, MessagesChart } from '../../components/charts';
 import { PickCompany, useCompanyScope, withScope } from './shared';
 
+function greeting(): string {
+  const hour = new Date().getHours();
+  if (hour < 12) return 'Buenos días';
+  if (hour < 19) return 'Buenas tardes';
+  return 'Buenas noches';
+}
+
+/** Checklist de primeros pasos — guía amigable hasta dejar la IA operando. */
+function SetupChecklist({
+  company,
+  integrations,
+  bots,
+  media,
+}: {
+  company?: Company;
+  integrations?: Integration[];
+  bots?: Bot[];
+  media?: MediaAsset[];
+}) {
+  const lines = (integrations ?? []).filter((i) => i.type === 'WHATSAPP');
+  const steps = [
+    {
+      label: 'Conecta tu llave de DeepInfra',
+      hint: 'Tu IA la necesita para pensar — el costo lo pagas directo al proveedor.',
+      done: !!company?.hasDeepinfraKey,
+      to: '/app/settings',
+    },
+    {
+      label: 'Dale personalidad a tu asistente',
+      hint: 'Prompt, tono y límites — o aplica una plantilla de la biblioteca en un clic.',
+      done: (bots ?? []).some((b) => (b.systemPrompt ?? '').length > 20),
+      to: '/app/bots',
+    },
+    {
+      label: 'Conecta tu línea de WhatsApp',
+      hint: 'El número por el que tu asistente va a atender.',
+      done: lines.some((l) => l.status === 'CONNECTED'),
+      to: '/app/integrations',
+    },
+    {
+      label: 'Activa el asistente',
+      hint: 'Cuando la personalidad esté lista, pásalo de borrador a activo.',
+      done: (bots ?? []).some((b) => b.status === 'ACTIVE'),
+      to: '/app/bots',
+    },
+    {
+      label: 'Carga tu galería (opcional)',
+      hint: 'Fotos que la IA puede enviar — con precio si son contenido de pago.',
+      done: (media ?? []).length > 0,
+      to: '/app/media',
+      optional: true,
+    },
+  ];
+  const corePending = steps.filter((s) => !s.done && !s.optional).length;
+  if (corePending === 0) return null;
+  const doneCount = steps.filter((s) => s.done).length;
+
+  return (
+    <Card
+      kicker={`Primeros pasos · ${doneCount}/${steps.length}`}
+      title="Deja tu IA operando"
+      className="mb-6"
+    >
+      <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+        {steps.map((step) => (
+          <Link
+            key={step.label}
+            to={step.to}
+            className={`flex items-start gap-2.5 border-2 px-3 py-2.5 transition-colors ${
+              step.done
+                ? 'border-line bg-bone text-ink-3'
+                : 'border-ink bg-paper hover:bg-bone-2'
+            }`}
+          >
+            {step.done ? (
+              <CheckCircle2 size={16} className="mt-0.5 shrink-0 text-ok" />
+            ) : (
+              <Circle size={16} className="mt-0.5 shrink-0" />
+            )}
+            <span>
+              <span className={`block text-sm font-semibold ${step.done ? 'line-through' : ''}`}>
+                {step.label}
+                {step.optional ? ' · opcional' : ''}
+              </span>
+              {!step.done && <span className="block text-xs text-ink-3">{step.hint}</span>}
+            </span>
+          </Link>
+        ))}
+      </div>
+    </Card>
+  );
+}
+
 export default function Dashboard() {
-  const { ready, q } = useCompanyScope();
+  const { ready, q, companyId, isPlatform } = useCompanyScope();
+  const { user } = useAuth();
   const { data, isLoading } = useQuery({
     queryKey: ['metrics-company', q],
     queryFn: () => api.get<CompanyMetrics>(withScope('/metrics/company', q)),
+    enabled: ready,
+  });
+  const { data: companies } = useQuery({
+    queryKey: ['companies'],
+    queryFn: () => api.get<Company[]>('/companies'),
+    enabled: ready,
+  });
+  const { data: integrations } = useQuery({
+    queryKey: ['integrations', q],
+    queryFn: () => api.get<Integration[]>(withScope('/integrations', q)),
+    enabled: ready,
+  });
+  const { data: bots } = useQuery({
+    queryKey: ['bots', q],
+    queryFn: () => api.get<Bot[]>(withScope('/bots', q)),
+    enabled: ready,
+  });
+  const { data: media } = useQuery({
+    queryKey: ['media', q],
+    queryFn: () => api.get<MediaAsset[]>(withScope('/media', q)),
+    enabled: ready,
+  });
+  const { data: appointments } = useQuery({
+    queryKey: ['appointments', q],
+    queryFn: () => api.get<Appointment[]>(withScope('/appointments', q)),
+    enabled: ready,
+  });
+  const { data: followUps } = useQuery({
+    queryKey: ['followups', q],
+    queryFn: () => api.get<FollowUp[]>(withScope('/followups', q)),
     enabled: ready,
   });
 
@@ -19,12 +147,29 @@ export default function Dashboard() {
   if (isLoading || !data) return <Loading label="Cargando dashboard…" />;
   const { kpis } = data;
 
+  const company = isPlatform
+    ? companies?.find((c) => c.id === companyId)
+    : companies?.[0];
+  const firstName = (user?.name ?? '').split(' ')[0];
+  const todayLabel = new Intl.DateTimeFormat('es-CO', {
+    weekday: 'long', day: 'numeric', month: 'long',
+  }).format(new Date());
+
+  const todayAppointments = (appointments ?? []).filter((a) => {
+    const d = new Date(a.startsAt);
+    const now = new Date();
+    return d.toDateString() === now.toDateString() &&
+      ['SCHEDULED', 'CONFIRMED'].includes(a.status);
+  });
+  const pendingFollowUps = (followUps ?? []).filter((f) => f.status === 'PENDING');
+  const overdueFollowUps = pendingFollowUps.filter((f) => new Date(f.dueAt) < new Date());
+
   return (
     <>
       <PageHeader
-        kicker="Panel de empresa"
-        title="Tu operación,"
-        accent="en vivo."
+        kicker={`${todayLabel} · ${company?.name ?? 'Tu empresa'}`}
+        title={`${greeting()},`}
+        accent={`${firstName}.`}
         actions={
           kpis.attention > 0 ? (
             <Link to="/app/inbox?attention=1">
@@ -35,6 +180,35 @@ export default function Dashboard() {
           ) : undefined
         }
       />
+
+      <SetupChecklist
+        company={company}
+        integrations={integrations}
+        bots={bots}
+        media={media}
+      />
+
+      {/* Agenda del día */}
+      <div className="mb-4 flex flex-wrap items-center gap-x-6 gap-y-1 border-2 border-ink bg-paper px-4 py-2.5 text-sm">
+        <span className="kicker">Hoy</span>
+        <Link to="/app/agenda" className="hover:underline">
+          <strong>{todayAppointments.length}</strong> cita{todayAppointments.length !== 1 ? 's' : ''}
+          {todayAppointments[0] && (
+            <span className="text-ink-3">
+              {' '}· próxima {new Intl.DateTimeFormat('es-CO', { hour: '2-digit', minute: '2-digit' }).format(new Date(todayAppointments[0].startsAt))} ({todayAppointments[0].contact.name})
+            </span>
+          )}
+        </Link>
+        <Link to="/app/agenda" className="hover:underline">
+          <strong>{pendingFollowUps.length}</strong> seguimiento{pendingFollowUps.length !== 1 ? 's' : ''} pendiente{pendingFollowUps.length !== 1 ? 's' : ''}
+          {overdueFollowUps.length > 0 && (
+            <span className="font-semibold text-bad"> · {overdueFollowUps.length} vencido{overdueFollowUps.length !== 1 ? 's' : ''}</span>
+          )}
+        </Link>
+        <Link to="/app/gerencia" className="ml-auto text-xs font-semibold uppercase tracking-wider hover:underline">
+          Reporte a gerencia →
+        </Link>
+      </div>
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
         <Stat label="Conversaciones hoy" value={kpis.conversationsToday} hint={`${kpis.conversations7d} esta semana`} />

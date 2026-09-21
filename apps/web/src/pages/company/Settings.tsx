@@ -77,6 +77,50 @@ function DeepinfraKeyForm({
   );
 }
 
+function SavingsForm({
+  company,
+  canWrite,
+}: {
+  company: Company;
+  canWrite: boolean;
+}) {
+  const queryClient = useQueryClient();
+  const [salary, setSalary] = useState(String(company.savingsSalaryUsd));
+  const [capacity, setCapacity] = useState(String(company.agentCapacityPerMonth));
+  const save = useMutation({
+    mutationFn: () =>
+      api.patch(`/companies/${company.id}`, {
+        savingsSalaryUsd: Number(salary),
+        agentCapacityPerMonth: Number(capacity),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['companies'] });
+      queryClient.invalidateQueries({ queryKey: ['executive'] });
+      toast.success('Parámetros guardados');
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : 'Error'),
+  });
+
+  return (
+    <fieldset disabled={!canWrite} className="space-y-3 text-sm">
+      <Field label="Sueldo mensual equivalente (USD)" hint="Lo que costaría una persona haciendo este trabajo">
+        <Input type="number" min={0} value={salary} onChange={(e) => setSalary(e.target.value)} />
+      </Field>
+      <Field label="Conversaciones que atiende una persona al mes">
+        <Input type="number" min={1} value={capacity} onChange={(e) => setCapacity(e.target.value)} />
+      </Field>
+      {canWrite && (
+        <Button size="sm" className="w-full" disabled={save.isPending} onClick={() => save.mutate()}>
+          {save.isPending ? 'Guardando…' : 'Guardar parámetros'}
+        </Button>
+      )}
+      <p className="border-t border-line pt-2 text-xs text-ink-3">
+        Ahorro = respuestas de la IA en el mes ÷ capacidad de una persona × sueldo.
+      </p>
+    </fieldset>
+  );
+}
+
 export default function CompanySettings() {
   const { ready, companyId, canWrite, isPlatform } = useCompanyScope();
   const queryClient = useQueryClient();
@@ -194,6 +238,10 @@ export default function CompanySettings() {
 
           <Card kicker="BYOK · el costo de IA lo pagas directo a DeepInfra" title="Llave DeepInfra">
             <DeepinfraKeyForm company={company} canWrite={canWrite} />
+          </Card>
+
+          <Card kicker="Cómo se calcula tu ahorro en Gerencia" title="Reporte a Gerencia">
+            <SavingsForm company={company} canWrite={canWrite} />
           </Card>
 
           <Card kicker="Panel" title="Módulos activos">

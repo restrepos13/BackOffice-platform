@@ -18,6 +18,8 @@ import AiModels from './pages/platform/AiModels';
 import PlatformUsage from './pages/platform/Usage';
 import Media from './pages/company/Media';
 import Usage from './pages/company/Usage';
+import Agenda from './pages/company/Agenda';
+import Gerencia from './pages/company/Gerencia';
 import LineDetail from './pages/company/LineDetail';
 import Dashboard from './pages/company/Dashboard';
 import Inbox from './pages/company/Inbox';
@@ -88,6 +90,8 @@ export default function App() {
         <Route path="/app/lines/:id" element={<LineDetail />} />
         <Route path="/app/media" element={<Media />} />
         <Route path="/app/usage" element={<Usage />} />
+        <Route path="/app/agenda" element={<Agenda />} />
+        <Route path="/app/gerencia" element={<Gerencia />} />
         <Route path="/app/analytics" element={<Analytics />} />
         <Route path="/app/billing" element={<Billing />} />
         <Route path="/app/team" element={<Team />} />

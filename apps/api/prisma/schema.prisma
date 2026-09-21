@@ -74,6 +74,9 @@ model Company {
   // BYOK: llave de DeepInfra de la empresa — el costo de IA lo asume el cliente
   // directo con el proveedor. Nunca se devuelve completa por el API (se enmascara).
   deepinfraApiKey String?
+  // Parámetros del "Reporte a Gerencia": ahorro = conversaciones IA/mes ÷ capacidad × sueldo
+  savingsSalaryUsd      Float @default(400) // sueldo mensual equivalente de un agente humano
+  agentCapacityPerMonth Int   @default(300) // conversaciones que atiende una persona al mes
   notes        String?
   // Módulos habilitados para el tenant (string[] serializado):
   // inbox, contacts, bots, automations, analytics, billing, team
@@ -99,6 +102,8 @@ model Company {
   emailMessages    EmailMessage[]
   mediaAssets      MediaAsset[]
   aiUsageEvents    AiUsageEvent[]
+  appointments     Appointment[]
+  followUps        FollowUp[]
 }
 
 // ─── Bots / Asistentes IA ────────────────────────────────────────────
@@ -217,6 +222,8 @@ model Contact {
   createdAt      DateTime @default(now())
 
   conversations Conversation[]
+  appointments  Appointment[]
+  followUps     FollowUp[]
 }
 
 // ─── Conversaciones y mensajes ───────────────────────────────────────
@@ -253,6 +260,50 @@ model Message {
   mediaAssetId   String? // foto de la galería enviada en este mensaje
   mediaAsset     MediaAsset?  @relation(fields: [mediaAssetId], references: [id])
   createdAt      DateTime     @default(now())
+}
+
+// ─── Agenda de citas ─────────────────────────────────────────────────
+// Lo que promete la landing: "agendan citas 24/7". Hoy se crean manualmente
+// o desde el chat; el motor de IA las creará solo (source IA) en fase 2.
+// status: SCHEDULED | CONFIRMED | COMPLETED | CANCELLED | NO_SHOW
+model Appointment {
+  id            String   @id @default(cuid()) @map("_id")
+  companyId     String
+  company       Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  contactId     String
+  contact       Contact  @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  title         String
+  notes         String?
+  location      String?
+  startsAt      DateTime
+  durationMin   Int      @default(30)
+  status        String   @default("SCHEDULED")
+  source        String   @default("MANUAL") // MANUAL | IA
+  createdBy     String? // nombre del actor
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([companyId, startsAt])
+}
+
+// ─── Seguimientos ────────────────────────────────────────────────────
+// "Seguimientos pendientes" del reporte a gerencia: recordatorios sobre
+// contactos (llamar, reintentar venta, confirmar cita…).
+// status: PENDING | DONE | CANCELLED
+model FollowUp {
+  id        String   @id @default(cuid()) @map("_id")
+  companyId String
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  contactId String
+  contact   Contact  @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  note      String
+  dueAt     DateTime
+  status    String   @default("PENDING")
+  createdBy String?
+  doneAt    DateTime?
+  createdAt DateTime @default(now())
+
+  @@index([companyId, dueAt])
 }
 
 // ─── Galería de medios ───────────────────────────────────────────────

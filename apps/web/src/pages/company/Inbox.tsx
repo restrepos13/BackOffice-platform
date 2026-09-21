@@ -13,6 +13,7 @@ import {
   Badge, Button, Loading, Modal, PageHeader, Select, Textarea, statusTone,
 } from '../../components/ui';
 import { MediaImage } from '../../components/media';
+import { AppointmentModal, FollowUpModal } from './Agenda';
 import { PickCompany, useCompanyScope, withScope } from './shared';
 
 export default function Inbox() {
@@ -25,6 +26,8 @@ export default function Inbox() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [draft, setDraft] = useState('');
   const [photoPicker, setPhotoPicker] = useState(false);
+  const [scheduling, setScheduling] = useState(false);
+  const [followingUp, setFollowingUp] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const { data: lines } = useQuery({
@@ -183,7 +186,13 @@ export default function Inbox() {
                 </div>
               </div>
               {canWrite && (
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2">
+                  <Button size="sm" variant="outline" onClick={() => setScheduling(true)}>
+                    Agendar cita
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={() => setFollowingUp(true)}>
+                    Seguimiento
+                  </Button>
                   <Button
                     size="sm"
                     variant={detail.needsAttention ? 'danger' : 'outline'}
@@ -291,6 +300,24 @@ export default function Inbox() {
           </div>
         )}
       </div>
+
+      {/* Acciones rápidas sobre el contacto de la conversación */}
+      {detail && (
+        <>
+          <AppointmentModal
+            open={scheduling}
+            onClose={() => setScheduling(false)}
+            contacts={[detail.contact]}
+            presetContactId={detail.contact.id}
+          />
+          <FollowUpModal
+            open={followingUp}
+            onClose={() => setFollowingUp(false)}
+            contacts={[detail.contact]}
+            presetContactId={detail.contact.id}
+          />
+        </>
+      )}
 
       {/* Enviar foto de la galería */}
       <Modal

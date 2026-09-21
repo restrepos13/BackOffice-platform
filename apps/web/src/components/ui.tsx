@@ -147,6 +147,8 @@ export function statusTone(status: string): keyof typeof BADGE_TONES {
     case 'CLIENTE':
     case 'APPROVED':
     case 'SENT':
+    case 'COMPLETED':
+    case 'DONE':
       return 'ok';
     case 'TRIAL':
     case 'PENDING':

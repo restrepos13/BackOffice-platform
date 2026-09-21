@@ -24,6 +24,7 @@ import { EmailsModule } from './modules/emails.module';
 import { AiModelsModule } from './modules/aimodels.module';
 import { AiUsageModule } from './modules/aiusage.module';
 import { MediaModule } from './modules/media.module';
+import { OpsModule } from './modules/ops.module';
 
 @Module({
   imports: [
@@ -50,6 +51,7 @@ import { MediaModule } from './modules/media.module';
     AiModelsModule,
     AiUsageModule,
     MediaModule,
+    OpsModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },

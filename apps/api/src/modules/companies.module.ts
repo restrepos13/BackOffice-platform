@@ -307,6 +307,13 @@ export class CompaniesService {
         ...(dto.deepinfraApiKey !== undefined
           ? { deepinfraApiKey: dto.deepinfraApiKey || null }
           : {}),
+        // Parámetros del Reporte a Gerencia (ahorro estimado)
+        ...(dto.savingsSalaryUsd != null
+          ? { savingsSalaryUsd: Number(dto.savingsSalaryUsd) }
+          : {}),
+        ...(dto.agentCapacityPerMonth != null
+          ? { agentCapacityPerMonth: Number(dto.agentCapacityPerMonth) }
+          : {}),
         ...(dto.modules ? { modulesJson: JSON.stringify(dto.modules) } : {}),
         ...(dto.limits ? { limitsJson: JSON.stringify(dto.limits) } : {}),
       },

@@ -48,6 +48,9 @@ export interface Company {
   /** BYOK DeepInfra: la llave nunca viaja completa */
   hasDeepinfraKey: boolean;
   deepinfraKeyMasked?: string | null;
+  /** Parámetros del Reporte a Gerencia */
+  savingsSalaryUsd: number;
+  agentCapacityPerMonth: number;
   trialEndsAt?: string | null;
   createdAt: string;
   users?: UserRow[];
@@ -342,6 +345,60 @@ export interface EmailMessage {
   actorName: string;
   sentAt?: string | null;
   createdAt: string;
+}
+
+export interface Appointment {
+  id: string;
+  companyId: string;
+  contactId: string;
+  contact: { id: string; name: string; phone?: string | null; stage: string };
+  title: string;
+  notes?: string | null;
+  location?: string | null;
+  startsAt: string;
+  durationMin: number;
+  status: 'SCHEDULED' | 'CONFIRMED' | 'COMPLETED' | 'CANCELLED' | 'NO_SHOW';
+  source: string;
+  createdBy?: string | null;
+}
+
+export interface FollowUp {
+  id: string;
+  companyId: string;
+  contactId: string;
+  contact: { id: string; name: string; phone?: string | null; stage: string };
+  note: string;
+  dueAt: string;
+  status: 'PENDING' | 'DONE' | 'CANCELLED';
+  createdBy?: string | null;
+  doneAt?: string | null;
+}
+
+export interface ExecutiveReport {
+  generatedAt: string;
+  company: { name: string };
+  week: {
+    conversations: number; conversationsPrev: number;
+    messages: number; messagesPrev: number;
+    newContacts: number; newContactsPrev: number;
+    appointments: number; appointmentsPrev: number;
+  };
+  savings: {
+    aiRepliesMonth: number;
+    agentCapacityPerMonth: number;
+    salaryUsd: number;
+    salariesEquivalent: number;
+    savedUsd: number;
+    aiCostMonth: number;
+  };
+  areas: { area: string; ok: boolean; detail: string }[];
+  attendanceRate: number | null;
+  pending: {
+    attention: number;
+    overdueFollowUps: { id: string; note: string; dueAt: string; contact: string }[];
+    upcomingAppointments: { id: string; title: string; startsAt: string; status: string; contact: string }[];
+    staleHotLeads: { id: string; name: string; lastActivityAt: string }[];
+  };
 }
 
 export interface AiUsageKpis {
