@@ -109,14 +109,20 @@ Esquema completo: `apps/api/prisma/schema.prisma`. Seed: `apps/api/prisma/seed.t
   Analytics (ranking de líneas), Billing (plan + consumo = mensualidad, botón
   Pagar con Wompi), Team, Settings. `shared.tsx` = `useCompanyScope()`/`withScope()`
 
-## Datos demo (seed) — contraseña de todos: `backoffice2026`
+## Seeds y cuentas
 
-- Plataforma: `santiago@backoffice.dev`, `daniel@backoffice.dev` (SUPER_ADMIN), `dev@backoffice.dev` (DEV)
-- **Mas Salud Latam** (clínica CR, Growth): `admin@` / `vista@massaludlatam.com` — 2 líneas WA (Citas hereda, Ventas custom), bot auditor
-- **HM Motors** (concesionario CR, Starter): `admin@` / `vista@hmmotors.net` — factura OVERDUE para probar Wompi
-- **Lotes Ancestral** (inmobiliaria CO, TRIAL): `admin@lotesancestral.com` — canales sin conectar
-- **Nova Studio** (agencia webcam CO, Growth): `admin@` / `monitor@novastudio.co` — 4 líneas-perfil (Valentina, Sofía, Isabella, Luna) todas con personalidad CUSTOM
-- 5 plantillas globales de personalidad, 45 días de consumo por empresa, facturas, pago Wompi demo, correo en cola
+**`pnpm db:seed` = seed de PRODUCCIÓN** (desde el 21 sep 2026): limpia todo y
+deja planes, catálogo IA, personalidades globales, settings, el equipo
+BackOffice y UNA "Empresa de Prueba" vacía. ⚠️ Nunca correrlo sin pensar cuando
+haya datos reales de clientes — borra todo.
+Los datos demo (4 empresas, conversaciones, consumo) viven en
+`prisma/seed-demo.ts` → `pnpm db:seed:demo`.
+
+Cuentas reales (contraseñas en el encabezado de `prisma/seed.ts`, todas fuertes;
+la vieja `backoffice2026` ya no existe):
+- `santiago@backoffice.dev` / `daniel@backoffice.dev` — SUPER_ADMIN
+- `restrepos591@gmail.com` / `danielloaiza609@gmail.com` — DEV (fundadores)
+- `admin@empresa-prueba.com` — COMPANY_ADMIN de la Empresa de Prueba (vacía)
 
 ## Pendiente (fase 2)
 
