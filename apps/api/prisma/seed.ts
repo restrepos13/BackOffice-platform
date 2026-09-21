@@ -240,6 +240,22 @@ async function main() {
       role: 'DEV', jobTitle: 'Desarrollador', passwordHash: PASSWORD,
     },
   });
+  // Cuentas dev personales de los fundadores (contraseñas propias, fuertes —
+  // estas cuentas se usan con la web expuesta por túnel)
+  await prisma.user.create({
+    data: {
+      email: 'restrepos591@gmail.com', name: 'Santiago Restrepo',
+      role: 'DEV', jobTitle: 'Co-fundador · Dev',
+      passwordHash: bcrypt.hashSync('SEED_PASSWORD_DEV_SANTIAGO', 10),
+    },
+  });
+  await prisma.user.create({
+    data: {
+      email: 'danielloaiza609@gmail.com', name: 'Daniel Loaiza',
+      role: 'DEV', jobTitle: 'Co-fundador · Dev',
+      passwordHash: bcrypt.hashSync('SEED_PASSWORD_DEV_DANIEL', 10),
+    },
+  });
 
   // ── Empresa 1: Mas Salud Latam ────────────────────────────────────
   console.log('Mas Salud Latam…');
