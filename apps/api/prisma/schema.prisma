@@ -1,0 +1,297 @@
+// BackOffice Platform — esquema de datos multi-tenant.
+// NOTA: hoy corre sobre SQLite (desarrollo). Cuando se defina la base final
+// (Postgres/MySQL/etc.) solo hay que cambiar `provider` y DATABASE_URL.
+// Por compatibilidad con SQLite, los enums son String (constantes en src/common/constants.ts)
+// y los campos JSON se guardan como String serializado.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Usuarios y roles ────────────────────────────────────────────────
+// role: SUPER_ADMIN | DEV | COMPANY_ADMIN | COMPANY_VIEWER
+model User {
+  id           String    @id @default(cuid())
+  email        String    @unique
+  passwordHash String
+  name         String
+  role         String
+  companyId    String?
+  company      Company?  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  phone        String?
+  jobTitle     String?
+  active       Boolean   @default(true)
+  lastLoginAt  DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  auditLogs        AuditLog[]
+  assignedContacts Contact[]  @relation("AssignedContacts")
+}
+
+// ─── Planes ──────────────────────────────────────────────────────────
+model Plan {
+  id            String    @id @default(cuid())
+  code          String    @unique // starter | growth | scale | enterprise | custom-xxx
+  name          String
+  priceMonthly  Float // USD; 0 = a medida
+  maxBots       Int // perfiles/modelos
+  maxWorkspaces Int
+  maxUsers      Int
+  featuresJson  String // string[] serializado
+  highlight     Boolean   @default(false)
+  isCustom      Boolean   @default(false)
+  active        Boolean   @default(true)
+  companies     Company[]
+  createdAt     DateTime  @default(now())
+}
+
+// ─── Empresas (tenants) ──────────────────────────────────────────────
+// status: TRIAL | ACTIVE | SUSPENDED | CANCELLED
+model Company {
+  id           String   @id @default(cuid())
+  name         String
+  slug         String   @unique
+  legalName    String?
+  industry     String?
+  country      String?
+  city         String?
+  website      String?
+  contactEmail String?
+  contactPhone String?
+  status       String   @default("TRIAL")
+  planId       String?
+  plan         Plan?    @relation(fields: [planId], references: [id])
+  timezone     String   @default("America/Bogota")
+  language     String   @default("es")
+  logoUrl      String?
+  brandColor   String?
+  notes        String?
+  // Módulos habilitados para el tenant (string[] serializado):
+  // inbox, contacts, bots, automations, analytics, billing, team
+  modulesJson  String   @default("[\"inbox\",\"contacts\",\"bots\",\"automations\",\"analytics\",\"billing\",\"team\"]")
+  // Overrides de límites del plan (JSON {maxBots?, maxUsers?, maxWorkspaces?})
+  limitsJson   String   @default("{}")
+  trialEndsAt  DateTime?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  users         User[]
+  bots          Bot[]
+  integrations  Integration[]
+  contacts      Contact[]
+  conversations Conversation[]
+  automations   Automation[]
+  usageRecords  UsageRecord[]
+  invoices      Invoice[]
+  auditLogs     AuditLog[]
+  apiKeys       ApiKey[]
+}
+
+// ─── Bots / Asistentes IA ────────────────────────────────────────────
+// status: ACTIVE | PAUSED | DRAFT
+model Bot {
+  id              String   @id @default(cuid())
+  companyId       String
+  company         Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  name            String
+  description     String?
+  status          String   @default("DRAFT")
+  provider        String   @default("anthropic") // anthropic | openai | ...
+  model           String   @default("claude-sonnet-5")
+  temperature     Float    @default(0.7)
+  maxTokens       Int      @default(1024)
+  systemPrompt    String   @default("")
+  // personalidad: JSON {tone, style, limits, bio, language}
+  personalityJson String   @default("{}")
+  memoryEnabled   Boolean  @default(true)
+  welcomeMessage  String?
+  handoffKeywords String? // separado por comas
+  businessHours   String? // JSON {enabled, schedule}
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  conversations Conversation[]
+  integrations  Integration[]
+}
+
+// ─── Integraciones / Canales ─────────────────────────────────────────
+// type: WHATSAPP | INSTAGRAM | MESSENGER | TELEGRAM | META_ADS | N8N | GOOGLE_CALENDAR | WEBHOOK
+// status: DISCONNECTED | PENDING | CONNECTED | ERROR
+model Integration {
+  id         String    @id @default(cuid())
+  companyId  String
+  company    Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  botId      String?
+  bot        Bot?      @relation(fields: [botId], references: [id])
+  type       String
+  name       String
+  status     String    @default("DISCONNECTED")
+  // config: JSON — para WhatsApp: {phoneNumberId, wabaId, displayPhone}; vacío hasta conectar
+  configJson String    @default("{}")
+  connectUrl String? // link de conexión (OAuth de Meta, deep link, etc.)
+  webhookUrl String?
+  lastSyncAt DateTime?
+  errorMsg   String?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+}
+
+// ─── CRM: contactos / leads ──────────────────────────────────────────
+// stage: CURIOSO | POTENCIAL | CALIENTE | CLIENTE | DESCARTADO
+model Contact {
+  id             String   @id @default(cuid())
+  companyId      String
+  company        Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  name           String
+  phone          String?
+  email          String?
+  channel        String   @default("WHATSAPP")
+  stage          String   @default("CURIOSO")
+  tagsJson       String   @default("[]")
+  notes          String?
+  assignedToId   String?
+  assignedTo     User?    @relation("AssignedContacts", fields: [assignedToId], references: [id])
+  lastActivityAt DateTime @default(now())
+  createdAt      DateTime @default(now())
+
+  conversations Conversation[]
+}
+
+// ─── Conversaciones y mensajes ───────────────────────────────────────
+// status: OPEN | PENDING | HANDOFF | RESOLVED
+model Conversation {
+  id             String   @id @default(cuid())
+  companyId      String
+  company        Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  botId          String?
+  bot            Bot?     @relation(fields: [botId], references: [id])
+  contactId      String
+  contact        Contact  @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  channel        String   @default("WHATSAPP")
+  status         String   @default("OPEN")
+  needsAttention Boolean  @default(false)
+  unreadCount    Int      @default(0)
+  lastMessageAt  DateTime @default(now())
+  createdAt      DateTime @default(now())
+
+  messages Message[]
+}
+
+// direction: IN | OUT — author: CONTACT | BOT | AGENT
+model Message {
+  id             String       @id @default(cuid())
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  direction      String
+  author         String
+  content        String
+  tokens         Int?
+  createdAt      DateTime     @default(now())
+}
+
+// ─── Automatizaciones ────────────────────────────────────────────────
+// type: FLOW | CONTENT | REPORT | INTERNAL — status: ACTIVE | PAUSED | DRAFT
+model Automation {
+  id          String    @id @default(cuid())
+  companyId   String
+  company     Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  name        String
+  description String?
+  type        String    @default("FLOW")
+  trigger     String? // descripción del disparador
+  status      String    @default("DRAFT")
+  configJson  String    @default("{}")
+  lastRunAt   DateTime?
+  runsCount   Int       @default(0)
+  successRate Float     @default(100)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  runs AutomationRun[]
+}
+
+// status: SUCCESS | FAILED | RUNNING
+model AutomationRun {
+  id           String     @id @default(cuid())
+  automationId String
+  automation   Automation @relation(fields: [automationId], references: [id], onDelete: Cascade)
+  status       String
+  startedAt    DateTime   @default(now())
+  finishedAt   DateTime?
+  log          String?
+}
+
+// ─── Consumo y facturación ───────────────────────────────────────────
+model UsageRecord {
+  id              String   @id @default(cuid())
+  companyId       String
+  company         Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  date            DateTime // día (00:00)
+  messagesIn      Int      @default(0)
+  messagesOut     Int      @default(0)
+  aiTokens        Int      @default(0)
+  aiCostUsd       Float    @default(0)
+  storageMb       Float    @default(0)
+  storageCostUsd  Float    @default(0)
+  waConversations Int      @default(0)
+  waCostUsd       Float    @default(0)
+
+  @@unique([companyId, date])
+}
+
+// status: PAID | PENDING | OVERDUE
+model Invoice {
+  id                String   @id @default(cuid())
+  companyId         String
+  company           Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  period            String // "2026-08"
+  planAmount        Float
+  consumptionAmount Float
+  totalAmount       Float
+  status            String   @default("PENDING")
+  issuedAt          DateTime @default(now())
+  paidAt            DateTime?
+}
+
+// ─── Auditoría ───────────────────────────────────────────────────────
+model AuditLog {
+  id        String   @id @default(cuid())
+  actorId   String?
+  actor     User?    @relation(fields: [actorId], references: [id])
+  actorName String
+  companyId String?
+  company   Company? @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  action    String // company.create, bot.update, user.invite, ...
+  entity    String
+  entityId  String?
+  detail    String?
+  ip        String?
+  createdAt DateTime @default(now())
+}
+
+// ─── API keys (panel dev) ────────────────────────────────────────────
+model ApiKey {
+  id         String    @id @default(cuid())
+  companyId  String?
+  company    Company?  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  name       String
+  prefix     String // visible: bo_live_xxxx
+  hash       String
+  scopesJson String    @default("[]")
+  lastUsedAt DateTime?
+  revokedAt  DateTime?
+  createdAt  DateTime  @default(now())
+}
+
+// ─── Configuración global de plataforma ──────────────────────────────
+model PlatformSetting {
+  key       String   @id
+  value     String
+  updatedAt DateTime @updatedAt
+}

@@ -1,0 +1,17 @@
+{
+  "name": "backoffice-platform",
+  "private": true,
+  "version": "0.1.0",
+  "scripts": {
+    "dev": "pnpm --parallel --filter ./apps/* dev",
+    "dev:api": "pnpm --filter @backoffice/api dev",
+    "dev:web": "pnpm --filter @backoffice/web dev",
+    "build": "pnpm --filter ./apps/* build",
+    "db:push": "pnpm --filter @backoffice/api db:push",
+    "db:seed": "pnpm --filter @backoffice/api db:seed",
+    "db:studio": "pnpm --filter @backoffice/api db:studio"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

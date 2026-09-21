@@ -1,0 +1,104 @@
+@import "tailwindcss";
+
+/* ─── BackOffice design system — editorial brutalista ───────────────
+   Tokens extraídos de backoffice-alpha-jade.vercel.app:
+   hueso #E6E1DD · tinta #1A1A1A · Anton (títulos) · Playfair (acentos)
+   · Geist (cuerpo) · bordes visibles · esquinas rectas               */
+
+@theme {
+  --color-bone: #e6e1dd;
+  --color-bone-2: #dfd9d4;
+  --color-bone-3: #d4cdc6;
+  --color-paper: #f1eeea;
+  --color-ink: #1a1a1a;
+  --color-ink-2: #3d3a37;
+  --color-ink-3: #6b6560;
+  --color-line: #c3bbb2;
+
+  --color-ok: #1f7a3d;
+  --color-ok-soft: #dcebe0;
+  --color-warn: #9a6b00;
+  --color-warn-soft: #f0e6cd;
+  --color-bad: #b3261e;
+  --color-bad-soft: #f2dcda;
+  --color-info: #1f4f7a;
+  --color-info-soft: #dae5f0;
+  --color-wa: #25d366;
+
+  --font-display: "Anton", "Arial Narrow", sans-serif;
+  --font-serif: "Playfair Display", Georgia, serif;
+  --font-sans: "Geist", "Inter", system-ui, sans-serif;
+  --font-mono: "Geist Mono", ui-monospace, monospace;
+
+  --radius: 0px;
+}
+
+html {
+  font-family: var(--font-sans);
+}
+
+body {
+  background: var(--color-bone);
+  color: var(--color-ink);
+  font-size: 15px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+::selection {
+  background: var(--color-ink);
+  color: var(--color-bone);
+}
+
+/* Título display estilo landing */
+.display {
+  font-family: var(--font-display);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  line-height: 0.95;
+}
+
+.serif-accent {
+  font-family: var(--font-serif);
+  font-style: italic;
+}
+
+/* Etiqueta técnica en mayúsculas */
+.kicker {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--color-ink-3);
+}
+
+/* Scrollbar sobria */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: var(--color-bone);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-line);
+  border: 2px solid var(--color-bone);
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-ink-3);
+}
+
+/* Focus visible brutalista */
+:focus-visible {
+  outline: 2px solid var(--color-ink);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

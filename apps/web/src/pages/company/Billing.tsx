@@ -1,0 +1,143 @@
+import { useQuery } from '@tanstack/react-query';
+import { useState } from 'react';
+import { api } from '../../lib/api';
+import { INVOICE_STATUS_LABELS, fmtDate, fmtNum, fmtUsd } from '../../lib/format';
+import type { BillingSummary, Invoice } from '../../lib/types';
+import {
+  Badge, Card, Loading, PageHeader, Select, Table, statusTone,
+} from '../../components/ui';
+import { PickCompany, useCompanyScope, withScope } from './shared';
+
+function lastPeriods(n: number): string[] {
+  const periods: string[] = [];
+  const now = new Date();
+  for (let i = 0; i < n; i++) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    periods.push(d.toISOString().slice(0, 7));
+  }
+  return periods;
+}
+
+export default function Billing() {
+  const { ready, q } = useCompanyScope();
+  const [period, setPeriod] = useState(lastPeriods(1)[0]);
+
+  const { data: summary, isLoading } = useQuery({
+    queryKey: ['billing-summary', q, period],
+    queryFn: () =>
+      api.get<BillingSummary>(withScope(`/billing/summary?period=${period}`, q)),
+    enabled: ready,
+  });
+  const { data: invoices } = useQuery({
+    queryKey: ['invoices', q],
+    queryFn: () => api.get<Invoice[]>(withScope('/billing/invoices', q)),
+    enabled: ready,
+  });
+
+  if (!ready) return <PickCompany />;
+  if (isLoading || !summary) return <Loading label="Calculando consumo…" />;
+
+  return (
+    <>
+      <PageHeader
+        kicker="Tu factura = plan + consumo"
+        title="Facturación"
+        actions={
+          <Select value={period} onChange={(e) => setPeriod(e.target.value)} className="!w-auto">
+            {lastPeriods(6).map((p) => <option key={p} value={p}>{p}</option>)}
+          </Select>
+        }
+      />
+
+      {/* Composición de la mensualidad, como en la landing */}
+      <div className="grid items-stretch gap-4 lg:grid-cols-[1fr_auto_1fr_auto_1fr]">
+        <Card kicker="Tarifa fija mensual" title={summary.plan?.name ?? 'Sin plan'}>
+          <p className="display text-4xl">
+            {summary.plan ? fmtUsd(summary.plan.priceMonthly) : '—'}
+          </p>
+          <p className="mt-1 text-xs text-ink-3">
+            Plataforma, panel, supervisión, analytics y soporte. Siempre el mismo monto.
+          </p>
+        </Card>
+
+        <div className="hidden items-center lg:flex">
+          <span className="display text-4xl">+</span>
+        </div>
+
+        <Card kicker="Consumo · al costo, variable" title="Tu operación">
+          <ul className="space-y-2 text-sm">
+            <li className="flex justify-between border-b border-line pb-1.5">
+              <span>
+                Recursos de IA
+                <span className="block text-[11px] text-ink-3">{fmtNum(summary.consumption.ai.tokens)} tokens</span>
+              </span>
+              <strong>{fmtUsd(summary.consumption.ai.costUsd)}</strong>
+            </li>
+            <li className="flex justify-between border-b border-line pb-1.5">
+              <span>
+                API de WhatsApp
+                <span className="block text-[11px] text-ink-3">{fmtNum(summary.consumption.whatsapp.conversations)} conversaciones Meta</span>
+              </span>
+              <strong>{fmtUsd(summary.consumption.whatsapp.costUsd)}</strong>
+            </li>
+            <li className="flex justify-between border-b border-line pb-1.5">
+              <span>
+                Almacenamiento
+                <span className="block text-[11px] text-ink-3">{fmtNum(Math.round(summary.consumption.storage.mb))} MB</span>
+              </span>
+              <strong>{fmtUsd(summary.consumption.storage.costUsd)}</strong>
+            </li>
+            <li className="flex justify-between pt-1">
+              <span className="font-semibold">Total consumo</span>
+              <strong>{fmtUsd(summary.consumption.totalUsd)}</strong>
+            </li>
+          </ul>
+        </Card>
+
+        <div className="hidden items-center lg:flex">
+          <span className="display text-4xl">=</span>
+        </div>
+
+        <section className="border-2 border-ink bg-ink text-bone">
+          <header className="border-b-2 border-bone/30 px-5 py-3">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-line">
+              Tu mensualidad · {summary.period}
+            </p>
+            <h2 className="display text-lg leading-tight">Un solo cobro</h2>
+          </header>
+          <div className="p-5">
+            <p className="display text-5xl">{fmtUsd(summary.totalUsd)}</p>
+            <p className="mt-2 text-xs text-line">
+              Sin costos ocultos: el consumo se traslada al costo y lo ves desglosado
+              aquí, en vivo. Nunca una factura sorpresa.
+            </p>
+          </div>
+        </section>
+      </div>
+
+      {/* Historial */}
+      <div className="mt-8">
+        <h2 className="display mb-3 text-2xl">Historial de facturas</h2>
+        <Table head={['Período', 'Plan', 'Consumo', 'Total', 'Estado', 'Pagada']}>
+          {invoices?.map((invoice) => (
+            <tr key={invoice.id}>
+              <td className="px-4 py-3 font-mono text-sm">{invoice.period}</td>
+              <td className="px-4 py-3 tabular-nums">{fmtUsd(invoice.planAmount)}</td>
+              <td className="px-4 py-3 tabular-nums">{fmtUsd(invoice.consumptionAmount)}</td>
+              <td className="px-4 py-3 font-semibold tabular-nums">{fmtUsd(invoice.totalAmount)}</td>
+              <td className="px-4 py-3">
+                <Badge tone={statusTone(invoice.status)}>{INVOICE_STATUS_LABELS[invoice.status]}</Badge>
+              </td>
+              <td className="px-4 py-3 text-xs text-ink-3">
+                {invoice.paidAt ? fmtDate(invoice.paidAt) : '—'}
+              </td>
+            </tr>
+          ))}
+          {(invoices?.length ?? 0) === 0 && (
+            <tr><td colSpan={6} className="px-4 py-10 text-center text-ink-3">Sin facturas todavía.</td></tr>
+          )}
+        </Table>
+      </div>
+    </>
+  );
+}

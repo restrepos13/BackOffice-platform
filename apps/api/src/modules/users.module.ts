@@ -1,0 +1,199 @@
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Delete,
+  ForbiddenException,
+  Get,
+  Injectable,
+  Module,
+  Param,
+  Patch,
+  Post,
+  Query,
+} from '@nestjs/common';
+import { IsEmail, IsIn, IsOptional, IsString, MinLength } from 'class-validator';
+import { PrismaService } from '../prisma/prisma.service';
+import { AuthService } from '../auth/auth.service';
+import { CurrentUser, Roles } from '../auth/decorators';
+import {
+  AuthUser,
+  ROLES,
+  isPlatformRole,
+  scopeCompanyId,
+} from '../common/constants';
+import { AuditService } from './audit.module';
+
+class CreateUserDto {
+  @IsEmail() email!: string;
+  @IsString() @MinLength(2) name!: string;
+  @IsIn(Object.values(ROLES)) role!: string;
+  @IsString() @MinLength(8) password!: string;
+  @IsOptional() @IsString() companyId?: string;
+  @IsOptional() @IsString() jobTitle?: string;
+  @IsOptional() @IsString() phone?: string;
+}
+
+class UpdateUserDto {
+  @IsOptional() @IsString() name?: string;
+  @IsOptional() @IsIn(Object.values(ROLES)) role?: string;
+  @IsOptional() @IsString() jobTitle?: string;
+  @IsOptional() @IsString() phone?: string;
+  @IsOptional() active?: boolean;
+  @IsOptional() @IsString() @MinLength(8) password?: string;
+}
+
+@Injectable()
+export class UsersService {
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly audit: AuditService,
+  ) {}
+
+  private safe<T extends { passwordHash?: string }>(u: T) {
+    const { passwordHash: _ph, ...rest } = u;
+    return rest;
+  }
+
+  async list(user: AuthUser, companyId?: string) {
+    const scoped = scopeCompanyId(user, companyId);
+    const users = await this.prisma.user.findMany({
+      where: scoped ? { companyId: scoped } : undefined,
+      orderBy: [{ role: 'asc' }, { createdAt: 'asc' }],
+      include: { company: { select: { name: true, slug: true } } },
+    });
+    return users.map((u) => this.safe(u));
+  }
+
+  async create(actor: AuthUser, dto: CreateUserDto) {
+    // Roles de empresa solo pueden crear usuarios dentro de su empresa y de rango igual o menor
+    if (!isPlatformRole(actor.role)) {
+      if (![ROLES.COMPANY_ADMIN, ROLES.COMPANY_VIEWER].includes(dto.role as any)) {
+        throw new ForbiddenException('No puedes crear usuarios de plataforma');
+      }
+      dto.companyId = actor.companyId ?? undefined;
+    }
+    if (
+      [ROLES.COMPANY_ADMIN, ROLES.COMPANY_VIEWER].includes(dto.role as any) &&
+      !dto.companyId
+    ) {
+      throw new BadRequestException('Un usuario de empresa necesita companyId');
+    }
+    const exists = await this.prisma.user.findUnique({
+      where: { email: dto.email.toLowerCase() },
+    });
+    if (exists) throw new BadRequestException('Ya existe un usuario con ese correo');
+
+    const user = await this.prisma.user.create({
+      data: {
+        email: dto.email.toLowerCase(),
+        name: dto.name,
+        role: dto.role,
+        companyId: isPlatformRole(dto.role) ? null : dto.companyId,
+        jobTitle: dto.jobTitle,
+        phone: dto.phone,
+        passwordHash: AuthService.hashPassword(dto.password),
+      },
+    });
+    await this.audit.log({
+      actor,
+      companyId: user.companyId,
+      action: 'user.create',
+      entity: 'User',
+      entityId: user.id,
+      detail: `${user.name} (${user.role})`,
+    });
+    return this.safe(user);
+  }
+
+  async update(actor: AuthUser, id: string, dto: UpdateUserDto) {
+    const target = await this.prisma.user.findUniqueOrThrow({ where: { id } });
+    if (!isPlatformRole(actor.role) && target.companyId !== actor.companyId) {
+      throw new ForbiddenException();
+    }
+    if (!isPlatformRole(actor.role) && dto.role && isPlatformRole(dto.role)) {
+      throw new ForbiddenException('No puedes asignar roles de plataforma');
+    }
+    const user = await this.prisma.user.update({
+      where: { id },
+      data: {
+        name: dto.name,
+        role: dto.role,
+        jobTitle: dto.jobTitle,
+        phone: dto.phone,
+        active: dto.active,
+        ...(dto.password
+          ? { passwordHash: AuthService.hashPassword(dto.password) }
+          : {}),
+      },
+    });
+    await this.audit.log({
+      actor,
+      companyId: user.companyId,
+      action: 'user.update',
+      entity: 'User',
+      entityId: user.id,
+      detail: user.name,
+    });
+    return this.safe(user);
+  }
+
+  async remove(actor: AuthUser, id: string) {
+    const target = await this.prisma.user.findUniqueOrThrow({ where: { id } });
+    if (!isPlatformRole(actor.role) && target.companyId !== actor.companyId) {
+      throw new ForbiddenException();
+    }
+    if (target.id === actor.id) {
+      throw new BadRequestException('No puedes eliminar tu propio usuario');
+    }
+    await this.prisma.user.delete({ where: { id } });
+    await this.audit.log({
+      actor,
+      companyId: target.companyId,
+      action: 'user.delete',
+      entity: 'User',
+      entityId: id,
+      detail: target.name,
+    });
+    return { ok: true };
+  }
+}
+
+@Controller('users')
+export class UsersController {
+  constructor(private readonly users: UsersService) {}
+
+  @Get()
+  @Roles(ROLES.SUPER_ADMIN, ROLES.DEV, ROLES.COMPANY_ADMIN, ROLES.COMPANY_VIEWER)
+  list(@CurrentUser() user: AuthUser, @Query('companyId') companyId?: string) {
+    return this.users.list(user, companyId);
+  }
+
+  @Post()
+  @Roles(ROLES.SUPER_ADMIN, ROLES.DEV, ROLES.COMPANY_ADMIN)
+  create(@CurrentUser() user: AuthUser, @Body() dto: CreateUserDto) {
+    return this.users.create(user, dto);
+  }
+
+  @Patch(':id')
+  @Roles(ROLES.SUPER_ADMIN, ROLES.DEV, ROLES.COMPANY_ADMIN)
+  update(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() dto: UpdateUserDto,
+  ) {
+    return this.users.update(user, id, dto);
+  }
+
+  @Delete(':id')
+  @Roles(ROLES.SUPER_ADMIN, ROLES.DEV, ROLES.COMPANY_ADMIN)
+  remove(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.users.remove(user, id);
+  }
+}
+
+@Module({
+  controllers: [UsersController],
+  providers: [UsersService],
+})
+export class UsersModule {}
