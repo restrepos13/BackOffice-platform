@@ -115,6 +115,45 @@ o en `apps/api/.env`. Mientras no exista la app de Meta quedan como placeholder;
 al llenar el App ID, los botones "Conectar" de todas las empresas apuntan al
 OAuth real. No se guarda ninguna cuenta ni token en esta fase.
 
+## Modelos IA (DeepInfra) y costos declarados
+
+El catálogo de modelos vive en **Plataforma → Modelos IA** (tabla `AiModel`):
+cada modelo con su costo USD por millón de tokens de entrada/salida, que el
+cliente ve tal cual en **Facturación → Costos de los modelos IA** (consumo al
+costo, sin margen). Los precios sembrados son de referencia — mantenerlos al
+día contra deepinfra.com/pricing. `DEEPINFRA_API_KEY` se configura en Dev Tools.
+
+## IA 100% personalizable (por bot y por línea)
+
+- **Personalidad**: prompt, tono, estilo, límites, bienvenida, handoff.
+- **Motor**: modelo del catálogo DeepInfra y temperatura, por bot o por línea.
+- **Tiempos de respuesta humanizados**: espera aleatoria entre mín. y máx.
+  segundos + simulación de "escribiendo…" (config por bot, override por línea).
+- **Habilidades de venta (chatter)**: objetivo, estilo de venta, catálogo y
+  precios, reglas de upsell y manejo de objeciones — por bot y override por línea.
+
+## Galería de medios
+
+La empresa carga fotos (JPG/PNG/WebP/GIF, máx. 10 MB) para que la IA o un
+agente las envíe en el chat. Cada imagen tiene precio (PPV), etiquetas, línea
+asignada y contador de envíos. Los archivos se guardan con nombre aleatorio en
+`apps/api/uploads/<companyId>/` y se sirven SOLO por endpoint autenticado con
+control de tenant. En la bandeja hay botón de "enviar foto" con picker.
+
+## Seguridad
+
+- Rate limiting global (200 req/min/IP) y anti fuerza bruta en login (10/min → 429).
+- Helmet (X-Frame-Options, nosniff, sin X-Powered-By) y límite de payload 1 MB.
+- JWT con secreto fuerte en `.env` (no commiteado; hay `.env.example`); si falta,
+  el server genera uno efímero en vez de arrancar con secreto conocido.
+- Aislamiento multi-tenant verificado en cada módulo (`scopeCompanyId`), incluidos
+  archivos de galería y fotos en conversaciones cruzadas (403).
+- Webhook Wompi: firma de eventos obligatoria fuera del ambiente test.
+- Uploads: solo imágenes, mimetype validado (SVG rechazado por XSS), nombre
+  aleatorio, sin servir estáticos.
+- Suite de verificación: `python3 scratchpad/test_full.py` (42 checks E2E +
+  seguridad; requiere API corriendo y seed fresco).
+
 ## Pendiente (fase 2)
 
 - Base de datos definitiva (cambio de una línea en Prisma).

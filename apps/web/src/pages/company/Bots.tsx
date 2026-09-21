@@ -8,8 +8,9 @@ import { BOT_STATUS_LABELS } from '../../lib/format';
 import type { Bot } from '../../lib/types';
 import {
   Badge, Button, Card, EmptyState, Field, Input, Loading, Modal, PageHeader,
-  Select, Textarea, statusTone,
+  Textarea, statusTone,
 } from '../../components/ui';
+import { ModelSelect } from '../../components/media';
 import { PickCompany, useCompanyScope, withScope } from './shared';
 
 export default function Bots() {
@@ -17,7 +18,7 @@ export default function Bots() {
   const queryClient = useQueryClient();
   const [creating, setCreating] = useState(false);
   const [form, setForm] = useState({
-    name: '', description: '', model: 'claude-sonnet-5', systemPrompt: '',
+    name: '', description: '', model: 'meta-llama/Llama-3.3-70B-Instruct', systemPrompt: '',
   });
 
   const { data: bots, isLoading } = useQuery({
@@ -33,7 +34,7 @@ export default function Bots() {
       queryClient.invalidateQueries({ queryKey: ['bots'] });
       toast.success(`${bot.name} creado`);
       setCreating(false);
-      setForm({ name: '', description: '', model: 'claude-sonnet-5', systemPrompt: '' });
+      setForm({ name: '', description: '', model: 'meta-llama/Llama-3.3-70B-Instruct', systemPrompt: '' });
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : 'Error'),
   });
@@ -92,12 +93,8 @@ export default function Bots() {
           <Field label="Descripción">
             <Input value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
           </Field>
-          <Field label="Modelo IA">
-            <Select value={form.model} onChange={(e) => setForm({ ...form, model: e.target.value })}>
-              <option value="claude-sonnet-5">Claude Sonnet 5</option>
-              <option value="claude-opus-5">Claude Opus 5</option>
-              <option value="claude-haiku-4-5-20251001">Claude Haiku 4.5</option>
-            </Select>
+          <Field label="Modelo IA (DeepInfra)" hint="El costo por M de tokens se declara al cliente">
+            <ModelSelect value={form.model} onChange={(v) => setForm({ ...form, model: v })} />
           </Field>
           <Field label="System prompt">
             <Textarea value={form.systemPrompt} onChange={(e) => setForm({ ...form, systemPrompt: e.target.value })} placeholder="Eres el asistente de…" />

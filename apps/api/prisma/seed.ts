@@ -13,6 +13,8 @@
  */
 import { PrismaClient } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
+import { mkdirSync, writeFileSync } from 'fs';
+import { join, resolve } from 'path';
 
 const prisma = new PrismaClient();
 const PASSWORD = bcrypt.hashSync('backoffice2026', 10);
@@ -54,11 +56,52 @@ async function main() {
     prisma.personaTemplate.deleteMany(),
     prisma.payment.deleteMany(),
     prisma.emailMessage.deleteMany(),
+    prisma.mediaAsset.deleteMany(),
+    prisma.aiModel.deleteMany(),
     prisma.user.deleteMany(),
     prisma.company.deleteMany(),
     prisma.plan.deleteMany(),
     prisma.platformSetting.deleteMany(),
   ]);
+
+  console.log('Catálogo de modelos IA (DeepInfra)…');
+  // Precios de REFERENCIA (USD por 1M tokens). Actualizar contra deepinfra.com/pricing
+  // desde Plataforma → Modelos IA. Estos costos se declaran al cliente tal cual.
+  await prisma.aiModel.createMany({
+    data: [
+      {
+        modelId: 'meta-llama/Llama-3.3-70B-Instruct', name: 'Llama 3.3 70B',
+        inputCostPerMTok: 0.23, outputCostPerMTok: 0.4, contextK: 128,
+        recommended: true,
+        notes: 'El caballo de batalla: calidad alta a costo bajo. Ideal para chatters y ventas.',
+      },
+      {
+        modelId: 'meta-llama/Meta-Llama-3.1-8B-Instruct', name: 'Llama 3.1 8B',
+        inputCostPerMTok: 0.03, outputCostPerMTok: 0.05, contextK: 128,
+        notes: 'Ultra económico: respuestas simples, calificación de leads, alto volumen.',
+      },
+      {
+        modelId: 'deepseek-ai/DeepSeek-V3', name: 'DeepSeek V3',
+        inputCostPerMTok: 0.49, outputCostPerMTok: 0.89, contextK: 128,
+        notes: 'Tope de calidad conversacional. Para personalidades premium.',
+      },
+      {
+        modelId: 'deepseek-ai/DeepSeek-R1', name: 'DeepSeek R1 (razonador)',
+        inputCostPerMTok: 0.55, outputCostPerMTok: 2.19, contextK: 128,
+        notes: 'Razonamiento profundo: bots auditores y reportes. No para chat en vivo.',
+      },
+      {
+        modelId: 'Qwen/Qwen2.5-72B-Instruct', name: 'Qwen 2.5 72B',
+        inputCostPerMTok: 0.23, outputCostPerMTok: 0.4, contextK: 128,
+        notes: 'Alternativa multilingüe fuerte (es/en).',
+      },
+      {
+        modelId: 'mistralai/Mixtral-8x7B-Instruct-v0.1', name: 'Mixtral 8x7B',
+        inputCostPerMTok: 0.24, outputCostPerMTok: 0.24, contextK: 32,
+        notes: 'Rápido y parejo entrada/salida.',
+      },
+    ],
+  });
 
   console.log('Biblioteca de personalidades…');
   await prisma.personaTemplate.createMany({
@@ -230,7 +273,7 @@ async function main() {
     data: {
       companyId: masSalud.id, name: 'Asistente Mas Salud', status: 'ACTIVE',
       description: 'Chatbot de ventas: atiende y agenda pacientes 24/7.',
-      model: 'claude-sonnet-5', temperature: 0.6,
+      model: 'meta-llama/Llama-3.3-70B-Instruct', temperature: 0.6,
       systemPrompt:
         'Eres el asistente de la clínica Mas Salud Latam. Atiendes pacientes por WhatsApp: resuelves dudas de servicios, precios y horarios, y agendas citas en el calendario. Tono cálido, profesional y natural — jamás suenas a robot.',
       personalityJson: JSON.stringify({
@@ -246,7 +289,7 @@ async function main() {
     data: {
       companyId: masSalud.id, name: 'Bot Jefe Auditor', status: 'ACTIVE',
       description: 'Audita todas las áreas de la clínica y reporta a gerencia en tiempo real.',
-      model: 'claude-opus-5', temperature: 0.3,
+      model: 'deepseek-ai/DeepSeek-R1', temperature: 0.3,
       systemPrompt:
         'Eres el bot auditor de Mas Salud Latam. Supervisas citas, ventas y seguimientos, y reportas a gerencia con métricas y alertas accionables.',
       personalityJson: JSON.stringify({
@@ -338,7 +381,7 @@ async function main() {
     data: {
       companyId: hmMotors.id, name: 'Asesor HM', status: 'ACTIVE',
       description: 'Califica compradores reales y agenda citas con el vendedor.',
-      model: 'claude-sonnet-5', temperature: 0.7,
+      model: 'meta-llama/Llama-3.3-70B-Instruct', temperature: 0.7,
       systemPrompt:
         'Eres el asesor virtual de HM Motors. Pides al cliente los datos del auto que busca, evalúas si hay intención real de compra y, si la hay, agendas cita en el calendario del vendedor. Filtra curiosos con amabilidad.',
       personalityJson: JSON.stringify({
@@ -402,7 +445,7 @@ async function main() {
     data: {
       companyId: lotes.id, name: 'Asistente Ancestral', status: 'DRAFT',
       description: 'Atiende interesados en lotes y agenda visitas al proyecto.',
-      model: 'claude-sonnet-5',
+      model: 'meta-llama/Meta-Llama-3.1-8B-Instruct',
       systemPrompt: 'Eres el asistente del proyecto Lotes Ancestral…',
       welcomeMessage: '¡Hola! Bienvenido a Lotes Ancestral 🌱',
     },
@@ -455,7 +498,7 @@ async function main() {
     data: {
       companyId: nova.id, name: 'Motor IA Nova', status: 'ACTIVE',
       description: 'Motor común del estudio: reglas generales, memoria y límites. Cada línea define su propia personalidad encima.',
-      model: 'claude-sonnet-5', temperature: 0.8,
+      model: 'deepseek-ai/DeepSeek-V3', temperature: 0.8,
       systemPrompt:
         'Eres un perfil del estudio Nova. Reglas generales para todas las líneas: conversas con calidez y memoria de cada cliente, priorizas clientes de alto valor, nunca compartes datos personales reales ni links externos, y los pagos van solo por los canales oficiales del estudio. La personalidad concreta la define cada línea.',
       personalityJson: JSON.stringify({
@@ -464,6 +507,15 @@ async function main() {
         language: 'es',
       }),
       handoffKeywords: 'pago, problema, reembolso, supervisor',
+      // Tiempos humanizados: nadie responde en 0 segundos
+      replyDelayMinSec: 8, replyDelayMaxSec: 45, typingSimulation: true,
+      salesJson: JSON.stringify({
+        goal: 'Fidelizar clientes y vender contenido premium (PPV) de la galería.',
+        style: 'Venta suave: primero conexión, después la oferta. Nunca insistir dos veces seguidas.',
+        catalog: 'Contenido de la galería según el precio marcado en cada foto. Sesiones privadas: consultar disponibilidad.',
+        upsell: 'A clientes recurrentes ofrecer packs; a clientes de alto valor, contenido exclusivo antes que a nadie.',
+        objections: 'Si dice que es caro: recordar el valor de lo exclusivo, ofrecer alternativa más económica una sola vez.',
+      }),
     },
   });
   const novaPersonas: Array<{
@@ -518,6 +570,65 @@ async function main() {
       },
     });
     novaLines.push(line.id);
+  }
+  // Valentina tiene además reglas de venta y tiempos propios
+  await prisma.integration.update({
+    where: { id: novaLines[0] },
+    data: {
+      overrideReplyDelayMinSec: 15,
+      overrideReplyDelayMaxSec: 90,
+      overrideSalesJson: JSON.stringify({
+        goal: 'Convertir a Mark y a los VIP en compradores semanales de PPV.',
+        style: 'Juguetona: la oferta llega como un secreto compartido, nunca como catálogo.',
+        catalog: 'Sets de fotos de la galería a su precio marcado; personalizados desde $50.',
+        upsell: 'Después de 2 compras, ofrecer el pack mensual.',
+        objections: 'Si duda, cambiar de tema con cariño y reintentar en otro momento.',
+      }),
+    },
+  });
+
+  // Galería de Nova: fotos que la IA puede enviar (placeholders de color)
+  console.log('Galería de medios…');
+  const uploadsDir = resolve(__dirname, '..', 'uploads', nova.id);
+  mkdirSync(uploadsDir, { recursive: true });
+  const PLACEHOLDERS: Array<{ name: string; b64: string; price: number; tags: string[]; line?: string }> = [
+    {
+      name: 'Set rosa — 6 fotos', price: 25, tags: ['ppv', 'set', 'valentina'],
+      line: novaLines[0],
+      b64: 'iVBORw0KGgoAAAANSUhEUgAAABgAAAAgCAIAAACHPC9vAAAAJElEQVR42mO41rmMKohh1KBRg0YNGjVo1KBRg0YNGjVoeBgEAKfaD1vtsKqtAAAAAElFTkSuQmCC',
+    },
+    {
+      name: 'Set lila — exclusivo VIP', price: 40, tags: ['ppv', 'vip', 'valentina'],
+      line: novaLines[0],
+      b64: 'iVBORw0KGgoAAAANSUhEUgAAABgAAAAgCAIAAACHPC9vAAAAJElEQVR42mNY3r2PKohh1KBRg0YNGjRo1KBRg0YNGjVoeBgEAFH60EyubUqTAAAAAElFTkSuQmCC',
+    },
+    {
+      name: 'Preview gratuito — dorado', price: 0, tags: ['gratis', 'preview'],
+      b64: 'iVBORw0KGgoAAAANSUhEUgAAABgAAAAgCAIAAACHPC9vAAAAJElEQVR42mM4tiyFKohh1KBRg0YNGjVo1KBRg0YNGjVoeBgEAKNfcExYQirEAAAAAElFTkSuQmCC',
+    },
+    {
+      name: 'Set noche — Luna', price: 30, tags: ['ppv', 'luna'],
+      line: novaLines[3],
+      b64: 'iVBORw0KGgoAAAANSUhEUgAAABgAAAAgCAIAAACHPC9vAAAAJElEQVR42mOwsQqiCmIYNWjUoFGDRg0aNWjUoFGDRg0aHgYBAOd/WB8csn5JAAAAAElFTkSuQmCC',
+    },
+  ];
+  for (const ph of PLACEHOLDERS) {
+    const fileName = `seed-${ph.name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}.png`;
+    const buf = Buffer.from(ph.b64, 'base64');
+    writeFileSync(join(uploadsDir, fileName), buf);
+    await prisma.mediaAsset.create({
+      data: {
+        companyId: nova.id,
+        integrationId: ph.line ?? null,
+        name: ph.name,
+        fileName,
+        mimeType: 'image/png',
+        sizeBytes: buf.length,
+        priceUsd: ph.price,
+        tagsJson: JSON.stringify(ph.tags),
+        timesSent: randInt(0, 14),
+      },
+    });
   }
 
   // ── Contactos y conversaciones ────────────────────────────────────
@@ -912,6 +1023,8 @@ async function main() {
       { key: 'WOMPI_EVENTS_SECRET', value: '' },
       { key: 'WOMPI_REDIRECT_URL', value: 'http://localhost:5173/app/billing' },
       { key: 'USD_COP_RATE', value: '4000' },
+      // DeepInfra — llave de API del estudio (los costos por modelo están en AiModel)
+      { key: 'DEEPINFRA_API_KEY', value: '' },
       // SMTP para correos a empresas — llenar cuando haya cuenta de envío
       { key: 'SMTP_HOST', value: '' },
       { key: 'SMTP_PORT', value: '587' },

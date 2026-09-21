@@ -70,7 +70,12 @@ export class ConversationsService {
         contact: true,
         bot: { select: { id: true, name: true, model: true } },
         integration: { select: { id: true, name: true } },
-        messages: { orderBy: { createdAt: 'asc' } },
+        messages: {
+          orderBy: { createdAt: 'asc' },
+          include: {
+            mediaAsset: { select: { id: true, name: true, priceUsd: true, mimeType: true } },
+          },
+        },
       },
     });
     // marcar como leída
@@ -81,14 +86,39 @@ export class ConversationsService {
     return conversation;
   }
 
-  async sendMessage(user: AuthUser, id: string, content: string) {
+  async sendMessage(
+    user: AuthUser,
+    id: string,
+    content: string,
+    mediaAssetId?: string,
+  ) {
     const conversation = await this.assertAccess(user, id);
+    // La foto debe existir, estar activa y pertenecer al MISMO tenant
+    if (mediaAssetId) {
+      const asset = await this.prisma.mediaAsset.findUnique({
+        where: { id: mediaAssetId },
+      });
+      if (!asset || asset.companyId !== conversation.companyId || !asset.active) {
+        throw new ForbiddenException('Foto inválida para esta conversación');
+      }
+      await this.prisma.mediaAsset.update({
+        where: { id: mediaAssetId },
+        data: { timesSent: { increment: 1 } },
+      });
+    }
+    if (!content?.trim() && !mediaAssetId) {
+      throw new ForbiddenException('Mensaje vacío');
+    }
     const message = await this.prisma.message.create({
       data: {
         conversationId: id,
         direction: 'OUT',
         author: 'AGENT',
-        content,
+        content: content?.trim() ?? '',
+        mediaAssetId: mediaAssetId ?? null,
+      },
+      include: {
+        mediaAsset: { select: { id: true, name: true, priceUsd: true, mimeType: true } },
       },
     });
     await this.prisma.conversation.update({
@@ -142,8 +172,9 @@ export class ConversationsController {
     @CurrentUser() user: AuthUser,
     @Param('id') id: string,
     @Body('content') content: string,
+    @Body('mediaAssetId') mediaAssetId?: string,
   ) {
-    return this.conversations.sendMessage(user, id, content);
+    return this.conversations.sendMessage(user, id, content, mediaAssetId);
   }
 
   @Patch(':id')

@@ -39,6 +39,7 @@ export class IntegrationsService {
         i.overridePersonalityJson,
         {},
       ),
+      overrideSales: parseJson<Record<string, string>>(i.overrideSalesJson, {}),
     };
   }
 
@@ -119,6 +120,21 @@ export class IntegrationsService {
         overrideHandoff: dto.overrideHandoff,
         overrideModel: dto.overrideModel,
         overrideTemperature: dto.overrideTemperature,
+        overrideReplyDelayMinSec:
+          dto.overrideReplyDelayMinSec === null
+            ? null
+            : dto.overrideReplyDelayMinSec != null
+              ? Number(dto.overrideReplyDelayMinSec)
+              : undefined,
+        overrideReplyDelayMaxSec:
+          dto.overrideReplyDelayMaxSec === null
+            ? null
+            : dto.overrideReplyDelayMaxSec != null
+              ? Number(dto.overrideReplyDelayMaxSec)
+              : undefined,
+        ...(dto.overrideSales
+          ? { overrideSalesJson: JSON.stringify(dto.overrideSales) }
+          : {}),
         ...(dto.overridePersonality
           ? { overridePersonalityJson: JSON.stringify(dto.overridePersonality) }
           : {}),
@@ -157,6 +173,9 @@ export class IntegrationsService {
         overrideHandoff: source.overrideHandoff,
         overrideModel: source.overrideModel,
         overrideTemperature: source.overrideTemperature,
+        overrideReplyDelayMinSec: source.overrideReplyDelayMinSec,
+        overrideReplyDelayMaxSec: source.overrideReplyDelayMaxSec,
+        overrideSalesJson: source.overrideSalesJson,
       },
     });
     await this.audit.log({

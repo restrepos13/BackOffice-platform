@@ -216,6 +216,7 @@ function SettingsForm({
     META_REDIRECT_URI: settings.META_REDIRECT_URI ?? '',
     PLATFORM_NAME: settings.PLATFORM_NAME ?? 'BackOffice',
     SUPPORT_WHATSAPP: settings.SUPPORT_WHATSAPP ?? '',
+    DEEPINFRA_API_KEY: settings.DEEPINFRA_API_KEY ?? '',
     WOMPI_ENV: settings.WOMPI_ENV ?? 'test',
     WOMPI_PUBLIC_KEY: settings.WOMPI_PUBLIC_KEY ?? '',
     WOMPI_INTEGRITY_SECRET: settings.WOMPI_INTEGRITY_SECRET ?? '',
@@ -244,6 +245,14 @@ function SettingsForm({
       <Field label="WhatsApp de soporte">
         <Input value={form.SUPPORT_WHATSAPP} onChange={(e) => set({ SUPPORT_WHATSAPP: e.target.value })} />
       </Field>
+
+      <div className="border-t-2 border-line pt-3">
+        <p className="kicker mb-2">DeepInfra · motor de modelos IA</p>
+        <Field label="API key" hint="De deepinfra.com — el catálogo de modelos y costos se gestiona en Modelos IA">
+          <Input type="password" value={form.DEEPINFRA_API_KEY}
+            onChange={(e) => set({ DEEPINFRA_API_KEY: e.target.value })} />
+        </Field>
+      </div>
 
       <div className="border-t-2 border-line pt-3">
         <p className="kicker mb-2">Pasarela Wompi (Colombia) · Internacional: próximamente</p>

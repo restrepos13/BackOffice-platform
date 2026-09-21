@@ -94,6 +94,7 @@ model Company {
   personaTemplates PersonaTemplate[]
   payments         Payment[]
   emailMessages    EmailMessage[]
+  mediaAssets      MediaAsset[]
 }
 
 // ─── Bots / Asistentes IA ────────────────────────────────────────────
@@ -116,6 +117,12 @@ model Bot {
   welcomeMessage  String?
   handoffKeywords String? // separado por comas
   businessHours   String? // JSON {enabled, schedule}
+  // Tiempos de respuesta humanizados (segundos): la IA espera entre min y max
+  replyDelayMinSec Int     @default(3)
+  replyDelayMaxSec Int     @default(12)
+  typingSimulation Boolean @default(true) // muestra "escribiendo…" antes de responder
+  // Habilidades de venta (JSON {goal, style, catalog, upsell, objections})
+  salesJson       String   @default("{}")
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
@@ -154,8 +161,14 @@ model Integration {
   overrideHandoff         String?
   overrideModel           String?
   overrideTemperature     Float?
+  // Tiempos de respuesta propios de la línea (null = hereda del bot)
+  overrideReplyDelayMinSec Int?
+  overrideReplyDelayMaxSec Int?
+  // Habilidades de venta propias de la línea (JSON {goal, style, catalog, upsell, objections})
+  overrideSalesJson       String  @default("{}")
 
   conversations Conversation[]
+  mediaAssets   MediaAsset[]
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
 }
@@ -231,7 +244,46 @@ model Message {
   author         String
   content        String
   tokens         Int?
+  mediaAssetId   String? // foto de la galería enviada en este mensaje
+  mediaAsset     MediaAsset?  @relation(fields: [mediaAssetId], references: [id])
   createdAt      DateTime     @default(now())
+}
+
+// ─── Galería de medios ───────────────────────────────────────────────
+// Fotos que la empresa carga para que la IA (o un agente) las envíe en el chat.
+// priceUsd > 0 = contenido de pago (PPV) — la IA lo ofrece según sus reglas de venta.
+model MediaAsset {
+  id            String       @id @default(cuid())
+  companyId     String
+  company       Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  integrationId String? // línea a la que pertenece (null = disponible para todas)
+  integration   Integration? @relation(fields: [integrationId], references: [id], onDelete: SetNull)
+  name          String
+  fileName      String // nombre aleatorio en disco (uploads/<companyId>/)
+  mimeType      String
+  sizeBytes     Int
+  priceUsd      Float        @default(0)
+  tagsJson      String       @default("[]")
+  active        Boolean      @default(true)
+  timesSent     Int          @default(0)
+  messages      Message[]
+  createdAt     DateTime     @default(now())
+}
+
+// ─── Catálogo de modelos IA (DeepInfra) ──────────────────────────────
+// Costos por millón de tokens que se declaran al cliente (consumo al costo).
+model AiModel {
+  id                String   @id @default(cuid())
+  provider          String   @default("DEEPINFRA")
+  modelId           String   @unique // ej. meta-llama/Llama-3.3-70B-Instruct
+  name              String
+  inputCostPerMTok  Float // USD por 1M tokens de entrada
+  outputCostPerMTok Float // USD por 1M tokens de salida
+  contextK          Int      @default(128)
+  recommended       Boolean  @default(false)
+  active            Boolean  @default(true)
+  notes             String?
+  createdAt         DateTime @default(now())
 }
 
 // ─── Automatizaciones ────────────────────────────────────────────────

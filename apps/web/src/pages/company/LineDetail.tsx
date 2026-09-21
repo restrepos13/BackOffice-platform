@@ -13,6 +13,7 @@ import {
   statusTone,
 } from '../../components/ui';
 import { PersonaPicker } from '../../components/PersonaPicker';
+import { ModelSelect } from '../../components/media';
 import { useCompanyScope, withScope } from './shared';
 
 interface LineForm {
@@ -27,6 +28,13 @@ interface LineForm {
   overrideHandoff: string;
   overrideModel: string;
   overrideTemperature: string;
+  delayMin: string;
+  delayMax: string;
+  salesGoal: string;
+  salesStyle: string;
+  salesCatalog: string;
+  salesUpsell: string;
+  salesObjections: string;
 }
 
 export default function LineDetail() {
@@ -62,6 +70,15 @@ export default function LineDetail() {
         overrideModel: line.overrideModel ?? '',
         overrideTemperature:
           line.overrideTemperature != null ? String(line.overrideTemperature) : '',
+        delayMin:
+          line.overrideReplyDelayMinSec != null ? String(line.overrideReplyDelayMinSec) : '',
+        delayMax:
+          line.overrideReplyDelayMaxSec != null ? String(line.overrideReplyDelayMaxSec) : '',
+        salesGoal: line.overrideSales.goal ?? '',
+        salesStyle: line.overrideSales.style ?? '',
+        salesCatalog: line.overrideSales.catalog ?? '',
+        salesUpsell: line.overrideSales.upsell ?? '',
+        salesObjections: line.overrideSales.objections ?? '',
       });
     }
   }, [line, form]);
@@ -82,6 +99,13 @@ export default function LineDetail() {
         overrideTemperature: form!.overrideTemperature
           ? Number(form!.overrideTemperature)
           : null,
+        overrideReplyDelayMinSec: form!.delayMin ? Number(form!.delayMin) : null,
+        overrideReplyDelayMaxSec: form!.delayMax ? Number(form!.delayMax) : null,
+        overrideSales: {
+          goal: form!.salesGoal, style: form!.salesStyle,
+          catalog: form!.salesCatalog, upsell: form!.salesUpsell,
+          objections: form!.salesObjections,
+        },
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['integration', id] });
@@ -281,13 +305,13 @@ export default function LineDetail() {
                 <Field label="Palabras de handoff" hint="Pasan la conversación a un humano">
                   <Input value={form.overrideHandoff} onChange={(e) => set({ overrideHandoff: e.target.value })} placeholder="pago, problema, supervisor" />
                 </Field>
-                <Field label="Modelo IA (opcional)" hint="Vacío = el del bot">
-                  <Select value={form.overrideModel} onChange={(e) => set({ overrideModel: e.target.value })}>
-                    <option value="">Heredar del bot</option>
-                    <option value="claude-sonnet-5">Claude Sonnet 5</option>
-                    <option value="claude-opus-5">Claude Opus 5</option>
-                    <option value="claude-haiku-4-5-20251001">Claude Haiku 4.5</option>
-                  </Select>
+                <Field label="Modelo IA (opcional)" hint="Vacío = el del bot · costos DeepInfra declarados">
+                  <ModelSelect
+                    value={form.overrideModel}
+                    onChange={(v) => set({ overrideModel: v })}
+                    allowInherit
+                    disabled={!canWrite}
+                  />
                 </Field>
                 <Field label="Temperatura (opcional)" hint="Vacío = la del bot">
                   <Input
@@ -295,6 +319,49 @@ export default function LineDetail() {
                     value={form.overrideTemperature}
                     onChange={(e) => set({ overrideTemperature: e.target.value })}
                   />
+                </Field>
+                <Field label="Respuesta: mín. seg. (opcional)" hint="Vacío = tiempos del bot">
+                  <Input
+                    type="number" min={0} max={600}
+                    value={form.delayMin}
+                    onChange={(e) => set({ delayMin: e.target.value })}
+                  />
+                </Field>
+                <Field label="Respuesta: máx. seg. (opcional)" hint="La IA espera un tiempo aleatorio entre ambos">
+                  <Input
+                    type="number" min={0} max={600}
+                    value={form.delayMax}
+                    onChange={(e) => set({ delayMax: e.target.value })}
+                  />
+                </Field>
+              </fieldset>
+            </Card>
+          )}
+
+          {form.promptMode === 'CUSTOM' && (
+            <Card kicker="Chatter con objetivos" title="Habilidades de venta de la línea">
+              <p className="mb-4 text-xs text-ink-3">
+                Reglas comerciales propias de este número (vacío = sin reglas de
+                venta específicas). El contenido de pago se carga en la Galería
+                con su precio y puede asignarse a esta línea.
+              </p>
+              <fieldset disabled={!canWrite} className="grid gap-4 md:grid-cols-2">
+                <div className="md:col-span-2">
+                  <Field label="Objetivo de venta">
+                    <Input value={form.salesGoal} onChange={(e) => set({ salesGoal: e.target.value })} placeholder="Convertir a los VIP en compradores semanales de PPV…" />
+                  </Field>
+                </div>
+                <Field label="Estilo de venta">
+                  <Textarea rows={3} value={form.salesStyle} onChange={(e) => set({ salesStyle: e.target.value })} />
+                </Field>
+                <Field label="Catálogo y precios">
+                  <Textarea rows={3} value={form.salesCatalog} onChange={(e) => set({ salesCatalog: e.target.value })} />
+                </Field>
+                <Field label="Reglas de upsell">
+                  <Textarea rows={3} value={form.salesUpsell} onChange={(e) => set({ salesUpsell: e.target.value })} />
+                </Field>
+                <Field label="Manejo de objeciones">
+                  <Textarea rows={3} value={form.salesObjections} onChange={(e) => set({ salesObjections: e.target.value })} />
                 </Field>
               </fieldset>
             </Card>

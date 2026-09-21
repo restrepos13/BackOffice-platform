@@ -9,6 +9,7 @@ import type { Company, Plan } from '../../lib/types';
 import {
   Badge, Button, Card, Field, Input, PageHeader, Select, Switch, Textarea,
 } from '../../components/ui';
+import { ModelSelect } from '../../components/media';
 
 const STEPS = [
   'Datos de la empresa',
@@ -45,7 +46,7 @@ const initial: WizardState = {
   modules: [...ALL_MODULES],
   adminName: '', adminEmail: '', adminPassword: '', adminJobTitle: 'Administrador',
   botName: '', botDescription: '', botPrompt: '', botWelcome: '',
-  botModel: 'claude-sonnet-5',
+  botModel: 'meta-llama/Llama-3.3-70B-Instruct',
   channels: ['WHATSAPP'],
 };
 
@@ -300,12 +301,8 @@ export default function CompanyNew() {
                 <Field label="Nombre del bot" hint="Vacío = sin bot inicial">
                   <Input value={s.botName} onChange={(e) => set({ botName: e.target.value })} placeholder="Asistente Clínica Ejemplo" />
                 </Field>
-                <Field label="Modelo IA">
-                  <Select value={s.botModel} onChange={(e) => set({ botModel: e.target.value })}>
-                    <option value="claude-sonnet-5">Claude Sonnet 5</option>
-                    <option value="claude-opus-5">Claude Opus 5</option>
-                    <option value="claude-haiku-4-5-20251001">Claude Haiku 4.5</option>
-                  </Select>
+                <Field label="Modelo IA (DeepInfra)">
+                  <ModelSelect value={s.botModel} onChange={(v) => set({ botModel: v })} />
                 </Field>
                 <div className="md:col-span-2">
                   <Field label="Descripción">

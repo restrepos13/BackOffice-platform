@@ -83,6 +83,11 @@ export interface Bot {
   memoryEnabled: boolean;
   welcomeMessage?: string | null;
   handoffKeywords?: string | null;
+  replyDelayMinSec: number;
+  replyDelayMaxSec: number;
+  typingSimulation: boolean;
+  /** Habilidades de venta: {goal, style, catalog, upsell, objections} */
+  sales: Record<string, string>;
   integrations?: Integration[];
   _count?: { conversations: number };
   createdAt: string;
@@ -110,7 +115,39 @@ export interface Integration {
   overrideHandoff?: string | null;
   overrideModel?: string | null;
   overrideTemperature?: number | null;
+  overrideReplyDelayMinSec?: number | null;
+  overrideReplyDelayMaxSec?: number | null;
+  overrideSales: Record<string, string>;
   _count?: { conversations: number };
+}
+
+export interface AiModel {
+  id: string;
+  provider: string;
+  modelId: string;
+  name: string;
+  inputCostPerMTok: number;
+  outputCostPerMTok: number;
+  contextK: number;
+  recommended: boolean;
+  active: boolean;
+  notes?: string | null;
+}
+
+export interface MediaAsset {
+  id: string;
+  companyId: string;
+  integrationId?: string | null;
+  integration?: { id: string; name: string } | null;
+  name: string;
+  fileName: string;
+  mimeType: string;
+  sizeBytes: number;
+  priceUsd: number;
+  tags: string[];
+  active: boolean;
+  timesSent: number;
+  createdAt: string;
 }
 
 export interface PersonaTemplate {
@@ -161,6 +198,8 @@ export interface Message {
   direction: 'IN' | 'OUT';
   author: 'CONTACT' | 'BOT' | 'AGENT';
   content: string;
+  mediaAssetId?: string | null;
+  mediaAsset?: { id: string; name: string; priceUsd: number; mimeType: string } | null;
   createdAt: string;
 }
 

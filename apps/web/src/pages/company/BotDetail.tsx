@@ -11,6 +11,7 @@ import {
   Tabs, Textarea, statusTone,
 } from '../../components/ui';
 import { PersonaPicker } from '../../components/PersonaPicker';
+import { ModelSelect } from '../../components/media';
 import { useCompanyScope } from './shared';
 
 export default function BotDetail() {
@@ -43,6 +44,14 @@ export default function BotDetail() {
         tone: bot.personality.tone ?? '',
         style: bot.personality.style ?? '',
         limits: bot.personality.limits ?? '',
+        replyDelayMinSec: bot.replyDelayMinSec,
+        replyDelayMaxSec: bot.replyDelayMaxSec,
+        typingSimulation: bot.typingSimulation,
+        salesGoal: bot.sales.goal ?? '',
+        salesStyle: bot.sales.style ?? '',
+        salesCatalog: bot.sales.catalog ?? '',
+        salesUpsell: bot.sales.upsell ?? '',
+        salesObjections: bot.sales.objections ?? '',
       });
     }
   }, [bot, form]);
@@ -60,8 +69,15 @@ export default function BotDetail() {
         memoryEnabled: form.memoryEnabled,
         welcomeMessage: form.welcomeMessage || undefined,
         handoffKeywords: form.handoffKeywords || undefined,
+        replyDelayMinSec: Number(form.replyDelayMinSec),
+        replyDelayMaxSec: Number(form.replyDelayMaxSec),
+        typingSimulation: form.typingSimulation,
         personality: {
           tone: form.tone, style: form.style, limits: form.limits, language: 'es',
+        },
+        sales: {
+          goal: form.salesGoal, style: form.salesStyle, catalog: form.salesCatalog,
+          upsell: form.salesUpsell, objections: form.salesObjections,
         },
       }),
     onSuccess: () => {
@@ -113,6 +129,7 @@ export default function BotDetail() {
           { id: 'personalidad', label: 'Personalidad' },
           { id: 'modelo', label: 'Modelo IA' },
           { id: 'comportamiento', label: 'Comportamiento' },
+          { id: 'ventas', label: 'Ventas' },
           { id: 'canales', label: 'Canales', badge: bot.integrations?.length },
         ]}
       />
@@ -160,12 +177,11 @@ export default function BotDetail() {
         {tab === 'modelo' && (
           <Card kicker="Motor" title="Modelo IA">
             <div className="grid gap-4 md:grid-cols-3">
-              <Field label="Modelo">
-                <Select value={form.model} onChange={(e) => set({ model: e.target.value })}>
-                  <option value="claude-sonnet-5">Claude Sonnet 5</option>
-                  <option value="claude-opus-5">Claude Opus 5</option>
-                  <option value="claude-haiku-4-5-20251001">Claude Haiku 4.5</option>
-                </Select>
+              <Field
+                label="Modelo (DeepInfra)"
+                hint="El costo por millón de tokens se declara al cliente tal cual"
+              >
+                <ModelSelect value={form.model} onChange={(v) => set({ model: v })} disabled={!canWrite} />
               </Field>
               <Field label="Temperatura" hint="0 = predecible · 1 = creativo">
                 <Input
@@ -210,6 +226,73 @@ export default function BotDetail() {
                 hint="Si el cliente las menciona, la conversación pasa a un humano y se marca con atención. Separadas por coma."
               >
                 <Input value={form.handoffKeywords} onChange={(e) => set({ handoffKeywords: e.target.value })} placeholder="urgencia, queja, hablar con humano" />
+              </Field>
+
+              <div className="border-t-2 border-line pt-4">
+                <p className="kicker mb-2">Tiempos de respuesta humanizados</p>
+                <p className="mb-3 text-xs text-ink-3">
+                  Nadie responde en 0 segundos: la IA espera un tiempo aleatorio
+                  entre el mínimo y el máximo antes de contestar.
+                </p>
+                <div className="grid grid-cols-2 gap-4">
+                  <Field label="Mínimo (segundos)">
+                    <Input
+                      type="number" min={0} max={600}
+                      value={form.replyDelayMinSec}
+                      onChange={(e) => set({ replyDelayMinSec: e.target.value })}
+                    />
+                  </Field>
+                  <Field label="Máximo (segundos)">
+                    <Input
+                      type="number" min={0} max={600}
+                      value={form.replyDelayMaxSec}
+                      onChange={(e) => set({ replyDelayMaxSec: e.target.value })}
+                    />
+                  </Field>
+                </div>
+                <div className="mt-3 flex items-center justify-between border-2 border-line bg-bone px-4 py-3">
+                  <div>
+                    <p className="text-sm font-semibold">Simular "escribiendo…"</p>
+                    <p className="text-xs text-ink-3">
+                      Muestra el indicador de escritura antes de enviar, proporcional al largo del mensaje.
+                    </p>
+                  </div>
+                  <Switch
+                    checked={form.typingSimulation}
+                    onChange={(v) => set({ typingSimulation: v })}
+                    label="Simular escritura"
+                    disabled={!canWrite}
+                  />
+                </div>
+              </div>
+            </div>
+          </Card>
+        )}
+
+        {tab === 'ventas' && (
+          <Card kicker="Chatter con objetivos" title="Habilidades de venta">
+            <p className="mb-4 text-sm text-ink-2">
+              Reglas comerciales que la IA sigue en cada conversación: qué vende,
+              cómo lo ofrece y cómo maneja objeciones. El contenido de pago se
+              carga en la <strong>Galería</strong> con su precio.
+            </p>
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="md:col-span-2">
+                <Field label="Objetivo de venta" hint="Qué debe lograr la IA en cada conversación">
+                  <Input value={form.salesGoal} onChange={(e) => set({ salesGoal: e.target.value })} placeholder="Fidelizar clientes y vender contenido premium (PPV)…" />
+                </Field>
+              </div>
+              <Field label="Estilo de venta">
+                <Textarea rows={3} value={form.salesStyle} onChange={(e) => set({ salesStyle: e.target.value })} placeholder="Venta suave: primero conexión, después la oferta…" />
+              </Field>
+              <Field label="Catálogo y precios" hint="Lo que puede ofrecer y a cuánto">
+                <Textarea rows={3} value={form.salesCatalog} onChange={(e) => set({ salesCatalog: e.target.value })} placeholder="Contenido de la galería según su precio; personalizados desde $50…" />
+              </Field>
+              <Field label="Reglas de upsell">
+                <Textarea rows={3} value={form.salesUpsell} onChange={(e) => set({ salesUpsell: e.target.value })} placeholder="A clientes recurrentes ofrecer packs…" />
+              </Field>
+              <Field label="Manejo de objeciones">
+                <Textarea rows={3} value={form.salesObjections} onChange={(e) => set({ salesObjections: e.target.value })} placeholder="Si dice que es caro: recordar el valor de lo exclusivo…" />
               </Field>
             </div>
           </Card>

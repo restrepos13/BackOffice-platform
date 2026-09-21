@@ -1,17 +1,18 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { clsx } from 'clsx';
-import { AlertTriangle, Send } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, Image as ImageIcon, Send } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import { api } from '../../lib/api';
 import {
-  CHANNEL_LABELS, CONVO_STATUS_LABELS, STAGE_LABELS, fmtDateTime, timeAgo,
+  CHANNEL_LABELS, CONVO_STATUS_LABELS, STAGE_LABELS, fmtDateTime, fmtUsd, timeAgo,
 } from '../../lib/format';
-import type { Conversation, Integration } from '../../lib/types';
+import type { Conversation, Integration, MediaAsset } from '../../lib/types';
 import {
-  Badge, Button, Loading, PageHeader, Select, Textarea, statusTone,
+  Badge, Button, Loading, Modal, PageHeader, Select, Textarea, statusTone,
 } from '../../components/ui';
+import { MediaImage } from '../../components/media';
 import { PickCompany, useCompanyScope, withScope } from './shared';
 
 export default function Inbox() {
@@ -23,6 +24,7 @@ export default function Inbox() {
   const [onlyAttention, setOnlyAttention] = useState(params.get('attention') === '1');
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [draft, setDraft] = useState('');
+  const [photoPicker, setPhotoPicker] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const { data: lines } = useQuery({
@@ -49,15 +51,26 @@ export default function Inbox() {
     enabled: !!selectedId,
   });
 
+  const { data: mediaAssets } = useQuery({
+    queryKey: ['media', q],
+    queryFn: () => api.get<MediaAsset[]>(withScope('/media', q)),
+    enabled: ready && photoPicker,
+    select: (items) => items.filter((m) => m.active),
+  });
+
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
   }, [detail?.messages?.length]);
 
   const send = useMutation({
-    mutationFn: () =>
-      api.post(`/conversations/${selectedId}/messages`, { content: draft }),
+    mutationFn: (payload?: { mediaAssetId?: string }) =>
+      api.post(`/conversations/${selectedId}/messages`, {
+        content: draft,
+        mediaAssetId: payload?.mediaAssetId,
+      }),
     onSuccess: () => {
       setDraft('');
+      setPhotoPicker(false);
       queryClient.invalidateQueries({ queryKey: ['conversation', selectedId] });
       queryClient.invalidateQueries({ queryKey: ['conversations'] });
     },
@@ -106,8 +119,8 @@ export default function Inbox() {
       </div>
 
       <div className="grid gap-0 border-2 border-ink bg-paper lg:grid-cols-[380px_1fr]" style={{ height: 'calc(100vh - 250px)', minHeight: 420 }}>
-        {/* Lista */}
-        <div className="overflow-y-auto border-r-2 border-ink">
+        {/* Lista (en móvil se oculta cuando hay conversación abierta) */}
+        <div className={clsx('overflow-y-auto lg:border-r-2 lg:border-ink', selectedId && 'hidden lg:block')}>
           {isLoading ? (
             <Loading />
           ) : (
@@ -151,14 +164,23 @@ export default function Inbox() {
 
         {/* Detalle */}
         {detail ? (
-          <div className="flex min-h-0 flex-col">
+          <div className={clsx('flex min-h-0 flex-col', !selectedId && 'hidden lg:flex')}>
             <header className="flex flex-wrap items-center justify-between gap-2 border-b-2 border-ink px-4 py-2.5">
-              <div>
+              <div className="flex items-center gap-2">
+                <button
+                  className="cursor-pointer border-2 border-ink p-1 lg:hidden"
+                  onClick={() => setSelectedId(null)}
+                  aria-label="Volver a la lista"
+                >
+                  <ArrowLeft size={13} />
+                </button>
+                <div>
                 <p className="font-semibold">{detail.contact.name}</p>
                 <p className="text-xs text-ink-3">
                   {detail.contact.phone} · {STAGE_LABELS[detail.contact.stage]}
                   {detail.integration ? ` · ${detail.integration.name}` : detail.bot ? ` · ${detail.bot.name}` : ''}
                 </p>
+                </div>
               </div>
               {canWrite && (
                 <div className="flex gap-2">
@@ -198,7 +220,25 @@ export default function Inbox() {
                           : 'border-ink bg-ink text-bone',
                     )}
                   >
-                    <p className="whitespace-pre-wrap text-sm">{message.content}</p>
+                    {message.mediaAsset && (
+                      <div className="mb-1.5">
+                        <MediaImage
+                          id={message.mediaAsset.id}
+                          alt={message.mediaAsset.name}
+                          className="h-40 w-full border-2 border-ink"
+                        />
+                        <p className={clsx(
+                          'mt-1 text-[11px]',
+                          message.direction === 'OUT' && message.author === 'BOT' ? 'text-line' : 'text-ink-3',
+                        )}>
+                          📎 {message.mediaAsset.name}
+                          {message.mediaAsset.priceUsd > 0 && ` · ${fmtUsd(message.mediaAsset.priceUsd)}`}
+                        </p>
+                      </div>
+                    )}
+                    {message.content && (
+                      <p className="whitespace-pre-wrap text-sm">{message.content}</p>
+                    )}
                     <p className={clsx(
                       'mt-1 text-[10px] uppercase tracking-wider',
                       message.direction === 'OUT' && message.author === 'BOT' ? 'text-line' : 'text-ink-3',
@@ -220,28 +260,69 @@ export default function Inbox() {
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' && !e.shiftKey && draft.trim()) {
                       e.preventDefault();
-                      send.mutate();
+                      send.mutate(undefined);
                     }
                   }}
                 />
-                <Button
-                  disabled={!draft.trim() || send.isPending}
-                  onClick={() => send.mutate()}
-                  aria-label="Enviar"
-                >
-                  <Send size={14} />
-                </Button>
+                <div className="flex flex-col gap-2">
+                  <Button
+                    disabled={!draft.trim() || send.isPending}
+                    onClick={() => send.mutate(undefined)}
+                    aria-label="Enviar"
+                  >
+                    <Send size={14} />
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={() => setPhotoPicker(true)}
+                    aria-label="Enviar foto de la galería"
+                  >
+                    <ImageIcon size={14} />
+                  </Button>
+                </div>
               </footer>
             )}
           </div>
         ) : (
-          <div className="flex items-center justify-center">
+          <div className="hidden items-center justify-center lg:flex">
             <p className="serif-accent text-2xl text-ink-3">
               elige una conversación para supervisarla.
             </p>
           </div>
         )}
       </div>
+
+      {/* Enviar foto de la galería */}
+      <Modal
+        open={photoPicker}
+        onClose={() => setPhotoPicker(false)}
+        kicker="Galería"
+        title="Enviar foto"
+        wide
+      >
+        {(mediaAssets?.length ?? 0) === 0 ? (
+          <p className="py-6 text-center text-sm text-ink-3">
+            No hay imágenes activas en la galería. Cárgalas en la sección Galería.
+          </p>
+        ) : (
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
+            {mediaAssets?.map((asset) => (
+              <button
+                key={asset.id}
+                className="cursor-pointer border-2 border-ink bg-bone text-left transition-shadow hover:shadow-[4px_4px_0_0_rgba(26,26,26,0.9)]"
+                disabled={send.isPending}
+                onClick={() => send.mutate({ mediaAssetId: asset.id })}
+              >
+                <MediaImage id={asset.id} alt={asset.name} className="h-28 w-full border-b-2 border-ink" />
+                <div className="flex items-center justify-between gap-1 p-2">
+                  <p className="truncate text-xs font-semibold">{asset.name}</p>
+                  {asset.priceUsd > 0 && <Badge tone="ink">{fmtUsd(asset.priceUsd)}</Badge>}
+                </div>
+              </button>
+            ))}
+          </div>
+        )}
+      </Modal>
     </>
   );
 }

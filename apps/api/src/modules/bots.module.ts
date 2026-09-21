@@ -34,6 +34,7 @@ export class BotsService {
     return {
       ...bot,
       personality: parseJson<Record<string, string>>(bot.personalityJson, {}),
+      sales: parseJson<Record<string, string>>(bot.salesJson, {}),
     };
   }
 
@@ -94,6 +95,10 @@ export class BotsService {
         welcomeMessage: dto.welcomeMessage,
         handoffKeywords: dto.handoffKeywords,
         businessHours: dto.businessHours ? JSON.stringify(dto.businessHours) : null,
+        replyDelayMinSec: dto.replyDelayMinSec ?? 3,
+        replyDelayMaxSec: dto.replyDelayMaxSec ?? 12,
+        typingSimulation: dto.typingSimulation ?? true,
+        salesJson: JSON.stringify(dto.sales ?? {}),
       },
     });
     await this.audit.log({
@@ -119,6 +124,10 @@ export class BotsService {
         memoryEnabled: dto.memoryEnabled,
         welcomeMessage: dto.welcomeMessage,
         handoffKeywords: dto.handoffKeywords,
+        replyDelayMinSec: dto.replyDelayMinSec != null ? Number(dto.replyDelayMinSec) : undefined,
+        replyDelayMaxSec: dto.replyDelayMaxSec != null ? Number(dto.replyDelayMaxSec) : undefined,
+        typingSimulation: dto.typingSimulation,
+        ...(dto.sales ? { salesJson: JSON.stringify(dto.sales) } : {}),
         ...(dto.personality
           ? { personalityJson: JSON.stringify(dto.personality) }
           : {}),

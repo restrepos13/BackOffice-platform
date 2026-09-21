@@ -7,6 +7,7 @@ import type { BillingSummary, Invoice, Payment } from '../../lib/types';
 import {
   Badge, Button, Card, Loading, PageHeader, Select, Table, statusTone,
 } from '../../components/ui';
+import { fmtPerM, useAiModels } from '../../components/media';
 import { PickCompany, useCompanyScope, withScope } from './shared';
 
 const PAYMENT_STATUS_LABELS: Record<string, string> = {
@@ -31,6 +32,7 @@ export default function Billing() {
   const { ready, q, canWrite } = useCompanyScope();
   const queryClient = useQueryClient();
   const [period, setPeriod] = useState(lastPeriods(1)[0]);
+  const { data: aiModels } = useAiModels();
 
   const { data: summary, isLoading } = useQuery({
     queryKey: ['billing-summary', q, period],
@@ -183,6 +185,32 @@ export default function Billing() {
             <tr><td colSpan={7} className="px-4 py-10 text-center text-ink-3">Sin facturas todavía.</td></tr>
           )}
         </Table>
+      </div>
+
+      {/* Costos declarados de modelos IA */}
+      <div className="mt-8">
+        <div className="mb-3 flex flex-wrap items-end justify-between gap-2">
+          <h2 className="display text-2xl">Costos de los modelos IA</h2>
+          <p className="kicker">Servidos por DeepInfra · trasladados al costo, sin margen</p>
+        </div>
+        <Table head={['Modelo', 'Entrada (USD / 1M tokens)', 'Salida (USD / 1M tokens)', 'Contexto', 'Nota']}>
+          {aiModels?.filter((m) => m.active).map((model) => (
+            <tr key={model.id}>
+              <td className="px-4 py-3">
+                <p className="font-semibold">{model.name}{model.recommended ? ' ★' : ''}</p>
+                <p className="font-mono text-[11px] text-ink-3">{model.modelId}</p>
+              </td>
+              <td className="px-4 py-3 tabular-nums">{fmtPerM(model.inputCostPerMTok)}</td>
+              <td className="px-4 py-3 tabular-nums">{fmtPerM(model.outputCostPerMTok)}</td>
+              <td className="px-4 py-3 tabular-nums">{model.contextK}K</td>
+              <td className="max-w-[280px] px-4 py-3 text-xs text-ink-3">{model.notes ?? '—'}</td>
+            </tr>
+          ))}
+        </Table>
+        <p className="mt-2 text-xs text-ink-3">
+          Estos son los precios que paga tu operación por cada millón de tokens —
+          exactamente lo que cobra el proveedor. Los eliges por bot o por línea.
+        </p>
       </div>
 
       {/* Pagos */}

@@ -61,9 +61,11 @@ Cada dominio es un archivo `modules/<x>.module.ts` con service + controller + mo
 - `auth/` — login JWT (12h), `/auth/me`, decoradores `@Public`, `@Roles`, `@CurrentUser`
 - `companies` — CRUD + **aprovisionamiento**: `POST /companies` recibe el wizard completo (datos, plan, límites con overrides, módulos, admin inicial, bot inicial, canales) y crea todo el tenant
 - `plans` — Starter $299 / Growth $599 / Scale $999 / Enterprise (de la landing)
-- `bots` — asistentes IA por empresa: systemPrompt, personalidad JSON, modelo, memoria, handoff
-- `integrations` — canales + **líneas WhatsApp**: una empresa puede tener N integraciones type WHATSAPP (una por modelo/área/campaña). Cada línea tiene `promptMode`: `INHERIT` (usa el bot) o `CUSTOM` (prompt/personalidad/bienvenida/handoff/modelo/temperatura propios). `POST /integrations/:id/clone` clona la línea. Los `connectUrl` de Meta se generan con `buildConnectUrl()` desde `META_APP_ID` — **no se guardan credenciales de cuentas**
+- `bots` — asistentes IA por empresa: systemPrompt, personalidad JSON, modelo (id de DeepInfra), memoria, handoff, **tiempos de respuesta humanizados** (`replyDelayMinSec/MaxSec`, `typingSimulation`) y **habilidades de venta** (`salesJson`: goal/style/catalog/upsell/objections — el modo chatter)
+- `integrations` — canales + **líneas WhatsApp**: una empresa puede tener N integraciones type WHATSAPP (una por modelo/área/campaña). Cada línea tiene `promptMode`: `INHERIT` (usa el bot) o `CUSTOM` (prompt/personalidad/bienvenida/handoff/modelo/temperatura propios, más `overrideReplyDelayMin/MaxSec` y `overrideSalesJson` — ventas por línea). `POST /integrations/:id/clone` clona la línea. Los `connectUrl` de Meta se generan con `buildConnectUrl()` desde `META_APP_ID` — **no se guardan credenciales de cuentas**
 - `personas` — **biblioteca de personalidades**: plantillas globales (companyId null, las gestiona plataforma) + propias por empresa; se aplican a bots o líneas
+- `aimodels` — **catálogo DeepInfra** (`AiModel`): costos USD/1M tokens que se DECLARAN al cliente (los ve en Facturación); solo plataforma edita; los selects de modelo de bots/líneas salen de aquí (`ModelSelect` en `components/media.tsx`)
+- `media` — **galería**: la empresa sube fotos (solo jpg/png/webp/gif, 10 MB, multer en memoria, nombre aleatorio en `apps/api/uploads/<companyId>/`) con precio PPV/etiquetas/línea; se sirven SOLO vía `GET /media/:id/file` autenticado con control de tenant (el front usa `MediaImage` que baja el blob con el JWT); `POST /conversations/:id/messages` acepta `mediaAssetId` (valida tenant) — así el agente/IA envía fotos en el chat
 - `contacts` — CRM con etapas CURIOSO → POTENCIAL → CALIENTE → CLIENTE / DESCARTADO
 - `conversations` — bandeja: mensajes (CONTACT/BOT/AGENT), estados OPEN/PENDING/HANDOFF/RESOLVED, `needsAttention`, filtro por línea (`integrationId`), enviar mensaje como humano pasa a HANDOFF
 - `automations` — flujos/reportes/contenido con runs y successRate
@@ -116,6 +118,20 @@ Esquema completo: `apps/api/prisma/schema.prisma`. Seed: `apps/api/prisma/seed.t
 3. Callback OAuth de Meta (`/integrations/meta/callback`) para conectar cuentas.
 4. Llaves reales de Wompi + cuenta SMTP → se cargan en Dev Tools, sin código.
 5. Pasarela internacional (Stripe).
+
+## Seguridad (ya endurecida — no aflojar)
+
+- Rate limiting: global 200 req/min/IP (`ThrottlerModule`), login 10/min (`@Throttle`).
+  OJO: correr muchos logins seguidos en pruebas dispara el 429 (es esperado).
+- Helmet + payload máx. 1 MB en `main.ts`; JWT_SECRET fuerte en `.env` (NO
+  commiteado, hay `.env.example`); si falta, se genera uno efímero al arrancar.
+- Webhook Wompi exige firma salvo `WOMPI_ENV=test`. Uploads: solo imágenes
+  (SVG rechazado), nunca servidos como estáticos.
+- Suite E2E+seguridad de 42 checks: `test_full.py` (en el scratchpad de la
+  sesión que la creó; recrear si hace falta — cubre auth, headers, tenancy,
+  roles, galería, fotos en chat, modelos, Wompi, aprovisionamiento y rate limit).
+- El frontend es **responsive**: sidebar se vuelve drawer con hamburguesa en
+  `<lg` (AppShell), la bandeja alterna lista/detalle en móvil.
 
 ## Convenciones al trabajar aquí
 

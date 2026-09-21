@@ -113,6 +113,14 @@ export class PaymentsService {
       throw new BadRequestException('Evento sin transacción');
     }
 
+    // En producción la firma es OBLIGATORIA: sin events secret configurado
+    // no se acepta ningún evento (solo se permite en ambiente test).
+    if (!secret && (cfg.WOMPI_ENV || 'test') !== 'test') {
+      throw new UnauthorizedException(
+        'WOMPI_EVENTS_SECRET no configurado: eventos rechazados en producción',
+      );
+    }
+
     if (secret) {
       const props: string[] = body?.signature?.properties ?? [];
       const concat = props

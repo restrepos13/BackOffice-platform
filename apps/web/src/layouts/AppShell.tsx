@@ -8,11 +8,14 @@ import {
   Building2,
   CircleDollarSign,
   Contact,
+  Cpu,
   CreditCard,
   Eye,
+  Images,
   Inbox,
   LayoutDashboard,
   LogOut,
+  Menu,
   Plug,
   ScrollText,
   Sparkles,
@@ -21,9 +24,11 @@ import {
   UserRound,
   Users,
   Workflow,
+  X,
   Zap,
 } from 'lucide-react';
-import { NavLink, Outlet, useNavigate } from 'react-router-dom';
+import { useEffect, useState } from 'react';
+import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { api } from '../lib/api';
 import { useActiveCompanyId, useAuth } from '../lib/auth';
 import { ROLE_LABELS } from '../lib/format';
@@ -42,6 +47,7 @@ const PLATFORM_NAV: NavItem[] = [
   { to: '/platform/companies', label: 'Empresas', icon: Building2 },
   { to: '/platform/plans', label: 'Planes', icon: CircleDollarSign },
   { to: '/platform/personas', label: 'Personalidades', icon: Sparkles },
+  { to: '/platform/models', label: 'Modelos IA', icon: Cpu },
   { to: '/platform/users', label: 'Usuarios', icon: Users },
   { to: '/platform/emails', label: 'Correos', icon: Mail },
   { to: '/platform/audit', label: 'Auditoría', icon: ScrollText },
@@ -55,6 +61,7 @@ const COMPANY_NAV: NavItem[] = [
   { to: '/app/bots', label: 'Asistentes IA', icon: Bot },
   { to: '/app/automations', label: 'Automatizaciones', icon: Workflow },
   { to: '/app/integrations', label: 'Integraciones', icon: Plug },
+  { to: '/app/media', label: 'Galería', icon: Images },
   { to: '/app/analytics', label: 'Analytics', icon: BarChart3 },
   { to: '/app/billing', label: 'Facturación', icon: CreditCard },
   { to: '/app/team', label: 'Equipo', icon: UserRound },
@@ -93,6 +100,13 @@ export default function AppShell() {
   const { user, logout, isPlatform, hasRole } = useAuth();
   const { companyId, setCompanyId } = useActiveCompanyId();
   const navigate = useNavigate();
+  const location = useLocation();
+  const [mobileOpen, setMobileOpen] = useState(false);
+
+  // Cerrar el menú móvil al navegar
+  useEffect(() => {
+    setMobileOpen(false);
+  }, [location.pathname]);
 
   const { data: companies } = useQuery({
     queryKey: ['companies'],
@@ -104,13 +118,36 @@ export default function AppShell() {
 
   return (
     <div className="flex min-h-screen">
+      {/* ─── Overlay móvil ─── */}
+      {mobileOpen && (
+        <div
+          className="fixed inset-0 z-30 bg-ink/50 lg:hidden"
+          onClick={() => setMobileOpen(false)}
+          aria-hidden
+        />
+      )}
+
       {/* ─── Sidebar ─── */}
-      <aside className="sticky top-0 flex h-screen w-60 shrink-0 flex-col border-r-2 border-ink bg-bone">
-        <div className="border-b-2 border-ink px-4 py-4">
-          <p className="display text-2xl leading-none">
-            BackOffice<span className="text-ok">.</span>
-          </p>
-          <p className="kicker mt-1">Estudio de automatización con IA</p>
+      <aside
+        className={clsx(
+          'fixed inset-y-0 left-0 z-40 flex h-full w-64 shrink-0 flex-col border-r-2 border-ink bg-bone transition-transform duration-200 lg:sticky lg:top-0 lg:h-screen lg:w-60 lg:translate-x-0',
+          mobileOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0',
+        )}
+      >
+        <div className="flex items-start justify-between border-b-2 border-ink px-4 py-4">
+          <div>
+            <p className="display text-2xl leading-none">
+              BackOffice<span className="text-ok">.</span>
+            </p>
+            <p className="kicker mt-1">Estudio de automatización con IA</p>
+          </div>
+          <button
+            className="cursor-pointer border-2 border-ink p-1 lg:hidden"
+            onClick={() => setMobileOpen(false)}
+            aria-label="Cerrar menú"
+          >
+            <X size={14} />
+          </button>
         </div>
 
         <div className="flex-1 overflow-y-auto py-4">
@@ -184,6 +221,19 @@ export default function AppShell() {
 
       {/* ─── Contenido ─── */}
       <div className="min-w-0 flex-1">
+        {/* Barra superior móvil */}
+        <div className="sticky top-0 z-20 flex items-center justify-between border-b-2 border-ink bg-bone px-4 py-2.5 lg:hidden">
+          <button
+            className="flex cursor-pointer items-center gap-2 border-2 border-ink px-2.5 py-1.5 text-[11px] font-semibold uppercase tracking-[0.08em]"
+            onClick={() => setMobileOpen(true)}
+            aria-label="Abrir menú"
+          >
+            <Menu size={14} /> Menú
+          </button>
+          <p className="display text-lg leading-none">
+            BackOffice<span className="text-ok">.</span>
+          </p>
+        </div>
         {user?.role === 'COMPANY_VIEWER' && (
           <div className="flex items-center gap-2 border-b-2 border-ink bg-warn-soft px-6 py-1.5">
             <Eye size={12} className="text-warn" />
@@ -198,7 +248,7 @@ export default function AppShell() {
             <p className="kicker !text-info">Sesión de desarrollador</p>
           </div>
         )}
-        <main className="mx-auto max-w-[1400px] px-6 py-6">
+        <main className="mx-auto max-w-[1400px] px-4 py-5 md:px-6 md:py-6">
           <Outlet />
         </main>
       </div>

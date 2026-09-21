@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
 import { ConfigModule } from '@nestjs/config';
+import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { PrismaModule } from './prisma/prisma.module';
 import { AuthModule } from './auth/auth.module';
 import { JwtAuthGuard } from './auth/jwt.guard';
@@ -20,10 +21,14 @@ import { DevToolsModule } from './modules/devtools.module';
 import { PersonasModule } from './modules/personas.module';
 import { PaymentsModule } from './modules/payments.module';
 import { EmailsModule } from './modules/emails.module';
+import { AiModelsModule } from './modules/aimodels.module';
+import { MediaModule } from './modules/media.module';
 
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
+    // Rate limiting global: 200 peticiones/min por IP (el login tiene su propio límite)
+    ThrottlerModule.forRoot([{ ttl: 60_000, limit: 200 }]),
     PrismaModule,
     AuthModule,
     UsersModule,
@@ -41,8 +46,11 @@ import { EmailsModule } from './modules/emails.module';
     PersonasModule,
     PaymentsModule,
     EmailsModule,
+    AiModelsModule,
+    MediaModule,
   ],
   providers: [
+    { provide: APP_GUARD, useClass: ThrottlerGuard },
     { provide: APP_GUARD, useClass: JwtAuthGuard },
     { provide: APP_GUARD, useClass: RolesGuard },
   ],
