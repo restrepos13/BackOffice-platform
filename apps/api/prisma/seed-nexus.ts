@@ -142,11 +142,12 @@ async function main() {
       // en la Fase 3 — aquí solo la forma esperada:
       configJson: JSON.stringify({
         provider: 'TWILIO',
-        accountSid: '', // ← Nexus
-        authTokenEncrypted: '', // ← se cifra al guardarse desde el panel
+        accountSid: '', // ← Nexus (su propia cuenta Twilio)
+        // authToken se carga desde el panel y queda CIFRADO como authTokenEnc
         fromNumber: '', // ← número de WhatsApp de Nexus
+        sandbox: true, // en sandbox JAMÁS sale un mensaje real (se quita al salir a producción)
       }),
-      webhookUrl: 'http://localhost:4001/api/webhooks/nexus/twilio', // se implementa en Fase 3
+      webhookUrl: 'http://localhost:4001/api/webhooks/nexus/twilio',
     },
   });
 

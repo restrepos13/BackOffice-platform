@@ -258,6 +258,7 @@ async function main() {
       { key: 'META_APP_ID', value: '' },
       { key: 'META_APP_SECRET', value: '' },
       { key: 'META_VERIFY_TOKEN', value: '' },
+      { key: 'WEBHOOK_BASE_URL', value: 'http://localhost:4001' },
       { key: 'META_REDIRECT_URI', value: 'http://localhost:4001/integrations/meta/callback' },
       { key: 'PLATFORM_NAME', value: 'BackOffice' },
       { key: 'SUPPORT_WHATSAPP', value: '+57 310 879 0168' },

@@ -7,8 +7,13 @@ import {
   Logger,
   Module,
   NotFoundException,
+  OnApplicationShutdown,
+  OnModuleInit,
+  Optional,
   Post,
 } from '@nestjs/common';
+import { Queue, Worker } from 'bullmq';
+import { WA_OUTBOUND_QUEUE, redisConnection } from '../queue/queue.module';
 import { join, resolve } from 'path';
 import { PrismaService } from '../prisma/prisma.service';
 import { CurrentUser, Roles } from '../auth/decorators';
@@ -146,7 +151,26 @@ export class EngineService {
     private readonly prisma: PrismaService,
     @Inject(AI_PROVIDER) private readonly ai: AiProvider,
     private readonly audit: AuditService,
+    @Optional() @Inject(WA_OUTBOUND_QUEUE) private readonly outboundQueue?: Queue,
   ) {}
+
+  /** Encola el envío real (Twilio) de las respuestas para canales reales,
+   *  respetando los delays humanizados. El simulador no envía nada. */
+  private async dispatchReplies(
+    conversation: any,
+    parts: Array<{ messageId: string; delayMs: number }>,
+  ) {
+    if (conversation.channel !== 'WHATSAPP' || !this.outboundQueue) return;
+    let accumulated = 0;
+    for (const part of parts) {
+      accumulated += part.delayMs;
+      await this.outboundQueue.add(
+        'outbound',
+        { messageId: part.messageId, metaCategory: 'SERVICIO' },
+        { delay: accumulated, attempts: 5, backoff: { type: 'exponential', delay: 5000 } },
+      );
+    }
+  }
 
   /** Entrada estándar: llega un mensaje → se agrupa y se procesa junto. */
   notifyInbound(conversationId: string, graceSeconds = 6) {
@@ -366,17 +390,21 @@ export class EngineService {
 
     // Persistir respuestas (humanizadas) y estado de la conversación
     const plan = humanizeDelays(result.reply, effective.delayMinSec, effective.delayMaxSec);
+    const dispatch: Array<{ messageId: string; delayMs: number }> = [];
     for (const part of plan) {
-      await this.prisma.message.create({
+      const created = await this.prisma.message.create({
         data: {
           conversationId,
           direction: 'OUT',
           author: 'BOT',
           content: part.content,
           type: 'TEXT',
+          deliveryStatus: conversation.channel === 'WHATSAPP' ? 'QUEUED' : null,
         },
       });
+      dispatch.push({ messageId: created.id, delayMs: part.delayMs });
     }
+    await this.dispatchReplies(conversation, dispatch);
     await this.prisma.conversation.update({
       where: { id: conversationId },
       data: {
@@ -621,14 +649,18 @@ export class EngineService {
       replies.length ? replies : ['Dame un momento y te confirmo, estoy revisando con el equipo.'],
       3, 10,
     );
+    const dispatch: Array<{ messageId: string; delayMs: number }> = [];
     for (const part of plan) {
-      await this.prisma.message.create({
+      const created = await this.prisma.message.create({
         data: {
           conversationId: conversation.id,
           direction: 'OUT', author: 'BOT', content: part.content, type: 'TEXT',
+          deliveryStatus: conversation.channel === 'WHATSAPP' ? 'QUEUED' : null,
         },
       });
+      dispatch.push({ messageId: created.id, delayMs: part.delayMs });
     }
+    await this.dispatchReplies(conversation, dispatch);
     return {
       conversationId: conversation.id,
       replies: plan,
@@ -754,10 +786,38 @@ export class EngineController {
   }
 }
 
+/** Worker de la cola 'engine': procesa conversaciones agrupadas (debounce
+ *  con jobs demorados deduplicados por conversación — multi-instancia). */
+@Injectable()
+export class EngineQueueWorker implements OnModuleInit, OnApplicationShutdown {
+  private readonly logger = new Logger('EngineWorker');
+  private worker?: Worker;
+
+  constructor(private readonly engine: EngineService) {}
+
+  onModuleInit() {
+    if (process.env.JEST_WORKER_ID) return;
+    this.worker = new Worker(
+      'engine',
+      async (job) => this.engine.processConversation(job.data.conversationId),
+      { connection: redisConnection() },
+    );
+    this.worker.on('failed', (job, err) =>
+      this.logger.error(`engine job ${job?.id}: ${err.message}`),
+    );
+    this.logger.log('Worker del motor arriba (engine)');
+  }
+
+  async onApplicationShutdown() {
+    await this.worker?.close().catch(() => undefined);
+  }
+}
+
 @Module({
   controllers: [EngineController],
   providers: [
     EngineService,
+    EngineQueueWorker,
     { provide: AI_PROVIDER, useClass: DeepInfraProvider },
   ],
   exports: [EngineService],

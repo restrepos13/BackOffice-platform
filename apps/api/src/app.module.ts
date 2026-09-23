@@ -28,6 +28,8 @@ import { OpsModule } from './modules/ops.module';
 import { JobsModule } from './modules/jobs.module';
 import { WebhooksModule } from './modules/webhooks.module';
 import { EngineModule } from './modules/engine.module';
+import { QueueModule } from './queue/queue.module';
+import { TwilioModule } from './modules/twilio.module';
 import { ScheduleModule } from '@nestjs/schedule';
 
 @Module({
@@ -36,6 +38,7 @@ import { ScheduleModule } from '@nestjs/schedule';
     // Rate limiting global: 200 peticiones/min por IP (el login tiene su propio límite)
     ThrottlerModule.forRoot([{ ttl: 60_000, limit: 200 }]),
     ScheduleModule.forRoot(),
+    QueueModule,
     PrismaModule,
     AuthModule,
     UsersModule,
@@ -60,6 +63,7 @@ import { ScheduleModule } from '@nestjs/schedule';
     JobsModule,
     WebhooksModule,
     EngineModule,
+    TwilioModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },

@@ -76,6 +76,12 @@ export function createMockPrisma() {
     if (include.items) {
       out.items = db.orderItem.filter((i) => i.orderId === doc.id);
     }
+    if (include.conversation && doc.conversationId) {
+      const conversation = db.conversation.find((c) => c.id === doc.conversationId) ?? null;
+      out.conversation = conversation
+        ? attach(conversation, include.conversation.include)
+        : null;
+    }
     return out;
   };
 
@@ -112,6 +118,11 @@ export function createMockPrisma() {
       const doc = db[name].find((d) => matches(d, where));
       if (!doc) throw new Error(`update: no encontrado en ${name}`);
       const { items, ...plain } = data;
+      for (const [key, value] of Object.entries(plain)) {
+        if (value && typeof value === 'object' && 'increment' in (value as Doc)) {
+          plain[key] = (doc[key] ?? 0) + (value as Doc).increment;
+        }
+      }
       Object.assign(doc, plain, { updatedAt: new Date() });
       if (items?.create && name === 'order') {
         for (const item of items.create) {

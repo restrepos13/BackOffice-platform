@@ -84,6 +84,9 @@ model Company {
   // Configuración del módulo de pedidos (catering): JSON {statuses?, schedule:{days,open,close},
   // orderCutoff, minLeadHours, maxPerSlot, slots, holidays[], nonWorkingDays[]}
   orderConfigJson String @default("{}")
+  // Plantillas aprobadas de Meta (vía Twilio Content API), por organización:
+  // [{key, name, contentSid, category (UTILIDAD|MARKETING), body, variables[]}]
+  waTemplatesJson String @default("[]")
   notes        String?
   // Módulos habilitados para el tenant (string[] serializado):
   // inbox, contacts, bots, automations, analytics, billing, team
