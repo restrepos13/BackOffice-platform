@@ -265,6 +265,8 @@ model Conversation {
   // MODO HUMANO: pausa del bot POR conversación (nunca global) y quién atiende
   botPaused      Boolean  @default(false)
   attendedByName String?
+  // Estado de la máquina conversacional del motor: {state, missingFields, draftOrderId}
+  aiStateJson    String   @default("{}")
   customerId     String? // empresa cliente (módulo pedidos)
   unreadCount    Int      @default(0)
   lastMessageAt  DateTime @default(now())

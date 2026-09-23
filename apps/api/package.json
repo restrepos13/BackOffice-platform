@@ -10,7 +10,8 @@
     "db:seed": "ts-node --transpile-only prisma/seed.ts",
     "db:seed:demo": "ts-node --transpile-only prisma/seed-demo.ts",
     "db:seed:nexus": "ts-node --transpile-only prisma/seed-nexus.ts",
-    "db:studio": "prisma studio"
+    "db:studio": "prisma studio",
+    "test": "jest"
   },
   "dependencies": {
     "@nestjs/common": "^10.4.15",
@@ -35,10 +36,13 @@
     "@nestjs/cli": "^10.4.9",
     "@types/bcryptjs": "^2.4.6",
     "@types/express": "^5.0.0",
+    "@types/jest": "^30.0.0",
     "@types/multer": "^2.2.0",
     "@types/node": "^22.10.5",
     "@types/nodemailer": "^8.0.2",
+    "jest": "^30.5.2",
     "prisma": "^6.2.1",
+    "ts-jest": "^29.4.13",
     "ts-node": "^10.9.2",
     "typescript": "^5.7.3"
   },

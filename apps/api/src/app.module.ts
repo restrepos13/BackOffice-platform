@@ -27,6 +27,7 @@ import { MediaModule } from './modules/media.module';
 import { OpsModule } from './modules/ops.module';
 import { JobsModule } from './modules/jobs.module';
 import { WebhooksModule } from './modules/webhooks.module';
+import { EngineModule } from './modules/engine.module';
 import { ScheduleModule } from '@nestjs/schedule';
 
 @Module({
@@ -58,6 +59,7 @@ import { ScheduleModule } from '@nestjs/schedule';
     OpsModule,
     JobsModule,
     WebhooksModule,
+    EngineModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },
