@@ -3,6 +3,8 @@ export const ROLES = {
   DEV: 'DEV',
   COMPANY_ADMIN: 'COMPANY_ADMIN',
   COMPANY_VIEWER: 'COMPANY_VIEWER',
+  /** Usuario de un área de producción: solo ve SUS ítems (User.productionAreaId). */
+  COMPANY_AREA: 'COMPANY_AREA',
 } as const;
 
 export type Role = (typeof ROLES)[keyof typeof ROLES];
@@ -50,3 +52,12 @@ export function scopeCompanyId(
   if (isPlatformRole(user.role)) return requested ?? undefined;
   return user.companyId ?? '__none__';
 }
+
+/**
+ * Filtro de soft-delete tolerante para Mongo: en Prisma+MongoDB `null` NO
+ * matchea campos ausentes (isSet: false). Usar SIEMPRE esto en vez de
+ * `deletedAt: null` en cláusulas where.
+ */
+export const NOT_DELETED = {
+  OR: [{ deletedAt: null }, { deletedAt: { isSet: false as const } }],
+};

@@ -30,6 +30,8 @@ import { WebhooksModule } from './modules/webhooks.module';
 import { EngineModule } from './modules/engine.module';
 import { QueueModule } from './queue/queue.module';
 import { TwilioModule } from './modules/twilio.module';
+import { OrdersModule } from './modules/orders.module';
+import { CatalogModule } from './modules/catalog.module';
 import { ScheduleModule } from '@nestjs/schedule';
 
 @Module({
@@ -64,6 +66,8 @@ import { ScheduleModule } from '@nestjs/schedule';
     WebhooksModule,
     EngineModule,
     TwilioModule,
+    OrdersModule,
+    CatalogModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },

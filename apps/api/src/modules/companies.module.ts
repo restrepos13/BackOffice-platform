@@ -123,6 +123,8 @@ export class CompaniesService {
       deepinfraKeyMasked: deepinfraApiKey
         ? `••••${String(deepinfraApiKey).slice(-4)}`
         : null,
+      orderConfig: parseJson<Record<string, any>>(company.orderConfigJson, {}),
+      waTemplates: parseJson<any[]>(company.waTemplatesJson, []),
     };
   }
 
@@ -316,6 +318,10 @@ export class CompaniesService {
           : {}),
         ...(dto.modules ? { modulesJson: JSON.stringify(dto.modules) } : {}),
         ...(dto.limits ? { limitsJson: JSON.stringify(dto.limits) } : {}),
+        // Configuración del módulo de pedidos y plantillas de Meta (editable desde el panel)
+        ...(dto.orderConfig ? { orderConfigJson: JSON.stringify(dto.orderConfig) } : {}),
+        ...(dto.waTemplates ? { waTemplatesJson: JSON.stringify(dto.waTemplates) } : {}),
+        ...(dto.currency ? { currency: dto.currency } : {}),
       },
     });
     await this.audit.log({

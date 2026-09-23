@@ -110,6 +110,7 @@ export class ContactsService {
         stage: dto.stage,
         notes: dto.notes,
         assignedToId: dto.assignedToId,
+        ...(dto.customerId !== undefined ? { customerId: dto.customerId || null } : {}),
         ...(dto.tags ? { tagsJson: JSON.stringify(dto.tags) } : {}),
         lastActivityAt: new Date(),
       },

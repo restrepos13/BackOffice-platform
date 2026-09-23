@@ -14,6 +14,10 @@ import {
 } from '@nestjs/common';
 import { Queue, Worker } from 'bullmq';
 import { WA_OUTBOUND_QUEUE, redisConnection } from '../queue/queue.module';
+import { OrdersModule, OrdersService } from './orders.module';
+import { validateDelivery } from '../common/agenda';
+// Reexport para compatibilidad (tests y consumidores existentes)
+export { validateDelivery };
 import { join, resolve } from 'path';
 import { PrismaService } from '../prisma/prisma.service';
 import { CurrentUser, Roles } from '../auth/decorators';
@@ -22,6 +26,7 @@ import {
   ROLES,
   isPlatformRole,
   parseJson,
+  NOT_DELETED,
 } from '../common/constants';
 import { AuditService } from './audit.module';
 import { DeepInfraProvider } from '../ai/deepinfra.provider';
@@ -92,42 +97,6 @@ export function humanizeDelays(
   });
 }
 
-/** Valida la entrega contra las reglas de agenda de la organización. */
-export function validateDelivery(
-  orderConfig: Record<string, any>,
-  deliveryAt: Date,
-  now = new Date(),
-): { ok: boolean; reason?: string } {
-  const schedule = orderConfig?.schedule ?? {};
-  const days: number[] = Array.isArray(schedule.days) ? schedule.days : [];
-  if (days.length && !days.includes(deliveryAt.getDay())) {
-    return { ok: false, reason: 'La fecha cae en un día sin entregas' };
-  }
-  const hhmm = (value: string) => {
-    const [h, m] = String(value).split(':').map(Number);
-    return h * 60 + (m || 0);
-  };
-  if (schedule.open && schedule.close) {
-    const minutes = deliveryAt.getHours() * 60 + deliveryAt.getMinutes();
-    if (minutes < hhmm(schedule.open) || minutes > hhmm(schedule.close)) {
-      return { ok: false, reason: `Fuera del horario de entrega (${schedule.open}–${schedule.close})` };
-    }
-  }
-  const minLeadHours = Number(orderConfig?.minLeadHours ?? 0);
-  if (minLeadHours > 0) {
-    const leadMs = deliveryAt.getTime() - now.getTime();
-    if (leadMs < minLeadHours * 3600 * 1000) {
-      return { ok: false, reason: `Requiere al menos ${minLeadHours} h de anticipación` };
-    }
-  }
-  const holidays: string[] = Array.isArray(orderConfig?.holidays) ? orderConfig.holidays : [];
-  const dayKey = deliveryAt.toISOString().slice(0, 10);
-  if (holidays.includes(dayKey)) {
-    return { ok: false, reason: 'La fecha es un día no laborable' };
-  }
-  return { ok: true };
-}
-
 /* ─── Motor ──────────────────────────────────────────────────────────── */
 
 export interface EngineResult {
@@ -152,6 +121,7 @@ export class EngineService {
     @Inject(AI_PROVIDER) private readonly ai: AiProvider,
     private readonly audit: AuditService,
     @Optional() @Inject(WA_OUTBOUND_QUEUE) private readonly outboundQueue?: Queue,
+    @Optional() private readonly orders?: OrdersService,
   ) {}
 
   /** Encola el envío real (Twilio) de las respuestas para canales reales,
@@ -268,7 +238,7 @@ export class EngineService {
 
     // Contexto: borrador vigente + pedidos anteriores + catálogo
     const draft = await this.prisma.order.findFirst({
-      where: { conversationId, status: 'borrador', deletedAt: null },
+      where: { conversationId, status: 'borrador', ...NOT_DELETED },
       include: { items: true },
       orderBy: { createdAt: 'desc' },
     });
@@ -278,7 +248,7 @@ export class EngineService {
             companyId: company.id,
             customerId: contact.customerId,
             status: { in: ['confirmado', 'programado', 'despachado', 'entregado'] },
-            deletedAt: null,
+            ...NOT_DELETED,
           },
           include: { items: true },
           orderBy: { deliveryAt: 'desc' },
@@ -286,7 +256,7 @@ export class EngineService {
         })
       : [];
     const products = await this.prisma.product.findMany({
-      where: { companyId: company.id, active: true, deletedAt: null },
+      where: { companyId: company.id, active: true, ...NOT_DELETED },
       take: 100,
     });
 
@@ -589,9 +559,20 @@ export class EngineService {
     if (!address.address) {
       return { ok: false, status: 'borrador', reason: 'Falta la dirección de entrega' };
     }
-    const validity = validateDelivery(orderConfig, order.deliveryAt);
-    if (!validity.ok) {
-      return { ok: false, status: 'borrador', reason: validity.reason };
+    // Agenda completa (corte y capacidad incluidos) cuando OrdersService está
+    // disponible; reglas base como respaldo (tests unitarios del motor).
+    if (this.orders) {
+      const agenda = await this.orders.validateAgenda(
+        order.companyId, order.deliveryAt, order.id,
+      );
+      if (!agenda.ok) {
+        return { ok: false, status: 'borrador', reason: agenda.reason };
+      }
+    } else {
+      const validity = validateDelivery(orderConfig, order.deliveryAt);
+      if (!validity.ok) {
+        return { ok: false, status: 'borrador', reason: validity.reason };
+      }
     }
     await this.prisma.order.update({
       where: { id: orderId },
@@ -604,7 +585,16 @@ export class EngineService {
         reason: 'Cliente confirmó el resumen completo por chat',
       },
     });
-    // Fase 4: aquí se disparan distribución a áreas, agenda y recordatorios.
+    // Fase 4: distribución a áreas + recordatorios + paso automático a "programado"
+    if (this.orders) {
+      const pipeline = await this.orders.runConfirmationPipeline(orderId, {
+        type: 'IA', name: 'Asistente IA',
+      });
+      return {
+        ok: true,
+        status: pipeline.scheduled ? 'programado' : 'requiere_atencion',
+      };
+    }
     return { ok: true, status: 'confirmado' };
   }
 
@@ -814,6 +804,7 @@ export class EngineQueueWorker implements OnModuleInit, OnApplicationShutdown {
 }
 
 @Module({
+  imports: [OrdersModule],
   controllers: [EngineController],
   providers: [
     EngineService,

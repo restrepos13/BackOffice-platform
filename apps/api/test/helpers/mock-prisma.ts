@@ -11,6 +11,14 @@ const id = () => `test_${++seq}`;
 function matches(doc: Doc, where: Doc | undefined): boolean {
   if (!where) return true;
   for (const [key, cond] of Object.entries(where)) {
+    if (key === 'OR') {
+      if (!(cond as Doc[]).some((w) => matches(doc, w))) return false;
+      continue;
+    }
+    if (key === 'AND') {
+      if (!(cond as Doc[]).every((w) => matches(doc, w))) return false;
+      continue;
+    }
     const value = doc[key];
     if (cond === null) {
       if (value !== null && value !== undefined) return false;
@@ -20,6 +28,10 @@ function matches(doc: Doc, where: Doc | undefined): boolean {
       if ('lte' in cond && !(value <= cond.lte)) return false;
       if ('lt' in cond && !(value < cond.lt)) return false;
       if ('not' in cond && value === cond.not) return false;
+      if ('isSet' in cond) {
+        const has = value !== undefined;
+        if (cond.isSet !== has) return false;
+      }
     } else if (cond instanceof Date) {
       if (new Date(value).getTime() !== cond.getTime()) return false;
     } else if (value !== cond) {
@@ -54,10 +66,12 @@ export function createMockPrisma() {
     product: [] as Doc[],
     aiModel: [] as Doc[],
     aiUsageEvent: [] as Doc[],
+    productionArea: [] as Doc[],
+    reminder: [] as Doc[],
   };
 
   const attach = (doc: Doc, include?: Doc): Doc => {
-    if (!include) return doc;
+    if (!include) return { ...doc }; // snapshot, como Prisma real
     const out = { ...doc };
     if (include.contact && doc.contactId) {
       const contact = db.contact.find((c) => c.id === doc.contactId) ?? null;
@@ -76,6 +90,17 @@ export function createMockPrisma() {
     if (include.items) {
       out.items = db.orderItem.filter((i) => i.orderId === doc.id);
     }
+    if (include.customer && doc.customerId) {
+      out.customer = db.customer.find((c) => c.id === doc.customerId) ?? null;
+    }
+    if (include.order && doc.orderId) {
+      const order = db.order.find((o) => o.id === doc.orderId) ?? null;
+      out.order = order
+        ? (include.order.include || include.order.select
+            ? attach(order, include.order.include)
+            : { ...order })
+        : null;
+    }
     if (include.conversation && doc.conversationId) {
       const conversation = db.conversation.find((c) => c.id === doc.conversationId) ?? null;
       out.conversation = conversation
@@ -90,6 +115,17 @@ export function createMockPrisma() {
       const doc = db[name].find((d) => matches(d, where)) ?? null;
       return doc ? attach(doc, include) : null;
     },
+    findUniqueOrThrow: async ({ where, include }: Doc) => {
+      const doc = db[name].find((d) => matches(d, where));
+      if (!doc) throw new Error(`findUniqueOrThrow: no encontrado en ${name}`);
+      return attach(doc, include);
+    },
+    updateMany: async ({ where, data }: Doc) => {
+      const docs = db[name].filter((d) => matches(d, where));
+      for (const doc of docs) Object.assign(doc, data, { updatedAt: new Date() });
+      return { count: docs.length };
+    },
+    count: async ({ where }: Doc = {}) => db[name].filter((d) => matches(d, where)).length,
     findFirst: async ({ where, include, orderBy }: Doc = {}) => {
       const doc = sort(db[name].filter((d) => matches(d, where)), orderBy)[0] ?? null;
       return doc ? attach(doc, include) : null;
@@ -153,6 +189,8 @@ export function createMockPrisma() {
     product: model('product', { active: true, deletedAt: null }),
     aiModel: model('aiModel'),
     aiUsageEvent: model('aiUsageEvent'),
+    productionArea: model('productionArea', { active: true, reminderHoursBefore: 24 }),
+    reminder: model('reminder', { status: 'PENDIENTE', attempts: 0 }),
   };
 
   return { prisma, db };
