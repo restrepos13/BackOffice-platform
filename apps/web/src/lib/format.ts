@@ -104,6 +104,7 @@ export const INVOICE_STATUS_LABELS: Record<string, string> = {
 export const MODULE_LABELS: Record<string, string> = {
   inbox: 'Bandeja de conversaciones',
   contacts: 'CRM / Contactos',
+  orders: 'Pedidos (catering)',
   bots: 'Asistentes IA',
   automations: 'Automatizaciones',
   analytics: 'Analytics',
