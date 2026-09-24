@@ -8,6 +8,7 @@ import {
   Module,
   OnApplicationShutdown,
   OnModuleInit,
+  Optional,
   Param,
   Post,
   Req,
@@ -25,6 +26,7 @@ import { SkipThrottle } from '@nestjs/throttler';
 import { parseJson } from '../common/constants';
 import { decryptSecret, isEncrypted } from '../common/crypto';
 import { AuditService } from './audit.module';
+import { EventsService } from './events.module';
 import {
   ENGINE_QUEUE,
   WA_INBOUND_QUEUE,
@@ -91,6 +93,7 @@ export class TwilioService implements OnModuleInit, OnApplicationShutdown {
     @Inject(WA_INBOUND_QUEUE) private readonly inboundQueue: Queue,
     @Inject(WA_OUTBOUND_QUEUE) private readonly outboundQueue: Queue,
     @Inject(ENGINE_QUEUE) private readonly engineQueue: Queue,
+    @Optional() private readonly events?: EventsService,
   ) {}
 
   /* ── Resolución de línea y credenciales (cifradas por organización) ── */
@@ -312,6 +315,11 @@ export class TwilioService implements OnModuleInit, OnApplicationShutdown {
       where: { id: contact.id },
       data: { lastActivityAt: new Date() },
     });
+    this.events?.emit(companyId, {
+      type: 'message.new',
+      conversationId: conversation.id,
+      direction: 'IN',
+    });
 
     // Agrupación de mensajes consecutivos: job demorado deduplicado por conversación
     const company = await this.prisma.company.findUnique({ where: { id: companyId } });
@@ -410,6 +418,12 @@ export class TwilioService implements OnModuleInit, OnApplicationShutdown {
         metaCostUsd,
       },
     });
+    this.events?.emit(conversation.companyId, {
+      type: 'message.status',
+      conversationId: conversation.id,
+      messageId: message.id,
+      deliveryStatus: 'SENT',
+    });
     return { sid: providerId, category };
   }
 
@@ -437,6 +451,11 @@ export class TwilioService implements OnModuleInit, OnApplicationShutdown {
       detail: `${retryable ? 'Reintentos agotados' : 'Rechazado'}: ${reason}`,
     });
     this.logger.error(`Envío fallido (${messageId}): ${reason}`);
+    this.events?.emit((message.conversation as any).companyId, {
+      type: 'conversation.updated',
+      conversationId: message.conversationId,
+      needsAttention: true,
+    });
   }
 
   /* ── Estados de entrega (status callback) ── */
@@ -462,6 +481,12 @@ export class TwilioService implements OnModuleInit, OnApplicationShutdown {
     await this.prisma.message.update({
       where: { id: message.id },
       data: { deliveryStatus: status },
+    });
+    this.events?.emit(companyId, {
+      type: 'message.status',
+      conversationId: message.conversationId,
+      messageId: message.id,
+      deliveryStatus: status,
     });
     if (status === 'FAILED') {
       await this.markSendFailed(

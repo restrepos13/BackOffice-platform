@@ -29,6 +29,7 @@ import {
   NOT_DELETED,
 } from '../common/constants';
 import { AuditService } from './audit.module';
+import { EventsService } from './events.module';
 import { DeepInfraProvider } from '../ai/deepinfra.provider';
 import { buildSystemPrompt, PromptContext } from '../ai/prompt';
 import {
@@ -122,6 +123,7 @@ export class EngineService {
     private readonly audit: AuditService,
     @Optional() @Inject(WA_OUTBOUND_QUEUE) private readonly outboundQueue?: Queue,
     @Optional() private readonly orders?: OrdersService,
+    @Optional() private readonly events?: EventsService,
   ) {}
 
   /** Encola el envío real (Twilio) de las respuestas para canales reales,
@@ -274,7 +276,9 @@ export class EngineService {
         category: p.category,
         unit: p.unit,
         description: p.description,
-        presentations: parseJson<Array<{ name: string }>>(p.presentationsJson, []).map((x) => x.name),
+        presentations: parseJson<any[]>(p.presentationsJson, [])
+          .map((x) => (typeof x === 'string' ? x : x?.name))
+          .filter(Boolean),
       })),
       customer: contact?.customer
         ? {
@@ -386,6 +390,11 @@ export class EngineService {
           draftOrderId,
         }),
       },
+    });
+    this.events?.emit(company.id, {
+      type: 'message.new',
+      conversationId,
+      direction: 'OUT',
     });
 
     return {
@@ -651,6 +660,12 @@ export class EngineService {
       dispatch.push({ messageId: created.id, delayMs: part.delayMs });
     }
     await this.dispatchReplies(conversation, dispatch);
+    this.events?.emit(conversation.companyId, {
+      type: 'conversation.updated',
+      conversationId: conversation.id,
+      needsAttention: true,
+      botPaused: true,
+    });
     return {
       conversationId: conversation.id,
       replies: plan,

@@ -33,7 +33,61 @@ export const ROLE_LABELS: Record<string, string> = {
   DEV: 'Desarrollador',
   COMPANY_ADMIN: 'Admin de empresa',
   COMPANY_VIEWER: 'Visualización',
+  COMPANY_AREA: 'Área de producción',
 };
+
+/* ─── Módulo de pedidos ─── */
+
+export const ORDER_STATUS_LABELS: Record<string, string> = {
+  borrador: 'Borrador',
+  confirmado: 'Confirmado',
+  programado: 'Programado',
+  en_produccion: 'En producción',
+  listo: 'Listo',
+  empacado: 'Empacado',
+  despachado: 'Despachado',
+  entregado: 'Entregado',
+  cancelado: 'Cancelado',
+  requiere_atencion: 'Requiere atención',
+};
+
+export function orderStatusTone(status: string): 'ok' | 'warn' | 'bad' | 'info' | 'neutral' | 'ink' {
+  switch (status) {
+    case 'entregado':
+      return 'ok';
+    case 'requiere_atencion':
+    case 'cancelado':
+      return 'bad';
+    case 'borrador':
+      return 'neutral';
+    case 'confirmado':
+    case 'programado':
+      return 'info';
+    case 'en_produccion':
+    case 'empacado':
+      return 'warn';
+    case 'listo':
+    case 'despachado':
+      return 'ink';
+    default:
+      return 'neutral';
+  }
+}
+
+export const REMINDER_STATUS_LABELS: Record<string, string> = {
+  PENDIENTE: 'Pendiente',
+  PROCESANDO: 'Procesando',
+  ENVIADO: 'Enviado',
+  FALLIDO: 'Fallido',
+  CANCELADO: 'Cancelado',
+};
+
+export const fmtCop = (n: number) =>
+  new Intl.NumberFormat('es-CO', {
+    style: 'currency',
+    currency: 'COP',
+    maximumFractionDigits: 0,
+  }).format(n);
 
 export const COMPANY_STATUS_LABELS: Record<string, string> = {
   TRIAL: 'Trial',

@@ -1,34 +1,59 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { clsx } from 'clsx';
-import { AlertTriangle, ArrowLeft, Image as ImageIcon, Send } from 'lucide-react';
+import {
+  AlertTriangle, ArrowLeft, Bot, Check, CheckCheck, Hand,
+  Image as ImageIcon, Search, Send, UserRound, X,
+} from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import { api } from '../../lib/api';
+import { useLiveEvents } from '../../lib/events';
 import {
   CHANNEL_LABELS, CONVO_STATUS_LABELS, STAGE_LABELS, fmtDateTime, fmtUsd, timeAgo,
 } from '../../lib/format';
-import type { Conversation, Integration, MediaAsset } from '../../lib/types';
+import type { Conversation, Integration, MediaAsset, Message } from '../../lib/types';
 import {
-  Badge, Button, Loading, Modal, PageHeader, Select, Textarea, statusTone,
+  Badge, Button, Input, Loading, Modal, PageHeader, Select, Textarea, statusTone,
 } from '../../components/ui';
-import { MediaImage } from '../../components/media';
+import { MediaImage, MessageFile } from '../../components/media';
 import { AppointmentModal, FollowUpModal } from './Agenda';
 import { PickCompany, useCompanyScope, withScope } from './shared';
 
+/** Ticks de entrega estilo WhatsApp para mensajes salientes. */
+function DeliveryTicks({ status }: { status?: Message['deliveryStatus'] }) {
+  if (!status) return null;
+  if (status === 'FAILED') return <X size={12} className="inline text-bad" aria-label="Falló" />;
+  if (status === 'QUEUED') return <span className="text-[10px]" aria-label="En cola">⏱</span>;
+  if (status === 'SENT') return <Check size={12} className="inline" aria-label="Enviado" />;
+  return (
+    <CheckCheck
+      size={12}
+      className={clsx('inline', status === 'READ' && 'text-info')}
+      aria-label={status === 'READ' ? 'Leído' : 'Entregado'}
+    />
+  );
+}
+
 export default function Inbox() {
-  const { ready, q, canWrite } = useCompanyScope();
+  const { ready, q, canWrite, companyId } = useCompanyScope();
   const [params] = useSearchParams();
   const queryClient = useQueryClient();
   const [status, setStatus] = useState('');
   const [lineId, setLineId] = useState(params.get('line') ?? '');
   const [onlyAttention, setOnlyAttention] = useState(params.get('attention') === '1');
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [search, setSearch] = useState('');
+  const [from, setFrom] = useState('');
+  const [to, setTo] = useState('');
+  const [selectedId, setSelectedId] = useState<string | null>(params.get('open'));
   const [draft, setDraft] = useState('');
   const [photoPicker, setPhotoPicker] = useState(false);
   const [scheduling, setScheduling] = useState(false);
   const [followingUp, setFollowingUp] = useState(false);
+  const [typingBy, setTypingBy] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const typingTimer = useRef<ReturnType<typeof setTimeout>>();
+  const lastTypingSent = useRef(0);
 
   const { data: lines } = useQuery({
     queryKey: ['integrations', q],
@@ -38,14 +63,14 @@ export default function Inbox() {
   });
 
   const listPath = withScope(
-    `/conversations?x=1${status ? `&status=${status}` : ''}${onlyAttention ? '&needsAttention=true' : ''}${lineId ? `&integrationId=${lineId}` : ''}`,
+    `/conversations?x=1${status ? `&status=${status}` : ''}${onlyAttention ? '&needsAttention=true' : ''}${lineId ? `&integrationId=${lineId}` : ''}${search ? `&q=${encodeURIComponent(search)}` : ''}${from ? `&from=${from}` : ''}${to ? `&to=${to}` : ''}`,
     q,
   );
   const { data: conversations, isLoading } = useQuery({
     queryKey: ['conversations', listPath],
     queryFn: () => api.get<Conversation[]>(listPath),
     enabled: ready,
-    refetchInterval: 20_000,
+    refetchInterval: 60_000, // respaldo; lo normal llega por SSE
   });
 
   const { data: detail } = useQuery({
@@ -53,6 +78,22 @@ export default function Inbox() {
     queryFn: () => api.get<Conversation>(`/conversations/${selectedId}`),
     enabled: !!selectedId,
   });
+
+  // ─── Tiempo real: mensajes nuevos, estados y "escribiendo…" ───
+  useLiveEvents(companyId, (event) => {
+    if (event.type === 'typing') {
+      if (event.conversationId === selectedId && event.userName) {
+        setTypingBy(event.userName);
+        clearTimeout(typingTimer.current);
+        typingTimer.current = setTimeout(() => setTypingBy(null), 4000);
+      }
+      return;
+    }
+    queryClient.invalidateQueries({ queryKey: ['conversations'] });
+    if (event.conversationId && event.conversationId === selectedId) {
+      queryClient.invalidateQueries({ queryKey: ['conversation', selectedId] });
+    }
+  }, ready);
 
   const { data: mediaAssets } = useQuery({
     queryKey: ['media', q],
@@ -89,6 +130,27 @@ export default function Inbox() {
     },
   });
 
+  const setMode = useMutation({
+    mutationFn: (mode: 'HUMAN' | 'BOT') =>
+      api.patch(`/conversations/${selectedId}/mode`, { mode }),
+    onSuccess: (_data, mode) => {
+      toast.success(mode === 'HUMAN' ? 'Modo humano activado: la IA no responde aquí' : 'La IA retoma la conversación');
+      queryClient.invalidateQueries({ queryKey: ['conversation', selectedId] });
+      queryClient.invalidateQueries({ queryKey: ['conversations'] });
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : 'Error'),
+  });
+
+  // Presencia "escribiendo…" hacia el resto del equipo (cada 2,5 s máx.)
+  const notifyTyping = () => {
+    if (!selectedId || Date.now() - lastTypingSent.current < 2500) return;
+    lastTypingSent.current = Date.now();
+    api.post('/events/typing', {
+      conversationId: selectedId,
+      ...(companyId ? { companyId } : {}),
+    }).catch(() => undefined);
+  };
+
   if (!ready) return <PickCompany />;
 
   return (
@@ -96,20 +158,32 @@ export default function Inbox() {
       <PageHeader kicker="Supervisión" title="Conversaciones" />
 
       <div className="mb-4 flex flex-wrap items-center gap-3">
-        <Select value={status} onChange={(e) => setStatus(e.target.value)} className="max-w-[180px]">
+        <div className="flex min-w-[220px] items-center gap-2 border-2 border-ink bg-bone px-3">
+          <Search size={14} className="shrink-0 text-ink-3" />
+          <input
+            className="w-full bg-transparent py-2 text-sm outline-none placeholder:text-ink-3"
+            placeholder="Cliente, teléfono o contenido…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            aria-label="Buscar conversaciones"
+          />
+        </div>
+        <Select value={status} onChange={(e) => setStatus(e.target.value)} className="max-w-[170px]">
           <option value="">Todos los estados</option>
           {Object.entries(CONVO_STATUS_LABELS).map(([value, label]) => (
             <option key={value} value={value}>{label}</option>
           ))}
         </Select>
         {(lines?.length ?? 0) > 1 && (
-          <Select value={lineId} onChange={(e) => setLineId(e.target.value)} className="max-w-[220px]" aria-label="Filtrar por línea">
+          <Select value={lineId} onChange={(e) => setLineId(e.target.value)} className="max-w-[200px]" aria-label="Filtrar por línea">
             <option value="">Todas las líneas</option>
             {lines?.map((line) => (
               <option key={line.id} value={line.id}>{line.name}</option>
             ))}
           </Select>
         )}
+        <Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className="max-w-[150px]" aria-label="Desde" />
+        <Input type="date" value={to} onChange={(e) => setTo(e.target.value)} className="max-w-[150px]" aria-label="Hasta" />
         <button
           onClick={() => setOnlyAttention(!onlyAttention)}
           className={clsx(
@@ -142,6 +216,11 @@ export default function Inbox() {
                       <AlertTriangle size={12} className="mr-1 inline text-bad" />
                     )}
                     {convo.contact.name}
+                    {convo.contact.customer && (
+                      <span className={clsx('font-normal', selectedId === convo.id ? 'text-line' : 'text-ink-3')}>
+                        {' '}· {convo.contact.customer.name}
+                      </span>
+                    )}
                   </p>
                   <span className={clsx('shrink-0 text-[10px]', selectedId === convo.id ? 'text-line' : 'text-ink-3')}>
                     {timeAgo(convo.lastMessageAt)}
@@ -152,6 +231,11 @@ export default function Inbox() {
                 </p>
                 <div className="mt-1.5 flex flex-wrap gap-1.5">
                   <Badge tone={statusTone(convo.status)}>{CONVO_STATUS_LABELS[convo.status]}</Badge>
+                  {convo.botPaused && (
+                    <Badge tone="warn">
+                      {convo.attendedByName ? `Humano: ${convo.attendedByName}` : 'IA en pausa'}
+                    </Badge>
+                  )}
                   <Badge tone="neutral">
                     {convo.integration?.name ?? CHANNEL_LABELS[convo.channel] ?? convo.channel}
                   </Badge>
@@ -178,15 +262,40 @@ export default function Inbox() {
                   <ArrowLeft size={13} />
                 </button>
                 <div>
-                <p className="font-semibold">{detail.contact.name}</p>
-                <p className="text-xs text-ink-3">
-                  {detail.contact.phone} · {STAGE_LABELS[detail.contact.stage]}
-                  {detail.integration ? ` · ${detail.integration.name}` : detail.bot ? ` · ${detail.bot.name}` : ''}
-                </p>
+                  <p className="font-semibold">
+                    {detail.contact.name}
+                    {detail.contact.customer && (
+                      <span className="font-normal text-ink-3"> · {detail.contact.customer.name}</span>
+                    )}
+                  </p>
+                  <p className="text-xs text-ink-3">
+                    {detail.contact.phone} · {STAGE_LABELS[detail.contact.stage]}
+                    {detail.integration ? ` · ${detail.integration.name}` : detail.bot ? ` · ${detail.bot.name}` : ''}
+                  </p>
                 </div>
+                {detail.botPaused ? (
+                  <Badge tone="warn">
+                    <Hand size={10} className="mr-1 inline" />
+                    {detail.attendedByName ? `Atiende ${detail.attendedByName}` : 'IA en pausa'}
+                  </Badge>
+                ) : (
+                  <Badge tone="info">
+                    <Bot size={10} className="mr-1 inline" /> IA activa
+                  </Badge>
+                )}
               </div>
               {canWrite && (
                 <div className="flex flex-wrap gap-2">
+                  {/* MODO HUMANO explícito por conversación */}
+                  {detail.botPaused ? (
+                    <Button size="sm" onClick={() => setMode.mutate('BOT')} disabled={setMode.isPending}>
+                      <Bot size={12} /> Devolver a la IA
+                    </Button>
+                  ) : (
+                    <Button size="sm" variant="outline" onClick={() => setMode.mutate('HUMAN')} disabled={setMode.isPending}>
+                      <Hand size={12} /> Modo humano
+                    </Button>
+                  )}
                   <Button size="sm" variant="outline" onClick={() => setScheduling(true)}>
                     Agendar cita
                   </Button>
@@ -245,27 +354,62 @@ export default function Inbox() {
                         </p>
                       </div>
                     )}
+                    {/* Multimedia de WhatsApp: audio reproducible, imágenes, documentos */}
+                    {message.fileName && message.type && message.type !== 'TEXT' && (
+                      <div className="mb-1.5">
+                        <MessageFile messageId={message.id} type={message.type as 'AUDIO' | 'IMAGE' | 'DOCUMENT'} />
+                        {message.type === 'AUDIO' && message.transcription && (
+                          <p className="mt-1 border-l-2 border-line pl-2 text-xs italic text-ink-3">
+                            "{message.transcription}"
+                          </p>
+                        )}
+                      </div>
+                    )}
                     {message.content && (
                       <p className="whitespace-pre-wrap text-sm">{message.content}</p>
                     )}
                     <p className={clsx(
-                      'mt-1 text-[10px] uppercase tracking-wider',
+                      'mt-1 flex items-center justify-end gap-1 text-[10px] uppercase tracking-wider',
                       message.direction === 'OUT' && message.author === 'BOT' ? 'text-line' : 'text-ink-3',
                     )}>
-                      {message.author === 'CONTACT' ? 'Cliente' : message.author === 'BOT' ? 'IA' : 'Agente'} · {fmtDateTime(message.createdAt)}
+                      {message.author === 'CONTACT'
+                        ? 'Cliente'
+                        : message.author === 'BOT'
+                          ? 'IA'
+                          : (message.authorName ?? 'Agente')}
+                      {' · '}{fmtDateTime(message.createdAt)}
+                      {message.direction === 'OUT' && <DeliveryTicks status={message.deliveryStatus} />}
                     </p>
                   </div>
                 </div>
               ))}
+              {typingBy && (
+                <p className="flex items-center gap-2 text-xs text-ink-3">
+                  <UserRound size={12} />
+                  <span className="italic">{typingBy} está escribiendo…</span>
+                  <span className="inline-flex gap-0.5" aria-hidden>
+                    <span className="h-1 w-1 animate-pulse bg-ink-3" />
+                    <span className="h-1 w-1 animate-pulse bg-ink-3 [animation-delay:150ms]" />
+                    <span className="h-1 w-1 animate-pulse bg-ink-3 [animation-delay:300ms]" />
+                  </span>
+                </p>
+              )}
             </div>
 
             {canWrite && (
               <footer className="flex gap-2 border-t-2 border-ink p-3">
                 <Textarea
                   rows={2}
-                  placeholder="Intervenir como humano… (el bot se pausa en esta conversación)"
+                  placeholder={
+                    detail.botPaused
+                      ? 'Responder como humano…'
+                      : 'Intervenir como humano… (la IA se pausa en esta conversación)'
+                  }
                   value={draft}
-                  onChange={(e) => setDraft(e.target.value)}
+                  onChange={(e) => {
+                    setDraft(e.target.value);
+                    notifyTyping();
+                  }}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' && !e.shiftKey && draft.trim()) {
                       e.preventDefault();

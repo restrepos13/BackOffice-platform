@@ -63,7 +63,10 @@ export class CatalogService {
     });
     return products.map((p) => ({
       ...p,
-      presentations: parseJson<any[]>(p.presentationsJson, []),
+      // Normalizado a strings (tolera la forma vieja [{name}])
+      presentations: parseJson<any[]>(p.presentationsJson, [])
+        .map((x) => (typeof x === 'string' ? x : x?.name))
+        .filter(Boolean),
     }));
   }
 

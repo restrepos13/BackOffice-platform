@@ -19,6 +19,9 @@ import {
   LayoutDashboard,
   LogOut,
   Menu,
+  Package,
+  Factory,
+  Store,
   Plug,
   ScrollText,
   Sparkles,
@@ -112,6 +115,18 @@ const COMPANY_NAV: NavItem[] = [
   { to: '/app/settings', label: 'Configuración', icon: Settings },
 ];
 
+/** Módulo de pedidos: solo aparece si la empresa lo tiene contratado. */
+const ORDERS_NAV: NavItem[] = [
+  { to: '/app/orders', label: 'Pedidos', icon: Package },
+  { to: '/app/customers', label: 'Clientes', icon: Store },
+  { to: '/app/area', label: 'Vista por área', icon: Factory },
+];
+
+/** Usuario de área de producción: SOLO ve su área. */
+const AREA_NAV: NavItem[] = [
+  { to: '/app/area', label: 'Mi área', icon: Factory },
+];
+
 function NavSection({ title, items }: { title: string; items: NavItem[] }) {
   return (
     <div className="mb-6">
@@ -153,13 +168,25 @@ export default function AppShell() {
     setMobileOpen(false);
   }, [location.pathname]);
 
+  const isArea = user?.role === 'COMPANY_AREA';
   const { data: companies } = useQuery({
     queryKey: ['companies'],
     queryFn: () => api.get<Company[]>('/companies'),
-    enabled: isPlatform,
+    enabled: !!user && !isArea, // usuarios de empresa reciben solo la suya
   });
 
-  const activeCompany = companies?.find((c) => c.id === companyId);
+  const activeCompany = isPlatform
+    ? companies?.find((c) => c.id === companyId)
+    : companies?.[0];
+  // Nav según módulos contratados por la empresa activa
+  const hasOrders = activeCompany?.modules?.includes('orders') ?? false;
+  const companyNav = hasOrders
+    ? [
+        ...COMPANY_NAV.slice(0, 2), // Dashboard, Conversaciones
+        ...ORDERS_NAV,
+        ...COMPANY_NAV.slice(2),
+      ]
+    : COMPANY_NAV;
 
   return (
     <div className="flex min-h-screen">
@@ -196,6 +223,13 @@ export default function AppShell() {
         </div>
 
         <div className="flex-1 overflow-y-auto py-4">
+          {isArea ? (
+            <NavSection
+              title={user?.company?.name ?? 'Mi empresa'}
+              items={AREA_NAV}
+            />
+          ) : (
+            <>
           {isPlatform && <NavSection title="Plataforma" items={PLATFORM_NAV} />}
 
           {isPlatform && (
@@ -231,8 +265,10 @@ export default function AppShell() {
                   ? `Viendo: ${activeCompany?.name ?? '…'}`
                   : (user?.company?.name ?? 'Mi empresa')
               }
-              items={COMPANY_NAV}
+              items={companyNav}
             />
+          )}
+            </>
           )}
         </div>
 

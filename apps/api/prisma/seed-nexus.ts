@@ -8,8 +8,8 @@
  * Correr: pnpm db:seed:nexus
  *
  * Acceso: admin@nexuscatering.co · SEED_PASSWORD_NEXUS (COMPANY_ADMIN)
- *         cocina@nexuscatering.co · SEED_PASSWORD_NEXUS (COMPANY_VIEWER por ahora;
- *         pasará a rol de área en la Fase 5)
+ *         cocina@nexuscatering.co · SEED_PASSWORD_NEXUS (COMPANY_AREA: solo ve
+ *         la vista de su área de producción)
  */
 import { PrismaClient } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
@@ -182,7 +182,7 @@ async function main() {
   const cocinaUser = await prisma.user.create({
     data: {
       email: 'cocina@nexuscatering.co', name: 'Cocina Nexus',
-      role: 'COMPANY_VIEWER', jobTitle: 'Área de cocina', companyId: nexus.id,
+      role: 'COMPANY_AREA', jobTitle: 'Área de cocina', companyId: nexus.id,
       productionAreaId: cocina.id, passwordHash: PASSWORD,
     },
   });
@@ -193,41 +193,37 @@ async function main() {
       {
         name: 'Almuerzo ejecutivo', category: 'Almuerzos', unit: 'porción',
         description: 'Proteína + 2 acompañamientos + ensalada + jugo',
-        presentationsJson: JSON.stringify([
-          { name: 'Individual (bandeja sellada)' }, { name: 'Buffet por 10' },
-        ]),
+        presentationsJson: JSON.stringify(['Individual (bandeja sellada)', 'Buffet por 10']),
         productionAreaId: cocina.id,
       },
       {
         name: 'Refrigerio AM', category: 'Refrigerios', unit: 'unidad',
         description: 'Sándwich o wrap + fruta + bebida',
-        presentationsJson: JSON.stringify([{ name: 'Caja individual' }]),
+        presentationsJson: JSON.stringify(['Caja individual']),
         productionAreaId: cocina.id,
       },
       {
         name: 'Refrigerio PM', category: 'Refrigerios', unit: 'unidad',
         description: 'Producto de panadería + bebida caliente o fría',
-        presentationsJson: JSON.stringify([{ name: 'Caja individual' }]),
+        presentationsJson: JSON.stringify(['Caja individual']),
         productionAreaId: cocina.id,
       },
       {
         name: 'Estación de café', category: 'Bebidas', unit: 'servicio',
         description: 'Café, aromática, vasos e insumos para X personas',
-        presentationsJson: JSON.stringify([
-          { name: 'Para 20 personas' }, { name: 'Para 50 personas' },
-        ]),
+        presentationsJson: JSON.stringify(['Para 20 personas', 'Para 50 personas']),
         productionAreaId: logistica.id,
       },
       {
         name: 'Bandeja de frutas', category: 'Complementos', unit: 'bandeja',
         description: 'Fruta picada de temporada',
-        presentationsJson: JSON.stringify([{ name: 'Bandeja x15 porciones' }]),
+        presentationsJson: JSON.stringify(['Bandeja x15 porciones']),
         productionAreaId: cocina.id,
       },
       {
         name: 'Almuerzo vegetariano', category: 'Almuerzos', unit: 'porción',
         description: 'Menú sin proteína animal',
-        presentationsJson: JSON.stringify([{ name: 'Individual (bandeja sellada)' }]),
+        presentationsJson: JSON.stringify(['Individual (bandeja sellada)']),
         productionAreaId: cocina.id,
       },
     ].map((producto) => prisma.product.create({ data: { companyId: nexus.id, ...producto } })),

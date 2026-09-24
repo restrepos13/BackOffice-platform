@@ -94,6 +94,18 @@ PEDIDOS ANTERIORES de este cliente (para "lo mismo de la vez pasada"):
 ${previous}`
     : 'CLIENTE NUEVO: no tenemos ficha de este número. Con naturalidad, averigua el nombre de la empresa y de la persona.';
 
+  // Base de conocimiento configurable (orderConfig.knowledgeBase):
+  // FAQs de la organización que el modelo puede responder sin escalar.
+  const kb = Array.isArray(cfg.knowledgeBase) ? cfg.knowledgeBase : [];
+  const kbBlock = kb.length
+    ? `BASE DE CONOCIMIENTO (responde estas dudas con esta información, sin inventar más):
+${kb
+  .map((f: any) =>
+    typeof f === 'string' ? `- ${f}` : `- P: ${f.question}\n  R: ${f.answer}`,
+  )
+  .join('\n')}`
+    : '';
+
   const draftBlock = ctx.draft
     ? `BORRADOR ACTUAL del pedido en esta conversación:
 ${ctx.draft.items.map((i) => `- ${i.quantity} × ${i.productName}${i.presentation ? ` (${i.presentation})` : ''}${i.specifications ? ` — ${i.specifications}` : ''}`).join('\n') || '- sin ítems aún'}
@@ -125,7 +137,7 @@ EL NEGOCIO (${ctx.companyName}) — REGLAS DE AGENDA (no aceptes pedidos que las
 CATÁLOGO VIGENTE (solo puedes ofrecer esto):
 ${catalog || '- catálogo vacío'}
 
-${customerBlock}
+${kbBlock ? `${kbBlock}\n\n` : ''}${customerBlock}
 
 ${draftBlock}
 
