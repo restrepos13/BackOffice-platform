@@ -29,6 +29,11 @@ model User {
   productionAreaId String?
   active       Boolean   @default(true)
   lastLoginAt  DateTime?
+  // Endurecimiento del login: bloqueo temporal por intentos fallidos
+  failedLogins Int       @default(0)
+  lockedUntil  DateTime?
+  // Tour de bienvenida: se muestra solo hasta que el usuario lo termina
+  tourDoneAt   DateTime?
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 

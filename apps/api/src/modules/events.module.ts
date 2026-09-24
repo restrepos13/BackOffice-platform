@@ -75,6 +75,11 @@ export class EventsController {
       res.status(401).end();
       return;
     }
+    // Mínimo privilegio: el rol de área no escucha los eventos de la empresa
+    if (user.role === 'COMPANY_AREA') {
+      res.status(403).end();
+      return;
+    }
     // Aislamiento: un usuario de empresa solo escucha SU organización
     const scoped = isPlatformRole(user.role) ? companyId : user.companyId;
     if (!scoped) {

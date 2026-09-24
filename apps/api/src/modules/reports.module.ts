@@ -470,6 +470,75 @@ export class ReportsService {
     };
   }
 
+  /* ═══ Observabilidad: salud operativa (alertas activas) ═══ */
+
+  /**
+   * Alertas operativas en vivo: recordatorios fallidos, mensajes no
+   * entregados, escalamientos por encima de lo normal y feedback negativo.
+   * Plataforma sin companyId = TODAS las empresas (monitoreo global).
+   */
+  async opsHealth(companyId?: string) {
+    const now = new Date();
+    const day = new Date(now.getTime() - 24 * 3600e3);
+    const week = new Date(now.getTime() - 7 * 86400e3);
+    const co = companyId ? { companyId } : {};
+
+    const [failedReminders, failedMessages, escalations24h, escalations7d, negativeFeedback, attention] =
+      await Promise.all([
+        this.prisma.reminder.findMany({
+          where: { ...co, status: 'FALLIDO', updatedAt: { gte: week } },
+          select: { id: true, companyId: true, kind: true, lastError: true, orderId: true, updatedAt: true },
+          take: 50,
+        }),
+        this.prisma.message.findMany({
+          where: {
+            deliveryStatus: 'FAILED',
+            createdAt: { gte: week },
+            ...(companyId ? { conversation: { companyId } } : {}),
+          },
+          select: { id: true, conversationId: true, content: true, createdAt: true },
+          take: 50,
+        }),
+        this.prisma.auditLog.count({
+          where: { ...co, action: 'engine.escalate', createdAt: { gte: day } },
+        }),
+        this.prisma.auditLog.count({
+          where: { ...co, action: 'engine.escalate', createdAt: { gte: week } },
+        }),
+        this.prisma.feedback.count({
+          where: { ...co, sentiment: 'NEGATIVO', respondedAt: { gte: week } },
+        }),
+        this.prisma.conversation.count({ where: { ...co, needsAttention: true } }),
+      ]);
+
+    // "Por encima de lo normal": el día actual supera 2× el promedio diario
+    const dailyAvg = escalations7d / 7;
+    const escalationSpike = escalations24h > Math.max(dailyAvg * 2, 3);
+
+    const companies = companyId
+      ? []
+      : await this.prisma.company.findMany({ select: { id: true, name: true } });
+    const companyName = (id: string) => companies.find((c) => c.id === id)?.name ?? id;
+
+    return {
+      generatedAt: now.toISOString(),
+      ok:
+        failedReminders.length === 0 &&
+        failedMessages.length === 0 &&
+        !escalationSpike,
+      recordatoriosFallidos: failedReminders.map((r) => ({
+        ...r, company: companyId ? undefined : companyName(r.companyId),
+      })),
+      mensajesNoEntregados: failedMessages.map((m) => ({
+        id: m.id, conversationId: m.conversationId,
+        preview: (m.content ?? '').slice(0, 60), createdAt: m.createdAt,
+      })),
+      escalamientos: { ultimas24h: escalations24h, promedioDiario7d: Math.round(dailyAvg * 10) / 10, anormal: escalationSpike },
+      feedbackNegativo7d: negativeFeedback,
+      conversacionesConAlerta: attention,
+    };
+  }
+
   /* ═══ 3. Consulta en lenguaje natural (tools predefinidas) ═══ */
 
   private async runTool(companyId: string, tool: string, params: Record<string, any>) {
@@ -759,6 +828,14 @@ export class ReportsController {
     @Query('to') to?: string,
   ) {
     return this.reports.feedbackSummary(this.scoped(user, companyId), from, to);
+  }
+
+  @Get('ops-health')
+  @Roles(...READ_ROLES)
+  opsHealth(@CurrentUser() user: AuthUser, @Query('companyId') companyId?: string) {
+    // Plataforma sin companyId = monitoreo global; empresa = SIEMPRE la suya
+    if (isPlatformRole(user.role)) return this.reports.opsHealth(companyId || undefined);
+    return this.reports.opsHealth(user.companyId!);
   }
 
   @Post('ask')

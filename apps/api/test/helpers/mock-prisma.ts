@@ -71,6 +71,7 @@ export function createMockPrisma() {
     feedback: [] as Doc[],
     dailyReport: [] as Doc[],
     auditLog: [] as Doc[],
+    user: [] as Doc[],
   };
 
   // Filtros por relación (where: { conversation: {...} }) — resueltos por FK
@@ -241,6 +242,7 @@ export function createMockPrisma() {
     feedback: model('feedback', { status: 'PENDIENTE', alerted: false, rating: null, respondedAt: null }),
     dailyReport: model('dailyReport'),
     auditLog: model('auditLog'),
+    user: model('user', { active: true, failedLogins: 0, lockedUntil: null }),
   };
 
   return { prisma, db };

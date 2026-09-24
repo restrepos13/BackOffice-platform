@@ -33,10 +33,17 @@ export class IntegrationsService {
   ) {}
 
   private serialize(i: any) {
-    // Los secretos cifrados JAMÁS salen del API (ni cifrados)
-    const { authTokenEnc, ...config } = parseJson<Record<string, any>>(i.configJson, {});
+    // Los secretos cifrados JAMÁS salen del API (ni cifrados): se quita el
+    // configJson CRUDO y cualquier variante de credencial del config parseado.
+    const { configJson: _raw, ...row } = i;
+    const {
+      authTokenEnc,
+      authToken: _plain,
+      authTokenEncrypted: _legacy,
+      ...config
+    } = parseJson<Record<string, any>>(i.configJson, {});
     return {
-      ...i,
+      ...row,
       config: { ...config, twilioConfigured: !!authTokenEnc },
       overridePersonality: parseJson<Record<string, string>>(
         i.overridePersonalityJson,

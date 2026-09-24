@@ -321,8 +321,16 @@ export class EngineService {
         (m.author === 'AGENT' ? ' [respondió una persona del equipo]' : ''),
     }));
 
-    // Llamada al modelo con validación estricta + un reintento
-    const output = await this.callModel(company, integration, bot, effective, ctx, history);
+    // Llamada al modelo con validación estricta + un reintento.
+    // Caída del proveedor (red/4xx/5xx) → NUNCA se pierde la conversación:
+    // escala a una persona con el motivo registrado.
+    let output: Awaited<ReturnType<typeof this.callModel>>;
+    try {
+      output = await this.callModel(company, integration, bot, effective, ctx, history);
+    } catch (err: any) {
+      this.logger.error(`proveedor de IA caído [co=${company.id} conv=${conversationId}]: ${err.message}`);
+      output = { ok: false, reason: `Proveedor de IA no disponible: ${err.message}` };
+    }
     if (!output.ok) {
       return this.escalate(conversation, draft, output.reason, [
         'Dame un momento, ya reviso con el equipo y te confirmo.',
