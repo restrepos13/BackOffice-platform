@@ -38,6 +38,7 @@ import OrdersSettings from './pages/company/OrdersSettings';
 import OrdersReports from './pages/company/OrdersReports';
 import Customers from './pages/company/Customers';
 import AreaView from './pages/company/AreaView';
+import Marketing from './pages/company/Marketing';
 
 function RequireAuth({ children }: { children: ReactNode }) {
   const { user, loading } = useAuth();
@@ -102,6 +103,7 @@ export default function App() {
         <Route path="/app/orders/reports" element={<BlockArea><OrdersReports /></BlockArea>} />
         <Route path="/app/orders/:id" element={<BlockArea><OrderDetail /></BlockArea>} />
         <Route path="/app/customers" element={<BlockArea><Customers /></BlockArea>} />
+        <Route path="/app/marketing" element={<BlockArea><Marketing /></BlockArea>} />
         <Route path="/app/area" element={<AreaView />} />
         <Route path="/app/contacts" element={<Contacts />} />
         <Route path="/app/bots" element={<Bots />} />

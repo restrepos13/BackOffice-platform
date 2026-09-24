@@ -6,7 +6,7 @@ import {
 import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
-import { api } from '../../lib/api';
+import { api, openPdf } from '../../lib/api';
 import {
   ORDER_STATUS_LABELS, REMINDER_STATUS_LABELS, fmtDateTime, orderStatusTone,
 } from '../../lib/format';
@@ -229,6 +229,17 @@ export default function OrderDetail() {
                 </Button>
               </Link>
             )}
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() =>
+                openPdf(`/orders/${order.id}/pdf`).catch((e) =>
+                  toast.error(e instanceof Error ? e.message : 'Error'),
+                )
+              }
+            >
+              PDF
+            </Button>
             {canWrite && (
               <Button size="sm" variant="outline" onClick={() => setEditing(true)}>
                 <Pencil size={13} /> Editar

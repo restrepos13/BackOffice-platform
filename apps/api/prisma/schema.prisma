@@ -128,6 +128,9 @@ model Company {
   reminders        Reminder[]
   feedbacks        Feedback[]
   dailyReports     DailyReport[]
+  marketingCampaigns MarketingCampaign[]
+  contentPieces      ContentPiece[]
+  videoJobs          VideoJob[]
 }
 
 // ─── Bots / Asistentes IA ────────────────────────────────────────────
@@ -521,6 +524,76 @@ model Feedback {
 // ─── Reporte diario del módulo de pedidos (Fase 6) ───────────────────
 // Se genera por job (o a demanda), queda guardado en el panel y se envía
 // por el canal configurado en orderConfigJson.dailyReport.
+// ─── Marketing (extra por empresa: contenido para redes y campañas) ───
+// status campaña: BORRADOR | ACTIVA | PAUSADA | CERRADA
+model MarketingCampaign {
+  id         String    @id @default(cuid()) @map("_id")
+  companyId  String
+  company    Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  name       String
+  objective  String? // qué busca la campaña (ventas, alcance, lanzamiento…)
+  status     String    @default("BORRADOR")
+  // Canales destino: ["instagram","tiktok","facebook","youtube"]
+  channelsJson String  @default("[]")
+  startsAt   DateTime?
+  endsAt     DateTime?
+  budgetUsd  Float?
+  notes      String?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  pieces ContentPiece[]
+
+  @@index([companyId, status])
+}
+
+// Pieza de contenido: reel, post, historia o anuncio.
+// type: REEL | POST | STORY | AD — status: IDEA | BORRADOR | LISTO | PROGRAMADO | PUBLICADO
+model ContentPiece {
+  id          String    @id @default(cuid()) @map("_id")
+  companyId   String
+  company     Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  campaignId  String?
+  campaign    MarketingCampaign? @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+  type        String    @default("POST")
+  status      String    @default("IDEA")
+  title       String
+  brief       String? // idea/brief de entrada para la IA
+  copy        String? // caption generado o escrito
+  hashtagsJson String  @default("[]")
+  script      String? // guion (para reels/videos)
+  channel     String? // instagram | tiktok | facebook | youtube
+  scheduledAt DateTime?
+  publishedAt DateTime?
+  videoJobId  String?
+  assetUrl    String? // video/imagen final (cuando exista)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([companyId, status])
+  @@index([companyId, scheduledAt])
+}
+
+// Tarea de generación de video (integración MoneyPrinterTurbo — cascarón).
+// state: PENDIENTE | PROCESANDO | COMPLETO | FALLIDO
+model VideoJob {
+  id             String   @id @default(cuid()) @map("_id")
+  companyId      String
+  company        Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  pieceId        String?
+  provider       String   @default("MPT") // MoneyPrinterTurbo
+  externalTaskId String? // task_id del generador
+  paramsJson     String   @default("{}")
+  state          String   @default("PENDIENTE")
+  progress       Int      @default(0)
+  videoUrl       String?
+  error          String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([companyId, state])
+}
+
 model DailyReport {
   id        String    @id @default(cuid()) @map("_id")
   companyId String

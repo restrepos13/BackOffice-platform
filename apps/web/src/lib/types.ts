@@ -13,6 +13,61 @@ export interface AuthUser {
   companyId: string | null;
   company?: { id: string; name: string; slug: string; status: string } | null;
   jobTitle?: string | null;
+  /** null/undefined = todavía no vio el tour de bienvenida */
+  tourDoneAt?: string | null;
+}
+
+/* ─── Marketing ─────────────────────────────────────────────────────── */
+
+export interface MarketingCampaign {
+  id: string;
+  companyId: string;
+  name: string;
+  objective?: string | null;
+  status: 'BORRADOR' | 'ACTIVA' | 'PAUSADA' | 'CERRADA';
+  channels: string[];
+  startsAt?: string | null;
+  endsAt?: string | null;
+  budgetUsd?: number | null;
+  notes?: string | null;
+  pieceCount?: number;
+  publishedCount?: number;
+  createdAt: string;
+}
+
+export interface ContentPiece {
+  id: string;
+  companyId: string;
+  campaignId?: string | null;
+  type: 'REEL' | 'POST' | 'STORY' | 'AD';
+  status: 'IDEA' | 'BORRADOR' | 'LISTO' | 'PROGRAMADO' | 'PUBLICADO';
+  title: string;
+  brief?: string | null;
+  copy?: string | null;
+  hashtags: string[];
+  script?: string | null;
+  channel?: string | null;
+  scheduledAt?: string | null;
+  publishedAt?: string | null;
+  videoJobId?: string | null;
+  assetUrl?: string | null;
+  createdAt: string;
+}
+
+export interface VideoJob {
+  id: string;
+  state: 'PENDIENTE' | 'PROCESANDO' | 'COMPLETO' | 'FALLIDO';
+  progress: number;
+  videoUrl?: string | null;
+  error?: string | null;
+}
+
+export interface MarketingSummary {
+  campañasActivas: number;
+  piezas: Record<string, number>;
+  totalPiezas: number;
+  próximas: ContentPiece[];
+  videoGeneratorReady: boolean;
 }
 
 export interface Plan {

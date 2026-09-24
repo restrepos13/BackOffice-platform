@@ -22,6 +22,7 @@ import {
   Package,
   Factory,
   FileText,
+  Megaphone,
   Store,
   Plug,
   ScrollText,
@@ -38,9 +39,11 @@ import { useEffect, useState } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { api } from '../lib/api';
 import { useActiveCompanyId, useAuth } from '../lib/auth';
+import { useLiveEvents } from '../lib/events';
 import { ROLE_LABELS } from '../lib/format';
 import type { Company } from '../lib/types';
 import { Badge, Button, Field, Input, Modal } from '../components/ui';
+import Tour from '../components/Tour';
 
 function ChangePasswordModal({ open, onClose }: { open: boolean; onClose: () => void }) {
   const [current, setCurrent] = useState('');
@@ -84,6 +87,8 @@ interface NavItem {
   label: string;
   icon: typeof LayoutDashboard;
   end?: boolean;
+  /** ancla para el tour de bienvenida */
+  tour?: string;
 }
 
 const PLATFORM_NAV: NavItem[] = [
@@ -101,7 +106,7 @@ const PLATFORM_NAV: NavItem[] = [
 
 const COMPANY_NAV: NavItem[] = [
   { to: '/app', label: 'Dashboard', icon: LayoutDashboard, end: true },
-  { to: '/app/inbox', label: 'Conversaciones', icon: Inbox },
+  { to: '/app/inbox', label: 'Conversaciones', icon: Inbox, tour: 'nav-inbox' },
   { to: '/app/contacts', label: 'Contactos', icon: Contact },
   { to: '/app/agenda', label: 'Agenda', icon: CalendarDays },
   { to: '/app/bots', label: 'Asistentes IA', icon: Bot },
@@ -109,29 +114,34 @@ const COMPANY_NAV: NavItem[] = [
   { to: '/app/integrations', label: 'Integraciones', icon: Plug },
   { to: '/app/media', label: 'Galería', icon: Images },
   { to: '/app/analytics', label: 'Analytics', icon: BarChart3 },
-  { to: '/app/usage', label: 'Consumo IA', icon: Activity },
+  { to: '/app/usage', label: 'Consumo IA', icon: Activity, tour: 'nav-usage' },
   { to: '/app/gerencia', label: 'Gerencia', icon: ClipboardCheck },
   { to: '/app/billing', label: 'Facturación', icon: CreditCard },
   { to: '/app/team', label: 'Equipo', icon: UserRound },
-  { to: '/app/settings', label: 'Configuración', icon: Settings },
+  { to: '/app/settings', label: 'Configuración', icon: Settings, tour: 'nav-settings' },
 ];
 
 /** Módulo de pedidos: solo aparece si la empresa lo tiene contratado. */
 const ORDERS_NAV: NavItem[] = [
-  { to: '/app/orders', label: 'Pedidos', icon: Package, end: true },
-  { to: '/app/orders/reports', label: 'Reportes', icon: FileText },
+  { to: '/app/orders', label: 'Pedidos', icon: Package, end: true, tour: 'nav-orders' },
+  { to: '/app/orders/reports', label: 'Reportes', icon: FileText, tour: 'nav-reports' },
   { to: '/app/customers', label: 'Clientes', icon: Store },
   { to: '/app/area', label: 'Vista por área', icon: Factory },
 ];
 
-/** Usuario de área de producción: SOLO ve su área. */
-const AREA_NAV: NavItem[] = [
-  { to: '/app/area', label: 'Mi área', icon: Factory },
+/** Marketing: extra por empresa (módulo "marketing"). */
+const MARKETING_NAV: NavItem[] = [
+  { to: '/app/marketing', label: 'Marketing', icon: Megaphone },
 ];
 
-function NavSection({ title, items }: { title: string; items: NavItem[] }) {
+/** Usuario de área de producción: SOLO ve su área. */
+const AREA_NAV: NavItem[] = [
+  { to: '/app/area', label: 'Mi área', icon: Factory, tour: 'nav-area' },
+];
+
+function NavSection({ title, items, tour }: { title: string; items: NavItem[]; tour?: string }) {
   return (
-    <div className="mb-6">
+    <div className="mb-6" data-tour={tour}>
       <p className="kicker mb-2 px-3">{title}</p>
       <nav className="flex flex-col">
         {items.map((item) => (
@@ -139,6 +149,7 @@ function NavSection({ title, items }: { title: string; items: NavItem[] }) {
             key={item.to}
             to={item.to}
             end={item.end}
+            data-tour={item.tour}
             className={({ isActive }) =>
               clsx(
                 'flex items-center gap-3 border-l-2 px-3 py-2 text-[13px] font-medium transition-colors',
@@ -180,15 +191,48 @@ export default function AppShell() {
   const activeCompany = isPlatform
     ? companies?.find((c) => c.id === companyId)
     : companies?.[0];
+
+  // ─── Notificaciones en vivo (SSE): alertas que importan, estén donde estén ───
+  const scopedCompanyId = isPlatform ? companyId : (user?.companyId ?? null);
+  useLiveEvents(
+    scopedCompanyId,
+    (event) => {
+      if (event.type === 'conversation.updated' && event.needsAttention) {
+        toast.warning('Una conversación necesita atención humana', {
+          id: `attn-${event.conversationId}`, // sin duplicados
+          action: {
+            label: 'Ver bandeja',
+            onClick: () => navigate(`/app/inbox?open=${event.conversationId}`),
+          },
+        });
+      }
+      if (event.type === 'feedback.new') {
+        toast.info('Un cliente respondió la encuesta de su pedido', {
+          id: `fb-${event.orderId}`,
+          action: {
+            label: 'Ver pedido',
+            onClick: () => navigate(`/app/orders/${event.orderId}`),
+          },
+        });
+      }
+      if (event.type === 'report.daily') {
+        toast.info('El reporte diario está listo', {
+          id: `rep-${event.at}`,
+          action: { label: 'Abrirlo', onClick: () => navigate('/app/orders/reports') },
+        });
+      }
+    },
+    !!user && user.role !== 'COMPANY_AREA' && !!scopedCompanyId,
+  );
   // Nav según módulos contratados por la empresa activa
   const hasOrders = activeCompany?.modules?.includes('orders') ?? false;
-  const companyNav = hasOrders
-    ? [
-        ...COMPANY_NAV.slice(0, 2), // Dashboard, Conversaciones
-        ...ORDERS_NAV,
-        ...COMPANY_NAV.slice(2),
-      ]
-    : COMPANY_NAV;
+  const hasMarketing = activeCompany?.modules?.includes('marketing') ?? false;
+  const companyNav = [
+    ...COMPANY_NAV.slice(0, 2), // Dashboard, Conversaciones
+    ...(hasOrders ? ORDERS_NAV : []),
+    ...(hasMarketing ? MARKETING_NAV : []),
+    ...COMPANY_NAV.slice(2),
+  ];
 
   return (
     <div className="flex min-h-screen">
@@ -232,10 +276,10 @@ export default function AppShell() {
             />
           ) : (
             <>
-          {isPlatform && <NavSection title="Plataforma" items={PLATFORM_NAV} />}
+          {isPlatform && <NavSection title="Plataforma" items={PLATFORM_NAV} tour="nav-platform" />}
 
           {isPlatform && (
-            <div className="mb-4 px-3">
+            <div className="mb-4 px-3" data-tour="company-picker">
               <p className="kicker mb-1">Panel de empresa</p>
               <select
                 aria-label="Empresa activa"
@@ -268,6 +312,7 @@ export default function AppShell() {
                   : (user?.company?.name ?? 'Mi empresa')
               }
               items={companyNav}
+              tour="nav-company"
             />
           )}
             </>
@@ -309,6 +354,7 @@ export default function AppShell() {
       </aside>
 
       <ChangePasswordModal open={changingPassword} onClose={() => setChangingPassword(false)} />
+      <Tour />
 
       {/* ─── Contenido ─── */}
       <div className="min-w-0 flex-1">

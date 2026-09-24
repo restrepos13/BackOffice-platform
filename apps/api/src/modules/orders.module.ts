@@ -13,8 +13,11 @@ import {
   Patch,
   Post,
   Query,
+  Res,
 } from '@nestjs/common';
+import type { Response } from 'express';
 import { Cron } from '@nestjs/schedule';
+import { buildOrderPdf } from '../common/pdf';
 import twilio from 'twilio';
 import { PrismaService } from '../prisma/prisma.service';
 import { CurrentUser, Roles } from '../auth/decorators';
@@ -458,6 +461,83 @@ export class OrdersService {
       throw new ForbiddenException();
     }
     return order;
+  }
+
+  companyOf(companyId: string) {
+    return this.prisma.company.findUniqueOrThrow({ where: { id: companyId } });
+  }
+
+  /**
+   * Creación MANUAL de un pedido desde el panel (pedidos por teléfono,
+   * presenciales o correcciones). Mismo pipeline que la IA: si se confirma,
+   * distribuye, valida agenda y programa recordatorios.
+   */
+  async createManual(user: AuthUser, dto: any) {
+    const companyId = isPlatformRole(user.role) ? dto.companyId : user.companyId;
+    if (!companyId) throw new BadRequestException('Falta companyId');
+    const customer = await this.prisma.customer.findFirst({
+      where: { id: dto.customerId, companyId, ...NOT_DELETED },
+    });
+    if (!customer) throw new NotFoundException('Cliente no encontrado');
+    if (!dto.deliveryAt || Number.isNaN(new Date(dto.deliveryAt).getTime())) {
+      throw new BadRequestException('Falta la fecha de entrega');
+    }
+    if (!Array.isArray(dto.items) || dto.items.length === 0) {
+      throw new BadRequestException('El pedido necesita al menos un ítem');
+    }
+    const products = await this.prisma.product.findMany({
+      where: { companyId, ...NOT_DELETED },
+    });
+
+    const order = await this.prisma.order.create({
+      data: {
+        companyId,
+        customerId: customer.id,
+        contactId: dto.contactId ?? null,
+        status: 'borrador',
+        deliveryAt: new Date(dto.deliveryAt),
+        deliveryAddressJson: JSON.stringify(dto.deliveryAddress ?? {}),
+        observations: dto.observations ?? null,
+        takenByType: 'HUMANO',
+        takenByName: user.name,
+      },
+    });
+    for (const item of dto.items) {
+      const product = products.find((p) => p.id === item.productId) ?? null;
+      if (!product && !item.productName) {
+        throw new BadRequestException('Cada ítem necesita producto o nombre');
+      }
+      await this.prisma.orderItem.create({
+        data: {
+          companyId, orderId: order.id,
+          productId: product?.id ?? null,
+          productName: product?.name ?? item.productName,
+          quantity: Number(item.quantity) || 1,
+          unit: item.unit ?? product?.unit ?? 'unidad',
+          presentation: item.presentation ?? null,
+          specifications: item.specifications ?? null,
+          productionAreaId: item.productionAreaId ?? product?.productionAreaId ?? null,
+        },
+      });
+    }
+    await this.prisma.orderStatusHistory.create({
+      data: {
+        companyId, orderId: order.id,
+        fromStatus: null, toStatus: 'borrador',
+        authorType: 'USUARIO', authorName: user.name,
+        reason: 'Creado manualmente desde el panel',
+      },
+    });
+    await this.audit.log({
+      actor: user, companyId, action: 'order.create_manual',
+      entity: 'Order', entityId: order.id, detail: customer.name,
+    });
+
+    // Confirmación directa: mismo pipeline que la IA (distribuye + agenda + recordatorios)
+    if (dto.confirm) {
+      await this.changeStatus(order.id, 'confirmado', { type: 'USUARIO', name: user.name });
+    }
+    return this.detail(user, order.id);
   }
 
   async list(user: AuthUser, q: {
@@ -913,6 +993,31 @@ export class OrdersController {
     @Query('areaId') areaId?: string,
   ) {
     return this.orders.areaView(user, companyId, areaId);
+  }
+
+  /** Creación manual desde el panel (teléfono/presencial). */
+  @Post()
+  @Roles(ROLES.SUPER_ADMIN, ROLES.DEV, ROLES.COMPANY_ADMIN)
+  createManual(@CurrentUser() user: AuthUser, @Body() dto: any) {
+    return this.orders.createManual(user, dto);
+  }
+
+  /** Orden de pedido en PDF con la identidad de la marca. */
+  @Get(':id/pdf')
+  async pdf(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Res() res: Response,
+  ) {
+    const order = await this.orders.detail(user, id); // valida tenant
+    const company = await this.orders.companyOf(order!.companyId);
+    const buffer = await buildOrderPdf(company, order);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader(
+      'Content-Disposition',
+      `inline; filename="pedido-${String(id).slice(-6)}.pdf"`,
+    );
+    res.send(buffer);
   }
 
   @Get(':id')

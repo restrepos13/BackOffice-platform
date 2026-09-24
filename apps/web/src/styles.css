@@ -94,6 +94,36 @@ body {
   outline-offset: 2px;
 }
 
+/* Transición de página: entrada sobria (desactivada si el usuario reduce movimiento) */
+@keyframes page-enter {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+main > * {
+  animation: page-enter 180ms ease-out both;
+}
+
+/* Modales y tarjetas del tour entran con el mismo lenguaje */
+@keyframes pop-enter {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.99);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+[role='dialog'] {
+  animation: pop-enter 160ms ease-out both;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

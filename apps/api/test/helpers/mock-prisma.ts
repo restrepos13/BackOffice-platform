@@ -8,6 +8,11 @@ type Doc = Record<string, any>;
 let seq = 0;
 const id = () => `test_${++seq}`;
 
+/** Prisma IGNORA los campos undefined en create/update: el mock igual. */
+function definedOnly(data: Doc): Doc {
+  return Object.fromEntries(Object.entries(data).filter(([, v]) => v !== undefined));
+}
+
 function matches(doc: Doc, where: Doc | undefined): boolean {
   if (!where) return true;
   for (const [key, cond] of Object.entries(where)) {
@@ -72,6 +77,10 @@ export function createMockPrisma() {
     dailyReport: [] as Doc[],
     auditLog: [] as Doc[],
     user: [] as Doc[],
+    marketingCampaign: [] as Doc[],
+    contentPiece: [] as Doc[],
+    videoJob: [] as Doc[],
+    platformSetting: [] as Doc[],
   };
 
   // Filtros por relación (where: { conversation: {...} }) — resueltos por FK
@@ -159,7 +168,7 @@ export function createMockPrisma() {
     },
     updateMany: async ({ where, data }: Doc) => {
       const docs = db[name].filter((d) => match(d, where));
-      for (const doc of docs) Object.assign(doc, data, { updatedAt: new Date() });
+      for (const doc of docs) Object.assign(doc, definedOnly(data), { updatedAt: new Date() });
       return { count: docs.length };
     },
     count: async ({ where }: Doc = {}) => db[name].filter((d) => match(d, where)).length,
@@ -184,7 +193,7 @@ export function createMockPrisma() {
     },
     create: async ({ data }: Doc) => {
       const { items, ...plain } = data;
-      const doc = { id: id(), createdAt: new Date(), updatedAt: new Date(), ...defaults, ...plain };
+      const doc = { id: id(), createdAt: new Date(), updatedAt: new Date(), ...defaults, ...definedOnly(plain) };
       db[name].push(doc);
       if (items?.create && name === 'order') {
         for (const item of items.create) {
@@ -206,12 +215,18 @@ export function createMockPrisma() {
           plain[key] = (doc[key] ?? 0) + (value as Doc).increment;
         }
       }
-      Object.assign(doc, plain, { updatedAt: new Date() });
+      Object.assign(doc, definedOnly(plain), { updatedAt: new Date() });
       if (items?.create && name === 'order') {
         for (const item of items.create) {
           db.orderItem.push({ id: id(), orderId: doc.id, createdAt: new Date(), ...item });
         }
       }
+      return { ...doc };
+    },
+    delete: async ({ where }: Doc) => {
+      const idx = db[name].findIndex((d) => match(d, where));
+      if (idx === -1) throw new Error(`delete: no encontrado en ${name}`);
+      const [doc] = db[name].splice(idx, 1);
       return { ...doc };
     },
     deleteMany: async ({ where }: Doc) => {
@@ -243,6 +258,10 @@ export function createMockPrisma() {
     dailyReport: model('dailyReport'),
     auditLog: model('auditLog'),
     user: model('user', { active: true, failedLogins: 0, lockedUntil: null }),
+    marketingCampaign: model('marketingCampaign', { status: 'BORRADOR', channelsJson: '[]' }),
+    contentPiece: model('contentPiece', { status: 'IDEA', type: 'POST', hashtagsJson: '[]' }),
+    videoJob: model('videoJob', { state: 'PENDIENTE', progress: 0, provider: 'MPT' }),
+    platformSetting: model('platformSetting'),
   };
 
   return { prisma, db };

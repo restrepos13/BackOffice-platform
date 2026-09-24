@@ -12,6 +12,8 @@ export interface LiveEvent {
   attendedByName?: string | null;
   userName?: string;
   userId?: string;
+  orderId?: string;
+  date?: string;
   at: number;
 }
 

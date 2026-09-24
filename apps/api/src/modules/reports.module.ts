@@ -11,7 +11,10 @@ import {
   Optional,
   Post,
   Query,
+  Res,
 } from '@nestjs/common';
+import type { Response } from 'express';
+import { buildDailyReportPdf } from '../common/pdf';
 import { Cron } from '@nestjs/schedule';
 import { PrismaService } from '../prisma/prisma.service';
 import { CurrentUser, Roles } from '../auth/decorators';
@@ -798,6 +801,27 @@ export class ReportsController {
       ? dto.date
       : localToday();
     return this.reports.runDaily(this.scoped(user, dto.companyId), day, user);
+  }
+
+  /** Reporte diario en PDF con la identidad de la marca. */
+  @Get('daily/pdf')
+  @Roles(...READ_ROLES)
+  async dailyPdf(
+    @CurrentUser() user: AuthUser,
+    @Res() res: Response,
+    @Query('companyId') companyId?: string,
+    @Query('date') date?: string,
+  ) {
+    const scoped = this.scoped(user, companyId);
+    const day = date && /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : localToday();
+    const [data, company] = await Promise.all([
+      this.reports.buildDaily(scoped, day),
+      this.prisma.company.findUniqueOrThrow({ where: { id: scoped } }),
+    ]);
+    const buffer = await buildDailyReportPdf(company, data);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="reporte-${day}.pdf"`);
+    res.send(buffer);
   }
 
   @Get('history')

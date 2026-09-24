@@ -6,7 +6,7 @@ import {
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { toast } from 'sonner';
-import { api } from '../../lib/api';
+import { api, openPdf } from '../../lib/api';
 import { ORDER_STATUS_LABELS, fmtDateTime, fmtNum } from '../../lib/format';
 import type { AskResult, CompareBucket, DailyReportData, FeedbackSummary } from '../../lib/types';
 import {
@@ -69,6 +69,17 @@ function DailyTab({ q, canWrite, companyId }: { q: string; canWrite: boolean; co
             {run.isPending ? 'Generando…' : 'Generar y enviar ahora'}
           </Button>
         )}
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() =>
+            openPdf(withScope(`/reports/daily/pdf?date=${date}`, q)).catch((e) =>
+              toast.error(e instanceof Error ? e.message : 'Error'),
+            )
+          }
+        >
+          Descargar PDF
+        </Button>
       </div>
 
       {/* KPIs del día */}

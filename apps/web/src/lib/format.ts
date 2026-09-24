@@ -159,6 +159,7 @@ export const MODULE_LABELS: Record<string, string> = {
   inbox: 'Bandeja de conversaciones',
   contacts: 'CRM / Contactos',
   orders: 'Pedidos (catering)',
+  marketing: 'Marketing (contenido y campañas)',
   bots: 'Asistentes IA',
   automations: 'Automatizaciones',
   analytics: 'Analytics',
