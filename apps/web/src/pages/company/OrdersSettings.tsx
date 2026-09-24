@@ -18,6 +18,7 @@ const TEMPLATE_KEYS: Array<{ key: string; label: string; vars: string }> = [
   { key: 'recordatorio_area', label: 'Recordatorio a áreas', vars: '{{cliente}} {{items}} {{fecha}} {{hora}}' },
   { key: 'recordatorio_despacho', label: 'Recordatorio a despacho', vars: '{{cliente}} {{items}} {{fecha}} {{hora}} {{direccion}}' },
   { key: 'recordatorio_cliente', label: 'Recordatorio al cliente (día de entrega)', vars: '{{contacto}} {{items}} {{hora}}' },
+  { key: 'feedback_cliente', label: 'Encuesta post-entrega (feedback)', vars: '{{contacto}} {{cliente}} {{items}}' },
 ];
 
 /* ─── Productos ─────────────────────────────────────────────────────── */
@@ -419,6 +420,39 @@ function AgendaTab({ companyId, canWrite }: { companyId: string | null; canWrite
           <Input type="number" min={0} max={23} value={draft.reminderDefaults?.clientSameDayHour ?? 7}
             onChange={(e) => setDraft({ ...draft, reminderDefaults: { ...draft.reminderDefaults, clientSameDayHour: Number(e.target.value) } })} />
         </Field>
+      </div>
+
+      <div>
+        <p className="kicker mb-2">Feedback y reporte diario</p>
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <Field label="Encuesta post-entrega (h después)" hint="Horas tras marcar entregado">
+            <Input type="number" min={0} value={draft.feedbackDelayHours ?? 3}
+              onChange={(e) => setDraft({ ...draft, feedbackDelayHours: Number(e.target.value) })} />
+          </Field>
+          <Field label="Reporte diario: hora de envío" hint="Vacío = no se envía solo">
+            <Input type="number" min={0} max={23} placeholder="6"
+              value={draft.dailyReport?.hour ?? ''}
+              onChange={(e) => setDraft({
+                ...draft,
+                dailyReport: {
+                  ...draft.dailyReport,
+                  hour: e.target.value === '' ? undefined : Number(e.target.value),
+                },
+              })} />
+          </Field>
+          <Field label="Canal del reporte">
+            <Select value={draft.dailyReport?.channel ?? 'PANEL'}
+              onChange={(e) => setDraft({ ...draft, dailyReport: { ...draft.dailyReport, channel: e.target.value } })}>
+              <option value="PANEL">Panel (queda guardado)</option>
+              <option value="EMAIL">Correo + panel</option>
+            </Select>
+          </Field>
+          <Field label="Correo destino" hint="Si el canal es correo">
+            <Input type="email" placeholder="gerencia@…"
+              value={draft.dailyReport?.email ?? ''}
+              onChange={(e) => setDraft({ ...draft, dailyReport: { ...draft.dailyReport, email: e.target.value } })} />
+          </Field>
+        </div>
       </div>
 
       {canWrite && (

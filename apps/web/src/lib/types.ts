@@ -383,6 +383,70 @@ export interface ConsumptionBlock {
   totalCop?: number;
 }
 
+/* ─── Reportes del módulo de pedidos (Fase 6) ───────────────────────── */
+
+export interface DailyReportData {
+  date: string;
+  generatedAt: string;
+  pedidos: {
+    recibidos: number; confirmados: number; programados: number;
+    despachados: number; entregados: number; cancelados: number;
+  };
+  conversaciones: {
+    atendidas: number; escaladas: number;
+    conIntervencionHumana: number; resueltasPorIA: number;
+  };
+  dudas: {
+    pedidosBajaConfianza: Array<{ id: string; customer: string; status: string; aiConfidence: number; deliveryAt: string }>;
+    escalamientos: Array<{ orderId: string; customer: string; reason?: string | null; authorType: string }>;
+  };
+  alertas: {
+    pedidosSinConfirmar: Array<{ id: string; customer: string; createdAt: string; deliveryAt: string }>;
+    entregasProximasSinArea: Array<{ id: string; customer: string; deliveryAt: string; itemsSinArea: string[] }>;
+    recordatoriosFallidos: Array<{ id: string; kind: string; lastError?: string | null; orderId?: string | null }>;
+    conversacionesSinRespuesta: number;
+  };
+  precisionIA: {
+    dia: { total: number; corregidos: number; precisionPct: number | null };
+    mes: { total: number; corregidos: number; precisionPct: number | null };
+  };
+  feedback: {
+    respuestas: number;
+    promedio: number | null;
+    negativos: Array<{ customer: string; rating: number | null; comment?: string | null }>;
+  };
+}
+
+export interface CompareBucket {
+  label: string;
+  from: string;
+  pedidos: number;
+  entregados: number;
+  cancelados: number;
+  cumplimientoPct: number | null;
+  tomadosIA: number;
+  precisionIAPct: number | null;
+}
+
+export interface AskResult {
+  question: string;
+  tool: string | null;
+  params?: Record<string, any>;
+  data: any;
+  answer: string;
+}
+
+export interface FeedbackSummary {
+  solicitados: number;
+  respondidos: number;
+  tasaRespuestaPct: number | null;
+  promedio: number | null;
+  distribution: Array<{ star: number; count: number }>;
+  negativos: number;
+  testimonios: Array<{ customer: string; rating: number | null; comment: string; orderId: string; respondedAt: string }>;
+  recientes: Array<{ customer: string; rating: number | null; sentiment: string | null; comment?: string | null; orderId: string; respondedAt: string; alerted: boolean }>;
+}
+
 export interface MonthlyConsumption {
   month: string;
   currency: string;

@@ -33,6 +33,7 @@ import { TwilioModule } from './modules/twilio.module';
 import { OrdersModule } from './modules/orders.module';
 import { CatalogModule } from './modules/catalog.module';
 import { EventsModule } from './modules/events.module';
+import { ReportsModule } from './modules/reports.module';
 import { ScheduleModule } from '@nestjs/schedule';
 
 @Module({
@@ -70,6 +71,7 @@ import { ScheduleModule } from '@nestjs/schedule';
     OrdersModule,
     CatalogModule,
     EventsModule,
+    ReportsModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },

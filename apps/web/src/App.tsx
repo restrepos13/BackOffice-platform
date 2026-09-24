@@ -35,6 +35,7 @@ import CompanySettings from './pages/company/Settings';
 import Orders from './pages/company/Orders';
 import OrderDetail from './pages/company/OrderDetail';
 import OrdersSettings from './pages/company/OrdersSettings';
+import OrdersReports from './pages/company/OrdersReports';
 import Customers from './pages/company/Customers';
 import AreaView from './pages/company/AreaView';
 
@@ -98,6 +99,7 @@ export default function App() {
         {/* Módulo de pedidos (empresas con el módulo "orders") */}
         <Route path="/app/orders" element={<BlockArea><Orders /></BlockArea>} />
         <Route path="/app/orders/settings" element={<BlockArea><OrdersSettings /></BlockArea>} />
+        <Route path="/app/orders/reports" element={<BlockArea><OrdersReports /></BlockArea>} />
         <Route path="/app/orders/:id" element={<BlockArea><OrderDetail /></BlockArea>} />
         <Route path="/app/customers" element={<BlockArea><Customers /></BlockArea>} />
         <Route path="/app/area" element={<AreaView />} />

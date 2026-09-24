@@ -68,6 +68,16 @@ export function createMockPrisma() {
     aiUsageEvent: [] as Doc[],
     productionArea: [] as Doc[],
     reminder: [] as Doc[],
+    feedback: [] as Doc[],
+    dailyReport: [] as Doc[],
+    auditLog: [] as Doc[],
+  };
+
+  // Filtros por relación (where: { conversation: {...} }) — resueltos por FK
+  const RELATION_FILTERS: Partial<Record<keyof typeof db, Array<{ key: string; fk: string; collection: keyof typeof db }>>> = {
+    message: [{ key: 'conversation', fk: 'conversationId', collection: 'conversation' }],
+    orderItem: [{ key: 'order', fk: 'orderId', collection: 'order' }],
+    feedback: [{ key: 'order', fk: 'orderId', collection: 'order' }],
   };
 
   const attach = (doc: Doc, include?: Doc): Doc => {
@@ -110,30 +120,66 @@ export function createMockPrisma() {
     return out;
   };
 
-  const model = (name: keyof typeof db, defaults: Doc = {}) => ({
-    findUnique: async ({ where, include }: Doc) => {
-      const doc = db[name].find((d) => matches(d, where)) ?? null;
-      return doc ? attach(doc, include) : null;
+  const model = (name: keyof typeof db, defaults: Doc = {}) => {
+    // matches + filtros por relación y claves compuestas (companyId_date)
+    const match = (doc: Doc, where: Doc | undefined): boolean => {
+      if (!where) return true;
+      const rels = RELATION_FILTERS[name] ?? [];
+      const plain: Doc = {};
+      for (const [key, cond] of Object.entries(where)) {
+        const rel = rels.find((r) => r.key === key);
+        if (rel && cond && typeof cond === 'object') {
+          const related = db[rel.collection].find((d) => d.id === doc[rel.fk]);
+          if (!related || !matches(related, cond as Doc)) return false;
+          continue;
+        }
+        // compuesta estilo {companyId_date: {companyId, date}}
+        if (key.includes('_') && cond && typeof cond === 'object' && !('in' in cond) && !('gte' in cond)) {
+          const parts = key.split('_');
+          if (parts.every((p) => p in (cond as Doc))) {
+            Object.assign(plain, cond);
+            continue;
+          }
+        }
+        plain[key] = cond;
+      }
+      return matches(doc, plain);
+    };
+
+    return {
+    findUnique: async ({ where, include, select }: Doc) => {
+      const doc = db[name].find((d) => match(d, where)) ?? null;
+      return doc ? attach(doc, include ?? select) : null;
     },
-    findUniqueOrThrow: async ({ where, include }: Doc) => {
-      const doc = db[name].find((d) => matches(d, where));
+    findUniqueOrThrow: async ({ where, include, select }: Doc) => {
+      const doc = db[name].find((d) => match(d, where));
       if (!doc) throw new Error(`findUniqueOrThrow: no encontrado en ${name}`);
-      return attach(doc, include);
+      return attach(doc, include ?? select);
     },
     updateMany: async ({ where, data }: Doc) => {
-      const docs = db[name].filter((d) => matches(d, where));
+      const docs = db[name].filter((d) => match(d, where));
       for (const doc of docs) Object.assign(doc, data, { updatedAt: new Date() });
       return { count: docs.length };
     },
-    count: async ({ where }: Doc = {}) => db[name].filter((d) => matches(d, where)).length,
-    findFirst: async ({ where, include, orderBy }: Doc = {}) => {
-      const doc = sort(db[name].filter((d) => matches(d, where)), orderBy)[0] ?? null;
-      return doc ? attach(doc, include) : null;
+    count: async ({ where }: Doc = {}) => db[name].filter((d) => match(d, where)).length,
+    findFirst: async ({ where, include, select, orderBy }: Doc = {}) => {
+      const doc = sort(db[name].filter((d) => match(d, where)), orderBy)[0] ?? null;
+      return doc ? attach(doc, include ?? select) : null;
     },
-    findMany: async ({ where, include, orderBy, take }: Doc = {}) => {
-      let docs = sort(db[name].filter((d) => matches(d, where)), orderBy);
+    findMany: async ({ where, include, select, orderBy, take }: Doc = {}) => {
+      let docs = sort(db[name].filter((d) => match(d, where)), orderBy);
       if (take) docs = docs.slice(0, take);
-      return docs.map((d) => attach(d, include));
+      return docs.map((d) => attach(d, include ?? select));
+    },
+    upsert: async ({ where, create, update }: Doc) => {
+      const doc = db[name].find((d) => match(d, where));
+      if (doc) {
+        Object.assign(doc, update, { updatedAt: new Date() });
+        return { ...doc };
+      }
+      const created = { id: id(), createdAt: new Date(), updatedAt: new Date(), ...defaults, ...create };
+      db[name].push(created);
+      return { ...created };
     },
     create: async ({ data }: Doc) => {
       const { items, ...plain } = data;
@@ -168,12 +214,13 @@ export function createMockPrisma() {
       return { ...doc };
     },
     deleteMany: async ({ where }: Doc) => {
-      const keep = db[name].filter((d) => !matches(d, where));
+      const keep = db[name].filter((d) => !match(d, where));
       const removed = db[name].length - keep.length;
       (db[name] as Doc[]).splice(0, db[name].length, ...keep);
       return { count: removed };
     },
-  });
+    };
+  };
 
   const prisma = {
     company: model('company'),
@@ -191,6 +238,9 @@ export function createMockPrisma() {
     aiUsageEvent: model('aiUsageEvent'),
     productionArea: model('productionArea', { active: true, reminderHoursBefore: 24 }),
     reminder: model('reminder', { status: 'PENDIENTE', attempts: 0 }),
+    feedback: model('feedback', { status: 'PENDIENTE', alerted: false, rating: null, respondedAt: null }),
+    dailyReport: model('dailyReport'),
+    auditLog: model('auditLog'),
   };
 
   return { prisma, db };

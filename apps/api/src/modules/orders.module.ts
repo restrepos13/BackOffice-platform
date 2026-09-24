@@ -120,6 +120,8 @@ const DEFAULT_REMINDER_TEMPLATES: Record<string, string> = {
     'Despacho {{fecha}} {{hora}} — {{cliente}}: {{items}}. Dirección: {{direccion}}.',
   recordatorio_cliente:
     'Hola {{contacto}}, te confirmamos tu entrega de hoy a las {{hora}}: {{items}}. ¡Quedamos atentos!',
+  feedback_cliente:
+    'Hola {{contacto}}, ¿cómo estuvo tu pedido de hoy ({{items}})? Califícanos de 1 a 5 y cuéntanos cualquier detalle. ¡Gracias!',
 };
 
 /* ═══ Recordatorios ══════════════════════════════════════════════════ */
@@ -254,6 +256,65 @@ export class RemindersService {
       where: { orderId, status: 'PENDIENTE' },
       data: { status: 'CANCELADO' },
     });
+  }
+
+  /**
+   * Feedback post-entrega (Fase 6): al marcar "entregado" se programa el
+   * mensaje al cliente con la anticipación configurada
+   * (orderConfig.feedbackDelayHours, default 3) y se abre el registro
+   * Feedback ligado al pedido. IDEMPOTENTE: un pedido pregunta una sola vez.
+   */
+  async scheduleFeedback(orderId: string) {
+    const existing = await this.prisma.feedback.findUnique({ where: { orderId } });
+    if (existing) return { skipped: 'ya solicitado' };
+
+    const order = await this.prisma.order.findUniqueOrThrow({
+      where: { id: orderId },
+      include: { items: true, customer: true, contact: true },
+    });
+    if (!order.contact?.phone) return { skipped: 'pedido sin contacto con teléfono' };
+
+    const company = await this.prisma.company.findUniqueOrThrow({
+      where: { id: order.companyId },
+    });
+    const cfg = parseJson<Record<string, any>>(company.orderConfigJson, {});
+    const templates = { ...DEFAULT_REMINDER_TEMPLATES, ...(cfg.reminderTemplates ?? {}) };
+    const delayHours = Number(cfg.feedbackDelayHours ?? 3);
+    const askAt = new Date(Date.now() + delayHours * 3600e3);
+    const items = order.items.map((i) => `${i.quantity} × ${i.productName}`).join(', ');
+
+    await this.prisma.feedback.create({
+      data: {
+        companyId: order.companyId,
+        orderId,
+        customerId: order.customerId,
+        contactId: order.contactId,
+        requestedAt: askAt, // la respuesta solo cuenta después de preguntar
+        status: 'PENDIENTE',
+      },
+    });
+    await this.prisma.reminder.create({
+      data: {
+        companyId: order.companyId,
+        orderId,
+        kind: 'FEEDBACK',
+        recipientJson: JSON.stringify({
+          name: order.contact.name,
+          phone: order.contact.phone,
+          contactId: order.contactId,
+        }),
+        channel: 'WHATSAPP',
+        scheduledAt: askAt,
+        templateKey: 'feedback_cliente',
+        bodyRendered: renderTemplate(templates.feedback_cliente, {
+          contacto: order.contact.name.split(' ')[0],
+          cliente: order.customer.name,
+          items,
+        }),
+      },
+    });
+    this.logger.log(`Pedido ${orderId}: feedback programado en ${delayHours} h`);
+    return { scheduledAt: askAt };
   }
 
   /**
@@ -570,9 +631,7 @@ export class OrdersService {
     // Reglas automáticas colgadas de estados
     if (to === 'confirmado') await this.runConfirmationPipeline(orderId, author);
     if (to === 'cancelado') await this.reminders.cancelForOrder(orderId);
-    if (to === 'entregado') {
-      // Fase 6: aquí se programa el feedback post-entrega
-    }
+    if (to === 'entregado') await this.reminders.scheduleFeedback(orderId);
     return updated;
   }
 

@@ -21,6 +21,7 @@ import {
   Menu,
   Package,
   Factory,
+  FileText,
   Store,
   Plug,
   ScrollText,
@@ -117,7 +118,8 @@ const COMPANY_NAV: NavItem[] = [
 
 /** Módulo de pedidos: solo aparece si la empresa lo tiene contratado. */
 const ORDERS_NAV: NavItem[] = [
-  { to: '/app/orders', label: 'Pedidos', icon: Package },
+  { to: '/app/orders', label: 'Pedidos', icon: Package, end: true },
+  { to: '/app/orders/reports', label: 'Reportes', icon: FileText },
   { to: '/app/customers', label: 'Clientes', icon: Store },
   { to: '/app/area', label: 'Vista por área', icon: Factory },
 ];

@@ -122,6 +122,7 @@ model Company {
   orderStatusLogs  OrderStatusHistory[]
   reminders        Reminder[]
   feedbacks        Feedback[]
+  dailyReports     DailyReport[]
 }
 
 // ─── Bots / Asistentes IA ────────────────────────────────────────────
@@ -510,6 +511,22 @@ model Feedback {
   createdAt   DateTime  @default(now())
 
   @@index([companyId, status])
+}
+
+// ─── Reporte diario del módulo de pedidos (Fase 6) ───────────────────
+// Se genera por job (o a demanda), queda guardado en el panel y se envía
+// por el canal configurado en orderConfigJson.dailyReport.
+model DailyReport {
+  id        String    @id @default(cuid()) @map("_id")
+  companyId String
+  company   Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  date      String // YYYY-MM-DD del día reportado (zona de la empresa)
+  dataJson  String    @default("{}")
+  channel   String? // PANEL | EMAIL — cómo se entregó
+  sentAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@unique([companyId, date])
 }
 
 // NOTA UsageLog: el consumo de IA ya se registra en AiUsageEvent (tokens/costo

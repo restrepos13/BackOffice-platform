@@ -25,6 +25,7 @@ import { Public } from '../auth/decorators';
 import { SkipThrottle } from '@nestjs/throttler';
 import { parseJson } from '../common/constants';
 import { decryptSecret, isEncrypted } from '../common/crypto';
+import { inferSentiment, isDissatisfied, parseRating } from '../common/feedback';
 import { AuditService } from './audit.module';
 import { EventsService } from './events.module';
 import {
@@ -321,6 +322,17 @@ export class TwilioService implements OnModuleInit, OnApplicationShutdown {
       direction: 'IN',
     });
 
+    // Feedback post-entrega (Fase 6): si este contacto tiene una encuesta
+    // abierta ya preguntada, el mensaje ES la respuesta — no pasa por el motor
+    if (type === 'TEXT') {
+      const captured = await this.captureFeedback(
+        companyId, contact.id, conversation.id, payload.Body ?? '',
+      );
+      if (captured) {
+        return { messageId: message.id, conversationId: conversation.id, feedback: true };
+      }
+    }
+
     // Agrupación de mensajes consecutivos: job demorado deduplicado por conversación
     const company = await this.prisma.company.findUnique({ where: { id: companyId } });
     const grace = Number(
@@ -336,6 +348,74 @@ export class TwilioService implements OnModuleInit, OnApplicationShutdown {
     );
 
     return { messageId: message.id, conversationId: conversation.id };
+  }
+
+  /**
+   * Registra la respuesta de una encuesta post-entrega abierta (Fase 6).
+   * Solo cuenta si ya se preguntó (requestedAt en el pasado, ventana de 7 días).
+   * Insatisfacción (rating ≤ 3 o sentimiento negativo) → alerta inmediata.
+   */
+  async captureFeedback(
+    companyId: string,
+    contactId: string,
+    conversationId: string,
+    body: string,
+  ): Promise<boolean> {
+    if (!body.trim()) return false;
+    const now = new Date();
+    const pending = await this.prisma.feedback.findFirst({
+      where: {
+        companyId,
+        contactId,
+        // PENDIENTE ya implica sin respuesta (⚠️ Mongo: null no matchea ausentes)
+        status: 'PENDIENTE',
+        requestedAt: { lte: now, gte: new Date(now.getTime() - 7 * 86400e3) },
+      },
+      orderBy: { requestedAt: 'desc' },
+      include: { order: { select: { id: true } }, customer: { select: { name: true } } },
+    });
+    if (!pending) return false;
+
+    const rating = parseRating(body);
+    const sentiment = inferSentiment(body, rating);
+    const dissatisfied = isDissatisfied(rating, sentiment);
+    await this.prisma.feedback.update({
+      where: { id: pending.id },
+      data: {
+        respondedAt: now,
+        rating,
+        comment: body.trim(),
+        sentiment,
+        status: 'RESPONDIDO',
+        alerted: dissatisfied,
+      },
+    });
+    await this.audit.log({
+      actor: null, companyId, action: 'feedback.received',
+      entity: 'Feedback', entityId: pending.id,
+      detail: `${(pending as any).customer?.name ?? 'Cliente'} · ${rating != null ? `${rating}/5` : 'sin rating'} · ${sentiment}`,
+    });
+
+    if (dissatisfied) {
+      // Cliente insatisfecho: el equipo se entera YA, la IA no interviene
+      await this.prisma.conversation.update({
+        where: { id: conversationId },
+        data: { needsAttention: true, botPaused: true },
+      });
+      await this.audit.log({
+        actor: null, companyId, action: 'feedback.alert',
+        entity: 'Order', entityId: pending.orderId,
+        detail: `Insatisfacción reportada (${rating != null ? `${rating}/5` : sentiment}): ${body.slice(0, 120)}`,
+      });
+      this.events?.emit(companyId, {
+        type: 'conversation.updated',
+        conversationId,
+        needsAttention: true,
+        botPaused: true,
+      });
+    }
+    this.events?.emit(companyId, { type: 'feedback.new', orderId: pending.orderId });
+    return true;
   }
 
   /* ── Saliente: ventana 24h, plantillas, sandbox, categoría Meta ── */
