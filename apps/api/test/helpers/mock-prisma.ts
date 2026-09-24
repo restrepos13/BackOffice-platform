@@ -81,6 +81,7 @@ export function createMockPrisma() {
     contentPiece: [] as Doc[],
     videoJob: [] as Doc[],
     platformSetting: [] as Doc[],
+    personaTemplate: [] as Doc[],
   };
 
   // Filtros por relación (where: { conversation: {...} }) — resueltos por FK
@@ -262,6 +263,7 @@ export function createMockPrisma() {
     contentPiece: model('contentPiece', { status: 'IDEA', type: 'POST', hashtagsJson: '[]' }),
     videoJob: model('videoJob', { state: 'PENDIENTE', progress: 0, provider: 'MPT' }),
     platformSetting: model('platformSetting'),
+    personaTemplate: model('personaTemplate', { personalityJson: '{}', category: 'General' }),
   };
 
   return { prisma, db };

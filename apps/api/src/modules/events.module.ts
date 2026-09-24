@@ -26,6 +26,7 @@ import { AuthUser, isPlatformRole } from '../common/constants';
 @Injectable()
 export class EventsService {
   private emitter = new EventEmitter();
+  private subscribers = 0;
 
   constructor() {
     this.emitter.setMaxListeners(500);
@@ -38,7 +39,19 @@ export class EventsService {
   subscribe(companyId: string, listener: (event: any) => void): () => void {
     const channel = `co:${companyId}`;
     this.emitter.on(channel, listener);
-    return () => this.emitter.off(channel, listener);
+    this.subscribers++;
+    let closed = false;
+    return () => {
+      if (closed) return;
+      closed = true;
+      this.subscribers--;
+      this.emitter.off(channel, listener);
+    };
+  }
+
+  /** Conexiones SSE vivas (para el panel de salud de Dev Tools). */
+  subscriberCount(): number {
+    return this.subscribers;
   }
 }
 

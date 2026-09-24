@@ -31,6 +31,14 @@ interface ProvisionCompanyDto {
   templateId?: string;
   /** O clonar la configuración de una empresa existente (sin sus datos) */
   cloneFromCompanyId?: string;
+  /** Moneda de la empresa (COP/USD/…) — pisa la de la plantilla */
+  currency?: string;
+  /** Ajustes de agenda encima de la plantilla (horarios/corte/franjas editados en el wizard) */
+  orderConfigOverrides?: Record<string, any>;
+  /** Áreas personalizadas en el wizard (reemplazan las de la plantilla) */
+  areas?: Array<{ name: string; description?: string; notifyChannel?: string; reminderHoursBefore?: number }>;
+  /** Personalidad de la biblioteca aplicada al bot inicial */
+  personaTemplateId?: string;
   // Paso 1 — datos de la empresa
   name: string;
   slug?: string;
@@ -224,12 +232,17 @@ export class CompaniesService {
             ?? (source ? parseJson<string[]>(source.modulesJson, []) : null)
             ?? ['inbox', 'contacts', 'bots', 'automations', 'analytics', 'billing', 'team'],
         ),
-        currency: template?.currency ?? source?.currency ?? 'COP',
-        ...(template?.orderConfig
-          ? { orderConfigJson: JSON.stringify(template.orderConfig) }
-          : source
-            ? { orderConfigJson: source.orderConfigJson }
-            : {}),
+        currency: dto.currency ?? template?.currency ?? source?.currency ?? 'COP',
+        // Config de agenda: plantilla o clon como base + lo editado en el wizard
+        ...(template?.orderConfig || source || dto.orderConfigOverrides
+          ? {
+              orderConfigJson: JSON.stringify({
+                ...(template?.orderConfig ??
+                  (source ? parseJson<Record<string, any>>(source.orderConfigJson, {}) : {})),
+                ...(dto.orderConfigOverrides ?? {}),
+              }),
+            }
+          : {}),
         ...(source
           ? {
               waTemplatesJson: source.waTemplatesJson,
@@ -267,6 +280,14 @@ export class CompaniesService {
       });
     }
 
+    // Personalidad elegida de la biblioteca (opcional, aplica al bot inicial)
+    const persona = dto.personaTemplateId
+      ? await this.prisma.personaTemplate.findUnique({ where: { id: dto.personaTemplateId } })
+      : null;
+    if (dto.personaTemplateId && !persona) {
+      throw new BadRequestException('La personalidad elegida no existe');
+    }
+
     // Bot inicial: el del wizard, el de la plantilla, o los clonados
     let botId: string | undefined;
     if (dto.bot?.name) {
@@ -275,9 +296,26 @@ export class CompaniesService {
           companyId: company.id,
           name: dto.bot.name,
           description: dto.bot.description,
-          systemPrompt: dto.bot.systemPrompt ?? '',
+          systemPrompt: dto.bot.systemPrompt || persona?.systemPrompt || '',
+          personalityJson: persona?.personalityJson ?? '{}',
+          welcomeMessage: dto.bot.welcomeMessage ?? persona?.welcomeMessage,
+          handoffKeywords: persona?.handoffKeywords ?? '',
           model: dto.bot.model ?? 'claude-sonnet-5',
-          welcomeMessage: dto.bot.welcomeMessage,
+          status: 'DRAFT',
+        },
+      });
+      botId = bot.id;
+    } else if (persona) {
+      const bot = await this.prisma.bot.create({
+        data: {
+          companyId: company.id,
+          name: persona.name,
+          description: persona.description,
+          systemPrompt: persona.systemPrompt,
+          personalityJson: persona.personalityJson,
+          welcomeMessage: persona.welcomeMessage,
+          handoffKeywords: persona.handoffKeywords ?? '',
+          model: 'meta-llama/Llama-3.3-70B-Instruct',
           status: 'DRAFT',
         },
       });
@@ -322,16 +360,20 @@ export class CompaniesService {
       }
     }
 
-    // Áreas de producción: de la plantilla o clonadas
-    const templateAreas = template?.areas ?? [];
-    for (const area of templateAreas) {
+    // Áreas de producción: las editadas en el wizard mandan sobre la plantilla
+    const areasToCreate = Array.isArray(dto.areas) && dto.areas.length
+      ? dto.areas.filter((a) => a?.name?.trim())
+      : (template?.areas ?? []);
+    for (const area of areasToCreate) {
       await this.prisma.productionArea.create({
         data: {
           companyId: company.id,
-          name: area.name,
+          name: area.name.trim(),
           description: area.description,
-          notifyChannel: area.notifyChannel,
-          reminderHoursBefore: area.reminderHoursBefore,
+          notifyChannel: ['PANEL', 'EMAIL', 'WHATSAPP'].includes(area.notifyChannel as string)
+            ? area.notifyChannel
+            : 'PANEL',
+          reminderHoursBefore: Number(area.reminderHoursBefore) || 24,
           responsiblesJson: '[]',
         },
       });
@@ -523,13 +565,20 @@ export class CompaniesController {
     return this.companies.list(user);
   }
 
-  /** Plantillas de aprovisionamiento para el wizard (crear empresa sin código). */
+  /** Plantillas de aprovisionamiento para el wizard (crear empresa sin código).
+   *  Incluye la base editable (agenda y áreas) para personalizarla ANTES de crear. */
   @Get('templates')
   @Roles(ROLES.SUPER_ADMIN, ROLES.DEV)
   templates() {
-    return COMPANY_TEMPLATES.map(({ id, name, description, includes, modules, currency }) => ({
-      id, name, description, includes, modules, currency,
-    }));
+    return COMPANY_TEMPLATES.map(
+      ({ id, name, description, includes, modules, currency, orderConfig, areas, bot }) => ({
+        id, name, description, includes, modules, currency,
+        orderConfig: orderConfig ?? null,
+        areas: areas ?? [],
+        botName: bot?.name ?? null,
+        botSummary: bot ? `${bot.name} — ${bot.description}` : null,
+      }),
+    );
   }
 
   @Get(':id')
