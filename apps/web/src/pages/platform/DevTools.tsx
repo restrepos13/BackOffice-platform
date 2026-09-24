@@ -448,6 +448,14 @@ export default function DevTools() {
     onSuccess: (r) => toast.success(`${r.sent} reporte(s) a gerencia generados (ver Correos)`),
     onError: (e) => toast.error(e instanceof Error ? e.message : 'Error'),
   });
+  const resetDemo = useMutation({
+    mutationFn: () => api.post('/jobs/demo-reset'),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['companies'] });
+      toast.success('Empresa demo restaurada: datos frescos y tour sin ver');
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : 'Error'),
+  });
 
   const saveSettings = useMutation({
     mutationFn: (values: Record<string, string>) => api.put('/dev/settings', values),
@@ -490,6 +498,9 @@ export default function DevTools() {
             </Button>
             <Button variant="outline" disabled={runReports.isPending} onClick={() => runReports.mutate()}>
               {runReports.isPending ? 'Enviando…' : 'Enviar reportes a gerencia ahora'}
+            </Button>
+            <Button variant="outline" disabled={resetDemo.isPending} onClick={() => resetDemo.mutate()}>
+              {resetDemo.isPending ? 'Restaurando…' : 'Restaurar empresa demo'}
             </Button>
             <p className="text-xs text-ink-3">
               Todos los jobs corren solos y son idempotentes; estos botones los disparan a demanda.

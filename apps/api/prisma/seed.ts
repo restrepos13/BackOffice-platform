@@ -6,6 +6,9 @@
  *
  * ⚠️ BORRA TODO lo existente. El seed con datos demo quedó en
  * prisma/seed-demo.ts (`pnpm db:seed:demo`).
+ * ⚠️ Si se corre, la empresa DEMO de ventas ("Delicias Andinas") también se
+ * borra: recréala con `pnpm db:seed:demo-empresa` (o el cron del domingo /
+ * Dev Tools → Operación → "Restaurar empresa demo" la reviven solos).
  *
  * Cuentas:
  *   santiago@backoffice.dev      → SUPER_ADMIN · SEED_PASSWORD_SANTIAGO

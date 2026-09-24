@@ -6,6 +6,7 @@ import { AuthUser, ROLES } from '../common/constants';
 import { AuditService } from './audit.module';
 import { EmailsModule, EmailsService } from './emails.module';
 import { ExecutiveService, OpsModule } from './ops.module';
+import { seedDemoCompany } from '../demo/demo-company';
 
 const round = (n: number) => Math.round(n * 100) / 100;
 
@@ -136,6 +137,28 @@ ${report.pending.overdueFollowUps.length ? `<p>⚠️ Tienen ${report.pending.ov
       detail: `${result.sent} reportes a gerencia enviados/encolados`,
     });
   }
+
+  /** Regenera la empresa DEMO de ventas con fechas frescas (idempotente). */
+  async resetDemoCompany() {
+    await seedDemoCompany(this.prisma as any);
+    return { ok: true, slug: 'delicias-demo' };
+  }
+
+  // Domingos 04:00 — la vitrina de ventas se renueva sola: pedidos "próximos"
+  // siempre próximos, consumo de 30 días al día y tour sin ver.
+  @Cron('0 4 * * 0')
+  async cronDemoRefresh() {
+    if (process.env.JEST_WORKER_ID) return;
+    try {
+      await this.resetDemoCompany();
+      await this.audit.log({
+        actor: null, action: 'jobs.demo-refresh', entity: 'Company',
+        detail: 'Empresa demo regenerada con fechas frescas',
+      });
+    } catch (err: any) {
+      this.logger.error(`refresh de la empresa demo: ${err.message}`);
+    }
+  }
 }
 
 @Controller('jobs')
@@ -153,6 +176,17 @@ export class JobsController {
     await this.audit.log({
       actor: user, action: 'jobs.invoices.manual', entity: 'Invoice',
       detail: `Período ${result.period}: ${result.created} creadas, ${result.skipped} existentes`,
+    });
+    return result;
+  }
+
+  /** Restaurar la empresa DEMO de ventas al estado perfecto, ya. */
+  @Post('demo-reset')
+  async demoReset(@CurrentUser() user: AuthUser) {
+    const result = await this.jobs.resetDemoCompany();
+    await this.audit.log({
+      actor: user, action: 'jobs.demo-reset.manual', entity: 'Company',
+      detail: 'Empresa demo restaurada desde Dev Tools',
     });
     return result;
   }

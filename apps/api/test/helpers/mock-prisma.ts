@@ -82,6 +82,9 @@ export function createMockPrisma() {
     videoJob: [] as Doc[],
     platformSetting: [] as Doc[],
     personaTemplate: [] as Doc[],
+    plan: [] as Doc[],
+    appointment: [] as Doc[],
+    followUp: [] as Doc[],
   };
 
   // Filtros por relación (where: { conversation: {...} }) — resueltos por FK
@@ -264,6 +267,9 @@ export function createMockPrisma() {
     videoJob: model('videoJob', { state: 'PENDIENTE', progress: 0, provider: 'MPT' }),
     platformSetting: model('platformSetting'),
     personaTemplate: model('personaTemplate', { personalityJson: '{}', category: 'General' }),
+    plan: model('plan'),
+    appointment: model('appointment', { status: 'SCHEDULED', source: 'MANUAL' }),
+    followUp: model('followUp', { status: 'PENDING' }),
   };
 
   return { prisma, db };

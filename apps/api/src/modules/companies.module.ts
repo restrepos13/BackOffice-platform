@@ -24,6 +24,7 @@ import {
 } from '../common/constants';
 import { AuditService } from './audit.module';
 import { COMPANY_TEMPLATES, findTemplate } from './company-templates';
+import { DEMO_COMPANY_SLUG } from '../demo/demo-company';
 
 /** Payload del wizard de aprovisionamiento (crear empresa sin tocar código). */
 interface ProvisionCompanyDto {
@@ -544,6 +545,12 @@ export class CompaniesService {
 
   async remove(actor: AuthUser, id: string) {
     const company = await this.prisma.company.findUniqueOrThrow({ where: { id } });
+    // La empresa DEMO de ventas es permanente: jamás se borra desde el panel
+    if (company.slug === DEMO_COMPANY_SLUG) {
+      throw new BadRequestException(
+        'Esta es la empresa DEMO de ventas y está protegida. Para regenerarla con datos frescos usa Dev Tools → Operación → "Restaurar empresa demo".',
+      );
+    }
     await this.prisma.company.delete({ where: { id } });
     await this.audit.log({
       actor,
