@@ -1,8 +1,8 @@
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { api } from '../../lib/api';
-import { fmtNum, fmtUsd, timeAgo } from '../../lib/format';
-import type { CompanyAiUsage } from '../../lib/types';
+import { fmtCop, fmtNum, fmtUsd, timeAgo } from '../../lib/format';
+import type { CompanyAiUsage, MonthlyConsumption } from '../../lib/types';
 import { Badge, Card, Loading, PageHeader, Select, Stat, Table } from '../../components/ui';
 import { CostSeriesChart } from '../../components/charts';
 import { useAiModels } from '../../components/media';
@@ -14,6 +14,94 @@ const RANGES = [
   { days: 30, label: 'Últimos 30 días' },
   { days: 90, label: 'Últimos 90 días' },
 ];
+
+const CATEGORY_LABELS: Record<string, string> = {
+  SERVICIO: 'Servicio (ventana 24 h — sin costo)',
+  UTILIDAD: 'Utilidad (plantillas)',
+  MARKETING: 'Marketing',
+};
+
+/** Consumo del mes en la moneda de la empresa: mensajes Meta + IA + comparativo. */
+function MonthlySection({ q }: { q: string }) {
+  const [month, setMonth] = useState(() => new Date().toISOString().slice(0, 7));
+  const path = withScope(`/ai-usage/consumption?month=${month}`, q);
+  const { data, isLoading } = useQuery({
+    queryKey: ['consumption', path],
+    queryFn: () => api.get<MonthlyConsumption>(path),
+    refetchInterval: 60_000,
+  });
+
+  if (isLoading || !data) return <Loading label="Calculando consumo del mes…" />;
+  const { current, previous, deltaPct } = data;
+  const inCop = data.currency === 'COP';
+  const money = (usd: number, cop?: number) => (inCop && cop != null ? fmtCop(cop) : fmtUsd(usd));
+
+  return (
+    <section className="mt-10">
+      <div className="mb-4 flex flex-wrap items-end justify-between gap-3 border-b-2 border-ink pb-3">
+        <div>
+          <p className="kicker">Mensajes de WhatsApp + IA · en {data.currency}</p>
+          <h2 className="display text-2xl">Consumo del mes</h2>
+        </div>
+        <div className="flex items-center gap-3">
+          {inCop && (
+            <p className="kicker self-center">TRM usada: {fmtCop(data.usdCopRate)}/USD</p>
+          )}
+          <input
+            type="month"
+            value={month}
+            onChange={(e) => setMonth(e.target.value)}
+            className="border-2 border-ink bg-bone px-3 py-2 text-sm"
+            aria-label="Mes"
+          />
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+        <Stat
+          label="Total del mes"
+          value={money(current.totalUsd, current.totalCop)}
+          hint={previous.totalUsd > 0 ? `Mes anterior: ${money(previous.totalUsd, previous.totalCop)}` : 'Sin datos del mes anterior'}
+          tone={deltaPct != null && deltaPct > 25 ? 'warn' : undefined}
+        />
+        <Stat
+          label="Vs. mes anterior"
+          value={deltaPct == null ? '—' : `${deltaPct > 0 ? '+' : ''}${deltaPct}%`}
+          tone={deltaPct == null ? undefined : deltaPct > 0 ? 'warn' : 'ok'}
+        />
+        <Stat
+          label="Mensajes Meta"
+          value={fmtNum(current.meta.totalMessages)}
+          hint={money(current.meta.costUsd, current.meta.costCop)}
+        />
+        <Stat
+          label="IA (tokens)"
+          value={fmtNum(current.ai.inputTokens + current.ai.outputTokens)}
+          hint={`${fmtNum(current.ai.events)} respuestas · ${money(current.ai.costUsd, current.ai.costCop)}`}
+        />
+      </div>
+
+      <div className="mt-5 max-w-2xl">
+        <Table head={['Categoría Meta', 'Mensajes', 'Costo']}>
+          {current.meta.byCategory.map((row) => (
+            <tr key={row.category}>
+              <td className="px-4 py-2.5 text-sm">{CATEGORY_LABELS[row.category] ?? row.category}</td>
+              <td className="px-4 py-2.5 tabular-nums">{fmtNum(row.count)}</td>
+              <td className="px-4 py-2.5 font-semibold tabular-nums">{money(row.costUsd, row.costCop)}</td>
+            </tr>
+          ))}
+          {current.meta.byCategory.length === 0 && (
+            <tr><td colSpan={3} className="px-4 py-6 text-center text-ink-3">Sin mensajes salientes este mes.</td></tr>
+          )}
+        </Table>
+      </div>
+      <p className="mt-3 text-xs text-ink-3">
+        Las respuestas dentro de la ventana de 24 h (Servicio) no tienen costo por
+        mensaje. Las tarifas por categoría son configurables por organización.
+      </p>
+    </section>
+  );
+}
 
 export default function Usage() {
   const { ready, q } = useCompanyScope();
@@ -149,6 +237,8 @@ export default function Usage() {
           </Table>
         </div>
       </div>
+
+      <MonthlySection q={q} />
 
       <p className="mt-4 text-xs text-ink-3">
         Los costos usan los precios declarados del catálogo (

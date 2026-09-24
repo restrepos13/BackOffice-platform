@@ -25,8 +25,15 @@ model User {
   company      Company?  @relation(fields: [companyId], references: [id], onDelete: Cascade)
   phone        String?
   jobTitle     String?
+  // Rol COMPANY_AREA: usuario que solo ve los ítems de SU área de producción
+  productionAreaId String?
   active       Boolean   @default(true)
   lastLoginAt  DateTime?
+  // Endurecimiento del login: bloqueo temporal por intentos fallidos
+  failedLogins Int       @default(0)
+  lockedUntil  DateTime?
+  // Tour de bienvenida: se muestra solo hasta que el usuario lo termina
+  tourDoneAt   DateTime?
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 
@@ -77,6 +84,14 @@ model Company {
   // Parámetros del "Reporte a Gerencia": ahorro = conversaciones IA/mes ÷ capacidad × sueldo
   savingsSalaryUsd      Float @default(400) // sueldo mensual equivalente de un agente humano
   agentCapacityPerMonth Int   @default(300) // conversaciones que atiende una persona al mes
+  // Moneda de la empresa para pantallas de consumo/costos (COP para Nexus; USD disponible)
+  currency        String @default("COP")
+  // Configuración del módulo de pedidos (catering): JSON {statuses?, schedule:{days,open,close},
+  // orderCutoff, minLeadHours, maxPerSlot, slots, holidays[], nonWorkingDays[]}
+  orderConfigJson String @default("{}")
+  // Plantillas aprobadas de Meta (vía Twilio Content API), por organización:
+  // [{key, name, contentSid, category (UTILIDAD|MARKETING), body, variables[]}]
+  waTemplatesJson String @default("[]")
   notes        String?
   // Módulos habilitados para el tenant (string[] serializado):
   // inbox, contacts, bots, automations, analytics, billing, team
@@ -104,6 +119,18 @@ model Company {
   aiUsageEvents    AiUsageEvent[]
   appointments     Appointment[]
   followUps        FollowUp[]
+  customers        Customer[]
+  products         Product[]
+  productionAreas  ProductionArea[]
+  orders           Order[]
+  orderItems       OrderItem[]
+  orderStatusLogs  OrderStatusHistory[]
+  reminders        Reminder[]
+  feedbacks        Feedback[]
+  dailyReports     DailyReport[]
+  marketingCampaigns MarketingCampaign[]
+  contentPieces      ContentPiece[]
+  videoJobs          VideoJob[]
 }
 
 // ─── Bots / Asistentes IA ────────────────────────────────────────────
@@ -221,9 +248,15 @@ model Contact {
   lastActivityAt DateTime @default(now())
   createdAt      DateTime @default(now())
 
+  // Módulo de pedidos: persona dentro de una empresa cliente (Customer)
+  customerId    String?
+  customer      Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
+
   conversations Conversation[]
   appointments  Appointment[]
   followUps     FollowUp[]
+  orders        Order[]
+  feedbacks     Feedback[]
 }
 
 // ─── Conversaciones y mensajes ───────────────────────────────────────
@@ -241,11 +274,21 @@ model Conversation {
   channel        String   @default("WHATSAPP")
   status         String   @default("OPEN")
   needsAttention Boolean  @default(false)
+  // MODO HUMANO: pausa del bot POR conversación (nunca global) y quién atiende
+  botPaused      Boolean  @default(false)
+  attendedByName String?
+  // Estado de la máquina conversacional del motor: {state, missingFields, draftOrderId}
+  aiStateJson    String   @default("{}")
+  customerId     String? // empresa cliente (módulo pedidos)
   unreadCount    Int      @default(0)
   lastMessageAt  DateTime @default(now())
   createdAt      DateTime @default(now())
 
   messages Message[]
+  orders   Order[]
+
+  @@index([companyId, contactId])
+  @@index([companyId, lastMessageAt])
 }
 
 // direction: IN | OUT — author: CONTACT | BOT | AGENT
@@ -255,12 +298,319 @@ model Message {
   conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
   direction      String
   author         String
+  authorName     String? // usuario del equipo que escribió (modo humano)
   content        String
+  type           String       @default("TEXT") // TEXT | AUDIO | IMAGE | DOCUMENT
+  fileName       String? // archivo en uploads/<companyId>/ para audio/imagen/documento
+  transcription  String? // transcripción de audios entrantes
+  // Proveedor (Twilio): idempotencia y estados de entrega
+  providerId     String? // MessageSid de Twilio — idempotencia de reintentos
+  deliveryStatus String? // QUEUED | SENT | DELIVERED | READ | FAILED
+  // Transparencia de costos Meta (salientes): SERVICIO | UTILIDAD | MARKETING
+  metaCategory   String?
+  metaCostUsd    Float?
   tokens         Int?
   mediaAssetId   String? // foto de la galería enviada en este mensaje
   mediaAsset     MediaAsset?  @relation(fields: [mediaAssetId], references: [id])
   createdAt      DateTime     @default(now())
+
+  @@index([conversationId, createdAt])
+  @@index([providerId])
 }
+
+// ═══ MÓDULO DE PEDIDOS (catering — primera empresa: Nexus) ═══════════
+// Todo aislado por companyId. Nada hardcodeado a Nexus: catálogo, áreas,
+// reglas y plantillas viven en configuración por organización.
+
+// Empresa cliente del tenant (p. ej. las ~10 empresas a las que Nexus vende).
+model Customer {
+  id            String    @id @default(cuid()) @map("_id")
+  companyId     String
+  company       Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  name          String
+  taxId         String? // NIT
+  // Direcciones de entrega: [{label, address, city, instructions}]
+  addressesJson String    @default("[]")
+  notes         String? // condiciones particulares
+  active        Boolean   @default(true)
+  deletedAt     DateTime? // soft delete
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  contacts  Contact[]
+  orders    Order[]
+  feedbacks Feedback[]
+
+  @@index([companyId, name])
+}
+
+// Catálogo configurable por organización.
+model Product {
+  id                String    @id @default(cuid()) @map("_id")
+  companyId         String
+  company           Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  name              String
+  description       String?
+  category          String? // p. ej. Almuerzos, Refrigerios, Bebidas
+  unit              String    @default("unidad") // unidad de medida
+  // Presentaciones: [{name, note?}] — p. ej. bandeja x10, individual
+  presentationsJson String    @default("[]")
+  productionAreaId  String? // área responsable por defecto
+  productionArea    ProductionArea? @relation(fields: [productionAreaId], references: [id], onDelete: SetNull)
+  active            Boolean   @default(true)
+  deletedAt         DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  orderItems OrderItem[]
+
+  @@index([companyId, active])
+}
+
+// Áreas internas (cocina, empaque, logística, despacho…) configurables.
+model ProductionArea {
+  id               String   @id @default(cuid()) @map("_id")
+  companyId        String
+  company          Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  name             String
+  description      String?
+  // Responsables: [{name, phone?, email?}]
+  responsiblesJson String   @default("[]")
+  notifyChannel    String   @default("PANEL") // PANEL | WHATSAPP | EMAIL
+  notifyTarget     String? // teléfono o correo según canal
+  // Anticipación de recordatorio para esta área (horas antes de la entrega)
+  reminderHoursBefore Int   @default(24)
+  active           Boolean  @default(true)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  products   Product[]
+  orderItems OrderItem[]
+
+  @@index([companyId, active])
+}
+
+// El pedido. Estados default (configurables en Company.orderConfigJson):
+// borrador → confirmado → programado → en_produccion → listo → empacado →
+// despachado → entregado. Además: cancelado, requiere_atencion.
+// La trazabilidad llega HASTA EL DESPACHO/ENTREGA — no hay seguimiento en ruta.
+model Order {
+  id                String    @id @default(cuid()) @map("_id")
+  companyId         String
+  company           Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  customerId        String
+  customer          Customer  @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  contactId         String? // persona que hizo el pedido
+  contact           Contact?  @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  conversationId    String? // conversación de WhatsApp que lo originó
+  conversation      Conversation? @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+  status            String    @default("borrador")
+  deliveryAt        DateTime // fecha/hora de entrega acordada
+  // Snapshot de la dirección al momento del pedido {label, address, city, instructions}
+  deliveryAddressJson String  @default("{}")
+  observations      String?
+  takenByType       String    @default("IA") // IA | HUMANO
+  takenByName       String? // nombre del usuario si fue humano
+  // Confianza de la extracción de la IA (0-1) y si requirió corrección posterior
+  aiConfidence      Float?
+  correctedAfterAi  Boolean   @default(false) // alimenta el indicador de precisión (98%)
+  deletedAt         DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  items         OrderItem[]
+  statusHistory OrderStatusHistory[]
+  reminders     Reminder[]
+  feedback      Feedback?
+
+  @@index([companyId, deliveryAt])
+  @@index([companyId, status])
+  @@index([companyId, customerId])
+}
+
+// Ítem del pedido, asignado a un área. Cada área ve SOLO sus ítems.
+model OrderItem {
+  id               String   @id @default(cuid()) @map("_id")
+  companyId        String // desnormalizado: filtro de tenant directo e índices
+  company          Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  orderId          String
+  order            Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  productId        String?
+  product          Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
+  productName      String // snapshot (el catálogo puede cambiar)
+  quantity         Float
+  unit             String   @default("unidad")
+  presentation     String?
+  specifications   String? // "sin cebolla", "vegetariano x5"…
+  observations     String?
+  productionAreaId String?
+  productionArea   ProductionArea? @relation(fields: [productionAreaId], references: [id], onDelete: SetNull)
+  areaStatus       String   @default("pendiente") // pendiente | lista
+  areaReadyAt      DateTime?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([companyId, productionAreaId, areaStatus])
+  @@index([orderId])
+}
+
+// Trazabilidad: APPEND-ONLY. Jamás se edita ni se borra (garantizado por
+// diseño: no existen endpoints de update/delete y hay test que lo verifica).
+model OrderStatusHistory {
+  id         String   @id @default(cuid()) @map("_id")
+  companyId  String
+  company    Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  orderId    String
+  order      Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  fromStatus String?
+  toStatus   String
+  authorType String   @default("SISTEMA") // IA | USUARIO | SISTEMA
+  authorName String
+  reason     String?
+  createdAt  DateTime @default(now())
+
+  @@index([orderId, createdAt])
+  @@index([companyId, createdAt])
+}
+
+// Recordatorio programado (a áreas, despacho o cliente).
+// El job que los despacha es idempotente: status + sentAt lo garantizan.
+model Reminder {
+  id            String    @id @default(cuid()) @map("_id")
+  companyId     String
+  company       Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  orderId       String?
+  order         Order?    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  kind          String    @default("AREA") // AREA | DESPACHO | CLIENTE | OTRO
+  // Destinatario: {name, phone?, email?, productionAreaId?}
+  recipientJson String    @default("{}")
+  channel       String    @default("PANEL") // WHATSAPP | EMAIL | PANEL
+  scheduledAt   DateTime
+  templateKey   String? // plantilla configurada en la organización
+  bodyRendered  String? // mensaje final renderizado
+  status        String    @default("PENDIENTE") // PENDIENTE | ENVIADO | FALLIDO | CANCELADO
+  attempts      Int       @default(0)
+  lastError     String?
+  sentAt        DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([companyId, status, scheduledAt])
+}
+
+// Retroalimentación post-entrega, ligada al pedido.
+model Feedback {
+  id          String    @id @default(cuid()) @map("_id")
+  companyId   String
+  company     Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  orderId     String    @unique
+  order       Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  customerId  String?
+  customer    Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  contactId   String?
+  contact     Contact?  @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  requestedAt DateTime  @default(now())
+  respondedAt DateTime?
+  rating      Int? // 1-5 si se logra extraer
+  comment     String?
+  sentiment   String? // POSITIVO | NEUTRO | NEGATIVO
+  alerted     Boolean   @default(false) // insatisfacción → alerta inmediata
+  status      String    @default("PENDIENTE") // PENDIENTE | RESPONDIDO | SIN_RESPUESTA
+  createdAt   DateTime  @default(now())
+
+  @@index([companyId, status])
+}
+
+// ─── Reporte diario del módulo de pedidos (Fase 6) ───────────────────
+// Se genera por job (o a demanda), queda guardado en el panel y se envía
+// por el canal configurado en orderConfigJson.dailyReport.
+// ─── Marketing (extra por empresa: contenido para redes y campañas) ───
+// status campaña: BORRADOR | ACTIVA | PAUSADA | CERRADA
+model MarketingCampaign {
+  id         String    @id @default(cuid()) @map("_id")
+  companyId  String
+  company    Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  name       String
+  objective  String? // qué busca la campaña (ventas, alcance, lanzamiento…)
+  status     String    @default("BORRADOR")
+  // Canales destino: ["instagram","tiktok","facebook","youtube"]
+  channelsJson String  @default("[]")
+  startsAt   DateTime?
+  endsAt     DateTime?
+  budgetUsd  Float?
+  notes      String?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  pieces ContentPiece[]
+
+  @@index([companyId, status])
+}
+
+// Pieza de contenido: reel, post, historia o anuncio.
+// type: REEL | POST | STORY | AD — status: IDEA | BORRADOR | LISTO | PROGRAMADO | PUBLICADO
+model ContentPiece {
+  id          String    @id @default(cuid()) @map("_id")
+  companyId   String
+  company     Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  campaignId  String?
+  campaign    MarketingCampaign? @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+  type        String    @default("POST")
+  status      String    @default("IDEA")
+  title       String
+  brief       String? // idea/brief de entrada para la IA
+  copy        String? // caption generado o escrito
+  hashtagsJson String  @default("[]")
+  script      String? // guion (para reels/videos)
+  channel     String? // instagram | tiktok | facebook | youtube
+  scheduledAt DateTime?
+  publishedAt DateTime?
+  videoJobId  String?
+  assetUrl    String? // video/imagen final (cuando exista)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([companyId, status])
+  @@index([companyId, scheduledAt])
+}
+
+// Tarea de generación de video (integración MoneyPrinterTurbo — cascarón).
+// state: PENDIENTE | PROCESANDO | COMPLETO | FALLIDO
+model VideoJob {
+  id             String   @id @default(cuid()) @map("_id")
+  companyId      String
+  company        Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  pieceId        String?
+  provider       String   @default("MPT") // MoneyPrinterTurbo
+  externalTaskId String? // task_id del generador
+  paramsJson     String   @default("{}")
+  state          String   @default("PENDIENTE")
+  progress       Int      @default(0)
+  videoUrl       String?
+  error          String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([companyId, state])
+}
+
+model DailyReport {
+  id        String    @id @default(cuid()) @map("_id")
+  companyId String
+  company   Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  date      String // YYYY-MM-DD del día reportado (zona de la empresa)
+  dataJson  String    @default("{}")
+  channel   String? // PANEL | EMAIL — cómo se entregó
+  sentAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@unique([companyId, date])
+}
+
+// NOTA UsageLog: el consumo de IA ya se registra en AiUsageEvent (tokens/costo
+// por respuesta) y el de Meta se registra por mensaje saliente en
+// Message.metaCategory/metaCostUsd; UsageRecord agrega el diario. La pantalla
+// de consumos de la organización se alimenta de esas tres fuentes.
 
 // ─── Agenda de citas ─────────────────────────────────────────────────
 // Lo que promete la landing: "agendan citas 24/7". Hoy se crean manualmente

@@ -32,6 +32,13 @@ import Analytics from './pages/company/Analytics';
 import Billing from './pages/company/Billing';
 import Team from './pages/company/Team';
 import CompanySettings from './pages/company/Settings';
+import Orders from './pages/company/Orders';
+import OrderDetail from './pages/company/OrderDetail';
+import OrdersSettings from './pages/company/OrdersSettings';
+import OrdersReports from './pages/company/OrdersReports';
+import Customers from './pages/company/Customers';
+import AreaView from './pages/company/AreaView';
+import Marketing from './pages/company/Marketing';
 
 function RequireAuth({ children }: { children: ReactNode }) {
   const { user, loading } = useAuth();
@@ -50,7 +57,15 @@ function HomeRedirect() {
   const { user, loading, isPlatform } = useAuth();
   if (loading) return <Loading label="Verificando sesión…" />;
   if (!user) return <Navigate to="/login" replace />;
+  if (user.role === 'COMPANY_AREA') return <Navigate to="/app/area" replace />;
   return <Navigate to={isPlatform ? '/platform' : '/app'} replace />;
+}
+
+/** Un usuario de área de producción SOLO entra a su vista de área. */
+function BlockArea({ children }: { children: ReactNode }) {
+  const { user } = useAuth();
+  if (user?.role === 'COMPANY_AREA') return <Navigate to="/app/area" replace />;
+  return <>{children}</>;
 }
 
 export default function App() {
@@ -80,8 +95,16 @@ export default function App() {
         <Route path="/platform/dev" element={<RequirePlatform><DevTools /></RequirePlatform>} />
 
         {/* Panel de empresa (admin/viewer; plataforma con empresa activa) */}
-        <Route path="/app" element={<Dashboard />} />
-        <Route path="/app/inbox" element={<Inbox />} />
+        <Route path="/app" element={<BlockArea><Dashboard /></BlockArea>} />
+        <Route path="/app/inbox" element={<BlockArea><Inbox /></BlockArea>} />
+        {/* Módulo de pedidos (empresas con el módulo "orders") */}
+        <Route path="/app/orders" element={<BlockArea><Orders /></BlockArea>} />
+        <Route path="/app/orders/settings" element={<BlockArea><OrdersSettings /></BlockArea>} />
+        <Route path="/app/orders/reports" element={<BlockArea><OrdersReports /></BlockArea>} />
+        <Route path="/app/orders/:id" element={<BlockArea><OrderDetail /></BlockArea>} />
+        <Route path="/app/customers" element={<BlockArea><Customers /></BlockArea>} />
+        <Route path="/app/marketing" element={<BlockArea><Marketing /></BlockArea>} />
+        <Route path="/app/area" element={<AreaView />} />
         <Route path="/app/contacts" element={<Contacts />} />
         <Route path="/app/bots" element={<Bots />} />
         <Route path="/app/bots/:id" element={<BotDetail />} />

@@ -58,6 +58,74 @@ export function MediaImage({
   return <img src={src} alt={alt} className={clsx('object-cover', className)} />;
 }
 
+/**
+ * Archivo adjunto de un mensaje de WhatsApp (audio/imagen/documento),
+ * servido por endpoint autenticado y tenant-scoped.
+ */
+export function MessageFile({
+  messageId,
+  type,
+  className,
+}: {
+  messageId: string;
+  type: 'AUDIO' | 'IMAGE' | 'DOCUMENT';
+  className?: string;
+}) {
+  const [src, setSrc] = useState<string | null>(null);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    let url: string | null = null;
+    let cancelled = false;
+    fetch(`/api/conversations/messages/${messageId}/file`, {
+      headers: { Authorization: `Bearer ${getToken()}` },
+    })
+      .then((res) => {
+        if (!res.ok) throw new Error();
+        return res.blob();
+      })
+      .then((blob) => {
+        if (cancelled) return;
+        url = URL.createObjectURL(blob);
+        setSrc(url);
+      })
+      .catch(() => !cancelled && setFailed(true));
+    return () => {
+      cancelled = true;
+      if (url) URL.revokeObjectURL(url);
+    };
+  }, [messageId]);
+
+  if (failed) {
+    return (
+      <div className={clsx('flex items-center justify-center bg-bone-2 px-3 py-2 text-xs text-ink-3', className)}>
+        Archivo no disponible
+      </div>
+    );
+  }
+  if (!src) {
+    return <div className={clsx('h-10 animate-pulse bg-bone-2', className)} aria-label="Cargando archivo…" />;
+  }
+  if (type === 'AUDIO') {
+    return <audio controls src={src} className={clsx('w-full max-w-[260px]', className)} />;
+  }
+  if (type === 'IMAGE') {
+    return <img src={src} alt="Imagen recibida" className={clsx('max-h-56 border-2 border-ink object-cover', className)} />;
+  }
+  return (
+    <a
+      href={src}
+      download
+      className={clsx(
+        'inline-block border-2 border-ink bg-bone px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.08em] hover:bg-ink hover:text-bone',
+        className,
+      )}
+    >
+      Descargar documento
+    </a>
+  );
+}
+
 /** Catálogo de modelos DeepInfra (con costos declarados). */
 export function useAiModels() {
   return useQuery({

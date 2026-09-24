@@ -145,18 +145,49 @@ export class EmailsService {
   }
 
   /** Envío del sistema (crons): sin actor humano; queda en cola si no hay SMTP. */
+  /** Layout de correo con la IDENTIDAD de cada marca: banda del color de la
+   *  empresa, nombre en cabecera y pie institucional. */
+  private async brandLayout(companyId: string | null | undefined, body: string): Promise<string> {
+    const company = companyId
+      ? await this.prisma.company.findUnique({
+          where: { id: companyId },
+          select: { name: true, brandColor: true, contactEmail: true, website: true },
+        })
+      : null;
+    const color = company?.brandColor || '#1A1A1A';
+    const name = company?.name ?? 'BackOffice';
+    return `<!doctype html><html lang="es"><body style="margin:0;padding:0;background:#E6E1DD;font-family:Helvetica,Arial,sans-serif;color:#1A1A1A;">
+  <div style="max-width:600px;margin:24px auto;background:#F4F1EE;border:2px solid #1A1A1A;">
+    <div style="height:8px;background:${color};"></div>
+    <div style="padding:20px 28px;border-bottom:2px solid #1A1A1A;">
+      <p style="margin:0;font-size:20px;font-weight:800;letter-spacing:0.04em;color:${color};text-transform:uppercase;">${name}</p>
+    </div>
+    <div style="padding:24px 28px;font-size:14px;line-height:1.6;">${body}</div>
+    <div style="padding:14px 28px;border-top:1px solid #d9d4cf;font-size:11px;color:#6b6b6b;">
+      ${[name, company?.contactEmail, company?.website].filter(Boolean).join(' · ')}
+      <br/>Enviado automáticamente por la plataforma de ${name}.
+    </div>
+  </div>
+</body></html>`;
+  }
+
   async systemSend(params: {
     companyId?: string | null;
     toEmail: string;
     subject: string;
     body: string;
+    /** true (default): envuelve el contenido en el layout de la marca */
+    branded?: boolean;
   }) {
+    const html = params.branded === false
+      ? params.body
+      : await this.brandLayout(params.companyId, params.body);
     const message = await this.prisma.emailMessage.create({
       data: {
         companyId: params.companyId ?? null,
         toEmail: params.toEmail,
         subject: params.subject,
-        body: params.body,
+        body: html,
         actorName: 'Sistema BackOffice',
       },
     });

@@ -1,4 +1,9 @@
-export type Role = 'SUPER_ADMIN' | 'DEV' | 'COMPANY_ADMIN' | 'COMPANY_VIEWER';
+export type Role =
+  | 'SUPER_ADMIN'
+  | 'DEV'
+  | 'COMPANY_ADMIN'
+  | 'COMPANY_VIEWER'
+  | 'COMPANY_AREA';
 
 export interface AuthUser {
   id: string;
@@ -8,6 +13,61 @@ export interface AuthUser {
   companyId: string | null;
   company?: { id: string; name: string; slug: string; status: string } | null;
   jobTitle?: string | null;
+  /** null/undefined = todavía no vio el tour de bienvenida */
+  tourDoneAt?: string | null;
+}
+
+/* ─── Marketing ─────────────────────────────────────────────────────── */
+
+export interface MarketingCampaign {
+  id: string;
+  companyId: string;
+  name: string;
+  objective?: string | null;
+  status: 'BORRADOR' | 'ACTIVA' | 'PAUSADA' | 'CERRADA';
+  channels: string[];
+  startsAt?: string | null;
+  endsAt?: string | null;
+  budgetUsd?: number | null;
+  notes?: string | null;
+  pieceCount?: number;
+  publishedCount?: number;
+  createdAt: string;
+}
+
+export interface ContentPiece {
+  id: string;
+  companyId: string;
+  campaignId?: string | null;
+  type: 'REEL' | 'POST' | 'STORY' | 'AD';
+  status: 'IDEA' | 'BORRADOR' | 'LISTO' | 'PROGRAMADO' | 'PUBLICADO';
+  title: string;
+  brief?: string | null;
+  copy?: string | null;
+  hashtags: string[];
+  script?: string | null;
+  channel?: string | null;
+  scheduledAt?: string | null;
+  publishedAt?: string | null;
+  videoJobId?: string | null;
+  assetUrl?: string | null;
+  createdAt: string;
+}
+
+export interface VideoJob {
+  id: string;
+  state: 'PENDIENTE' | 'PROCESANDO' | 'COMPLETO' | 'FALLIDO';
+  progress: number;
+  videoUrl?: string | null;
+  error?: string | null;
+}
+
+export interface MarketingSummary {
+  campañasActivas: number;
+  piezas: Record<string, number>;
+  totalPiezas: number;
+  próximas: ContentPiece[];
+  videoGeneratorReady: boolean;
 }
 
 export interface Plan {
@@ -45,6 +105,10 @@ export interface Company {
   notes?: string | null;
   modules: string[];
   limits: Record<string, number>;
+  /** Configuración del módulo de pedidos (agenda, reglas, plantillas, FAQs) */
+  orderConfig?: Record<string, any>;
+  waTemplates?: Array<{ key: string; contentSid: string; name?: string }>;
+  currency?: string;
   /** BYOK DeepInfra: la llave nunca viaja completa */
   hasDeepinfraKey: boolean;
   deepinfraKeyMasked?: string | null;
@@ -203,7 +267,13 @@ export interface Message {
   id: string;
   direction: 'IN' | 'OUT';
   author: 'CONTACT' | 'BOT' | 'AGENT';
+  authorName?: string | null;
   content: string;
+  type?: 'TEXT' | 'AUDIO' | 'IMAGE' | 'DOCUMENT';
+  fileName?: string | null;
+  transcription?: string | null;
+  deliveryStatus?: 'QUEUED' | 'SENT' | 'DELIVERED' | 'READ' | 'FAILED' | null;
+  metaCategory?: string | null;
   mediaAssetId?: string | null;
   mediaAsset?: { id: string; name: string; priceUsd: number; mimeType: string } | null;
   createdAt: string;
@@ -216,12 +286,230 @@ export interface Conversation {
   channel: string;
   status: 'OPEN' | 'PENDING' | 'HANDOFF' | 'RESOLVED';
   needsAttention: boolean;
+  /** Modo humano: la IA no interviene mientras esté en pausa */
+  botPaused: boolean;
+  attendedByName?: string | null;
   unreadCount: number;
   lastMessageAt: string;
-  contact: Contact;
+  contact: Contact & { customer?: { id: string; name: string } | null };
   bot?: { id: string; name: string; model?: string } | null;
   integration?: { id: string; name: string } | null;
   messages: Message[];
+}
+
+/* ─── Módulo de pedidos (catering y afines) ───────────────────────── */
+
+export interface Product {
+  id: string;
+  companyId: string;
+  name: string;
+  description?: string | null;
+  category?: string | null;
+  unit: string;
+  presentations: string[];
+  productionAreaId?: string | null;
+  productionArea?: { id: string; name: string } | null;
+  active: boolean;
+}
+
+export interface ProductionArea {
+  id: string;
+  companyId: string;
+  name: string;
+  description?: string | null;
+  responsibles: Array<{ name: string; phone?: string; email?: string }>;
+  notifyChannel: 'PANEL' | 'EMAIL' | 'WHATSAPP';
+  notifyTarget?: string | null;
+  reminderHoursBefore: number;
+  active: boolean;
+}
+
+export interface Customer {
+  id: string;
+  companyId: string;
+  name: string;
+  taxId?: string | null;
+  notes?: string | null;
+  addresses: Array<{ label: string; address: string; city?: string; instructions?: string }>;
+  contacts?: Array<{ id: string; name: string; phone: string }>;
+  active: boolean;
+  _count?: { orders: number };
+}
+
+export interface OrderItem {
+  id: string;
+  orderId: string;
+  productId?: string | null;
+  productName: string;
+  quantity: number;
+  unit: string;
+  presentation?: string | null;
+  specifications?: string | null;
+  observations?: string | null;
+  productionAreaId?: string | null;
+  productionArea?: { id: string; name: string } | null;
+  areaStatus: 'pendiente' | 'listo';
+}
+
+export interface OrderStatusHistoryRow {
+  id: string;
+  fromStatus: string | null;
+  toStatus: string;
+  authorType: 'IA' | 'USUARIO' | 'SISTEMA';
+  authorName?: string | null;
+  reason?: string | null;
+  createdAt: string;
+}
+
+export interface Reminder {
+  id: string;
+  kind: string;
+  channel: 'PANEL' | 'EMAIL' | 'WHATSAPP';
+  target?: string | null;
+  scheduledAt: string;
+  status: 'PENDIENTE' | 'PROCESANDO' | 'ENVIADO' | 'FALLIDO' | 'CANCELADO';
+  payloadJson?: string;
+  order?: { id: string; customer?: { name: string } } | null;
+}
+
+export interface Order {
+  id: string;
+  companyId: string;
+  customerId: string;
+  customer: Customer | { id: string; name: string };
+  contact?: { id: string; name: string; phone: string } | null;
+  conversationId?: string | null;
+  conversation?: { id: string; channel: string } | null;
+  status: string;
+  deliveryAt: string;
+  deliveryAddressJson?: string;
+  observations?: string | null;
+  takenByType: 'IA' | 'HUMANO';
+  takenByName?: string | null;
+  aiConfidence?: number | null;
+  correctedAfterAi: boolean;
+  items: OrderItem[];
+  statusHistory?: OrderStatusHistoryRow[];
+  reminders?: Reminder[];
+  feedback?: { rating: number; comment?: string | null } | null;
+  createdAt: string;
+}
+
+export interface OrdersCalendar {
+  maxPerSlot: number | null;
+  slots: Array<{ key: string; label: string; from: string; to: string }>;
+  days: Array<{ date: string; total: number; orders: Order[] }>;
+}
+
+export interface AreaViewData {
+  area: { id: string; name: string };
+  items: Array<{
+    id: string;
+    orderId: string;
+    orderStatus: string;
+    deliveryAt: string;
+    customer: string;
+    productName: string;
+    quantity: number;
+    unit: string;
+    presentation?: string | null;
+    specifications?: string | null;
+    observations?: string | null;
+    areaStatus: 'pendiente' | 'listo';
+    deliveryAddress?: { label?: string; address?: string; city?: string; instructions?: string };
+  }>;
+}
+
+export interface ConsumptionBlock {
+  meta: {
+    byCategory: Array<{ category: string; count: number; costUsd: number; costCop?: number }>;
+    totalMessages: number;
+    costUsd: number;
+    costCop?: number;
+  };
+  ai: {
+    events: number;
+    inputTokens: number;
+    outputTokens: number;
+    costUsd: number;
+    costCop?: number;
+  };
+  totalUsd: number;
+  totalCop?: number;
+}
+
+/* ─── Reportes del módulo de pedidos (Fase 6) ───────────────────────── */
+
+export interface DailyReportData {
+  date: string;
+  generatedAt: string;
+  pedidos: {
+    recibidos: number; confirmados: number; programados: number;
+    despachados: number; entregados: number; cancelados: number;
+  };
+  conversaciones: {
+    atendidas: number; escaladas: number;
+    conIntervencionHumana: number; resueltasPorIA: number;
+  };
+  dudas: {
+    pedidosBajaConfianza: Array<{ id: string; customer: string; status: string; aiConfidence: number; deliveryAt: string }>;
+    escalamientos: Array<{ orderId: string; customer: string; reason?: string | null; authorType: string }>;
+  };
+  alertas: {
+    pedidosSinConfirmar: Array<{ id: string; customer: string; createdAt: string; deliveryAt: string }>;
+    entregasProximasSinArea: Array<{ id: string; customer: string; deliveryAt: string; itemsSinArea: string[] }>;
+    recordatoriosFallidos: Array<{ id: string; kind: string; lastError?: string | null; orderId?: string | null }>;
+    conversacionesSinRespuesta: number;
+  };
+  precisionIA: {
+    dia: { total: number; corregidos: number; precisionPct: number | null };
+    mes: { total: number; corregidos: number; precisionPct: number | null };
+  };
+  feedback: {
+    respuestas: number;
+    promedio: number | null;
+    negativos: Array<{ customer: string; rating: number | null; comment?: string | null }>;
+  };
+}
+
+export interface CompareBucket {
+  label: string;
+  from: string;
+  pedidos: number;
+  entregados: number;
+  cancelados: number;
+  cumplimientoPct: number | null;
+  tomadosIA: number;
+  precisionIAPct: number | null;
+}
+
+export interface AskResult {
+  question: string;
+  tool: string | null;
+  params?: Record<string, any>;
+  data: any;
+  answer: string;
+}
+
+export interface FeedbackSummary {
+  solicitados: number;
+  respondidos: number;
+  tasaRespuestaPct: number | null;
+  promedio: number | null;
+  distribution: Array<{ star: number; count: number }>;
+  negativos: number;
+  testimonios: Array<{ customer: string; rating: number | null; comment: string; orderId: string; respondedAt: string }>;
+  recientes: Array<{ customer: string; rating: number | null; sentiment: string | null; comment?: string | null; orderId: string; respondedAt: string; alerted: boolean }>;
+}
+
+export interface MonthlyConsumption {
+  month: string;
+  currency: string;
+  usdCopRate: number;
+  current: ConsumptionBlock;
+  previous: ConsumptionBlock;
+  deltaPct: number | null;
+  generatedAt: string;
 }
 
 export interface Automation {

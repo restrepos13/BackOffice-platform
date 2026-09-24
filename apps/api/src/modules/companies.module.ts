@@ -17,14 +17,20 @@ import { AuthService } from '../auth/auth.service';
 import { CurrentUser, Roles } from '../auth/decorators';
 import {
   AuthUser,
+  NOT_DELETED,
   ROLES,
   isPlatformRole,
   parseJson,
 } from '../common/constants';
 import { AuditService } from './audit.module';
+import { COMPANY_TEMPLATES, findTemplate } from './company-templates';
 
 /** Payload del wizard de aprovisionamiento (crear empresa sin tocar código). */
 interface ProvisionCompanyDto {
+  /** Plantilla de vertical (catering/webcam/servicios) — todo preconfigurado */
+  templateId?: string;
+  /** O clonar la configuración de una empresa existente (sin sus datos) */
+  cloneFromCompanyId?: string;
   // Paso 1 — datos de la empresa
   name: string;
   slug?: string;
@@ -123,6 +129,8 @@ export class CompaniesService {
       deepinfraKeyMasked: deepinfraApiKey
         ? `••••${String(deepinfraApiKey).slice(-4)}`
         : null,
+      orderConfig: parseJson<Record<string, any>>(company.orderConfigJson, {}),
+      waTemplates: parseJson<any[]>(company.waTemplatesJson, []),
     };
   }
 
@@ -177,6 +185,19 @@ export class CompaniesService {
     const exists = await this.prisma.company.findUnique({ where: { slug } });
     if (exists) throw new BadRequestException(`El slug "${slug}" ya está en uso`);
 
+    // Aprovisionamiento SIN código: plantilla de vertical o clon de una
+    // empresa existente (solo configuración — jamás datos ni credenciales)
+    const template = findTemplate(dto.templateId);
+    if (dto.templateId && !template) {
+      throw new BadRequestException(`Plantilla desconocida: ${dto.templateId}`);
+    }
+    const source = dto.cloneFromCompanyId
+      ? await this.prisma.company.findUnique({ where: { id: dto.cloneFromCompanyId } })
+      : null;
+    if (dto.cloneFromCompanyId && !source) {
+      throw new BadRequestException('La empresa a clonar no existe');
+    }
+
     const trialDays = dto.trialDays ?? 14;
     const status = dto.status ?? 'TRIAL';
 
@@ -198,8 +219,24 @@ export class CompaniesService {
         status,
         planId: dto.planId,
         modulesJson: JSON.stringify(
-          dto.modules ?? ['inbox', 'contacts', 'bots', 'automations', 'analytics', 'billing', 'team'],
+          dto.modules
+            ?? template?.modules
+            ?? (source ? parseJson<string[]>(source.modulesJson, []) : null)
+            ?? ['inbox', 'contacts', 'bots', 'automations', 'analytics', 'billing', 'team'],
         ),
+        currency: template?.currency ?? source?.currency ?? 'COP',
+        ...(template?.orderConfig
+          ? { orderConfigJson: JSON.stringify(template.orderConfig) }
+          : source
+            ? { orderConfigJson: source.orderConfigJson }
+            : {}),
+        ...(source
+          ? {
+              waTemplatesJson: source.waTemplatesJson,
+              savingsSalaryUsd: source.savingsSalaryUsd,
+              agentCapacityPerMonth: source.agentCapacityPerMonth,
+            }
+          : {}),
         limitsJson: JSON.stringify(dto.limits ?? {}),
         trialEndsAt:
           status === 'TRIAL'
@@ -230,7 +267,7 @@ export class CompaniesService {
       });
     }
 
-    // Bot inicial
+    // Bot inicial: el del wizard, el de la plantilla, o los clonados
     let botId: string | undefined;
     if (dto.bot?.name) {
       const bot = await this.prisma.bot.create({
@@ -245,10 +282,106 @@ export class CompaniesService {
         },
       });
       botId = bot.id;
+    } else if (template?.bot) {
+      const bot = await this.prisma.bot.create({
+        data: {
+          companyId: company.id,
+          name: template.bot.name,
+          description: template.bot.description,
+          systemPrompt: template.bot.systemPrompt,
+          personalityJson: JSON.stringify(template.bot.personality),
+          salesJson: JSON.stringify(template.bot.sales),
+          welcomeMessage: template.bot.welcomeMessage,
+          replyDelayMinSec: template.bot.replyDelayMinSec ?? 4,
+          replyDelayMaxSec: template.bot.replyDelayMaxSec ?? 30,
+          typingSimulation: true,
+          handoffKeywords: template.bot.handoffKeywords ?? '',
+          model: 'meta-llama/Llama-3.3-70B-Instruct',
+          status: 'DRAFT', // se activa cuando la empresa conecte su llave
+        },
+      });
+      botId = bot.id;
+    } else if (source) {
+      const sourceBots = await this.prisma.bot.findMany({
+        where: { companyId: source.id },
+      });
+      for (const b of sourceBots) {
+        const created = await this.prisma.bot.create({
+          data: {
+            companyId: company.id,
+            name: b.name, description: b.description,
+            systemPrompt: b.systemPrompt, personalityJson: b.personalityJson,
+            salesJson: b.salesJson, welcomeMessage: b.welcomeMessage,
+            replyDelayMinSec: b.replyDelayMinSec, replyDelayMaxSec: b.replyDelayMaxSec,
+            typingSimulation: b.typingSimulation, handoffKeywords: b.handoffKeywords,
+            model: b.model, temperature: b.temperature,
+            status: 'DRAFT',
+          },
+        });
+        botId = botId ?? created.id;
+      }
     }
 
-    // Canales preparados (desconectados, con link de conexión listo)
-    const channels = dto.channels ?? ['WHATSAPP'];
+    // Áreas de producción: de la plantilla o clonadas
+    const templateAreas = template?.areas ?? [];
+    for (const area of templateAreas) {
+      await this.prisma.productionArea.create({
+        data: {
+          companyId: company.id,
+          name: area.name,
+          description: area.description,
+          notifyChannel: area.notifyChannel,
+          reminderHoursBefore: area.reminderHoursBefore,
+          responsiblesJson: '[]',
+        },
+      });
+    }
+    if (source) {
+      const sourceAreas = await this.prisma.productionArea.findMany({
+        where: { companyId: source.id, active: true },
+      });
+      for (const a of sourceAreas) {
+        await this.prisma.productionArea.create({
+          data: {
+            companyId: company.id,
+            name: a.name, description: a.description,
+            notifyChannel: a.notifyChannel, notifyTarget: a.notifyTarget,
+            reminderHoursBefore: a.reminderHoursBefore,
+            responsiblesJson: a.responsiblesJson,
+          },
+        });
+      }
+      // Catálogo completo (productos apuntando al área homónima nueva)
+      const newAreas = await this.prisma.productionArea.findMany({
+        where: { companyId: company.id },
+      });
+      const areaByName = new Map(sourceAreas.map((a) => {
+        const twin = newAreas.find((n) => n.name === a.name);
+        return [a.id, twin?.id ?? null] as const;
+      }));
+      const sourceProducts = await this.prisma.product.findMany({
+        where: { companyId: source.id, ...NOT_DELETED },
+      });
+      for (const p of sourceProducts) {
+        await this.prisma.product.create({
+          data: {
+            companyId: company.id,
+            name: p.name, description: p.description, category: p.category,
+            unit: p.unit, presentationsJson: p.presentationsJson,
+            productionAreaId: p.productionAreaId
+              ? (areaByName.get(p.productionAreaId) ?? null)
+              : null,
+            active: p.active,
+          },
+        });
+      }
+    }
+
+    // Canales preparados (desconectados, con link de conexión listo).
+    // Con plantilla de pedidos la línea de WhatsApp nace como Twilio EN
+    // SANDBOX: jamás sale un mensaje real hasta cargar credenciales y quitarlo.
+    const channels = dto.channels ?? template?.channels ?? ['WHATSAPP'];
+    const twilioSandbox = !!template?.orderConfig;
     for (const type of channels) {
       await this.prisma.integration.create({
         data: {
@@ -257,10 +390,44 @@ export class CompaniesService {
           type,
           name: CHANNEL_LABELS[type] ?? type,
           status: 'DISCONNECTED',
+          promptMode: 'INHERIT',
+          ...(type === 'WHATSAPP' && twilioSandbox
+            ? { configJson: JSON.stringify({ provider: 'TWILIO', sandbox: true }) }
+            : {}),
           connectUrl: buildConnectUrl(type, slug),
           webhookUrl: `http://localhost:4001/api/webhooks/${slug}/${type.toLowerCase()}`,
         },
       });
+    }
+    if (source) {
+      // Clon: mismas líneas (nombre/modo/overrides) SIN credenciales, en sandbox
+      const sourceLines = await this.prisma.integration.findMany({
+        where: { companyId: source.id, type: 'WHATSAPP' },
+      });
+      for (const line of sourceLines) {
+        const cfg = parseJson<Record<string, any>>(line.configJson, {});
+        await this.prisma.integration.create({
+          data: {
+            companyId: company.id,
+            botId,
+            type: 'WHATSAPP',
+            name: line.name,
+            status: 'DISCONNECTED',
+            promptMode: line.promptMode,
+            overridePrompt: line.overridePrompt,
+            overridePersonalityJson: line.overridePersonalityJson,
+            overrideSalesJson: line.overrideSalesJson,
+            overrideWelcome: line.overrideWelcome,
+            overrideHandoff: line.overrideHandoff,
+            overrideModel: line.overrideModel,
+            configJson: JSON.stringify({
+              provider: cfg.provider ?? 'TWILIO',
+              sandbox: true, // SIEMPRE: las credenciales jamás se clonan
+            }),
+            webhookUrl: `http://localhost:4001/api/webhooks/${slug}/whatsapp`,
+          },
+        });
+      }
     }
 
     await this.audit.log({
@@ -316,6 +483,10 @@ export class CompaniesService {
           : {}),
         ...(dto.modules ? { modulesJson: JSON.stringify(dto.modules) } : {}),
         ...(dto.limits ? { limitsJson: JSON.stringify(dto.limits) } : {}),
+        // Configuración del módulo de pedidos y plantillas de Meta (editable desde el panel)
+        ...(dto.orderConfig ? { orderConfigJson: JSON.stringify(dto.orderConfig) } : {}),
+        ...(dto.waTemplates ? { waTemplatesJson: JSON.stringify(dto.waTemplates) } : {}),
+        ...(dto.currency ? { currency: dto.currency } : {}),
       },
     });
     await this.audit.log({
@@ -350,6 +521,15 @@ export class CompaniesController {
   @Get()
   list(@CurrentUser() user: AuthUser) {
     return this.companies.list(user);
+  }
+
+  /** Plantillas de aprovisionamiento para el wizard (crear empresa sin código). */
+  @Get('templates')
+  @Roles(ROLES.SUPER_ADMIN, ROLES.DEV)
+  templates() {
+    return COMPANY_TEMPLATES.map(({ id, name, description, includes, modules, currency }) => ({
+      id, name, description, includes, modules, currency,
+    }));
   }
 
   @Get(':id')

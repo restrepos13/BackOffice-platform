@@ -23,6 +23,7 @@ import {
 } from '../common/constants';
 import { AuditService } from './audit.module';
 import { buildConnectUrl } from './companies.module';
+import { encryptSecret } from '../common/crypto';
 
 @Injectable()
 export class IntegrationsService {
@@ -32,15 +33,39 @@ export class IntegrationsService {
   ) {}
 
   private serialize(i: any) {
+    // Los secretos cifrados JAMÁS salen del API (ni cifrados): se quita el
+    // configJson CRUDO y cualquier variante de credencial del config parseado.
+    const { configJson: _raw, ...row } = i;
+    const {
+      authTokenEnc,
+      authToken: _plain,
+      authTokenEncrypted: _legacy,
+      ...config
+    } = parseJson<Record<string, any>>(i.configJson, {});
     return {
-      ...i,
-      config: parseJson<Record<string, string>>(i.configJson, {}),
+      ...row,
+      config: { ...config, twilioConfigured: !!authTokenEnc },
       overridePersonality: parseJson<Record<string, string>>(
         i.overridePersonalityJson,
         {},
       ),
       overrideSales: parseJson<Record<string, string>>(i.overrideSalesJson, {}),
     };
+  }
+
+  /** Mezcla la config nueva con la existente y cifra los secretos entrantes.
+   *  El authToken de Twilio llega en claro UNA vez y se guarda cifrado. */
+  private mergeConfig(existingJson: string, incoming: Record<string, any>): string {
+    const { twilioConfigured: _ignored, authToken, ...rest } = incoming;
+    const merged: Record<string, any> = {
+      ...parseJson<Record<string, any>>(existingJson, {}),
+      ...rest,
+    };
+    if (typeof authToken === 'string' && authToken.trim()) {
+      merged.authTokenEnc = encryptSecret(authToken.trim());
+    }
+    if (authToken === '') delete merged.authTokenEnc; // quitar credencial
+    return JSON.stringify(merged);
   }
 
   private async assertAccess(user: AuthUser, id: string) {
@@ -94,7 +119,7 @@ export class IntegrationsService {
         status: 'DISCONNECTED',
         connectUrl: dto.connectUrl ?? buildConnectUrl(dto.type, company.slug),
         webhookUrl: `http://localhost:4001/api/webhooks/${company.slug}/${String(dto.type).toLowerCase()}`,
-        configJson: JSON.stringify(dto.config ?? {}),
+        configJson: this.mergeConfig('{}', dto.config ?? {}),
       },
     });
     await this.audit.log({
@@ -138,7 +163,9 @@ export class IntegrationsService {
         ...(dto.overridePersonality
           ? { overridePersonalityJson: JSON.stringify(dto.overridePersonality) }
           : {}),
-        ...(dto.config ? { configJson: JSON.stringify(dto.config) } : {}),
+        ...(dto.config
+          ? { configJson: this.mergeConfig(existing.configJson, dto.config) }
+          : {}),
         ...(dto.status === 'CONNECTED' ? { lastSyncAt: new Date() } : {}),
       },
     });

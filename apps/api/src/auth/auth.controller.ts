@@ -45,4 +45,10 @@ export class AuthController {
   changePassword(@CurrentUser() user: AuthUser, @Body() dto: ChangePasswordDto) {
     return this.auth.changePassword(user.id, dto.currentPassword, dto.newPassword);
   }
+
+  /** El tour de bienvenida se muestra una sola vez por usuario. */
+  @Post('tour-done')
+  tourDone(@CurrentUser() user: AuthUser) {
+    return this.auth.completeTour(user.id);
+  }
 }

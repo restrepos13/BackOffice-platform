@@ -176,6 +176,109 @@ export class AiUsageService {
     };
   }
 
+  /** Suma un mes calendario: mensajes Meta por categoría + IA (tokens/costo). */
+  private async monthTotals(companyId: string, monthStart: Date, monthEnd: Date) {
+    const [metaMessages, aiAgg] = await Promise.all([
+      this.prisma.message.findMany({
+        where: {
+          conversation: { companyId },
+          direction: 'OUT',
+          metaCategory: { not: null },
+          createdAt: { gte: monthStart, lt: monthEnd },
+        },
+        select: { metaCategory: true, metaCostUsd: true },
+      }),
+      this.prisma.aiUsageEvent.aggregate({
+        where: { companyId, createdAt: { gte: monthStart, lt: monthEnd } },
+        _sum: { costUsd: true, inputTokens: true, outputTokens: true },
+        _count: true,
+      }),
+    ]);
+    const byCategory = new Map<string, { category: string; count: number; costUsd: number }>();
+    let metaCostUsd = 0;
+    for (const m of metaMessages) {
+      const cat = m.metaCategory ?? 'SERVICIO';
+      const row = byCategory.get(cat) ?? { category: cat, count: 0, costUsd: 0 };
+      row.count += 1;
+      row.costUsd = round4(row.costUsd + (m.metaCostUsd ?? 0));
+      byCategory.set(cat, row);
+      metaCostUsd += m.metaCostUsd ?? 0;
+    }
+    return {
+      meta: {
+        byCategory: [...byCategory.values()].sort((a, b) => b.count - a.count),
+        totalMessages: metaMessages.length,
+        costUsd: round4(metaCostUsd),
+      },
+      ai: {
+        events: aiAgg._count,
+        inputTokens: aiAgg._sum.inputTokens ?? 0,
+        outputTokens: aiAgg._sum.outputTokens ?? 0,
+        costUsd: round4(aiAgg._sum.costUsd ?? 0),
+      },
+      totalUsd: round4(metaCostUsd + (aiAgg._sum.costUsd ?? 0)),
+    };
+  }
+
+  /**
+   * Consumo del mes de UNA empresa en su moneda: mensajes Meta por categoría,
+   * IA (tokens y costo) y comparativo contra el mes anterior.
+   */
+  async consumption(user: AuthUser, q: { companyId?: string; month?: string }) {
+    const scoped = scopeCompanyId(user, q.companyId);
+    if (!scoped || scoped === '__none__') {
+      throw new ForbiddenException('Falta companyId');
+    }
+    // month = "YYYY-MM"; por defecto el mes en curso
+    const now = new Date();
+    const [y, m] = /^\d{4}-\d{2}$/.test(q.month ?? '')
+      ? (q.month as string).split('-').map(Number)
+      : [now.getFullYear(), now.getMonth() + 1];
+    const monthStart = new Date(y, m - 1, 1);
+    const monthEnd = new Date(y, m, 1);
+    const prevStart = new Date(y, m - 2, 1);
+
+    const [current, previous, company, rateRow] = await Promise.all([
+      this.monthTotals(scoped, monthStart, monthEnd),
+      this.monthTotals(scoped, prevStart, monthStart),
+      this.prisma.company.findUnique({
+        where: { id: scoped },
+        select: { currency: true, name: true },
+      }),
+      this.prisma.platformSetting.findUnique({ where: { key: 'USD_COP_RATE' } }),
+    ]);
+    const rate = Number(rateRow?.value || 4000);
+    const toCop = (usd: number) => Math.round(usd * rate);
+    const deltaPct =
+      previous.totalUsd > 0
+        ? round2(((current.totalUsd - previous.totalUsd) / previous.totalUsd) * 100)
+        : null;
+
+    return {
+      month: `${y}-${String(m).padStart(2, '0')}`,
+      currency: company?.currency ?? 'COP',
+      usdCopRate: rate,
+      current: {
+        ...current,
+        meta: {
+          ...current.meta,
+          costCop: toCop(current.meta.costUsd),
+          byCategory: current.meta.byCategory.map((c) => ({ ...c, costCop: toCop(c.costUsd) })),
+        },
+        ai: { ...current.ai, costCop: toCop(current.ai.costUsd) },
+        totalCop: toCop(current.totalUsd),
+      },
+      previous: {
+        ...previous,
+        totalCop: toCop(previous.totalUsd),
+        meta: { ...previous.meta, costCop: toCop(previous.meta.costUsd) },
+        ai: { ...previous.ai, costCop: toCop(previous.ai.costUsd) },
+      },
+      deltaPct,
+      generatedAt: new Date().toISOString(),
+    };
+  }
+
   /** Panel de consumo GLOBAL de plataforma (todas las empresas). */
   async platform(q: { days?: string; companyId?: string }) {
     const days = Math.min(Math.max(Number(q.days) || 30, 1), 180);
@@ -263,6 +366,15 @@ export class AiUsageController {
     @Query('model') model?: string,
   ) {
     return this.usage.company(user, { companyId, days, integrationId, model });
+  }
+
+  @Get('consumption')
+  consumption(
+    @CurrentUser() user: AuthUser,
+    @Query('companyId') companyId?: string,
+    @Query('month') month?: string,
+  ) {
+    return this.usage.consumption(user, { companyId, month });
   }
 
   @Get('platform')

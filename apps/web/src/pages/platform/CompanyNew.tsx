@@ -12,6 +12,7 @@ import {
 import { ModelSelect } from '../../components/media';
 
 const STEPS = [
+  'Plantilla',
   'Datos de la empresa',
   'Plan y límites',
   'Módulos',
@@ -20,12 +21,23 @@ const STEPS = [
   'Confirmar',
 ];
 
+interface CompanyTemplateOption {
+  id: string;
+  name: string;
+  description: string;
+  includes: string[];
+  modules: string[];
+  currency: string;
+}
+
 const ALL_MODULES = Object.keys(MODULE_LABELS);
 const ALL_CHANNELS = ['WHATSAPP', 'INSTAGRAM', 'MESSENGER', 'TELEGRAM', 'META_ADS', 'N8N', 'GOOGLE_CALENDAR'];
 
 const COUNTRIES = ['Colombia', 'Costa Rica', 'México', 'Perú', 'Ecuador', 'Chile', 'Argentina', 'Estados Unidos', 'España', 'Otro'];
 
 interface WizardState {
+  /** '' = desde cero · 'tpl:<id>' = plantilla · 'clone:<companyId>' = clonar */
+  base: string;
   name: string; slug: string; legalName: string; industry: string;
   country: string; city: string; website: string;
   contactEmail: string; contactPhone: string; timezone: string;
@@ -39,6 +51,7 @@ interface WizardState {
 }
 
 const initial: WizardState = {
+  base: '',
   name: '', slug: '', legalName: '', industry: '', country: 'Colombia',
   city: '', website: '', contactEmail: '', contactPhone: '',
   timezone: 'America/Bogota', language: 'es', brandColor: '#1A1A1A', notes: '',
@@ -66,12 +79,26 @@ export default function CompanyNew() {
     queryKey: ['plans'],
     queryFn: () => api.get<Plan[]>('/plans'),
   });
+  const { data: templates } = useQuery({
+    queryKey: ['company-templates'],
+    queryFn: () => api.get<CompanyTemplateOption[]>('/companies/templates'),
+  });
+  const { data: companies } = useQuery({
+    queryKey: ['companies'],
+    queryFn: () => api.get<Company[]>('/companies'),
+  });
   const selectedPlan = plans?.find((p) => p.id === s.planId);
   const slug = useMemo(() => s.slug || slugify(s.name), [s.slug, s.name]);
+  const templateId = s.base.startsWith('tpl:') ? s.base.slice(4) : undefined;
+  const cloneFromCompanyId = s.base.startsWith('clone:') ? s.base.slice(6) : undefined;
+  const selectedTemplate = templates?.find((t) => t.id === templateId);
+  const cloneSource = companies?.find((c) => c.id === cloneFromCompanyId);
 
   const mutation = useMutation({
     mutationFn: () =>
       api.post<Company>('/companies', {
+        templateId,
+        cloneFromCompanyId,
         name: s.name, slug, legalName: s.legalName || undefined,
         industry: s.industry || undefined, country: s.country,
         city: s.city || undefined, website: s.website || undefined,
@@ -111,13 +138,26 @@ export default function CompanyNew() {
 
   const canNext = (): boolean => {
     switch (step) {
-      case 0: return s.name.trim().length >= 2;
-      case 3:
+      case 1: return s.name.trim().length >= 2;
+      case 4:
         return (
           !s.adminEmail ||
           (s.adminName.trim().length >= 2 && s.adminPassword.length >= 8)
         );
       default: return true;
+    }
+  };
+
+  /** Elegir base: plantilla precarga los módulos; clon copia los del origen. */
+  const chooseBase = (base: string) => {
+    if (base.startsWith('tpl:')) {
+      const tpl = templates?.find((t) => t.id === base.slice(4));
+      set({ base, modules: tpl ? [...tpl.modules] : s.modules });
+    } else if (base.startsWith('clone:')) {
+      const src = companies?.find((c) => c.id === base.slice(6));
+      set({ base, modules: src ? [...src.modules] : s.modules });
+    } else {
+      set({ base: '', modules: [...ALL_MODULES] });
     }
   };
 
@@ -147,6 +187,67 @@ export default function CompanyNew() {
       <div className="grid gap-6 lg:grid-cols-[1fr_320px]">
         <Card>
           {step === 0 && (
+            <div className="space-y-5">
+              <p className="text-sm text-ink-2">
+                Una plantilla deja la empresa LISTA para operar en su vertical:
+                módulos, configuración, áreas y asistente IA — sin tocar código.
+                También puedes clonar la configuración de una empresa existente.
+              </p>
+              <div className="grid gap-3 md:grid-cols-2">
+                <button
+                  type="button"
+                  onClick={() => chooseBase('')}
+                  className={clsx(
+                    'cursor-pointer border-2 p-4 text-left transition-colors',
+                    s.base === '' ? 'border-ink bg-ink text-bone' : 'border-ink bg-paper hover:bg-bone-2',
+                  )}
+                >
+                  <p className="display text-xl">Desde cero</p>
+                  <p className="mt-1 text-xs opacity-80">
+                    Solo los módulos base. Todo se configura a mano después.
+                  </p>
+                </button>
+                {templates?.map((tpl) => (
+                  <button
+                    key={tpl.id}
+                    type="button"
+                    onClick={() => chooseBase(`tpl:${tpl.id}`)}
+                    className={clsx(
+                      'cursor-pointer border-2 p-4 text-left transition-colors',
+                      s.base === `tpl:${tpl.id}` ? 'border-ink bg-ink text-bone' : 'border-ink bg-paper hover:bg-bone-2',
+                    )}
+                  >
+                    <p className="display text-xl">{tpl.name}</p>
+                    <p className="mt-1 text-xs opacity-80">{tpl.description}</p>
+                    <ul className="mt-2 space-y-0.5 text-xs opacity-90">
+                      {tpl.includes.slice(0, 4).map((inc) => <li key={inc}>— {inc}</li>)}
+                      {tpl.includes.length > 4 && <li>— y {tpl.includes.length - 4} cosas más</li>}
+                    </ul>
+                  </button>
+                ))}
+              </div>
+              {(companies?.length ?? 0) > 0 && (
+                <div className="border-t-2 border-line pt-4">
+                  <Field
+                    label="O clonar la configuración de una empresa existente"
+                    hint="Copia módulos, agenda, catálogo, áreas, bots y líneas — JAMÁS credenciales, llaves ni datos de clientes; las líneas nacen en sandbox"
+                  >
+                    <Select
+                      value={cloneFromCompanyId ?? ''}
+                      onChange={(e) => chooseBase(e.target.value ? `clone:${e.target.value}` : '')}
+                    >
+                      <option value="">No clonar</option>
+                      {companies?.map((c) => (
+                        <option key={c.id} value={c.id}>{c.name}</option>
+                      ))}
+                    </Select>
+                  </Field>
+                </div>
+              )}
+            </div>
+          )}
+
+          {step === 1 && (
             <div className="grid gap-4 md:grid-cols-2">
               <Field label="Nombre de la empresa" required>
                 <Input value={s.name} onChange={(e) => set({ name: e.target.value })} placeholder="Clínica Ejemplo" autoFocus />
@@ -202,7 +303,7 @@ export default function CompanyNew() {
             </div>
           )}
 
-          {step === 1 && (
+          {step === 2 && (
             <div className="space-y-5">
               <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
                 {plans?.filter((p) => p.active).map((plan) => (
@@ -252,7 +353,7 @@ export default function CompanyNew() {
             </div>
           )}
 
-          {step === 2 && (
+          {step === 3 && (
             <div className="space-y-3">
               <p className="text-sm text-ink-2">
                 Módulos visibles en el panel del cliente. Se pueden cambiar después
@@ -274,7 +375,7 @@ export default function CompanyNew() {
             </div>
           )}
 
-          {step === 3 && (
+          {step === 4 && (
             <div className="grid gap-4 md:grid-cols-2">
               <p className="md:col-span-2 text-sm text-ink-2">
                 Usuario con rol <strong>Admin de empresa</strong> — el dueño del negocio.
@@ -295,8 +396,15 @@ export default function CompanyNew() {
             </div>
           )}
 
-          {step === 4 && (
+          {step === 5 && (
             <div className="space-y-5">
+              {(selectedTemplate || cloneSource) && (
+                <p className="border-2 border-info bg-info-soft px-4 py-2.5 text-sm text-info">
+                  {selectedTemplate
+                    ? `La plantilla "${selectedTemplate.name}" ya trae su asistente IA configurado — deja estos campos vacíos para usarlo, o escribe uno propio para reemplazarlo.`
+                    : `Se clonarán los asistentes de ${cloneSource?.name} (en borrador) — deja estos campos vacíos para usarlos.`}
+                </p>
+              )}
               <div className="grid gap-4 md:grid-cols-2">
                 <Field label="Nombre del bot" hint="Vacío = sin bot inicial">
                   <Input value={s.botName} onChange={(e) => set({ botName: e.target.value })} placeholder="Asistente Clínica Ejemplo" />
@@ -347,10 +455,20 @@ export default function CompanyNew() {
             </div>
           )}
 
-          {step === 5 && (
+          {step === 6 && (
             <div className="space-y-4 text-sm">
               <p className="serif-accent text-xl">Revisar antes de aprovisionar:</p>
               <dl className="grid gap-x-6 gap-y-2 md:grid-cols-2">
+                <Row
+                  k="Base"
+                  v={
+                    selectedTemplate
+                      ? `Plantilla: ${selectedTemplate.name}`
+                      : cloneSource
+                        ? `Clon de ${cloneSource.name} (sin credenciales ni datos)`
+                        : 'Desde cero'
+                  }
+                />
                 <Row k="Empresa" v={`${s.name} (${slug})`} />
                 <Row k="Ubicación" v={[s.city, s.country].filter(Boolean).join(', ') || '—'} />
                 <Row k="Plan" v={selectedPlan ? `${selectedPlan.name} · ${selectedPlan.isCustom ? 'a medida' : fmtUsd(selectedPlan.priceMonthly) + '/mes'}` : 'Sin plan'} />

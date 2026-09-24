@@ -6,11 +6,16 @@ import {
   Injectable,
   Module,
   NotFoundException,
+  Optional,
   Param,
   Patch,
   Post,
   Query,
+  Res,
 } from '@nestjs/common';
+import type { Response } from 'express';
+import { createReadStream, existsSync } from 'fs';
+import { basename, join, resolve } from 'path';
 import { PrismaService } from '../prisma/prisma.service';
 import { CurrentUser, Roles } from '../auth/decorators';
 import {
@@ -19,10 +24,34 @@ import {
   isPlatformRole,
   scopeCompanyId,
 } from '../common/constants';
+import { AuditService } from './audit.module';
+import { EventsService } from './events.module';
+import { TwilioModule, TwilioService } from './twilio.module';
+
+const UPLOADS_DIR = resolve(process.cwd(), 'uploads');
+
+const MIME_BY_EXT: Record<string, string> = {
+  ogg: 'audio/ogg',
+  mp3: 'audio/mpeg',
+  jpg: 'image/jpeg',
+  png: 'image/png',
+  mp4: 'video/mp4',
+  pdf: 'application/pdf',
+};
 
 @Injectable()
 export class ConversationsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly audit: AuditService,
+    @Optional() private readonly events?: EventsService,
+    @Optional() private readonly twilio?: TwilioService,
+  ) {}
+
+  private assertNotArea(user: AuthUser) {
+    // COMPANY_AREA solo ve su vista de área, nunca la bandeja
+    if (user.role === ROLES.COMPANY_AREA) throw new ForbiddenException();
+  }
 
   private async assertAccess(user: AuthUser, id: string) {
     const conversation = await this.prisma.conversation.findUnique({
@@ -37,22 +66,52 @@ export class ConversationsService {
 
   async list(
     user: AuthUser,
-    companyId?: string,
-    status?: string,
-    needsAttention?: string,
-    integrationId?: string,
+    filters: {
+      companyId?: string;
+      status?: string;
+      needsAttention?: string;
+      integrationId?: string;
+      q?: string;
+      from?: string;
+      to?: string;
+    },
   ) {
-    const scoped = scopeCompanyId(user, companyId);
+    this.assertNotArea(user);
+    const scoped = scopeCompanyId(user, filters.companyId);
+    const q = filters.q?.trim();
     return this.prisma.conversation.findMany({
       where: {
         ...(scoped ? { companyId: scoped } : {}),
-        ...(status ? { status } : {}),
-        ...(needsAttention === 'true' ? { needsAttention: true } : {}),
-        ...(integrationId ? { integrationId } : {}),
+        ...(filters.status ? { status: filters.status } : {}),
+        ...(filters.needsAttention === 'true' ? { needsAttention: true } : {}),
+        ...(filters.integrationId ? { integrationId: filters.integrationId } : {}),
+        ...(filters.from || filters.to
+          ? {
+              lastMessageAt: {
+                ...(filters.from ? { gte: new Date(filters.from) } : {}),
+                ...(filters.to ? { lte: new Date(`${filters.to}T23:59:59.999Z`) } : {}),
+              },
+            }
+          : {}),
+        // Búsqueda: nombre/teléfono del contacto o contenido de mensajes
+        ...(q
+          ? {
+              OR: [
+                { contact: { name: { contains: q, mode: 'insensitive' as const } } },
+                { contact: { phone: { contains: q } } },
+                { messages: { some: { content: { contains: q, mode: 'insensitive' as const } } } },
+              ],
+            }
+          : {}),
       },
       orderBy: { lastMessageAt: 'desc' },
       include: {
-        contact: { select: { id: true, name: true, phone: true, stage: true } },
+        contact: {
+          select: {
+            id: true, name: true, phone: true, stage: true,
+            customer: { select: { id: true, name: true } },
+          },
+        },
         bot: { select: { id: true, name: true } },
         integration: { select: { id: true, name: true } },
         company: { select: { name: true, slug: true } },
@@ -63,11 +122,12 @@ export class ConversationsService {
   }
 
   async detail(user: AuthUser, id: string) {
+    this.assertNotArea(user);
     await this.assertAccess(user, id);
     const conversation = await this.prisma.conversation.findUnique({
       where: { id },
       include: {
-        contact: true,
+        contact: { include: { customer: { select: { id: true, name: true } } } },
         bot: { select: { id: true, name: true, model: true } },
         integration: { select: { id: true, name: true } },
         messages: {
@@ -84,6 +144,38 @@ export class ConversationsService {
       data: { unreadCount: 0 },
     });
     return conversation;
+  }
+
+  /**
+   * Modo humano explícito: HUMAN pausa la IA y deja constancia de quién
+   * atiende; BOT le devuelve el control a la IA y limpia la alerta.
+   */
+  async setMode(user: AuthUser, id: string, mode: 'HUMAN' | 'BOT') {
+    const conversation = await this.assertAccess(user, id);
+    const human = mode === 'HUMAN';
+    const updated = await this.prisma.conversation.update({
+      where: { id },
+      data: {
+        botPaused: human,
+        attendedByName: human ? user.name : null,
+        ...(human ? {} : { needsAttention: false }),
+      },
+    });
+    await this.audit.log({
+      actor: user,
+      companyId: conversation.companyId,
+      action: human ? 'conversation.human_mode' : 'conversation.bot_mode',
+      entity: 'Conversation',
+      entityId: id,
+      detail: human ? `Atiende ${user.name}` : 'Control devuelto a la IA',
+    });
+    this.events?.emit(conversation.companyId, {
+      type: 'conversation.updated',
+      conversationId: id,
+      botPaused: human,
+      attendedByName: updated.attendedByName,
+    });
+    return updated;
   }
 
   async sendMessage(
@@ -109,40 +201,86 @@ export class ConversationsService {
     if (!content?.trim() && !mediaAssetId) {
       throw new ForbiddenException('Mensaje vacío');
     }
+    const viaWhatsApp =
+      conversation.channel === 'WHATSAPP' && !!conversation.integrationId;
     const message = await this.prisma.message.create({
       data: {
         conversationId: id,
         direction: 'OUT',
         author: 'AGENT',
+        authorName: user.name,
         content: content?.trim() ?? '',
         mediaAssetId: mediaAssetId ?? null,
+        deliveryStatus: viaWhatsApp ? 'QUEUED' : null,
       },
       include: {
         mediaAsset: { select: { id: true, name: true, priceUsd: true, mimeType: true } },
       },
     });
+    // Escribir a mano = tomar la conversación (la IA queda en pausa)
     await this.prisma.conversation.update({
       where: { id },
       data: {
         lastMessageAt: new Date(),
         status: 'HANDOFF',
         needsAttention: false,
+        botPaused: true,
+        attendedByName: user.name,
       },
+    });
+    // El mensaje sale de verdad por la línea (sandbox si la línea lo está)
+    if (viaWhatsApp && this.twilio) {
+      await this.twilio.enqueueOutbound({ messageId: message.id });
+    }
+    this.events?.emit(conversation.companyId, {
+      type: 'message.new',
+      conversationId: id,
+      direction: 'OUT',
     });
     return message;
   }
 
   async updateStatus(user: AuthUser, id: string, dto: any) {
-    await this.assertAccess(user, id);
-    return this.prisma.conversation.update({
+    const conversation = await this.assertAccess(user, id);
+    const updated = await this.prisma.conversation.update({
       where: { id },
       data: {
         status: dto.status,
         needsAttention: dto.needsAttention,
       },
     });
+    this.events?.emit(conversation.companyId, {
+      type: 'conversation.updated',
+      conversationId: id,
+      status: updated.status,
+      needsAttention: updated.needsAttention,
+    });
+    return updated;
+  }
+
+  /** Sirve el archivo (audio/imagen/documento) de un mensaje, tenant-scoped. */
+  async messageFile(user: AuthUser, messageId: string, res: Response) {
+    this.assertNotArea(user);
+    const message = await this.prisma.message.findUnique({
+      where: { id: messageId },
+      include: { conversation: true },
+    });
+    if (!message?.fileName) throw new NotFoundException('Archivo no encontrado');
+    const companyId = (message.conversation as any).companyId as string;
+    if (!isPlatformRole(user.role) && companyId !== user.companyId) {
+      throw new ForbiddenException();
+    }
+    const safeName = basename(message.fileName); // sin traversal
+    const filePath = join(UPLOADS_DIR, companyId, safeName);
+    if (!existsSync(filePath)) throw new NotFoundException('Archivo no disponible');
+    const ext = safeName.split('.').pop() ?? '';
+    res.setHeader('Content-Type', MIME_BY_EXT[ext] ?? 'application/octet-stream');
+    res.setHeader('Cache-Control', 'private, max-age=86400');
+    createReadStream(filePath).pipe(res);
   }
 }
+
+const WRITE_ROLES = [ROLES.SUPER_ADMIN, ROLES.DEV, ROLES.COMPANY_ADMIN] as const;
 
 @Controller('conversations')
 export class ConversationsController {
@@ -155,10 +293,22 @@ export class ConversationsController {
     @Query('status') status?: string,
     @Query('needsAttention') needsAttention?: string,
     @Query('integrationId') integrationId?: string,
+    @Query('q') q?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
   ) {
-    return this.conversations.list(
-      user, companyId, status, needsAttention, integrationId,
-    );
+    return this.conversations.list(user, {
+      companyId, status, needsAttention, integrationId, q, from, to,
+    });
+  }
+
+  @Get('messages/:messageId/file')
+  messageFile(
+    @CurrentUser() user: AuthUser,
+    @Param('messageId') messageId: string,
+    @Res() res: Response,
+  ) {
+    return this.conversations.messageFile(user, messageId, res);
   }
 
   @Get(':id')
@@ -167,7 +317,7 @@ export class ConversationsController {
   }
 
   @Post(':id/messages')
-  @Roles(ROLES.SUPER_ADMIN, ROLES.DEV, ROLES.COMPANY_ADMIN)
+  @Roles(...WRITE_ROLES)
   sendMessage(
     @CurrentUser() user: AuthUser,
     @Param('id') id: string,
@@ -177,8 +327,21 @@ export class ConversationsController {
     return this.conversations.sendMessage(user, id, content, mediaAssetId);
   }
 
+  @Patch(':id/mode')
+  @Roles(...WRITE_ROLES)
+  setMode(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body('mode') mode: 'HUMAN' | 'BOT',
+  ) {
+    if (mode !== 'HUMAN' && mode !== 'BOT') {
+      throw new ForbiddenException('mode debe ser HUMAN o BOT');
+    }
+    return this.conversations.setMode(user, id, mode);
+  }
+
   @Patch(':id')
-  @Roles(ROLES.SUPER_ADMIN, ROLES.DEV, ROLES.COMPANY_ADMIN)
+  @Roles(...WRITE_ROLES)
   updateStatus(
     @CurrentUser() user: AuthUser,
     @Param('id') id: string,
@@ -189,6 +352,7 @@ export class ConversationsController {
 }
 
 @Module({
+  imports: [TwilioModule],
   controllers: [ConversationsController],
   providers: [ConversationsService],
 })
