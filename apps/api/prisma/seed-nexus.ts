@@ -55,7 +55,7 @@ async function main() {
         'Primera empresa real. Catering B2B: ~10 empresas cliente, ~50 pedidos/mes. ' +
         'WhatsApp por Twilio (cuenta propia del cliente). Trazabilidad hasta despacho.',
       modulesJson: JSON.stringify([
-        'inbox', 'contacts', 'orders', 'bots', 'automations', 'analytics', 'billing', 'team',
+        'inbox', 'contacts', 'orders', 'bots', 'automations', 'analytics', 'billing', 'team', 'marketing',
       ]),
       // Reglas de agenda del negocio — editables desde el panel (Fase 4/5)
       orderConfigJson: JSON.stringify({
