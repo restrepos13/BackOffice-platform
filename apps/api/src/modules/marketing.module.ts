@@ -356,10 +356,18 @@ Brief: ${piece.brief ?? 'sin brief — proponlo tú a partir del título'}`,
   @Cron('*/30 * * * * *')
   async pollVideoJobs() {
     if (process.env.JEST_WORKER_ID) return;
-    const pending = await this.prisma.videoJob.findMany({
-      where: { state: 'PROCESANDO', externalTaskId: { not: null } },
-      take: 10,
-    });
+    // Un parpadeo de conexión a Atlas no debe escalar como excepción del
+    // Scheduler: se loguea con contexto y el siguiente ciclo (30 s) reintenta.
+    let pending: any[];
+    try {
+      pending = await this.prisma.videoJob.findMany({
+        where: { state: 'PROCESANDO', externalTaskId: { not: null } },
+        take: 10,
+      });
+    } catch (err: any) {
+      this.logger.warn(`poll de videos pospuesto (base no disponible): ${err.message ?? err}`);
+      return;
+    }
     if (!pending.length) return;
     const mpt = await this.mptConfig();
     if (!mpt) return;
