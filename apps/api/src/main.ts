@@ -6,6 +6,7 @@ import { randomBytes } from 'crypto';
 import helmet from 'helmet';
 import { json, urlencoded } from 'express';
 import { AppModule } from './app.module';
+import { BufferedLogger } from './common/log-buffer';
 
 async function bootstrap() {
   // Nunca arrancar con un secreto JWT vacío: si falta, se genera uno efímero
@@ -17,7 +18,9 @@ async function bootstrap() {
     );
   }
 
-  const app = await NestFactory.create<NestExpressApplication>(AppModule);
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, {
+    logger: new BufferedLogger(), // ring buffer consultable en Dev Tools
+  });
 
   // Cabeceras de seguridad (API pura: sin CSP de documentos)
   app.use(
