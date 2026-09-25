@@ -330,10 +330,18 @@ export class ReportsService {
   @Cron('5 * * * *')
   async cronDaily() {
     if (process.env.JEST_WORKER_ID) return;
-    const companies = await this.prisma.company.findMany({
-      where: { status: 'ACTIVE' },
-      select: { id: true, timezone: true, modulesJson: true, orderConfigJson: true },
-    });
+    // Un parpadeo de Atlas no debe escalar como excepción del Scheduler:
+    // se loguea como warn y el ciclo de la próxima hora reintenta.
+    let companies: Array<{ id: string; timezone: string; modulesJson: string; orderConfigJson: string }>;
+    try {
+      companies = await this.prisma.company.findMany({
+        where: { status: 'ACTIVE' },
+        select: { id: true, timezone: true, modulesJson: true, orderConfigJson: true },
+      });
+    } catch (err: any) {
+      this.logger.warn(`reporte diario pospuesto (base no disponible): ${err.message ?? err}`);
+      return;
+    }
     for (const company of companies) {
       const modules = parseJson<string[]>(company.modulesJson, []);
       if (!modules.includes('orders')) continue;
