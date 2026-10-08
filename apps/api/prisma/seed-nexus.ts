@@ -13,9 +13,10 @@
  */
 import { PrismaClient } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
+import { seedPassword } from './seed-passwords';
 
 const prisma = new PrismaClient();
-const PASSWORD = bcrypt.hashSync('SEED_PASSWORD_NEXUS', 10);
+const PASSWORD = bcrypt.hashSync(seedPassword('SEED_PASSWORD_NEXUS'), 10);
 
 function at(daysFromNow: number, hour: number, minute = 0): Date {
   const d = new Date();

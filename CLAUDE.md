@@ -133,7 +133,7 @@ haya datos reales de clientes — borra todo.
 Los datos demo (4 empresas, conversaciones, consumo) viven en
 `prisma/seed-demo.ts` → `pnpm db:seed:demo`.
 
-Cuentas reales (contraseñas en el encabezado de `prisma/seed.ts`, todas fuertes;
+Cuentas reales (contraseñas en `apps/api/.env` como `SEED_PASSWORD_*` — jamás en el código; los seeds y los tests E2E las leen de ahí;
 la vieja `backoffice2026` ya no existe):
 - `santiago@backoffice.dev` / `daniel@backoffice.dev` — SUPER_ADMIN
 - `restrepos591@gmail.com` / `danielloaiza609@gmail.com` — DEV (fundadores)

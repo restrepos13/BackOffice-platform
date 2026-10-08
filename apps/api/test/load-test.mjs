@@ -6,6 +6,13 @@
  * Correr: node test/load-test.mjs [total] [concurrencia]
  */
 const BASE = process.env.API_URL ?? 'http://localhost:4001/api';
+
+// Contraseñas de las cuentas sembradas: viven en apps/api/.env (SEED_PASSWORD_*).
+try { process.loadEnvFile(new URL('../.env', import.meta.url)); } catch {}
+function env(name) {
+  if (!process.env[name]) throw new Error(`Falta ${name} en apps/api/.env`);
+  return process.env[name];
+}
 const TOTAL = Number(process.argv[2] ?? 600);
 const CONCURRENCY = Number(process.argv[3] ?? 60);
 
@@ -13,7 +20,7 @@ async function login() {
   const res = await fetch(`${BASE}/auth/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email: 'admin@nexuscatering.co', password: 'SEED_PASSWORD_NEXUS' }),
+    body: JSON.stringify({ email: 'admin@nexuscatering.co', password: env('SEED_PASSWORD_NEXUS') }),
   });
   const data = await res.json();
   if (!data.token) throw new Error(`login falló: ${res.status}`);

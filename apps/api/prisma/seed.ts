@@ -19,6 +19,7 @@
  */
 import { PrismaClient } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
+import { seedPassword } from './seed-passwords';
 
 const prisma = new PrismaClient();
 const hash = (plain: string) => bcrypt.hashSync(plain, 10);
@@ -202,22 +203,22 @@ async function main() {
       {
         email: 'santiago@backoffice.dev', name: 'Santiago Restrepo',
         role: 'SUPER_ADMIN', jobTitle: 'Co-fundador',
-        passwordHash: hash('SEED_PASSWORD_SANTIAGO'),
+        passwordHash: hash(seedPassword('SEED_PASSWORD_SANTIAGO')),
       },
       {
         email: 'daniel@backoffice.dev', name: 'Daniel Loaiza',
         role: 'SUPER_ADMIN', jobTitle: 'Co-fundador',
-        passwordHash: hash('SEED_PASSWORD_DANIEL'),
+        passwordHash: hash(seedPassword('SEED_PASSWORD_DANIEL')),
       },
       {
         email: 'restrepos591@gmail.com', name: 'Santiago Restrepo',
         role: 'DEV', jobTitle: 'Co-fundador · Dev',
-        passwordHash: hash('SEED_PASSWORD_DEV_SANTIAGO'),
+        passwordHash: hash(seedPassword('SEED_PASSWORD_DEV_SANTIAGO')),
       },
       {
         email: 'danielloaiza609@gmail.com', name: 'Daniel Loaiza',
         role: 'DEV', jobTitle: 'Co-fundador · Dev',
-        passwordHash: hash('SEED_PASSWORD_DEV_DANIEL'),
+        passwordHash: hash(seedPassword('SEED_PASSWORD_DEV_DANIEL')),
       },
     ],
   });
@@ -235,7 +236,7 @@ async function main() {
     data: {
       email: 'admin@empresa-prueba.com', name: 'Admin de Prueba',
       role: 'COMPANY_ADMIN', jobTitle: 'Administrador',
-      companyId: empresa.id, passwordHash: hash('SEED_PASSWORD_EMPRESA_PRUEBA'),
+      companyId: empresa.id, passwordHash: hash(seedPassword('SEED_PASSWORD_EMPRESA_PRUEBA')),
     },
   });
   const bot = await prisma.bot.create({

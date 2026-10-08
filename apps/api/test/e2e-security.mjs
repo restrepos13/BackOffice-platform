@@ -9,10 +9,17 @@
  */
 const BASE = process.env.API_URL ?? 'http://localhost:4001/api';
 
+// Contraseñas de las cuentas sembradas: viven en apps/api/.env (SEED_PASSWORD_*).
+try { process.loadEnvFile(new URL('../.env', import.meta.url)); } catch {}
+function env(name) {
+  if (!process.env[name]) throw new Error(`Falta ${name} en apps/api/.env`);
+  return process.env[name];
+}
+
 const ACCOUNTS = {
-  attacker: { email: 'admin@empresa-prueba.com', password: 'SEED_PASSWORD_EMPRESA_PRUEBA' },
-  victim: { email: 'admin@nexuscatering.co', password: 'SEED_PASSWORD_NEXUS' },
-  area: { email: 'cocina@nexuscatering.co', password: 'SEED_PASSWORD_NEXUS' },
+  attacker: { email: 'admin@empresa-prueba.com', password: env('SEED_PASSWORD_EMPRESA_PRUEBA') },
+  victim: { email: 'admin@nexuscatering.co', password: env('SEED_PASSWORD_NEXUS') },
+  area: { email: 'cocina@nexuscatering.co', password: env('SEED_PASSWORD_NEXUS') },
 };
 
 let passed = 0;

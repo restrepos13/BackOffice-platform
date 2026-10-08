@@ -13,6 +13,7 @@
  */
 import { PrismaClient } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
+import { seedPassword } from './seed-passwords';
 import { mkdirSync, writeFileSync } from 'fs';
 import { join, resolve } from 'path';
 
@@ -247,14 +248,14 @@ async function main() {
     data: {
       email: 'restrepos591@gmail.com', name: 'Santiago Restrepo',
       role: 'DEV', jobTitle: 'Co-fundador · Dev',
-      passwordHash: bcrypt.hashSync('SEED_PASSWORD_DEV_SANTIAGO', 10),
+      passwordHash: bcrypt.hashSync(seedPassword('SEED_PASSWORD_DEV_SANTIAGO'), 10),
     },
   });
   await prisma.user.create({
     data: {
       email: 'danielloaiza609@gmail.com', name: 'Daniel Loaiza',
       role: 'DEV', jobTitle: 'Co-fundador · Dev',
-      passwordHash: bcrypt.hashSync('SEED_PASSWORD_DEV_DANIEL', 10),
+      passwordHash: bcrypt.hashSync(seedPassword('SEED_PASSWORD_DEV_DANIEL'), 10),
     },
   });
 
