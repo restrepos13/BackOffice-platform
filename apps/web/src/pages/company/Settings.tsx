@@ -236,9 +236,24 @@ export default function CompanySettings() {
             </div>
           </Card>
 
-          <Card kicker="BYOK · el costo de IA lo pagas directo a DeepInfra" title="Llave DeepInfra">
-            <DeepinfraKeyForm company={company} canWrite={canWrite} />
-          </Card>
+          {company.aiBillingMode === 'PLATFORM' ? (
+            <Card kicker="Incluida en tu plan" title="Inteligencia artificial">
+              <div className="space-y-2 text-sm">
+                <p className="flex items-center justify-between">
+                  <span className="kicker">Estado</span>
+                  <Badge tone="ok">IA de BackOffice</Badge>
+                </p>
+                <p className="text-ink-2">
+                  No necesitas cuentas ni llaves: tu asistente usa la IA de BackOffice. Tu plan trae
+                  conversaciones incluidas cada mes; el detalle y el excedente los ves en <strong>Consumo IA</strong>.
+                </p>
+              </div>
+            </Card>
+          ) : (
+            <Card kicker="BYOK · el costo de IA lo pagas directo a DeepInfra" title="Llave DeepInfra">
+              <DeepinfraKeyForm company={company} canWrite={canWrite} />
+            </Card>
+          )}
 
           <Card kicker="Cómo se calcula tu ahorro en Gerencia" title="Reporte a Gerencia">
             <SavingsForm company={company} canWrite={canWrite} />

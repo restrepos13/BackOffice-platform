@@ -28,7 +28,7 @@ describe('empresa demo permanente', () => {
     );
 
     const of = (col: any[]) => col.filter((r: any) => r.companyId === demo.id);
-    expect(of(db.user).length).toBe(2); // admin + área
+    expect(of(db.user).length).toBe(4); // admin + área + 2 domiciliarios
     expect(of(db.user).every((u: any) => !u.tourDoneAt)).toBe(true); // tour sin ver
     expect(of(db.order).length).toBeGreaterThanOrEqual(9);
     expect(of(db.customer).length).toBe(5);
@@ -49,9 +49,20 @@ describe('empresa demo permanente', () => {
     for (const s of ['entregado', 'despachado', 'en_produccion', 'programado', 'requiere_atencion', 'borrador', 'cancelado']) {
       expect(statuses.has(s)).toBe(true);
     }
-    // La línea demo SIEMPRE en sandbox (jamás un mensaje real)
-    const line = of(db.integration)[0];
-    expect(JSON.parse(line.configJson).sandbox).toBe(true);
+    // Las líneas demo SIEMPRE en sandbox (jamás un mensaje real)
+    for (const line of of(db.integration)) {
+      expect(JSON.parse(line.configJson).sandbox).toBe(true);
+    }
+
+    // Domicilios en vivo: config, agente con herramientas, domiciliario en ruta
+    expect(JSON.parse(demo.orderConfigJson).delivery).toMatchObject({ enabled: true });
+    expect(of(db.bot).some((b: any) => b.engineMode === 'AGENT')).toBe(true);
+    expect(of(db.product).every((p: any) => p.price > 0)).toBe(true);
+    const inRoute = of(db.order).find((o: any) => o.status === 'despachado');
+    expect(inRoute).toMatchObject({ courierId: expect.any(String), trackingToken: expect.any(String) });
+    expect(inRoute.etaAt).toBeInstanceOf(Date);
+    expect(of(db.user).filter((u: any) => u.role === 'COMPANY_COURIER')).toHaveLength(2);
+    expect(db.courierPing.filter((p: any) => p.companyId === demo.id).length).toBeGreaterThan(3);
   });
 
   it('es idempotente: regenerarla no duplica nada y refresca el tour', async () => {

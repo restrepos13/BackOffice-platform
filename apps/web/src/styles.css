@@ -132,3 +132,144 @@ main > * {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* ─── Mapas en vivo (Leaflet) — marcadores en la estética de la marca ─── */
+.bo-map {
+  background: var(--color-bone-2);
+  font-family: var(--font-sans);
+}
+.bo-map .leaflet-tile-pane {
+  filter: grayscale(1) sepia(0.12) contrast(0.92) brightness(1.04);
+}
+.bo-map .leaflet-control-zoom a {
+  border-radius: 0;
+  border: 2px solid var(--color-ink);
+  color: var(--color-ink);
+  background: var(--color-paper);
+}
+.bo-map .leaflet-control-zoom {
+  border: 0;
+  box-shadow: 3px 3px 0 0 rgba(26, 26, 26, 0.9);
+}
+.bo-map .leaflet-control-attribution {
+  background: rgba(241, 238, 234, 0.85);
+  font-size: 9px;
+}
+.bo-pin {
+  background: none;
+  border: 0;
+}
+.bo-pin-origin {
+  display: flex;
+  height: 30px;
+  width: 30px;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid var(--color-bone);
+  background: var(--color-ink);
+  color: var(--color-bone);
+  box-shadow: 3px 3px 0 0 rgba(26, 26, 26, 0.35);
+}
+.bo-pin-dest {
+  position: relative;
+  height: 32px;
+  width: 24px;
+}
+.bo-pin-dest::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 8px 0;
+  border: 2px solid var(--color-ink);
+  background: var(--color-paper);
+}
+.bo-pin-dest::after {
+  content: "";
+  position: absolute;
+  bottom: 0;
+  left: 50%;
+  height: 10px;
+  width: 2px;
+  transform: translateX(-50%);
+  background: var(--color-ink);
+}
+.bo-pin-dest span {
+  position: absolute;
+  inset: 0 0 8px 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--color-ink);
+}
+.bo-pin-dest.is-active::before {
+  background: var(--accent);
+  border-color: var(--color-ink);
+}
+.bo-pin-dest.is-active span {
+  color: #fff;
+}
+.bo-pin-dest.is-muted {
+  opacity: 0.45;
+}
+.bo-pin-courier {
+  position: relative;
+  height: 34px;
+  width: 34px;
+}
+.bo-pin-dot {
+  position: absolute;
+  inset: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid #fff;
+  border-radius: 999px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  box-shadow: 0 2px 6px rgba(26, 26, 26, 0.35);
+}
+.bo-pin-pulse {
+  position: absolute;
+  inset: 0;
+  border-radius: 999px;
+  background: var(--accent);
+  opacity: 0.25;
+  animation: bo-pulse 2s ease-out infinite;
+}
+.bo-pin-courier.is-muted .bo-pin-dot {
+  background: var(--color-ink-3);
+}
+.bo-pin-courier.is-muted .bo-pin-pulse {
+  display: none;
+}
+@keyframes bo-pulse {
+  0% { transform: scale(0.6); opacity: 0.35; }
+  100% { transform: scale(1.6); opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .bo-pin-pulse { animation: none; }
+  .leaflet-marker-icon { transition: none !important; }
+}
+/* El punto del domiciliario se desliza entre posiciones en vez de saltar */
+.leaflet-marker-icon.bo-pin {
+  transition: transform 0.9s linear;
+}
+.leaflet-zoom-anim .leaflet-marker-icon.bo-pin {
+  transition: none;
+}
+.bo-tooltip {
+  border: 2px solid var(--color-ink) !important;
+  border-radius: 0 !important;
+  background: var(--color-paper) !important;
+  box-shadow: 3px 3px 0 0 rgba(26, 26, 26, 0.9) !important;
+  color: var(--color-ink) !important;
+  font-size: 12px;
+  font-weight: 600;
+}
+.bo-tooltip::before {
+  display: none;
+}

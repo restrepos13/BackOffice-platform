@@ -44,8 +44,13 @@ export function maskCompanyKey(stored: string | null | undefined): string | null
   return key ? `••••${key.slice(-4)}` : null;
 }
 
-export function platformAiKey(): string | null {
-  return process.env.DEEPINFRA_API_KEY?.trim() || null;
+/** Llave de BackOffice: .env del servidor o Dev Tools → Settings (DEEPINFRA_API_KEY). */
+export async function platformAiKey(prisma?: any): Promise<string | null> {
+  const fromEnv = process.env.DEEPINFRA_API_KEY?.trim();
+  if (fromEnv) return fromEnv;
+  if (!prisma) return null;
+  const row = await prisma.platformSetting.findUnique({ where: { key: 'DEEPINFRA_API_KEY' } });
+  return row?.value?.trim() || null;
 }
 
 /** Inicio del mes calendario en curso (UTC) — periodo de topes y facturación. */
@@ -118,12 +123,12 @@ export async function computeAiQuota(
  */
 export async function resolveAiAccess(prisma: any, company: any): Promise<AiAccess> {
   if (company.aiBillingMode === 'PLATFORM') {
-    const key = platformAiKey();
+    const key = await platformAiKey(prisma);
     if (!key) {
       return {
         ok: false,
         code: 'NO_PLATFORM_KEY',
-        reason: 'La IA de BackOffice no está configurada en el servidor (DEEPINFRA_API_KEY)',
+        reason: 'La IA de BackOffice no está configurada (DEEPINFRA_API_KEY en .env o Dev Tools → Settings)',
       };
     }
     if (company.aiSpendCapUsd != null) {

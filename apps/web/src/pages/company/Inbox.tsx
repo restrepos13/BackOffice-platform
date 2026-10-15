@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { clsx } from 'clsx';
 import {
   AlertTriangle, ArrowLeft, Bot, Check, CheckCheck, Hand,
-  Image as ImageIcon, Search, Send, UserRound, X,
+  Image as ImageIcon, MapPin, Paperclip, Search, Send, UserRound, X,
 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
@@ -349,7 +349,7 @@ export default function Inbox() {
                           'mt-1 text-[11px]',
                           message.direction === 'OUT' && message.author === 'BOT' ? 'text-line' : 'text-ink-3',
                         )}>
-                          📎 {message.mediaAsset.name}
+                          <Paperclip size={10} className="mr-1 inline" />{message.mediaAsset.name}
                           {message.mediaAsset.priceUsd > 0 && ` · ${fmtUsd(message.mediaAsset.priceUsd)}`}
                         </p>
                       </div>
@@ -365,7 +365,22 @@ export default function Inbox() {
                         )}
                       </div>
                     )}
-                    {message.content && (
+                    {message.type === 'LOCATION' && message.latitude != null && message.longitude != null ? (
+                      <a
+                        href={`https://www.google.com/maps?q=${message.latitude},${message.longitude}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex items-start gap-2 text-sm underline-offset-2 hover:underline"
+                      >
+                        <MapPin size={15} className="mt-0.5 shrink-0" />
+                        <span>
+                          <strong>Ubicación compartida</strong>
+                          <span className="block text-xs opacity-80">
+                            {message.content.replace(/^\[ubicación\]\s*/i, '') || `${message.latitude.toFixed(5)}, ${message.longitude.toFixed(5)}`}
+                          </span>
+                        </span>
+                      </a>
+                    ) : message.content && (
                       <p className="whitespace-pre-wrap text-sm">{message.content}</p>
                     )}
                     <p className={clsx(

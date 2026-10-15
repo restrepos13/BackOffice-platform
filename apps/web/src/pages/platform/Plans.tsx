@@ -19,11 +19,14 @@ interface PlanForm {
   features: string;
   highlight: boolean;
   isCustom: boolean;
+  includedAiConversations: number;
+  extraAiConversationUsd: number;
 }
 
 const emptyForm: PlanForm = {
   code: '', name: '', priceMonthly: 0, maxBots: 10, maxWorkspaces: 1,
   maxUsers: 5, features: '', highlight: false, isCustom: false,
+  includedAiConversations: 0, extraAiConversationUsd: 0,
 };
 
 export default function Plans() {
@@ -43,6 +46,8 @@ export default function Plans() {
         maxUsers: Number(form.maxUsers),
         features: form.features.split('\n').map((f) => f.trim()).filter(Boolean),
         highlight: form.highlight, isCustom: form.isCustom,
+        includedAiConversations: Number(form.includedAiConversations) || 0,
+        extraAiConversationUsd: Number(form.extraAiConversationUsd) || 0,
       };
       return form.id
         ? api.patch(`/plans/${form.id}`, payload)
@@ -81,6 +86,12 @@ export default function Plans() {
               {!plan.isCustom && <span className="text-sm text-ink-3">/mes</span>}
             </p>
             <p className="mt-1 text-xs text-ink-3">+ consumo aparte, al costo</p>
+            {(plan.includedAiConversations ?? 0) > 0 && (
+              <p className="mt-1 text-xs font-semibold">
+                {plan.includedAiConversations} conversaciones IA incluidas
+                {(plan.extraAiConversationUsd ?? 0) > 0 && ` · adicional ${fmtUsd(plan.extraAiConversationUsd!)}`}
+              </p>
+            )}
             <ul className="mt-3 space-y-1 border-t-2 border-line pt-3 text-[13px]">
               {plan.features.map((f) => <li key={f}>— {f}</li>)}
             </ul>
@@ -95,6 +106,8 @@ export default function Plans() {
                     maxWorkspaces: plan.maxWorkspaces, maxUsers: plan.maxUsers,
                     features: plan.features.join('\n'),
                     highlight: plan.highlight, isCustom: plan.isCustom,
+                    includedAiConversations: plan.includedAiConversations ?? 0,
+                    extraAiConversationUsd: plan.extraAiConversationUsd ?? 0,
                   })
                 }
               >
@@ -138,6 +151,16 @@ export default function Plans() {
               <Field label="Máx. usuarios">
                 <Input type="number" value={editing.maxUsers}
                   onChange={(e) => setEditing({ ...editing, maxUsers: Number(e.target.value) })} />
+              </Field>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <Field label="Conversaciones IA incluidas" hint="Solo aplica con la IA de BackOffice">
+                <Input type="number" min={0} step={50} value={editing.includedAiConversations}
+                  onChange={(e) => setEditing({ ...editing, includedAiConversations: Number(e.target.value) })} />
+              </Field>
+              <Field label="Conversación adicional (USD)">
+                <Input type="number" min={0} step={0.01} value={editing.extraAiConversationUsd}
+                  onChange={(e) => setEditing({ ...editing, extraAiConversationUsd: Number(e.target.value) })} />
               </Field>
             </div>
             <div className="md:col-span-2">

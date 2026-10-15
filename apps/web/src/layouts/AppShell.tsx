@@ -23,6 +23,7 @@ import {
   Factory,
   FileText,
   Megaphone,
+  Bike,
   Store,
   Plug,
   ScrollText,
@@ -35,14 +36,14 @@ import {
   X,
   Zap,
 } from 'lucide-react';
-import { useEffect, useState } from 'react';
-import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
+import { Suspense, useEffect, useState } from 'react';
+import { Navigate, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { api } from '../lib/api';
 import { useActiveCompanyId, useAuth } from '../lib/auth';
 import { useLiveEvents } from '../lib/events';
 import { ROLE_LABELS } from '../lib/format';
 import type { Company } from '../lib/types';
-import { Badge, Button, Field, Input, Modal } from '../components/ui';
+import { Badge, Button, Field, Input, Loading, Modal } from '../components/ui';
 import Tour from '../components/Tour';
 
 function ChangePasswordModal({ open, onClose }: { open: boolean; onClose: () => void }) {
@@ -129,6 +130,11 @@ const ORDERS_NAV: NavItem[] = [
   { to: '/app/area', label: 'Vista por área', icon: Factory },
 ];
 
+/** Domicilios en vivo: con el módulo "delivery" o domicilios configurados. */
+const DELIVERY_NAV: NavItem[] = [
+  { to: '/app/deliveries', label: 'Domicilios', icon: Bike },
+];
+
 /** Marketing: extra por empresa (módulo "marketing"). */
 const MARKETING_NAV: NavItem[] = [
   { to: '/app/marketing', label: 'Marketing', icon: Megaphone },
@@ -182,10 +188,11 @@ export default function AppShell() {
   }, [location.pathname]);
 
   const isArea = user?.role === 'COMPANY_AREA';
+  const isCourier = user?.role === 'COMPANY_COURIER';
   const { data: companies } = useQuery({
     queryKey: ['companies'],
     queryFn: () => api.get<Company[]>('/companies'),
-    enabled: !!user && !isArea, // usuarios de empresa reciben solo la suya
+    enabled: !!user && !isArea && user.role !== 'COMPANY_COURIER', // usuarios de empresa reciben solo la suya
   });
 
   const activeCompany = isPlatform
@@ -222,17 +229,23 @@ export default function AppShell() {
         });
       }
     },
-    !!user && user.role !== 'COMPANY_AREA' && !!scopedCompanyId,
+    !!user && user.role !== 'COMPANY_AREA' && user.role !== 'COMPANY_COURIER' && !!scopedCompanyId,
   );
   // Nav según módulos contratados por la empresa activa
   const hasOrders = activeCompany?.modules?.includes('orders') ?? false;
   const hasMarketing = activeCompany?.modules?.includes('marketing') ?? false;
+  const hasDelivery =
+    (activeCompany?.modules?.includes('delivery') ?? false) || !!activeCompany?.orderConfig?.delivery?.enabled;
   const companyNav = [
     ...COMPANY_NAV.slice(0, 2), // Dashboard, Conversaciones
     ...(hasOrders ? ORDERS_NAV : []),
+    ...(hasDelivery ? DELIVERY_NAV : []),
     ...(hasMarketing ? MARKETING_NAV : []),
     ...COMPANY_NAV.slice(2),
   ];
+
+  // El domiciliario tiene su propia app móvil, fuera del panel
+  if (isCourier) return <Navigate to="/courier" replace />;
 
   return (
     <div className="flex min-h-screen">
@@ -386,7 +399,10 @@ export default function AppShell() {
           </div>
         )}
         <main className="mx-auto max-w-[1400px] px-4 py-5 md:px-6 md:py-6">
-          <Outlet />
+          {/* El menú queda quieto mientras carga la pantalla siguiente */}
+          <Suspense fallback={<Loading />}>
+            <Outlet />
+          </Suspense>
         </main>
       </div>
     </div>

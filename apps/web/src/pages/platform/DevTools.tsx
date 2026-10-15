@@ -625,6 +625,7 @@ function SettingsForm({
     PLATFORM_NAME: settings.PLATFORM_NAME ?? 'BackOffice',
     SUPPORT_WHATSAPP: settings.SUPPORT_WHATSAPP ?? '',
     WEBHOOK_BASE_URL: settings.WEBHOOK_BASE_URL ?? '',
+    PUBLIC_WEB_URL: settings.PUBLIC_WEB_URL ?? '',
     DEEPINFRA_API_KEY: settings.DEEPINFRA_API_KEY ?? '',
     MPT_BASE_URL: settings.MPT_BASE_URL ?? '',
     MPT_API_KEY: settings.MPT_API_KEY ?? '',
@@ -646,6 +647,12 @@ function SettingsForm({
     <div className="space-y-3">
       <Field label="URL pública de webhooks (WEBHOOK_BASE_URL)" hint="Dominio HTTPS donde Twilio/Meta encuentran el API (validación de firmas)">
         <Input value={form.WEBHOOK_BASE_URL} onChange={(e) => set({ WEBHOOK_BASE_URL: e.target.value })} placeholder="https://api.tudominio.com" />
+      </Field>
+      <Field
+        label="URL pública de la web (PUBLIC_WEB_URL)"
+        hint="Dominio donde el cliente final abre el seguimiento de su pedido (/t/…). Vacío = se deduce de los webhooks o del origen de la web"
+      >
+        <Input value={form.PUBLIC_WEB_URL} onChange={(e) => set({ PUBLIC_WEB_URL: e.target.value })} placeholder="https://app.tudominio.com" />
       </Field>
       <Field label="Meta App ID" hint="De developers.facebook.com — pendiente de crear">
         <Input value={form.META_APP_ID} onChange={(e) => set({ META_APP_ID: e.target.value })} />

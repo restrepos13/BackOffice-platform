@@ -152,7 +152,13 @@ export default function Team() {
               <Select value={editing.role} onChange={(e) => setEditing({ ...editing, role: e.target.value })}>
                 <option value="COMPANY_ADMIN">Admin de empresa</option>
                 <option value="COMPANY_VIEWER">Visualización</option>
+                <option value="COMPANY_COURIER">Domiciliario</option>
               </Select>
+              {editing.role === 'COMPANY_COURIER' && (
+                <span className="mt-1 block text-xs text-ink-3">
+                  Entra desde el celular a esta misma dirección: ve solo su ruta, comparte su ubicación en turno y marca recogido / entregado.
+                </span>
+              )}
             </Field>
             <Field label="Cargo">
               <Input value={editing.jobTitle} onChange={(e) => setEditing({ ...editing, jobTitle: e.target.value })} />

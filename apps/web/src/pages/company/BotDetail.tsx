@@ -13,11 +13,12 @@ import {
 import { PersonaPicker } from '../../components/PersonaPicker';
 import { ModelSelect } from '../../components/media';
 import { useCompanyScope } from './shared';
+import { AgentConfig, AgentSimulator } from '../../components/AgentConfig';
 
 export default function BotDetail() {
   const { id = '' } = useParams();
   const { canWrite } = useAuth();
-  const { q } = useCompanyScope();
+  const { q, companyId } = useCompanyScope();
   const queryClient = useQueryClient();
   const [tab, setTab] = useState('personalidad');
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -52,6 +53,8 @@ export default function BotDetail() {
         salesCatalog: bot.sales.catalog ?? '',
         salesUpsell: bot.sales.upsell ?? '',
         salesObjections: bot.sales.objections ?? '',
+        engineMode: bot.engineMode ?? 'ORDERS',
+        tools: bot.tools ?? [],
       });
     }
   }, [bot, form]);
@@ -79,6 +82,8 @@ export default function BotDetail() {
           goal: form.salesGoal, style: form.salesStyle, catalog: form.salesCatalog,
           upsell: form.salesUpsell, objections: form.salesObjections,
         },
+        engineMode: form.engineMode,
+        tools: form.tools,
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['bot', id] });
@@ -119,6 +124,9 @@ export default function BotDetail() {
       <div className="mb-4 flex gap-2">
         <Badge tone={statusTone(form.status)}>{BOT_STATUS_LABELS[form.status as string]}</Badge>
         <Badge tone="neutral">{bot.model}</Badge>
+        <Badge tone={form.engineMode === 'AGENT' ? 'info' : 'neutral'}>
+          {form.engineMode === 'AGENT' ? `Agente · ${form.tools.length} herramientas` : 'Pedidos estructurados'}
+        </Badge>
         <Badge tone="neutral">{bot._count?.conversations ?? 0} conversaciones</Badge>
       </div>
 
@@ -127,10 +135,12 @@ export default function BotDetail() {
         onChange={setTab}
         tabs={[
           { id: 'personalidad', label: 'Personalidad' },
+          { id: 'agente', label: 'Agente' },
           { id: 'modelo', label: 'Modelo IA' },
           { id: 'comportamiento', label: 'Comportamiento' },
           { id: 'ventas', label: 'Ventas' },
           { id: 'canales', label: 'Canales', badge: bot.integrations?.length },
+          { id: 'probar', label: 'Probar' },
         ]}
       />
 
@@ -172,6 +182,15 @@ export default function BotDetail() {
               </div>
             </div>
           </Card>
+        )}
+
+        {tab === 'agente' && (
+          <AgentConfig
+            engineMode={form.engineMode}
+            tools={form.tools}
+            disabled={!canWrite}
+            onChange={(patch) => set(patch)}
+          />
         )}
 
         {tab === 'modelo' && (
@@ -325,6 +344,18 @@ export default function BotDetail() {
               Este asistente no tiene canales asignados. Vincúlalos desde Integraciones.
             </p>
           )}
+        </div>
+      )}
+
+      {tab === 'probar' && (
+        <div className="mt-6">
+          {(form.engineMode !== (bot.engineMode ?? 'ORDERS') ||
+            JSON.stringify(form.tools) !== JSON.stringify(bot.tools ?? [])) && (
+            <p className="mb-3 border-2 border-warn bg-warn-soft px-4 py-2 text-sm text-warn">
+              Tienes cambios sin guardar en el agente: guárdalos para probarlos.
+            </p>
+          )}
+          <AgentSimulator integrationId={bot.integrations?.[0]?.id} scopeQuery={q} companyId={companyId} />
         </div>
       )}
 

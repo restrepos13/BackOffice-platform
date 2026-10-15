@@ -25,7 +25,8 @@ export default function Login() {
     setBusy(true);
     try {
       const u = await login(email, password);
-      navigate(u.role === 'SUPER_ADMIN' || u.role === 'DEV' ? '/platform' : '/app');
+      // Cada rol aterriza en su espacio (área, domiciliario, empresa o plataforma)
+      navigate(u.role === 'SUPER_ADMIN' || u.role === 'DEV' ? '/platform' : '/');
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Error al iniciar sesión');
     } finally {

@@ -1,44 +1,47 @@
-import { type ReactNode } from 'react';
+import { Suspense, lazy, type ReactNode } from 'react';
 import { Navigate, Route, Routes } from 'react-router-dom';
 import AppShell from './layouts/AppShell';
 import { useAuth } from './lib/auth';
 import { Loading } from './components/ui';
 import Login from './pages/Login';
-import PlatformOverview from './pages/platform/Overview';
-import Companies from './pages/platform/Companies';
-import CompanyNew from './pages/platform/CompanyNew';
-import CompanyDetail from './pages/platform/CompanyDetail';
-import Plans from './pages/platform/Plans';
-import PlatformUsers from './pages/platform/Users';
-import Audit from './pages/platform/Audit';
-import DevTools from './pages/platform/DevTools';
-import Personas from './pages/platform/Personas';
-import Emails from './pages/platform/Emails';
-import AiModels from './pages/platform/AiModels';
-import PlatformUsage from './pages/platform/Usage';
-import Media from './pages/company/Media';
-import Usage from './pages/company/Usage';
-import Agenda from './pages/company/Agenda';
-import Gerencia from './pages/company/Gerencia';
-import LineDetail from './pages/company/LineDetail';
-import Dashboard from './pages/company/Dashboard';
-import Inbox from './pages/company/Inbox';
-import Contacts from './pages/company/Contacts';
-import Bots from './pages/company/Bots';
-import BotDetail from './pages/company/BotDetail';
-import Automations from './pages/company/Automations';
-import Integrations from './pages/company/Integrations';
-import Analytics from './pages/company/Analytics';
-import Billing from './pages/company/Billing';
-import Team from './pages/company/Team';
-import CompanySettings from './pages/company/Settings';
-import Orders from './pages/company/Orders';
-import OrderDetail from './pages/company/OrderDetail';
-import OrdersSettings from './pages/company/OrdersSettings';
-import OrdersReports from './pages/company/OrdersReports';
-import Customers from './pages/company/Customers';
-import AreaView from './pages/company/AreaView';
-import Marketing from './pages/company/Marketing';
+const PlatformOverview = lazy(() => import('./pages/platform/Overview'));
+const Companies = lazy(() => import('./pages/platform/Companies'));
+const CompanyNew = lazy(() => import('./pages/platform/CompanyNew'));
+const CompanyDetail = lazy(() => import('./pages/platform/CompanyDetail'));
+const Plans = lazy(() => import('./pages/platform/Plans'));
+const PlatformUsers = lazy(() => import('./pages/platform/Users'));
+const Audit = lazy(() => import('./pages/platform/Audit'));
+const DevTools = lazy(() => import('./pages/platform/DevTools'));
+const Personas = lazy(() => import('./pages/platform/Personas'));
+const Emails = lazy(() => import('./pages/platform/Emails'));
+const AiModels = lazy(() => import('./pages/platform/AiModels'));
+const PlatformUsage = lazy(() => import('./pages/platform/Usage'));
+const Media = lazy(() => import('./pages/company/Media'));
+const Usage = lazy(() => import('./pages/company/Usage'));
+const Agenda = lazy(() => import('./pages/company/Agenda'));
+const Gerencia = lazy(() => import('./pages/company/Gerencia'));
+const LineDetail = lazy(() => import('./pages/company/LineDetail'));
+const Dashboard = lazy(() => import('./pages/company/Dashboard'));
+const Inbox = lazy(() => import('./pages/company/Inbox'));
+const Contacts = lazy(() => import('./pages/company/Contacts'));
+const Bots = lazy(() => import('./pages/company/Bots'));
+const BotDetail = lazy(() => import('./pages/company/BotDetail'));
+const Automations = lazy(() => import('./pages/company/Automations'));
+const Integrations = lazy(() => import('./pages/company/Integrations'));
+const Analytics = lazy(() => import('./pages/company/Analytics'));
+const Billing = lazy(() => import('./pages/company/Billing'));
+const Team = lazy(() => import('./pages/company/Team'));
+const CompanySettings = lazy(() => import('./pages/company/Settings'));
+const Orders = lazy(() => import('./pages/company/Orders'));
+const OrderDetail = lazy(() => import('./pages/company/OrderDetail'));
+const OrdersSettings = lazy(() => import('./pages/company/OrdersSettings'));
+const OrdersReports = lazy(() => import('./pages/company/OrdersReports'));
+const Customers = lazy(() => import('./pages/company/Customers'));
+const AreaView = lazy(() => import('./pages/company/AreaView'));
+const Marketing = lazy(() => import('./pages/company/Marketing'));
+const Deliveries = lazy(() => import('./pages/company/Deliveries'));
+const CourierApp = lazy(() => import('./pages/courier/CourierApp'));
+const Tracking = lazy(() => import('./pages/public/Tracking'));
 
 function RequireAuth({ children }: { children: ReactNode }) {
   const { user, loading } = useAuth();
@@ -58,7 +61,15 @@ function HomeRedirect() {
   if (loading) return <Loading label="Verificando sesión…" />;
   if (!user) return <Navigate to="/login" replace />;
   if (user.role === 'COMPANY_AREA') return <Navigate to="/app/area" replace />;
+  if (user.role === 'COMPANY_COURIER') return <Navigate to="/courier" replace />;
   return <Navigate to={isPlatform ? '/platform' : '/app'} replace />;
+}
+
+/** La app del domiciliario es solo para su rol. */
+function RequireCourier({ children }: { children: ReactNode }) {
+  const { user } = useAuth();
+  if (user?.role !== 'COMPANY_COURIER') return <Navigate to="/" replace />;
+  return <>{children}</>;
 }
 
 /** Un usuario de área de producción SOLO entra a su vista de área. */
@@ -69,9 +80,16 @@ function BlockArea({ children }: { children: ReactNode }) {
 }
 
 export default function App() {
+  // Cada pantalla se carga al visitarla: el link público de seguimiento no
+  // baja el panel completo (mapas, gráficas) en el celular del cliente.
   return (
+    <Suspense fallback={<Loading />}>
     <Routes>
       <Route path="/login" element={<Login />} />
+      {/* Público: seguimiento del pedido para el cliente final (sin login) */}
+      <Route path="/t/:token" element={<Tracking />} />
+      {/* App móvil del domiciliario (fuera del panel) */}
+      <Route path="/courier" element={<RequireAuth><RequireCourier><CourierApp /></RequireCourier></RequireAuth>} />
       <Route path="/" element={<HomeRedirect />} />
       <Route
         element={
@@ -103,6 +121,7 @@ export default function App() {
         <Route path="/app/orders/reports" element={<BlockArea><OrdersReports /></BlockArea>} />
         <Route path="/app/orders/:id" element={<BlockArea><OrderDetail /></BlockArea>} />
         <Route path="/app/customers" element={<BlockArea><Customers /></BlockArea>} />
+        <Route path="/app/deliveries" element={<BlockArea><Deliveries /></BlockArea>} />
         <Route path="/app/marketing" element={<BlockArea><Marketing /></BlockArea>} />
         <Route path="/app/area" element={<AreaView />} />
         <Route path="/app/contacts" element={<Contacts />} />
@@ -122,5 +141,6 @@ export default function App() {
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
+    </Suspense>
   );
 }

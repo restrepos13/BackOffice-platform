@@ -26,6 +26,9 @@ export interface CompanyTemplate {
     replyDelayMinSec?: number;
     replyDelayMaxSec?: number;
     handoffKeywords?: string;
+    /** AGENT = agente con herramientas (AGENT_PRESETS[agentPreset]) */
+    engineMode?: 'ORDERS' | 'AGENT';
+    agentPreset?: 'domicilios' | 'pedidos_programados' | 'solo_consultas';
   };
   areas?: Array<{
     name: string;
@@ -103,6 +106,66 @@ export const COMPANY_TEMPLATES: CompanyTemplate[] = [
       { name: 'Empaque', description: 'Porcionado y empaque', notifyChannel: 'PANEL', reminderHoursBefore: 12 },
       { name: 'Logística', description: 'Insumos y montaje', notifyChannel: 'PANEL', reminderHoursBefore: 12 },
       { name: 'Despacho', description: 'Entregas y rutas', notifyChannel: 'PANEL', reminderHoursBefore: 3 },
+    ],
+    channels: ['WHATSAPP'],
+  },
+  {
+    id: 'domicilios',
+    name: 'Almuerzos y domicilios',
+    description:
+      'Para restaurantes, almuerzos del día y comida a domicilio: agente con herramientas que cotiza con precios reales, calcula el envío por la ubicación del cliente, confirma y comparte el seguimiento en vivo con la marca del negocio.',
+    includes: [
+      'Agente con herramientas: menú con precios, envío por ubicación, pedidos y estado',
+      'Domicilios en vivo: domiciliarios con GPS, tablero con mapa y link de seguimiento',
+      'Producción por áreas (Cocina, Despacho) y trazabilidad del pedido',
+      'Línea de WhatsApp en sandbox (jamás envía mensajes reales hasta activarla)',
+      'Feedback post-entrega y reporte diario',
+    ],
+    modules: ['inbox', 'contacts', 'orders', 'delivery', 'bots', 'automations', 'analytics', 'billing', 'team'],
+    currency: 'COP',
+    orderConfig: {
+      statuses: [
+        'borrador', 'confirmado', 'programado', 'en_produccion', 'listo',
+        'empacado', 'despachado', 'entregado', 'cancelado', 'requiere_atencion',
+      ],
+      schedule: { days: [1, 2, 3, 4, 5, 6], open: '10:30', close: '15:30' },
+      holidays: [],
+      feedbackDelayHours: 2,
+      aiConfidenceThreshold: 0.75,
+      // Se activa al ubicar el punto de despacho (Pedidos → Configuración → Domicilios)
+      delivery: {
+        enabled: false, maxKm: 6, baseFee: 3000, perKm: 1000, minFee: 4000,
+        prepMinutes: 25, avgSpeedKmh: 22,
+      },
+    },
+    bot: {
+      name: 'Asistente de domicilios',
+      description: 'Toma el pedido, calcula el domicilio y comparte el seguimiento en vivo.',
+      systemPrompt:
+        'Atiendes el WhatsApp de un negocio de comida con domicilios. Ayudas a pedir rápido: ' +
+        'muestras el menú con precios reales, calculas el domicilio con la ubicación del cliente, ' +
+        'envías el resumen con el total y confirmas solo con un sí explícito. Al confirmar compartes ' +
+        'el código y el link de seguimiento. Jamás dices que eres una IA ni usas menús numerados.',
+      personality: {
+        tone: 'Cercano, ágil y amable; tuteo',
+        style: 'Mensajes cortos, directo al grano',
+        limits: 'No inventar precios ni productos; sin sí explícito no se confirma',
+        language: 'es-CO',
+      },
+      sales: {
+        goal: 'Cerrar el pedido en pocos mensajes.',
+        upsell: 'Ofrecer bebida o postre una sola vez si el pedido no lo trae.',
+      },
+      welcomeMessage: '¡Hola! ¿Qué se te antoja hoy?',
+      replyDelayMinSec: 2,
+      replyDelayMaxSec: 12,
+      handoffKeywords: 'queja, reclamo, gerente, hablar con alguien',
+      engineMode: 'AGENT',
+      agentPreset: 'domicilios',
+    },
+    areas: [
+      { name: 'Cocina', description: 'Preparación de los pedidos', notifyChannel: 'PANEL', reminderHoursBefore: 2 },
+      { name: 'Despacho', description: 'Empaque y salida de domicilios', notifyChannel: 'PANEL', reminderHoursBefore: 1 },
     ],
     channels: ['WHATSAPP'],
   },

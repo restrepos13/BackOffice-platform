@@ -34,6 +34,7 @@ export const ROLE_LABELS: Record<string, string> = {
   COMPANY_ADMIN: 'Admin de empresa',
   COMPANY_VIEWER: 'Visualización',
   COMPANY_AREA: 'Área de producción',
+  COMPANY_COURIER: 'Domiciliario',
 };
 
 /* ─── Módulo de pedidos ─── */
@@ -159,10 +160,60 @@ export const MODULE_LABELS: Record<string, string> = {
   inbox: 'Bandeja de conversaciones',
   contacts: 'CRM / Contactos',
   orders: 'Pedidos (catering)',
+  delivery: 'Domicilios en vivo (GPS y seguimiento)',
   marketing: 'Marketing (contenido y campañas)',
   bots: 'Asistentes IA',
   automations: 'Automatizaciones',
   analytics: 'Analytics',
   billing: 'Facturación y consumo',
   team: 'Equipo',
+};
+
+/** Dinero en la moneda de la empresa (COP sin decimales). */
+export function fmtMoney(n: number | null | undefined, currency = 'COP'): string {
+  if (n == null || !Number.isFinite(n)) return '—';
+  return new Intl.NumberFormat('es-CO', {
+    style: 'currency',
+    currency,
+    maximumFractionDigits: currency === 'COP' ? 0 : 2,
+  }).format(n);
+}
+
+export const fmtTime = (d: string | Date) =>
+  new Intl.DateTimeFormat('es-CO', { hour: '2-digit', minute: '2-digit' }).format(new Date(d));
+
+/** Minutos que faltan para una hora (null si ya pasó o no hay dato). */
+export function minutesUntil(d: string | Date | null | undefined): number | null {
+  if (!d) return null;
+  const diff = Math.round((new Date(d).getTime() - Date.now()) / 60000);
+  return diff >= 0 ? diff : 0;
+}
+
+/* ─── Agente con herramientas ─── */
+
+export const AGENT_TOOL_LABELS: Record<string, string> = {
+  ver_menu: 'Ver menú y precios',
+  ver_horarios: 'Horarios y si está abierto',
+  ver_cliente: 'Ficha del cliente',
+  calcular_envio: 'Calcular envío por ubicación',
+  armar_pedido: 'Armar el pedido',
+  confirmar_pedido: 'Confirmar el pedido',
+  estado_pedido: 'Estado del pedido',
+  cancelar_pedido: 'Cancelar pedido',
+  guardar_direccion: 'Guardar direcciones',
+  pasar_a_humano: 'Pasar a una persona',
+};
+
+/** Qué hace cada herramienta, explicado para el dueño del negocio. */
+export const AGENT_TOOL_HELP: Record<string, string> = {
+  ver_menu: 'Consulta los productos activos con su precio para ofrecer y cotizar sin inventar.',
+  ver_horarios: 'Sabe a qué hora atienden, el corte de pedidos y si el negocio está abierto ahora.',
+  ver_cliente: 'Reconoce al cliente: su nombre, direcciones guardadas y últimos pedidos.',
+  calcular_envio: 'Calcula el costo del domicilio y el tiempo de llegada con la ubicación del cliente.',
+  armar_pedido: 'Arma el pedido con precios y total, y se lo muestra al cliente para que lo apruebe.',
+  confirmar_pedido: 'Confirma el pedido solo cuando el cliente dice que sí, y le envía el link de seguimiento.',
+  estado_pedido: 'Responde "¿dónde va mi pedido?" con el estado, el domiciliario y la hora estimada.',
+  cancelar_pedido: 'Cancela pedidos que aún no entraron a cocina; los demás los pasa a una persona.',
+  guardar_direccion: 'Guarda direcciones del cliente (casa, oficina) para que no las repita.',
+  pasar_a_humano: 'Pasa la conversación a tu equipo ante reclamos, casos raros o dudas.',
 };

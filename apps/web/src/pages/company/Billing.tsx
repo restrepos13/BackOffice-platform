@@ -98,15 +98,29 @@ export default function Billing() {
 
         <Card kicker="Consumo · al costo, variable" title="Tu operación">
           <ul className="space-y-2 text-sm">
-            <li className="flex justify-between border-b border-line pb-1.5 text-ink-3">
-              <span>
-                Recursos de IA (informativo)
-                <span className="block text-[11px]">
-                  {fmtNum(summary.consumption.ai.tokens)} tokens · lo pagas directo a DeepInfra con tu llave
+            {summary.consumption.ai.mode === 'PLATFORM' ? (
+              <li className="flex justify-between border-b border-line pb-1.5">
+                <span>
+                  Conversaciones con IA
+                  <span className="block text-[11px] text-ink-3">
+                    {fmtNum(summary.consumption.ai.conversations ?? 0)} este mes
+                    {(summary.consumption.ai.included ?? 0) > 0 && ` · ${fmtNum(summary.consumption.ai.included!)} incluidas`}
+                    {(summary.consumption.ai.extra ?? 0) > 0 && ` · ${fmtNum(summary.consumption.ai.extra!)} adicionales`}
+                  </span>
                 </span>
-              </span>
-              <span className="tabular-nums">{fmtUsd(summary.consumption.ai.costUsd)}</span>
-            </li>
+                <strong>{fmtUsd(summary.consumption.ai.extraChargeUsd ?? 0)}</strong>
+              </li>
+            ) : (
+              <li className="flex justify-between border-b border-line pb-1.5 text-ink-3">
+                <span>
+                  Recursos de IA (informativo)
+                  <span className="block text-[11px]">
+                    {fmtNum(summary.consumption.ai.tokens)} tokens · lo pagas directo a DeepInfra con tu llave
+                  </span>
+                </span>
+                <span className="tabular-nums">{fmtUsd(summary.consumption.ai.costUsd)}</span>
+              </li>
+            )}
             <li className="flex justify-between border-b border-line pb-1.5">
               <span>
                 API de WhatsApp

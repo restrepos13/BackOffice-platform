@@ -1,7 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, Plus, Trash2 } from 'lucide-react';
+import { ArrowLeft, Crosshair, MapPin, Plus, Search, Trash2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import LiveMap from '../../components/LiveMap';
+import { fmtMoney } from '../../lib/format';
 import { toast } from 'sonner';
 import { api } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
@@ -59,6 +61,7 @@ function ProductsTab({ q, companyId, canWrite }: { q: string; companyId: string 
             <div className="min-w-0">
               <p className="text-sm font-semibold">
                 {p.name} <span className="font-normal text-ink-3">· {p.unit}</span>
+                <span className="ml-2 font-normal">{p.price != null ? fmtMoney(p.price) : <span className="text-warn">sin precio</span>}</span>
                 {!p.active && <Badge tone="neutral">Inactivo</Badge>}
               </p>
               <p className="text-xs text-ink-3">
@@ -108,11 +111,13 @@ function ProductModal({ product, areas, companyId, onClose }: {
   const [areaId, setAreaId] = useState(product?.productionAreaId ?? '');
   const [presentations, setPresentations] = useState((product?.presentations ?? []).join(', '));
   const [active, setActive] = useState(product?.active ?? true);
+  const [price, setPrice] = useState(product?.price != null ? String(product.price) : '');
 
   const save = useMutation({
     mutationFn: () => {
       const body = {
         name, category, unit, description, active,
+        price: price.trim() === '' ? null : Number(price),
         productionAreaId: areaId || null,
         presentations: presentations.split(',').map((s) => s.trim()).filter(Boolean),
         ...(companyId ? { companyId } : {}),
@@ -143,6 +148,9 @@ function ProductModal({ product, areas, companyId, onClose }: {
             <Input value={unit} onChange={(e) => setUnit(e.target.value)} placeholder="porción, unidad, bandeja…" />
           </Field>
         </div>
+        <Field label="Precio unitario" hint="Lo cotiza el agente por WhatsApp. Vacío = «precio a confirmar con el equipo»">
+          <Input type="number" min={0} step={100} value={price} onChange={(e) => setPrice(e.target.value)} placeholder="18000" />
+        </Field>
         <Field label="Área de producción por defecto">
           <Select value={areaId ?? ''} onChange={(e) => setAreaId(e.target.value)}>
             <option value="">Sin área (usar reglas)</option>
@@ -312,6 +320,7 @@ function useOrderConfig(companyId: string | null) {
     onSuccess: () => {
       toast.success('Configuración guardada');
       queryClient.invalidateQueries({ queryKey: ['company', companyId] });
+      queryClient.invalidateQueries({ queryKey: ['companies'] }); // menú (p. ej. Domicilios)
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : 'Error'),
   });
@@ -637,11 +646,194 @@ function KnowledgeTab({ companyId, canWrite }: { companyId: string | null; canWr
 
 /* ─── Página ────────────────────────────────────────────────────────── */
 
+/* ─── Domicilios: punto de despacho, cobertura y tarifas ───────────── */
+
+const DELIVERY_DEFAULTS = {
+  enabled: false, origin: null as null | { lat: number; lng: number; address?: string },
+  maxKm: 6, baseFee: 3000, perKm: 1000, minFee: 4000, freeFromSubtotal: '', prepMinutes: 25, avgSpeedKmh: 22,
+};
+
+function DeliveryTab({ companyId, canWrite, q }: { companyId: string | null; canWrite: boolean; q: string }) {
+  const { company, config, isLoading, save } = useOrderConfig(companyId);
+  const [draft, setDraft] = useState<any>(null);
+  const [message, setMessage] = useState('');
+  const [originQuery, setOriginQuery] = useState('');
+  const [testAddress, setTestAddress] = useState('');
+  const [testSubtotal, setTestSubtotal] = useState('40000');
+
+  useEffect(() => {
+    if (!isLoading && draft === null) {
+      const d = { ...DELIVERY_DEFAULTS, ...(config.delivery ?? {}) };
+      setDraft(d);
+      setOriginQuery(d.origin?.address ?? '');
+      setMessage(config.deliveryMessages?.dispatched ?? '');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isLoading]);
+
+  const geocode = useMutation({
+    mutationFn: (address: string) =>
+      api.post<{ lat: number; lng: number; formatted: string }>(withScope('/delivery/geocode', q), { address }),
+    onSuccess: (hit) => {
+      setDraft((d: any) => ({ ...d, origin: { lat: hit.lat, lng: hit.lng, address: originQuery || hit.formatted } }));
+      toast.success('Punto de despacho ubicado');
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : 'Error'),
+  });
+  const quote = useMutation({
+    mutationFn: () =>
+      api.post<any>(withScope('/delivery/quote', q), { address: testAddress, subtotal: Number(testSubtotal) || 0 }),
+    onError: (e) => toast.error(e instanceof Error ? e.message : 'Error'),
+  });
+
+  if (isLoading || !draft) return <Loading />;
+  const set = (patch: Record<string, any>) => setDraft({ ...draft, ...patch });
+  const num = (key: string) => (
+    <Input type="number" min={0} value={draft[key] ?? ''} onChange={(e) => set({ [key]: e.target.value })} />
+  );
+  const currency = company?.currency ?? 'COP';
+
+  const useMyLocation = () => {
+    if (!('geolocation' in navigator)) return toast.error('El navegador no permite ubicación');
+    navigator.geolocation.getCurrentPosition(
+      (pos) => set({ origin: { lat: pos.coords.latitude, lng: pos.coords.longitude, address: originQuery || 'Punto de despacho' } }),
+      () => toast.error('No pudimos leer tu ubicación'),
+      { enableHighAccuracy: true, timeout: 10000 },
+    );
+  };
+
+  const persist = () => {
+    const clean = {
+      enabled: !!draft.enabled,
+      origin: draft.origin ? { ...draft.origin, address: originQuery || draft.origin.address } : null,
+      ...Object.fromEntries(
+        ['maxKm', 'baseFee', 'perKm', 'minFee', 'freeFromSubtotal', 'prepMinutes', 'avgSpeedKmh']
+          .map((k) => [k, draft[k] === '' || draft[k] == null ? undefined : Number(draft[k])]),
+      ),
+    };
+    save.mutate({
+      ...config,
+      delivery: clean,
+      deliveryMessages: { ...(config.deliveryMessages ?? {}), dispatched: message.trim() || undefined },
+    });
+  };
+
+  const points = [
+    ...(draft.origin ? [{ id: 'origin', kind: 'origin' as const, lat: draft.origin.lat, lng: draft.origin.lng, label: 'Punto de despacho' }] : []),
+    ...(quote.data?.point ? [{ id: 'test', kind: 'destination' as const, ...quote.data.point, label: 'Dirección de prueba', active: true }] : []),
+  ];
+
+  return (
+    <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_420px]">
+      <div className="space-y-4">
+        <div className="flex items-center justify-between border-2 border-ink bg-paper px-4 py-3">
+          <div>
+            <p className="text-sm font-semibold">Domicilios activos</p>
+            <p className="text-xs text-ink-3">
+              El agente calcula el envío por la ubicación del cliente y el pedido sale con seguimiento en vivo.
+            </p>
+          </div>
+          <Switch checked={!!draft.enabled} onChange={(v) => set({ enabled: v })} disabled={!canWrite} label="Domicilios activos" />
+        </div>
+
+        <fieldset disabled={!canWrite} className="space-y-4 border-2 border-ink bg-paper p-4">
+          <p className="kicker">Punto de despacho</p>
+          <div className="flex gap-2">
+            <Input
+              value={originQuery}
+              onChange={(e) => setOriginQuery(e.target.value)}
+              placeholder="Dirección del local o la cocina (con barrio y ciudad)"
+            />
+            <Button variant="outline" size="sm" disabled={!originQuery.trim() || geocode.isPending} onClick={() => geocode.mutate(originQuery)}>
+              <Search size={13} /> Ubicar
+            </Button>
+            <Button variant="ghost" size="sm" onClick={useMyLocation} title="Usar mi ubicación actual">
+              <Crosshair size={13} />
+            </Button>
+          </div>
+          {draft.origin ? (
+            <p className="flex items-center gap-1.5 text-xs text-ok">
+              <MapPin size={12} /> Ubicado en {draft.origin.lat.toFixed(5)}, {draft.origin.lng.toFixed(5)}
+            </p>
+          ) : (
+            <p className="text-xs text-warn">Sin ubicar: sin este punto no se puede calcular el envío.</p>
+          )}
+
+          <p className="kicker pt-2">Cobertura y tarifas ({currency})</p>
+          <div className="grid gap-4 md:grid-cols-3">
+            <Field label="Cobertura máxima (km)">{num('maxKm')}</Field>
+            <Field label="Tarifa base">{num('baseFee')}</Field>
+            <Field label="Por kilómetro">{num('perKm')}</Field>
+            <Field label="Envío mínimo">{num('minFee')}</Field>
+            <Field label="Gratis desde (subtotal)" hint="Vacío = nunca gratis">{num('freeFromSubtotal')}</Field>
+            <Field label="Preparación (min)" hint="Se suma al viaje">{num('prepMinutes')}</Field>
+            <Field label="Velocidad promedio (km/h)" hint="Moto en ciudad ≈ 22">{num('avgSpeedKmh')}</Field>
+          </div>
+
+          <Field
+            label="Mensaje «va en camino»"
+            hint="Lo recibe el cliente cuando el domiciliario recoge el pedido. Variables: {{codigo}} {{link}} {{con_domiciliario}} {{empresa}}. Vacío = mensaje estándar."
+          >
+            <Textarea
+              rows={2}
+              value={message}
+              onChange={(e) => setMessage(e.target.value)}
+              placeholder="Tu pedido #{{codigo}} ya va en camino{{con_domiciliario}}. Síguelo en vivo aquí: {{link}}"
+            />
+          </Field>
+        </fieldset>
+        {canWrite && (
+          <Button disabled={save.isPending} onClick={persist}>
+            {save.isPending ? 'Guardando…' : 'Guardar domicilios'}
+          </Button>
+        )}
+      </div>
+
+      <div className="space-y-4">
+        <div className="h-[280px] border-2 border-ink">
+          {points.length ? (
+            <LiveMap points={points} accent={company?.brandColor || '#1a1a1a'} fitKey={`${draft.origin?.lat}-${quote.data?.point?.lat ?? ''}`} />
+          ) : (
+            <div className="flex h-full items-center justify-center bg-bone-2 px-6 text-center text-sm text-ink-3">
+              Ubica el punto de despacho para ver el mapa.
+            </div>
+          )}
+        </div>
+        <div className="space-y-3 border-2 border-ink bg-paper p-4">
+          <p className="kicker">Probar una cotización</p>
+          <p className="text-xs text-ink-3">Usa la configuración guardada, igual que el agente.</p>
+          <Input value={testAddress} onChange={(e) => setTestAddress(e.target.value)} placeholder="Dirección de un cliente" />
+          <div className="flex gap-2">
+            <Input type="number" value={testSubtotal} onChange={(e) => setTestSubtotal(e.target.value)} aria-label="Subtotal del pedido" />
+            <Button size="sm" disabled={!testAddress.trim() || quote.isPending} onClick={() => quote.mutate()}>
+              Cotizar
+            </Button>
+          </div>
+          {quote.data && (
+            <div className="border-2 border-line bg-bone px-3 py-2 text-sm">
+              {quote.data.covered ? (
+                <>
+                  <p><strong>Envío:</strong> {quote.data.fee === 0 ? 'gratis' : fmtMoney(quote.data.fee, currency)}</p>
+                  <p><strong>Distancia:</strong> {quote.data.km} km · <strong>Llega en</strong> ~{quote.data.etaMinutes} min</p>
+                </>
+              ) : (
+                <p className="text-bad">{quote.data.reason}</p>
+              )}
+              {quote.data.resolved && <p className="mt-1 text-xs text-ink-3">{quote.data.resolved}</p>}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function OrdersSettings() {
   const { ready, q, canWrite, companyId: scopedId } = useCompanyScope();
   const { user } = useAuth();
   const navigate = useNavigate();
-  const [tab, setTab] = useState('productos');
+  const [searchParams] = useSearchParams();
+  const [tab, setTab] = useState(searchParams.get('tab') ?? 'productos');
   const companyId = scopedId ?? user?.companyId ?? null;
 
   if (!ready) return <PickCompany />;
@@ -668,6 +860,7 @@ export default function OrdersSettings() {
             { id: 'agenda', label: 'Agenda' },
             { id: 'plantillas', label: 'Recordatorios' },
             { id: 'conocimiento', label: 'Conocimiento' },
+            { id: 'domicilios', label: 'Domicilios' },
           ]}
         />
       </div>
@@ -677,6 +870,7 @@ export default function OrdersSettings() {
       {tab === 'agenda' && <AgendaTab companyId={companyId} canWrite={canWrite} />}
       {tab === 'plantillas' && <TemplatesTab companyId={companyId} canWrite={canWrite} />}
       {tab === 'conocimiento' && <KnowledgeTab companyId={companyId} canWrite={canWrite} />}
+      {tab === 'domicilios' && <DeliveryTab companyId={companyId} canWrite={canWrite} q={q} />}
     </>
   );
 }

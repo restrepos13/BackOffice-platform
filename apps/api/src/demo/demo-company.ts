@@ -11,10 +11,14 @@
  * Acceso demo:
  *   demo@deliciasandinas.co    · Demo-Delicias-2026  (COMPANY_ADMIN)
  *   cocina@deliciasandinas.co  · Demo-Delicias-2026  (COMPANY_AREA)
+ *   andres@deliciasandinas.co  · Demo-Delicias-2026  (COMPANY_COURIER, en ruta)
  * El tour queda SIN ver en cada regeneración (arranca solo en la demo).
  */
 import type { PrismaClient } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
+import { quoteDelivery } from '../common/geo';
+import { newTrackingToken } from '../common/tracking';
+import { AGENT_PRESETS } from '../ai/agent/tools';
 
 /** Slug reservado de la empresa demo (protegido contra borrado). */
 export const DEMO_COMPANY_SLUG = 'delicias-demo';
@@ -22,6 +26,21 @@ export const DEMO_COMPANY_SLUG = 'delicias-demo';
 const PASSWORD = bcrypt.hashSync('Demo-Delicias-2026', 10);
 
 const MODEL = 'meta-llama/Llama-3.3-70B-Instruct';
+
+/** Cocina en Laureles: punto de despacho de los domicilios demo. */
+const KITCHEN = { lat: 6.2446, lng: -75.5958, address: 'Cra 76 # 33-40, Laureles, Medellín' };
+
+const DELIVERY_CONFIG = {
+  enabled: true,
+  origin: KITCHEN,
+  maxKm: 14,
+  baseFee: 4000,
+  perKm: 900,
+  minFee: 5000,
+  freeFromSubtotal: 500000,
+  prepMinutes: 30,
+  avgSpeedKmh: 22,
+};
 
 function at(daysFromNow: number, hour: number, minute = 0): Date {
   const d = new Date();
@@ -40,7 +59,11 @@ function nextBusinessDay(offset: number, hour: number, minute = 0): Date {
 export async function seedDemoCompany(prisma: PrismaClient) {
   console.log('Recreando tenant delicias-demo…');
   const existing = await prisma.company.findUnique({ where: { slug: DEMO_COMPANY_SLUG } });
-  if (existing) await prisma.company.delete({ where: { id: existing.id } }); // cascada
+  if (existing) {
+    // El rastro GPS no cuelga de la empresa por relación: se limpia aparte
+    await prisma.courierPing.deleteMany({ where: { companyId: existing.id } });
+    await prisma.company.delete({ where: { id: existing.id } }); // cascada
+  }
   await prisma.user.deleteMany({ where: { email: { contains: '@deliciasandinas.co' } } });
 
   const growth = await prisma.plan.findUnique({ where: { code: 'growth' } });
@@ -64,7 +87,7 @@ export async function seedDemoCompany(prisma: PrismaClient) {
       brandColor: '#3E5C3A', // verde oliva — identidad propia en correos y PDFs
       notes: 'EMPRESA DEMO para mostrar la plataforma a prospectos. Datos 100% ficticios.',
       modulesJson: JSON.stringify([
-        'inbox', 'contacts', 'orders', 'bots', 'automations', 'analytics', 'billing', 'team', 'marketing',
+        'inbox', 'contacts', 'orders', 'delivery', 'bots', 'automations', 'analytics', 'billing', 'team', 'marketing',
       ]),
       orderConfigJson: JSON.stringify({
         schedule: { days: [1, 2, 3, 4, 5, 6], open: '06:00', close: '17:00' },
@@ -85,6 +108,7 @@ export async function seedDemoCompany(prisma: PrismaClient) {
           { question: '¿Cuál es el pedido mínimo?', answer: '10 unidades por producto para entregas en el Valle de Aburrá.' },
         ],
         dailyReport: { hour: 6, channel: 'PANEL' },
+        delivery: DELIVERY_CONFIG,
       }),
       savingsSalaryUsd: 400,
       agentCapacityPerMonth: 300,
@@ -149,6 +173,81 @@ export async function seedDemoCompany(prisma: PrismaClient) {
     },
   });
 
+  // Segundo asistente: AGENTE con herramientas para domicilios del día
+  const deliveryBot = await prisma.bot.create({
+    data: {
+      companyId: co.id,
+      name: 'Tomás · Domicilios',
+      status: 'ACTIVE',
+      description: 'Agente con herramientas: menú con precios, envío por ubicación, pedidos y seguimiento en vivo.',
+      provider: 'deepinfra',
+      model: MODEL,
+      temperature: 0.4,
+      engineMode: 'AGENT',
+      toolsJson: JSON.stringify(AGENT_PRESETS.domicilios.tools),
+      systemPrompt:
+        'Eres Tomás y atiendes los domicilios de almuerzos de Delicias Andinas en Medellín. ' +
+        'Ayudas a pedir el almuerzo del día: muestras el menú con precios, calculas el domicilio ' +
+        'con la ubicación del cliente, confirmas y compartes el link para seguir el pedido en vivo.',
+      personalityJson: JSON.stringify({
+        tone: 'Paisa cercano y ágil; tuteo',
+        style: 'Mensajes cortos, directo al grano',
+        limits: 'Nunca confirmes sin un sí explícito del cliente',
+        language: 'es-CO',
+      }),
+      welcomeMessage: '¡Hola! Soy Tomás de Delicias Andinas, ¿qué se te antoja hoy?',
+      handoffKeywords: 'queja, reclamo, gerente',
+      replyDelayMinSec: 2,
+      replyDelayMaxSec: 10,
+      typingSimulation: true,
+      salesJson: JSON.stringify({
+        goal: 'Cerrar el pedido del almuerzo en pocos mensajes.',
+        upsell: 'Ofrecer jugo o refrigerio una sola vez si el pedido no lo trae.',
+      }),
+    },
+  });
+  await prisma.integration.create({
+    data: {
+      companyId: co.id,
+      botId: deliveryBot.id,
+      type: 'WHATSAPP',
+      name: 'Línea Domicilios Delicias',
+      status: 'CONNECTED',
+      promptMode: 'INHERIT',
+      configJson: JSON.stringify({ provider: 'TWILIO', sandbox: true }),
+      webhookUrl: 'http://localhost:4001/api/webhooks/delicias-demo/twilio',
+    },
+  });
+
+  /* ─── Domiciliarios ─── */
+  console.log('Domiciliarios…');
+  const andres = await prisma.user.create({
+    data: {
+      email: 'andres@deliciasandinas.co', name: 'Andrés Gómez',
+      role: 'COMPANY_COURIER', jobTitle: 'Domiciliario', companyId: co.id,
+      phone: '+57 315 400 1001', passwordHash: PASSWORD,
+      onShift: true, lastLat: 6.2369, lastLng: -75.5852, lastLocAt: new Date(),
+    },
+  });
+  await prisma.user.create({
+    data: {
+      email: 'luisa@deliciasandinas.co', name: 'Luisa Fernanda Ríos',
+      role: 'COMPANY_COURIER', jobTitle: 'Domiciliaria', companyId: co.id,
+      phone: '+57 315 400 1002', passwordHash: PASSWORD, onShift: false,
+    },
+  });
+  // Rastro GPS de Andrés: de la cocina hacia la Clínica del Prado
+  const trail = [
+    [6.2446, -75.5958], [6.2433, -75.5931], [6.2419, -75.5905], [6.2404, -75.5887],
+    [6.2391, -75.5872], [6.2380, -75.5862], [6.2369, -75.5852],
+  ];
+  await prisma.courierPing.createMany({
+    data: trail.map(([lat, lng], i) => ({
+      companyId: co.id, userId: andres.id, lat, lng, accuracy: 12,
+      createdAt: new Date(Date.now() - (trail.length - i) * 90_000),
+    })),
+  });
+
   /* ─── Áreas ─── */
   console.log('Áreas…');
   const [cocina, , logistica, despacho] = await Promise.all(
@@ -175,14 +274,14 @@ export async function seedDemoCompany(prisma: PrismaClient) {
   /* ─── Catálogo ─── */
   console.log('Catálogo…');
   const productsData = [
-    { name: 'Almuerzo ejecutivo', category: 'Almuerzos', unit: 'porción', presentations: ['Bandeja sellada', 'Buffet x10'], areaId: cocina.id, description: 'Proteína + 2 acompañamientos + ensalada + jugo' },
-    { name: 'Almuerzo vegetariano', category: 'Almuerzos', unit: 'porción', presentations: ['Bandeja sellada'], areaId: cocina.id, description: 'Menú sin proteína animal' },
-    { name: 'Desayuno empresarial', category: 'Desayunos', unit: 'unidad', presentations: ['Caja individual'], areaId: cocina.id, description: 'Sándwich artesanal + fruta + café' },
-    { name: 'Refrigerio AM/PM', category: 'Refrigerios', unit: 'unidad', presentations: ['Caja individual'], areaId: cocina.id, description: 'Producto de panadería + bebida' },
-    { name: 'Estación de café', category: 'Bebidas', unit: 'servicio', presentations: ['Para 25 personas', 'Para 50 personas'], areaId: logistica.id, description: 'Café de origen, aromáticas e insumos' },
-    { name: 'Tabla de quesos y frutas', category: 'Complementos', unit: 'tabla', presentations: ['x15 personas'], areaId: cocina.id, description: 'Quesos madurados + fruta de temporada' },
-    { name: 'Coffee break completo', category: 'Eventos', unit: 'persona', presentations: ['Dulce y salado'], areaId: logistica.id, description: 'Estación dulce/salada con montaje' },
-    { name: 'Cena de gala', category: 'Eventos', unit: 'porción', presentations: ['Servido a la mesa'], areaId: cocina.id, description: 'Menú de tres tiempos para eventos' },
+    { name: 'Almuerzo ejecutivo', category: 'Almuerzos', unit: 'porción', price: 18000, presentations: ['Bandeja sellada', 'Buffet x10'], areaId: cocina.id, description: 'Proteína + 2 acompañamientos + ensalada + jugo' },
+    { name: 'Almuerzo vegetariano', category: 'Almuerzos', unit: 'porción', price: 18000, presentations: ['Bandeja sellada'], areaId: cocina.id, description: 'Menú sin proteína animal' },
+    { name: 'Desayuno empresarial', category: 'Desayunos', unit: 'unidad', price: 14000, presentations: ['Caja individual'], areaId: cocina.id, description: 'Sándwich artesanal + fruta + café' },
+    { name: 'Refrigerio AM/PM', category: 'Refrigerios', unit: 'unidad', price: 7500, presentations: ['Caja individual'], areaId: cocina.id, description: 'Producto de panadería + bebida' },
+    { name: 'Estación de café', category: 'Bebidas', unit: 'servicio', price: 180000, presentations: ['Para 25 personas', 'Para 50 personas'], areaId: logistica.id, description: 'Café de origen, aromáticas e insumos' },
+    { name: 'Tabla de quesos y frutas', category: 'Complementos', unit: 'tabla', price: 95000, presentations: ['x15 personas'], areaId: cocina.id, description: 'Quesos madurados + fruta de temporada' },
+    { name: 'Coffee break completo', category: 'Eventos', unit: 'persona', price: 16000, presentations: ['Dulce y salado'], areaId: logistica.id, description: 'Estación dulce/salada con montaje' },
+    { name: 'Cena de gala', category: 'Eventos', unit: 'porción', price: 65000, presentations: ['Servido a la mesa'], areaId: cocina.id, description: 'Menú de tres tiempos para eventos' },
   ];
   const products: Record<string, any> = {};
   for (const p of productsData) {
@@ -190,7 +289,7 @@ export async function seedDemoCompany(prisma: PrismaClient) {
       data: {
         companyId: co.id, name: p.name, category: p.category, unit: p.unit,
         description: p.description, presentationsJson: JSON.stringify(p.presentations),
-        productionAreaId: p.areaId,
+        productionAreaId: p.areaId, price: p.price,
       },
     });
   }
@@ -198,11 +297,11 @@ export async function seedDemoCompany(prisma: PrismaClient) {
   /* ─── Clientes y contactos ─── */
   console.log('Clientes…');
   const customersData = [
-    { key: 'bancolombia', name: 'Torre Empresarial Milla de Oro', taxId: '900111222-3', notes: 'Comité los lunes: desayuno para 18 personas fijo.', addresses: [{ label: 'Piso 12', address: 'Cra 43A # 1-50, torre 2', city: 'Medellín' }], contact: { name: 'Juliana Restrepo', phone: '+57 310 200 3001' } },
-    { key: 'clinica', name: 'Clínica del Prado', taxId: '900333444-5', notes: 'Requieren 20% de opción vegetariana. Personal asistencial.', addresses: [{ label: 'Sede principal', address: 'Cl 19 # 44-25', city: 'Medellín' }], contact: { name: 'Andrés Cano', phone: '+57 311 200 3002' } },
-    { key: 'coworking', name: 'Céntrico Coworking', taxId: '901555666-7', notes: 'Eventos variables: confirman número final un día antes.', addresses: [{ label: 'Rooftop', address: 'Cra 35 # 8A-40', city: 'Medellín' }], contact: { name: 'Sara Mejía', phone: '+57 312 200 3003' } },
-    { key: 'constructora', name: 'Constructora del Norte', taxId: '901777888-9', notes: 'Facturan a fin de mes. Almuerzan 12:00 en punto.', addresses: [{ label: 'Obra El Poblado', address: 'Cl 10 # 43-15', city: 'Medellín' }, { label: 'Obra Bello', address: 'Autopista Norte km 4', city: 'Bello' }], contact: { name: 'Mauricio Zapata', phone: '+57 313 200 3004' } },
-    { key: 'universidad', name: 'Corporación Universitaria Andes', taxId: '902999000-1', notes: 'Eventos académicos; pago contra factura electrónica.', addresses: [{ label: 'Auditorio principal', address: 'Cl 50 # 40-30', city: 'Medellín' }], contact: { name: 'Diana Torres', phone: '+57 314 200 3005' } },
+    { key: 'bancolombia', name: 'Torre Empresarial Milla de Oro', taxId: '900111222-3', notes: 'Comité los lunes: desayuno para 18 personas fijo.', addresses: [{ label: 'Piso 12', address: 'Cra 43A # 1-50, torre 2', city: 'Medellín', lat: 6.2097, lng: -75.5703 }], contact: { name: 'Juliana Restrepo', phone: '+57 310 200 3001' } },
+    { key: 'clinica', name: 'Clínica del Prado', taxId: '900333444-5', notes: 'Requieren 20% de opción vegetariana. Personal asistencial.', addresses: [{ label: 'Sede principal', address: 'Cl 19 # 44-25', city: 'Medellín', lat: 6.2316, lng: -75.5741 }], contact: { name: 'Andrés Cano', phone: '+57 311 200 3002' } },
+    { key: 'coworking', name: 'Céntrico Coworking', taxId: '901555666-7', notes: 'Eventos variables: confirman número final un día antes.', addresses: [{ label: 'Rooftop', address: 'Cra 35 # 8A-40', city: 'Medellín', lat: 6.2120, lng: -75.5600 }], contact: { name: 'Sara Mejía', phone: '+57 312 200 3003' } },
+    { key: 'constructora', name: 'Constructora del Norte', taxId: '901777888-9', notes: 'Facturan a fin de mes. Almuerzan 12:00 en punto.', addresses: [{ label: 'Obra El Poblado', address: 'Cl 10 # 43-15', city: 'Medellín', lat: 6.2077, lng: -75.5692 }, { label: 'Obra Bello', address: 'Autopista Norte km 4', city: 'Bello', lat: 6.3389, lng: -75.5579 }], contact: { name: 'Mauricio Zapata', phone: '+57 313 200 3004' } },
+    { key: 'universidad', name: 'Corporación Universitaria Andes', taxId: '902999000-1', notes: 'Eventos académicos; pago contra factura electrónica.', addresses: [{ label: 'Auditorio principal', address: 'Cl 50 # 40-30', city: 'Medellín', lat: 6.2480, lng: -75.5560 }], contact: { name: 'Diana Torres', phone: '+57 314 200 3005' } },
   ];
   const customers: Record<string, { customer: any; contact: any }> = {};
   for (const c of customersData) {
@@ -230,6 +329,9 @@ export async function seedDemoCompany(prisma: PrismaClient) {
     corrected?: boolean; observations?: string;
     items: Array<{ product: string; qty: number; spec?: string; ready?: boolean }>;
     feedback?: { rating: number; comment: string; daysAgo: number };
+    /** Domicilio: lo lleva Andrés (y minutos para llegar si va en ruta) */
+    courier?: boolean;
+    etaMinutes?: number;
     history: Array<{ to: string; by?: string; type?: 'IA' | 'USUARIO' | 'SISTEMA'; reason?: string; daysAgo: number; hour: number }>;
   }
   const orders: OrderSpec[] = [
@@ -286,7 +388,7 @@ export async function seedDemoCompany(prisma: PrismaClient) {
     },
     {
       key: 'despachado', customer: 'clinica', status: 'despachado',
-      deliveryAt: at(0, 12, 30), takenBy: 'IA', confidence: 0.95,
+      deliveryAt: at(0, 12, 30), takenBy: 'IA', confidence: 0.95, courier: true, etaMinutes: 9,
       items: [
         { product: 'Almuerzo ejecutivo', qty: 36, ready: true },
         { product: 'Almuerzo vegetariano', qty: 9, ready: true },
@@ -325,6 +427,37 @@ export async function seedDemoCompany(prisma: PrismaClient) {
         { to: 'borrador', type: 'IA', daysAgo: 1, hour: 10 },
         { to: 'confirmado', type: 'IA', reason: 'Cliente confirmó el resumen', daysAgo: 1, hour: 10 },
         { to: 'programado', type: 'SISTEMA', reason: 'Agenda automática', daysAgo: 1, hour: 10 },
+      ],
+    },
+    {
+      key: 'listoDomicilio', customer: 'coworking', status: 'listo',
+      deliveryAt: new Date(Date.now() + 45 * 60e3), takenBy: 'IA', confidence: 0.94, courier: true,
+      observations: 'Domicilio del día: dejar en recepción del rooftop.',
+      items: [
+        { product: 'Almuerzo ejecutivo', qty: 6, ready: true },
+        { product: 'Almuerzo vegetariano', qty: 2, ready: true },
+      ],
+      history: [
+        { to: 'borrador', type: 'IA', daysAgo: 0, hour: 10 },
+        { to: 'confirmado', type: 'IA', reason: 'Cliente confirmó el resumen', daysAgo: 0, hour: 10 },
+        { to: 'programado', type: 'SISTEMA', reason: 'Agenda automática', daysAgo: 0, hour: 10 },
+        { to: 'en_produccion', by: 'Equipo Cocina', type: 'USUARIO', daysAgo: 0, hour: 10 },
+        { to: 'listo', type: 'SISTEMA', reason: 'Todas las áreas listas', daysAgo: 0, hour: 11 },
+      ],
+    },
+    {
+      key: 'entregadoHoy', customer: 'bancolombia', status: 'entregado',
+      deliveryAt: at(0, 9), takenBy: 'IA', confidence: 0.97, courier: true,
+      items: [{ product: 'Refrigerio AM/PM', qty: 12, ready: true }],
+      history: [
+        { to: 'borrador', type: 'IA', daysAgo: 1, hour: 17 },
+        { to: 'confirmado', type: 'IA', reason: 'Cliente confirmó el resumen', daysAgo: 1, hour: 17 },
+        { to: 'programado', type: 'SISTEMA', reason: 'Agenda automática', daysAgo: 1, hour: 17 },
+        { to: 'en_produccion', by: 'Equipo Cocina', type: 'USUARIO', daysAgo: 0, hour: 7 },
+        { to: 'listo', type: 'SISTEMA', daysAgo: 0, hour: 8 },
+        { to: 'empacado', by: 'Andrés Gómez', type: 'USUARIO', daysAgo: 0, hour: 8 },
+        { to: 'despachado', by: 'Andrés Gómez', type: 'USUARIO', daysAgo: 0, hour: 8 },
+        { to: 'entregado', by: 'Andrés Gómez', type: 'USUARIO', reason: 'Entregado', daysAgo: 0, hour: 9 },
       ],
     },
     {
@@ -373,6 +506,10 @@ export async function seedDemoCompany(prisma: PrismaClient) {
     const { customer, contact } = customers[spec.customer];
     const addresses = JSON.parse(customer.addressesJson);
     const address = addresses[spec.addressIdx ?? 0];
+    const subtotal = spec.items.reduce((sum, item) => sum + (products[item.product].price ?? 0) * item.qty, 0);
+    const quote = quoteDelivery(DELIVERY_CONFIG, address, subtotal);
+    const deliveryFee = quote.covered ? quote.fee : null;
+    const lastStep = spec.history[spec.history.length - 1];
     const order = await prisma.order.create({
       data: {
         companyId: co.id,
@@ -386,6 +523,14 @@ export async function seedDemoCompany(prisma: PrismaClient) {
         takenByName: spec.takenBy === 'HUMANO' ? 'Carolina Díaz' : null,
         aiConfidence: spec.takenBy === 'HUMANO' ? null : spec.confidence,
         correctedAfterAi: spec.corrected ?? false,
+        subtotal,
+        deliveryFee,
+        total: subtotal + (deliveryFee ?? 0),
+        distanceKm: quote.km,
+        ...(spec.status !== 'borrador' ? { trackingToken: newTrackingToken() } : {}),
+        ...(spec.courier ? { courierId: andres.id } : {}),
+        ...(spec.etaMinutes ? { etaAt: new Date(Date.now() + spec.etaMinutes * 60e3), dispatchedAt: new Date(Date.now() - 18 * 60e3) } : {}),
+        ...(spec.status === 'entregado' ? { deliveredAt: at(-lastStep.daysAgo, lastStep.hour) } : {}),
         createdAt: at(-spec.history[0].daysAgo, spec.history[0].hour),
       },
     });
@@ -660,7 +805,8 @@ export async function seedDemoCompany(prisma: PrismaClient) {
   EMPRESA DEMO LISTA — Delicias Andinas (delicias-demo)
   demo@deliciasandinas.co    · Demo-Delicias-2026  (admin)
   cocina@deliciasandinas.co  · Demo-Delicias-2026  (área)
-  Datos: 9 pedidos (todos los estados), 4 conversaciones,
+  andres@deliciasandinas.co  · Demo-Delicias-2026  (domiciliario)
+  Datos: 11 pedidos (todos los estados), domicilios en vivo, 4 conversaciones,
   5 clientes, feedback con testimonios, 30 días de consumo,
   marketing, agenda y reporte diario. Todo ficticio.
 ════════════════════════════════════════════════════════`);

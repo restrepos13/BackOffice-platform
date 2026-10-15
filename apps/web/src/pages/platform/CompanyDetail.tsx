@@ -209,6 +209,50 @@ export default function CompanyDetail() {
                 </Field>
               </div>
             </Card>
+            <Card kicker="Quién paga la IA" title="Inteligencia artificial">
+              <div className="space-y-4">
+                <Field
+                  label="Modo"
+                  hint={company.aiBillingMode === 'PLATFORM'
+                    ? 'La IA usa la llave de BackOffice y se cobra por conversación (incluidas del plan + excedente).'
+                    : 'La empresa usa su propia llave de DeepInfra y paga la IA directo al proveedor.'}
+                >
+                  <Select
+                    value={company.aiBillingMode ?? 'BYOK'}
+                    onChange={(e) => update.mutate({ aiBillingMode: e.target.value })}
+                  >
+                    <option value="BYOK">Llave propia del cliente (BYOK)</option>
+                    <option value="PLATFORM">IA de BackOffice (revendida)</option>
+                  </Select>
+                </Field>
+                {company.aiBillingMode === 'PLATFORM' && (
+                  <div className="grid grid-cols-2 gap-4">
+                    <Field label="Tope de gasto mensual (USD)" hint="Costo real; al llegar, la IA pasa a humano. Vacío = sin tope">
+                      <Input
+                        type="number" min={0} step={1}
+                        defaultValue={company.aiSpendCapUsd ?? ''}
+                        onBlur={(e) => update.mutate({ aiSpendCapUsd: e.target.value === '' ? null : Number(e.target.value) })}
+                      />
+                    </Field>
+                    <Field label="Conversaciones incluidas" hint="Vacío = las del plan">
+                      <Input
+                        type="number" min={0} step={50}
+                        defaultValue={company.aiIncludedOverride ?? ''}
+                        onBlur={(e) => update.mutate({ aiIncludedOverride: e.target.value === '' ? null : Number(e.target.value) })}
+                      />
+                    </Field>
+                  </div>
+                )}
+                {company.aiBillingMode !== 'PLATFORM' && (
+                  <p className="flex items-center justify-between text-sm">
+                    <span className="kicker">Llave del cliente</span>
+                    {company.hasDeepinfraKey
+                      ? <Badge tone="ok">Conectada · {company.deepinfraKeyMasked}</Badge>
+                      : <Badge tone="warn">Sin configurar</Badge>}
+                  </p>
+                )}
+              </div>
+            </Card>
             <Card kicker="Panel del cliente" title="Módulos habilitados">
               <div className="space-y-2">
                 {ALL_MODULES.map((module) => (

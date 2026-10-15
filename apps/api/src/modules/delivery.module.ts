@@ -32,7 +32,7 @@ import {
   parseJson,
   scopeCompanyId,
 } from '../common/constants';
-import { isLatLng, roadKm, travelMinutes } from '../common/geo';
+import { geocodeAddress, isLatLng, quoteDelivery, roadKm, travelMinutes } from '../common/geo';
 import { CUSTOMER_STATUS_LABEL, orderCode } from '../common/tracking';
 import { AuditService } from './audit.module';
 import { EventsService } from './events.module';
@@ -184,6 +184,36 @@ export class DeliveryService {
       take: 2000,
     });
     return { courierId, points: pings };
+  }
+
+  /** Ubica una dirección en el mapa (configurar el punto de despacho, probar). */
+  async geocode(user: AuthUser, address: string, companyId?: string) {
+    const scoped = this.resolveCompany(user, companyId);
+    const company = await this.prisma.company.findUniqueOrThrow({ where: { id: scoped } });
+    const text = String(address ?? '').trim().slice(0, 200);
+    if (!text) throw new BadRequestException('Escribe una dirección');
+    const hit = await geocodeAddress(text, { city: company.city, country: company.country });
+    if (!hit) throw new NotFoundException('No encontramos esa dirección en el mapa: prueba con barrio y ciudad');
+    return hit;
+  }
+
+  /** Cotización de prueba con la configuración guardada (lo mismo que hace el agente). */
+  async quote(user: AuthUser, dto: { address?: string; lat?: number; lng?: number; subtotal?: number }, companyId?: string) {
+    const scoped = this.resolveCompany(user, companyId);
+    const company = await this.prisma.company.findUniqueOrThrow({ where: { id: scoped } });
+    const cfg = parseJson<Record<string, any>>(company.orderConfigJson, {});
+    let point = isLatLng({ lat: dto?.lat, lng: dto?.lng }) ? { lat: Number(dto.lat), lng: Number(dto.lng) } : null;
+    let resolved: string | null = null;
+    if (!point && dto?.address) {
+      const hit = await geocodeAddress(String(dto.address).slice(0, 200), { city: company.city, country: company.country });
+      if (hit) { point = { lat: hit.lat, lng: hit.lng }; resolved = hit.formatted; }
+    }
+    if (!point) throw new NotFoundException('No pudimos ubicar esa dirección');
+    return {
+      point,
+      resolved,
+      ...quoteDelivery(cfg.delivery, point, Number(dto?.subtotal) || 0, company.currency ?? 'COP'),
+    };
   }
 
   /* ── Domiciliario (web móvil) ────────────────────────────────────── */
@@ -504,6 +534,20 @@ export class DeliveryController {
   @Roles(ROLES.SUPER_ADMIN, ROLES.DEV, ROLES.COMPANY_ADMIN)
   assign(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: { courierId?: string | null }) {
     return this.delivery.assign(user, id, dto?.courierId || null);
+  }
+
+  @Post('geocode')
+  @Roles(ROLES.SUPER_ADMIN, ROLES.DEV, ROLES.COMPANY_ADMIN)
+  @Throttle({ default: { limit: 20, ttl: 60_000 } })
+  geocode(@CurrentUser() user: AuthUser, @Body() dto: { address: string }, @Query('companyId') companyId?: string) {
+    return this.delivery.geocode(user, dto?.address, companyId);
+  }
+
+  @Post('quote')
+  @Roles(ROLES.SUPER_ADMIN, ROLES.DEV, ROLES.COMPANY_ADMIN, ROLES.COMPANY_VIEWER)
+  @Throttle({ default: { limit: 20, ttl: 60_000 } })
+  quote(@CurrentUser() user: AuthUser, @Body() dto: any, @Query('companyId') companyId?: string) {
+    return this.delivery.quote(user, dto, companyId);
   }
 
   @Get('couriers/:id/trail')

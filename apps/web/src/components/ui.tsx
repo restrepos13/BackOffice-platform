@@ -246,7 +246,7 @@ export function Switch({
       disabled={disabled}
       onClick={() => onChange(!checked)}
       className={clsx(
-        'relative inline-flex h-6 w-11 cursor-pointer items-center border-2 border-ink transition-colors disabled:cursor-not-allowed disabled:opacity-40',
+        'relative inline-flex h-6 w-11 shrink-0 cursor-pointer items-center border-2 border-ink transition-colors disabled:cursor-not-allowed disabled:opacity-40',
         checked ? 'bg-ink' : 'bg-bone',
       )}
     >

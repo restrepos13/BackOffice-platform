@@ -15,13 +15,25 @@ export function orderCode(orderId: string): string {
   return orderId.slice(-6).toUpperCase();
 }
 
-/** URL pública de la web (PUBLIC_WEB_URL → WEBHOOK_BASE_URL → localhost). */
+/**
+ * URL pública de la WEB (donde vive /t/<token>), en este orden:
+ * PUBLIC_WEB_URL (Dev Tools) → WEBHOOK_BASE_URL si apunta a la web (túnel/
+ * dominio, no al puerto del API) → primer CORS_ORIGIN → localhost:5173.
+ */
 export async function publicWebUrl(prisma: any): Promise<string> {
   const rows: Array<{ key: string; value: string }> = await prisma.platformSetting.findMany({
     where: { key: { in: ['PUBLIC_WEB_URL', 'WEBHOOK_BASE_URL'] } },
   });
   const get = (k: string) => rows.find((r) => r.key === k)?.value?.trim();
-  return (get('PUBLIC_WEB_URL') || get('WEBHOOK_BASE_URL') || 'http://localhost:5173').replace(/\/$/, '');
+  const webhook = get('WEBHOOK_BASE_URL');
+  const corsOrigin = (process.env.CORS_ORIGIN ?? '').split(',')[0]?.trim();
+  const candidate =
+    get('PUBLIC_WEB_URL') ||
+    process.env.PUBLIC_WEB_URL?.trim() ||
+    (webhook && !/:4001(\/|$)/.test(webhook) ? webhook : '') ||
+    corsOrigin ||
+    'http://localhost:5173';
+  return candidate.replace(/\/$/, '');
 }
 
 export function trackingUrl(base: string, token: string): string {

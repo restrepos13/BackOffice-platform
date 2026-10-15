@@ -11,8 +11,10 @@ chatbots IA por WhatsApp, automatizaciones y analytics. Un solo panel sirve a
 todas las empresas, con roles distintos por tipo de usuario.
 
 - Landing pública de referencia (el diseño sale de ahí): https://backoffice-alpha-jade.vercel.app/
-- Fase actual: **fase 1 completa** — todo el panel montado y funcional con datos
-  demo. Sin motor de IA real ni webhooks de Meta todavía (fase 2).
+- Estado (oct 2026): plataforma completa con motor IA (pedidos estructurados +
+  **agente con herramientas**), WhatsApp vía Twilio (sandbox por línea), módulo de
+  pedidos, **domicilios en vivo con GPS** y **IA revendida** con topes. Corre local
+  (no hay hosting todavía); repo en github.com/restrepos13/BackOffice-platform.
 
 ## Stack y arranque
 
@@ -25,7 +27,7 @@ apps/web   → React 18 + Vite + Tailwind 4 + TanStack Query + Recharts + sonner
 
 ```bash
 pnpm install
-pnpm db:push      # crea/actualiza la base (SQLite: apps/api/prisma/dev.db)
+pnpm db:push      # sincroniza índices contra MongoDB Atlas
 pnpm db:seed      # datos demo (borra y recrea todo)
 pnpm dev          # api + web en paralelo
 ```
@@ -55,6 +57,8 @@ sincroniza índices contra Atlas y el seed corre directo contra la nube.
 | `DEV` | Desarrollador del equipo | Igual que super admin (pensado para Dev Tools) |
 | `COMPANY_ADMIN` | Dueño de la empresa cliente | Panel de su empresa: todo editable |
 | `COMPANY_VIEWER` | Empleado del cliente | Panel de su empresa: solo lectura (la UI oculta acciones vía `canWrite`) |
+| `COMPANY_AREA` | Área de producción | Solo su vista de área (`/app/area`) |
+| `COMPANY_COURIER` | Domiciliario | Solo su app móvil `/courier`: turno, ruta, GPS, recoger/entregar. Mínimo privilegio igual que área (`RESTRICTED_ROLES` en constants + RolesGuard; sin SSE) |
 
 Aislamiento por tenant: `scopeCompanyId()` en
 `apps/api/src/common/constants.ts` — roles de empresa quedan clavados a su
@@ -139,14 +143,75 @@ la vieja `backoffice2026` ya no existe):
 - `restrepos591@gmail.com` / `danielloaiza609@gmail.com` — DEV (fundadores)
 - `admin@empresa-prueba.com` — COMPANY_ADMIN de la Empresa de Prueba (vacía)
 
-## Pendiente (fase 2)
+## Agente con herramientas, domicilios e IA revendida (oct 2026, rama agentes-domicilios)
 
-1. **Base de datos definitiva** — el usuario dirá cuál; cambio en datasource.
-2. Motor de respuesta IA real + webhooks entrantes de WhatsApp/Meta
-   (los webhookUrl ya existen por línea: `/api/webhooks/<slug>/<canal>`).
-3. Callback OAuth de Meta (`/integrations/meta/callback`) para conectar cuentas.
-4. Llaves reales de Wompi + cuenta SMTP → se cargan en Dev Tools, sin código.
-5. Pasarela internacional (Stripe).
+- **Dos motores por bot** (`Bot.engineMode`): `ORDERS` = extracción estructurada de
+  Nexus (sin cambios) · `AGENT` = agente con herramientas (`src/ai/agent/`). Protocolo
+  JSON-mode agnóstico del proveedor (`protocol.ts`): el modelo devuelve
+  `{"tool_calls":[…]}` o `{"reply":[…],"confidence"}`; bucle de máx. 6 pasos
+  (`agent.service.ts`), salida validada, 2 inválidas → escala, umbral de confianza.
+- **Herramientas** (`tools.ts`, todas tenant-scoped y con params validados, jamás
+  SQL): ver_menu, ver_horarios, ver_cliente, calcular_envio, armar_pedido (reemplaza
+  el borrador; NO inventa productos → `no_encontrados`), confirmar_pedido (exige
+  `cliente_confirmo: true` + agenda + ubicación si hay domicilios → pipeline de
+  confirmación + link de seguimiento), estado_pedido, cancelar_pedido (solo
+  borrador/confirmado/programado), guardar_direccion, pasar_a_humano (siempre).
+  Permisos por bot en `Bot.toolsJson` ([{tool, access}]; las de escritura exigen
+  write) y plantillas `AGENT_PRESETS` (domicilios / pedidos_programados /
+  solo_consultas). `GET /bots/agent-catalog`. UI: BotDetail → pestañas Agente y Probar
+  (simulador con "compartir ubicación").
+- **Ubicación por WhatsApp**: Twilio manda Latitude/Longitude → `Message.type
+  LOCATION` + latitude/longitude (`parseSharedLocation`). El simulador acepta
+  `latitude/longitude`. La bandeja la muestra con link a Maps.
+- **Geo** (`src/common/geo.ts`): haversine × factor de calle (1,35), costo por
+  base + km (redondeo COP a la centena), cobertura, ETA = preparación + viaje.
+  Geocodificación: Google si hay `GOOGLE_MAPS_API_KEY` (recomendado: OSM ubica
+  direcciones colombianas solo a nivel de barrio), si no Nominatim. Config en
+  `orderConfig.delivery` {enabled, origin, maxKm, baseFee, perKm, minFee,
+  freeFromSubtotal, prepMinutes, avgSpeedKmh}; UI: Pedidos → Configuración →
+  Domicilios (ubicar punto de despacho, probar cotización). `Product.price`.
+- **Domicilios** (`delivery.module.ts`): tablero `GET /delivery/board` (página
+  `/app/deliveries`, mapa Leaflet vendorizado en `apps/web/src/vendor/leaflet` con
+  teselas OSM filtradas a la paleta), asignación `POST /delivery/orders/:id/assign`,
+  app del domiciliario `/courier` (turno, `POST /delivery/me/location` cada ~10 s con
+  Wake Lock, recoger → empacado → despachado, entregar con foto opcional). Rastro en
+  `CourierPing` (sin relación a Company: se borra aparte; cron 03:00 depura 7 días y
+  cierra turnos olvidados). Al pasar a `despachado` se avisa al cliente por su chat
+  ("va en camino" + link; fuera de 24 h solo con plantilla `pedido_en_camino`).
+  El nav muestra Domicilios con el módulo `delivery` o `orderConfig.delivery.enabled`.
+- **Seguimiento público** `/t/<token>` (`GET /api/public/track/:token`, @Public,
+  throttled): marca de la empresa, línea de tiempo, mapa con domiciliario, total.
+  Sin ids internos ni teléfonos del equipo; a las 72 h de entregado oculta el
+  detalle. Token aleatorio en `Order.trackingToken` (se crea al programar).
+  Base del link: `PUBLIC_WEB_URL` (Dev Tools) → WEBHOOK_BASE_URL si no es el
+  puerto del API → CORS_ORIGIN → localhost:5173.
+- **IA revendida** (`src/ai/ai-access.ts`, punto ÚNICO para motor/agente/reportes/
+  marketing/devtools): `Company.aiBillingMode` BYOK (llave propia, ahora CIFRADA con
+  MASTER_ENCRYPTION_KEY; texto plano legado se sigue leyendo) o PLATFORM (llave de
+  BackOffice: `DEEPINFRA_API_KEY` en .env o Dev Tools → Settings). `AiUsageEvent`
+  guarda `billedTo` y `conversationId`; "conversación IA" = conversación distinta
+  del mes. Plan: `includedAiConversations` + `extraAiConversationUsd`; empresa:
+  `aiIncludedOverride`, `aiSpendCapUsd` (tope duro: con el tope alcanzado la IA no
+  llama al modelo y escala + audit `ai.cap_reached`). El excedente entra en la
+  factura mensual y en `/billing/summary`. Solo plataforma cambia estos campos.
+- Plantilla de empresa `domicilios` (almuerzos/restaurantes) en company-templates:
+  bot nace en modo AGENT. Demo Delicias Andinas: precios, coordenadas reales de
+  Medellín, 2 domiciliarios (`andres@deliciasandinas.co` en ruta con rastro GPS),
+  segundo asistente "Tomás · Domicilios" en modo agente, pedido en camino con link.
+- Tests: `test/agent.spec.ts` (29). Rutas web con `lazy()` (el link público no
+  baja el panel: index 314 KB vs 1,2 MB antes).
+
+## Pendiente
+
+1. Precios definitivos de los planes (línea Negocios en COP + Pro) — se definen
+   con el usuario; los campos de IA incluida/excedente ya existen en Plan.
+2. Callback OAuth de Meta y motor para el webhook Cloud API (hoy solo Twilio
+   llega al motor).
+3. Hosting 24/7 (Render/Vercel planeado): `/api` relativo en la web, Redis con
+   TLS (`redisConnection` no soporta rediss:// ni usuario), `trust proxy`,
+   `uploads/` a almacenamiento externo.
+4. Llaves reales de Wompi + SMTP; pasarela internacional (Stripe).
+5. Suscripciones semanales de almuerzos (pedidos recurrentes) y ruteo de entregas.
 
 ## Seguridad (ya endurecida — no aflojar)
 

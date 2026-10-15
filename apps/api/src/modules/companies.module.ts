@@ -23,6 +23,7 @@ import {
   parseJson,
 } from '../common/constants';
 import { maskCompanyKey, storeCompanyKey } from '../ai/ai-access';
+import { AGENT_PRESETS } from '../ai/agent/tools';
 import { AuditService } from './audit.module';
 import { COMPANY_TEMPLATES, findTemplate } from './company-templates';
 import { DEMO_COMPANY_SLUG } from '../demo/demo-company';
@@ -288,7 +289,14 @@ export class CompaniesService {
       throw new BadRequestException('La personalidad elegida no existe');
     }
 
-    // Bot inicial: el del wizard, el de la plantilla, o los clonados
+    // Bot inicial: el del wizard, el de la plantilla, o los clonados.
+    // Si la plantilla trae agente con herramientas, el bot nace en ese modo.
+    const engine = template?.bot?.engineMode === 'AGENT'
+      ? {
+          engineMode: 'AGENT',
+          toolsJson: JSON.stringify(AGENT_PRESETS[template.bot.agentPreset ?? 'domicilios']?.tools ?? []),
+        }
+      : {};
     let botId: string | undefined;
     if (dto.bot?.name) {
       const bot = await this.prisma.bot.create({
@@ -300,8 +308,9 @@ export class CompaniesService {
           personalityJson: persona?.personalityJson ?? '{}',
           welcomeMessage: dto.bot.welcomeMessage ?? persona?.welcomeMessage,
           handoffKeywords: persona?.handoffKeywords ?? '',
-          model: dto.bot.model ?? 'claude-sonnet-5',
+          model: dto.bot.model ?? 'meta-llama/Llama-3.3-70B-Instruct', // siempre DeepInfra
           status: 'DRAFT',
+          ...engine,
         },
       });
       botId = bot.id;
@@ -317,6 +326,7 @@ export class CompaniesService {
           handoffKeywords: persona.handoffKeywords ?? '',
           model: 'meta-llama/Llama-3.3-70B-Instruct',
           status: 'DRAFT',
+          ...engine,
         },
       });
       botId = bot.id;
@@ -336,6 +346,7 @@ export class CompaniesService {
           handoffKeywords: template.bot.handoffKeywords ?? '',
           model: 'meta-llama/Llama-3.3-70B-Instruct',
           status: 'DRAFT', // se activa cuando la empresa conecte su llave
+          ...engine,
         },
       });
       botId = bot.id;
@@ -353,6 +364,7 @@ export class CompaniesService {
             replyDelayMinSec: b.replyDelayMinSec, replyDelayMaxSec: b.replyDelayMaxSec,
             typingSimulation: b.typingSimulation, handoffKeywords: b.handoffKeywords,
             model: b.model, temperature: b.temperature,
+            engineMode: b.engineMode, toolsJson: b.toolsJson,
             status: 'DRAFT',
           },
         });
@@ -563,6 +575,7 @@ export class CompaniesService {
         'Esta es la empresa DEMO de ventas y está protegida. Para regenerarla con datos frescos usa Dev Tools → Operación → "Restaurar empresa demo".',
       );
     }
+    await this.prisma.courierPing.deleteMany({ where: { companyId: id } }); // sin relación: aparte
     await this.prisma.company.delete({ where: { id } });
     await this.audit.log({
       actor,

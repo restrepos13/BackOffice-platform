@@ -2,7 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { api } from '../../lib/api';
 import { fmtCop, fmtNum, fmtUsd, timeAgo } from '../../lib/format';
-import type { CompanyAiUsage, MonthlyConsumption } from '../../lib/types';
+import type { AiQuota, CompanyAiUsage, MonthlyConsumption } from '../../lib/types';
 import { Badge, Card, Loading, PageHeader, Select, Stat, Table } from '../../components/ui';
 import { CostSeriesChart } from '../../components/charts';
 import { useAiModels } from '../../components/media';
@@ -103,6 +103,48 @@ function MonthlySection({ q }: { q: string }) {
   );
 }
 
+/** Conversaciones IA del mes vs. incluidas en el plan (modo IA de BackOffice). */
+function QuotaBanner({ quota }: { quota: AiQuota }) {
+  const pct = quota.included > 0 ? Math.min(100, Math.round((quota.conversations / quota.included) * 100)) : null;
+  const over = quota.extra > 0;
+  return (
+    <section className="mb-4 border-2 border-ink bg-paper px-5 py-4">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <p className="kicker">Conversaciones con IA · {quota.period}</p>
+          <p className="display mt-1 text-4xl">
+            {fmtNum(quota.conversations)}
+            {quota.included > 0 && <span className="text-ink-3"> / {fmtNum(quota.included)}</span>}
+          </p>
+          <p className="mt-1 text-xs text-ink-3">
+            {quota.included > 0 ? 'incluidas en tu plan este mes' : 'conversaciones atendidas por la IA este mes'}
+          </p>
+        </div>
+        {over && (
+          <div className="text-right">
+            <Badge tone="warn">{fmtNum(quota.extra)} adicionales</Badge>
+            {quota.extraChargeUsd > 0 && (
+              <p className="mt-1 text-xs text-ink-2">
+                {fmtUsd(quota.extraChargeUsd)} en la próxima factura ({fmtUsd(quota.extraPriceUsd)} c/u)
+              </p>
+            )}
+          </div>
+        )}
+      </div>
+      {pct != null && (
+        <div className="mt-3 h-2.5 border-2 border-ink bg-bone" role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100}>
+          <div className={over ? 'h-full bg-warn' : 'h-full bg-ink'} style={{ width: `${pct}%` }} />
+        </div>
+      )}
+      {quota.capReached && (
+        <p className="mt-3 text-sm font-semibold text-bad">
+          Se alcanzó el tope de gasto del mes: la IA pasa las conversaciones al equipo hasta que se amplíe.
+        </p>
+      )}
+    </section>
+  );
+}
+
 export default function Usage() {
   const { ready, q } = useCompanyScope();
   const [days, setDays] = useState(30);
@@ -124,11 +166,12 @@ export default function Usage() {
   if (!ready) return <PickCompany />;
   if (isLoading || !data) return <Loading label="Calculando consumo de IA…" />;
   const { kpis } = data;
+  const platformAi = data.aiBillingMode === 'PLATFORM';
 
   return (
     <>
       <PageHeader
-        kicker="BYOK · pagado directo a DeepInfra con tu llave"
+        kicker={platformAi ? 'IA de BackOffice · incluida en tu plan' : 'BYOK · pagado directo a DeepInfra con tu llave'}
         title="Consumo"
         accent="IA."
         actions={
@@ -138,7 +181,9 @@ export default function Usage() {
         }
       />
 
-      {!data.hasDeepinfraKey && (
+      {platformAi && data.quota && <QuotaBanner quota={data.quota} />}
+
+      {!platformAi && !data.hasDeepinfraKey && (
         <div className="mb-4 flex flex-wrap items-center justify-between gap-2 border-2 border-warn bg-warn-soft px-4 py-2.5">
           <p className="text-sm text-warn">
             <strong>Sin llave de DeepInfra.</strong> Tu IA no podrá responder hasta
@@ -243,7 +288,10 @@ export default function Usage() {
       <p className="mt-4 text-xs text-ink-3">
         Los costos usan los precios declarados del catálogo (
         <Link to="/app/billing" className="underline">Facturación → Costos de los modelos IA</Link>
-        ). Este gasto te lo cobra DeepInfra directamente con tu llave — BackOffice no le gana nada.
+        ).{' '}
+        {platformAi
+          ? 'Con la IA de BackOffice pagas por conversación: las incluidas en tu plan y, si te pasas, el excedente en la factura del mes.'
+          : 'Este gasto te lo cobra DeepInfra directamente con tu llave — BackOffice no le gana nada.'}
       </p>
     </>
   );

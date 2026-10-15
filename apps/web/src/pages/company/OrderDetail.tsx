@@ -1,16 +1,16 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { clsx } from 'clsx';
 import {
-  ArrowLeft, Bot, Check, MapPin, MessageSquare, Pencil, Star, UserRound,
+  ArrowLeft, Bike, Bot, Check, Copy, ExternalLink, Image as ImageIcon, MapPin, MessageSquare, Pencil, Star, UserRound,
 } from 'lucide-react';
 import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
-import { api, openPdf } from '../../lib/api';
+import { api, getToken, openPdf } from '../../lib/api';
 import {
-  ORDER_STATUS_LABELS, REMINDER_STATUS_LABELS, fmtDateTime, orderStatusTone,
+  ORDER_STATUS_LABELS, REMINDER_STATUS_LABELS, fmtDateTime, fmtMoney, fmtTime, minutesUntil, orderStatusTone,
 } from '../../lib/format';
-import type { Order, Product } from '../../lib/types';
+import type { Order, Product, UserRow } from '../../lib/types';
 import {
   Badge, Button, Field, Input, Loading, Modal, PageHeader, Select, Textarea,
 } from '../../components/ui';
@@ -169,6 +169,101 @@ function EditModal({
         </Button>
       </div>
     </Modal>
+  );
+}
+
+/* ─── Domicilio: seguimiento público, domiciliario, totales y prueba ─── */
+
+function DeliveryCard({ order, q, canWrite }: { order: Order; q: string; canWrite: boolean }) {
+  const queryClient = useQueryClient();
+  const { data: users } = useQuery({
+    queryKey: ['users', q],
+    queryFn: () => api.get<UserRow[]>(withScope('/users', q)),
+    enabled: canWrite,
+  });
+  const couriers = (users ?? []).filter((u) => u.role === 'COMPANY_COURIER' && u.active);
+  const assign = useMutation({
+    mutationFn: (courierId: string | null) =>
+      api.post(withScope(`/delivery/orders/${order.id}/assign`, q), { courierId }),
+    onSuccess: () => {
+      toast.success('Domiciliario actualizado');
+      queryClient.invalidateQueries({ queryKey: ['order', order.id] });
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : 'Error'),
+  });
+  const openProof = async () => {
+    const res = await fetch(`/api/delivery/orders/${order.id}/proof${q ? `?${q}` : ''}`, {
+      headers: { Authorization: `Bearer ${getToken()}` },
+    });
+    if (!res.ok) return toast.error('No se pudo abrir la foto');
+    const url = URL.createObjectURL(await res.blob());
+    window.open(url, '_blank', 'noopener');
+    setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  };
+  const eta = minutesUntil(order.etaAt);
+  const closed = ['entregado', 'cancelado'].includes(order.status);
+  const hasMoney = order.total != null || order.subtotal != null;
+  if (!order.trackingUrl && !order.courierId && !hasMoney && couriers.length === 0) return null;
+
+  return (
+    <section className="border-2 border-ink bg-paper p-5">
+      <p className="kicker mb-3 flex items-center gap-1.5"><Bike size={12} /> Domicilio</p>
+      {hasMoney && (
+        <dl className="mb-3 space-y-1 text-sm">
+          {order.subtotal != null && <div className="flex justify-between"><dt className="text-ink-3">Subtotal</dt><dd>{fmtMoney(order.subtotal)}</dd></div>}
+          {order.deliveryFee != null && (
+            <div className="flex justify-between">
+              <dt className="text-ink-3">Envío{order.distanceKm != null ? ` · ${order.distanceKm} km` : ''}</dt>
+              <dd>{order.deliveryFee === 0 ? 'Gratis' : fmtMoney(order.deliveryFee)}</dd>
+            </div>
+          )}
+          {order.total != null && <div className="flex justify-between font-semibold"><dt>Total</dt><dd>{fmtMoney(order.total)}</dd></div>}
+        </dl>
+      )}
+      {canWrite && !closed && (
+        <Field label="Domiciliario">
+          <Select value={order.courierId ?? ''} disabled={assign.isPending} onChange={(e) => assign.mutate(e.target.value || null)}>
+            <option value="">Sin asignar</option>
+            {couriers.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </Select>
+        </Field>
+      )}
+      {order.courier && (
+        <p className="mt-2 text-sm">
+          <strong>{order.courier.name}</strong>
+          <span className="text-ink-3"> · {order.courier.onShift ? 'en turno' : 'fuera de turno'}</span>
+        </p>
+      )}
+      {order.status === 'despachado' && (
+        <p className="mt-1 text-sm">
+          Salió {order.dispatchedAt ? `a las ${fmtTime(order.dispatchedAt)}` : ''}
+          {eta != null && <> · <strong>llega en ~{eta} min</strong></>}
+        </p>
+      )}
+      {order.deliveredAt && <p className="mt-1 text-sm text-ok">Entregado a las {fmtTime(order.deliveredAt)}</p>}
+      {order.hasDeliveryProof && (
+        <Button size="sm" variant="outline" className="mt-2" onClick={openProof}>
+          <ImageIcon size={12} /> Foto de la entrega
+        </Button>
+      )}
+      {order.trackingUrl && (
+        <div className="mt-3 border-t-2 border-line pt-3">
+          <p className="kicker mb-1">Seguimiento del cliente</p>
+          <div className="flex gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => navigator.clipboard.writeText(order.trackingUrl!).then(() => toast.success('Link copiado'))}
+            >
+              <Copy size={12} /> Copiar link
+            </Button>
+            <a href={order.trackingUrl} target="_blank" rel="noopener noreferrer">
+              <Button size="sm" variant="ghost"><ExternalLink size={12} /> Ver como cliente</Button>
+            </a>
+          </div>
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -396,6 +491,8 @@ export default function OrderDetail() {
               </div>
             </section>
           )}
+
+          <DeliveryCard order={order} q={q} canWrite={canWrite} />
 
           <section className="border-2 border-ink bg-paper p-5">
             <p className="kicker mb-2">Cliente</p>

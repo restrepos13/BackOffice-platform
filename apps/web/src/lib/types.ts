@@ -3,7 +3,8 @@ export type Role =
   | 'DEV'
   | 'COMPANY_ADMIN'
   | 'COMPANY_VIEWER'
-  | 'COMPANY_AREA';
+  | 'COMPANY_AREA'
+  | 'COMPANY_COURIER';
 
 export interface AuthUser {
   id: string;
@@ -82,6 +83,9 @@ export interface Plan {
   highlight: boolean;
   isCustom: boolean;
   active: boolean;
+  /** IA de BackOffice: conversaciones incluidas al mes y precio del excedente (USD) */
+  includedAiConversations?: number;
+  extraAiConversationUsd?: number;
   _count?: { companies: number };
 }
 
@@ -112,6 +116,11 @@ export interface Company {
   /** BYOK DeepInfra: la llave nunca viaja completa */
   hasDeepinfraKey: boolean;
   deepinfraKeyMasked?: string | null;
+  /** Quién paga la IA: llave propia (BYOK) o la de BackOffice (PLATFORM) */
+  aiBillingMode?: 'BYOK' | 'PLATFORM';
+  aiSpendCapUsd?: number | null;
+  aiIncludedOverride?: number | null;
+  logoUrl?: string | null;
   /** Parámetros del Reporte a Gerencia */
   savingsSalaryUsd: number;
   agentCapacityPerMonth: number;
@@ -158,6 +167,9 @@ export interface Bot {
   typingSimulation: boolean;
   /** Habilidades de venta: {goal, style, catalog, upsell, objections} */
   sales: Record<string, string>;
+  /** ORDERS = pedidos estructurados (Nexus) · AGENT = agente con herramientas */
+  engineMode?: 'ORDERS' | 'AGENT';
+  tools?: AgentToolGrant[];
   integrations?: Integration[];
   _count?: { conversations: number };
   createdAt: string;
@@ -269,8 +281,11 @@ export interface Message {
   author: 'CONTACT' | 'BOT' | 'AGENT';
   authorName?: string | null;
   content: string;
-  type?: 'TEXT' | 'AUDIO' | 'IMAGE' | 'DOCUMENT';
+  type?: 'TEXT' | 'AUDIO' | 'IMAGE' | 'DOCUMENT' | 'LOCATION';
   fileName?: string | null;
+  /** Ubicación compartida por WhatsApp */
+  latitude?: number | null;
+  longitude?: number | null;
   transcription?: string | null;
   deliveryStatus?: 'QUEUED' | 'SENT' | 'DELIVERED' | 'READ' | 'FAILED' | null;
   metaCategory?: string | null;
@@ -307,6 +322,8 @@ export interface Product {
   category?: string | null;
   unit: string;
   presentations: string[];
+  /** Precio unitario (moneda de la empresa). Vacío = "a confirmar" */
+  price?: number | null;
   productionAreaId?: string | null;
   productionArea?: { id: string; name: string } | null;
   active: boolean;
@@ -392,6 +409,22 @@ export interface Order {
   statusHistory?: OrderStatusHistoryRow[];
   reminders?: Reminder[];
   feedback?: { rating: number; comment?: string | null } | null;
+  /** Domicilios */
+  code?: string;
+  trackingUrl?: string | null;
+  courierId?: string | null;
+  courier?: {
+    id: string; name: string; phone?: string | null; onShift: boolean;
+    lastLat?: number | null; lastLng?: number | null; lastLocAt?: string | null;
+  } | null;
+  subtotal?: number | null;
+  deliveryFee?: number | null;
+  total?: number | null;
+  distanceKm?: number | null;
+  dispatchedAt?: string | null;
+  deliveredAt?: string | null;
+  etaAt?: string | null;
+  hasDeliveryProof?: boolean;
   createdAt: string;
 }
 
@@ -580,7 +613,12 @@ export interface BillingSummary {
   company: { id: string; name: string; status: string };
   plan: { name: string; code: string; priceMonthly: number } | null;
   consumption: {
-    ai: { costUsd: number; tokens: number };
+    ai: {
+      costUsd: number; tokens: number;
+      directBilled?: boolean; mode?: 'BYOK' | 'PLATFORM';
+      conversations?: number; included?: number; extra?: number;
+      extraPriceUsd?: number; extraChargeUsd?: number;
+    };
     whatsapp: { costUsd: number; conversations: number };
     storage: { costUsd: number; mb: number };
     totalUsd: number;
@@ -709,6 +747,8 @@ export interface AiUsageKpis {
 export interface CompanyAiUsage {
   kpis: AiUsageKpis;
   hasDeepinfraKey: boolean;
+  aiBillingMode?: 'BYOK' | 'PLATFORM';
+  quota?: AiQuota | null;
   series: { date: string; costUsd: number; inputTokens: number; outputTokens: number; events: number }[];
   byModel: { model: string; costUsd: number; tokens: number; events: number }[];
   byLine: { integrationId: string | null; name: string; costUsd: number; tokens: number; events: number }[];
@@ -749,4 +789,90 @@ export interface ApiKeyRow {
   revokedAt?: string | null;
   createdAt: string;
   secret?: string;
+}
+
+/* ─── Agente con herramientas ─────────────────────────────────────── */
+
+export type ToolAccess = 'read' | 'write';
+
+export interface AgentToolGrant {
+  tool: string;
+  access: ToolAccess;
+}
+
+export interface AgentCatalog {
+  tools: Array<{ name: string; access: ToolAccess; description: string }>;
+  presets: Array<{ key: string; label: string; description: string; tools: AgentToolGrant[] }>;
+}
+
+/* ─── Domicilios ───────────────────────────────────────────────────── */
+
+export interface DeliveryDestination {
+  label: string | null;
+  address: string | null;
+  instructions: string | null;
+  lat: number | null;
+  lng: number | null;
+}
+
+export interface DeliveryBoard {
+  origin: { lat: number; lng: number; address?: string } | null;
+  deliveryEnabled: boolean;
+  couriers: Array<{
+    id: string; name: string; phone?: string | null; onShift: boolean;
+    lastLat: number | null; lastLng: number | null; lastLocAt: string | null;
+    activeOrders: number;
+  }>;
+  orders: Array<{
+    id: string; code: string; status: string; deliveryAt: string; etaAt: string | null;
+    dispatchedAt: string | null; deliveredAt: string | null; courierId: string | null;
+    customer: string; phone: string | null; total: number | null; distanceKm: number | null;
+    items: number; destination: DeliveryDestination;
+  }>;
+}
+
+export interface CourierRoute {
+  company: { name: string; brandColor?: string | null; logoUrl?: string | null; currency?: string };
+  courier: { name: string; onShift: boolean; lastLocAt: string | null };
+  origin: { lat: number; lng: number; address?: string } | null;
+  stops: Array<{
+    id: string; code: string; status: string; deliveryAt: string; etaAt: string | null;
+    customer: string; phone: string | null; total: number | null; observations?: string | null;
+    items: Array<{ productName: string; quantity: number; presentation?: string | null }>;
+    destination: DeliveryDestination;
+  }>;
+}
+
+export interface PublicTracking {
+  company: { name: string; logoUrl?: string | null; brandColor?: string | null; whatsapp?: string | null; currency?: string };
+  order: {
+    code: string; status: string; statusLabel: string; cancelled: boolean; needsReview: boolean;
+    deliveryAt: string; etaAt: string | null; deliveredAt: string | null;
+    items: Array<{ productName: string; quantity: number; presentation?: string | null }>;
+    subtotal: number | null; deliveryFee: number | null; total: number | null;
+    address: string | null;
+    timeline: Array<{ key: string; label: string; done: boolean; at: string | null }>;
+    rated: boolean;
+  };
+  map: {
+    destination: { lat: number; lng: number } | null;
+    origin: { lat: number; lng: number } | null;
+    courier: { lat: number; lng: number; updatedAt: string } | null;
+  } | null;
+  courier: { name: string } | null;
+  expired: boolean;
+}
+
+export interface AiQuota {
+  mode: 'BYOK' | 'PLATFORM';
+  period: string;
+  conversations: number;
+  included: number;
+  extra: number;
+  extraPriceUsd: number;
+  extraChargeUsd: number;
+  spendUsd: number;
+  capUsd: number | null;
+  capPct: number | null;
+  capReached: boolean;
 }
