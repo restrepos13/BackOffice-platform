@@ -42,6 +42,8 @@ export class PlansService {
         maxWorkspaces: dto.maxWorkspaces ?? 1,
         maxUsers: dto.maxUsers ?? 5,
         featuresJson: JSON.stringify(dto.features ?? []),
+        includedAiConversations: Math.max(0, Math.round(Number(dto.includedAiConversations ?? 0))),
+        extraAiConversationUsd: Math.max(0, Number(dto.extraAiConversationUsd ?? 0)),
         highlight: !!dto.highlight,
         isCustom: !!dto.isCustom,
       },
@@ -65,6 +67,12 @@ export class PlansService {
         maxBots: dto.maxBots,
         maxWorkspaces: dto.maxWorkspaces,
         maxUsers: dto.maxUsers,
+        ...(dto.includedAiConversations != null
+          ? { includedAiConversations: Math.max(0, Math.round(Number(dto.includedAiConversations))) }
+          : {}),
+        ...(dto.extraAiConversationUsd != null
+          ? { extraAiConversationUsd: Math.max(0, Number(dto.extraAiConversationUsd)) }
+          : {}),
         highlight: dto.highlight,
         active: dto.active,
         ...(dto.features ? { featuresJson: JSON.stringify(dto.features) } : {}),

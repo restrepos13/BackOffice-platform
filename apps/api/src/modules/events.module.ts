@@ -15,7 +15,7 @@ import { SkipThrottle } from '@nestjs/throttler';
 import { EventEmitter } from 'events';
 import type { Request, Response } from 'express';
 import { CurrentUser, Public } from '../auth/decorators';
-import { AuthUser, isPlatformRole } from '../common/constants';
+import { AuthUser, RESTRICTED_ROLES, isPlatformRole } from '../common/constants';
 
 /**
  * Tiempo real del panel vía SSE (Server-Sent Events).
@@ -88,8 +88,8 @@ export class EventsController {
       res.status(401).end();
       return;
     }
-    // Mínimo privilegio: el rol de área no escucha los eventos de la empresa
-    if (user.role === 'COMPANY_AREA') {
+    // Mínimo privilegio: área y domiciliario no escuchan los eventos de la empresa
+    if (RESTRICTED_ROLES.includes(user.role)) {
       res.status(403).end();
       return;
     }

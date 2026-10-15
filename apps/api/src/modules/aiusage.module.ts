@@ -7,6 +7,7 @@ import {
   Query,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { computeAiQuota } from '../ai/ai-access';
 import { CurrentUser, Roles } from '../auth/decorators';
 import { AuthUser, ROLES, scopeCompanyId } from '../common/constants';
 
@@ -107,7 +108,10 @@ export class AiUsageService {
       this.monthProjection(scoped),
       this.prisma.company.findUnique({
         where: { id: scoped },
-        select: { deepinfraApiKey: true },
+        select: {
+          id: true, deepinfraApiKey: true, planId: true,
+          aiBillingMode: true, aiSpendCapUsd: true, aiIncludedOverride: true,
+        },
       }),
       this.prisma.integration.findMany({
         where: { companyId: scoped, type: 'WHATSAPP' },
@@ -165,6 +169,9 @@ export class AiUsageService {
         ...projection,
       },
       hasDeepinfraKey: !!company?.deepinfraApiKey,
+      // Quién paga la IA y cómo va el mes (incluidas, excedente, tope)
+      aiBillingMode: company?.aiBillingMode ?? 'BYOK',
+      quota: company ? await computeAiQuota(this.prisma, company) : null,
       series: [...byDay.values()],
       byModel: [...byModel.values()].sort((a, b) => b.costUsd - a.costUsd),
       byLine: [...byLine.values()]
@@ -285,7 +292,7 @@ export class AiUsageService {
     const [events, companies, projection] = await Promise.all([
       this.fetchEvents({ days, companyId: q.companyId || undefined }),
       this.prisma.company.findMany({
-        select: { id: true, name: true, deepinfraApiKey: true, status: true },
+        select: { id: true, name: true, deepinfraApiKey: true, status: true, aiBillingMode: true },
       }),
       this.monthProjection(q.companyId || undefined),
     ]);
@@ -329,7 +336,8 @@ export class AiUsageService {
       kpis: {
         costRange: round2(totalCost),
         events: events.length,
-        companiesWithKey: companies.filter((c) => !!c.deepinfraApiKey).length,
+        companiesWithKey: companies.filter((c) => !!c.deepinfraApiKey || c.aiBillingMode === 'PLATFORM').length,
+        companiesOnPlatformAi: companies.filter((c) => c.aiBillingMode === 'PLATFORM').length,
         companies: companies.length,
         ...projection,
       },
@@ -342,7 +350,8 @@ export class AiUsageService {
             ...r,
             name: c?.name ?? '—',
             status: c?.status ?? '—',
-            hasKey: !!c?.deepinfraApiKey,
+            hasKey: !!c?.deepinfraApiKey || c?.aiBillingMode === 'PLATFORM',
+            aiBillingMode: c?.aiBillingMode ?? 'BYOK',
             costMonth: round2(costMonth),
             projectedMonth: round2((costMonth / now.getDate()) * daysInMonth),
           };

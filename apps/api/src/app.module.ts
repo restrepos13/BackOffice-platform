@@ -34,6 +34,7 @@ import { OrdersModule } from './modules/orders.module';
 import { CatalogModule } from './modules/catalog.module';
 import { EventsModule } from './modules/events.module';
 import { ReportsModule } from './modules/reports.module';
+import { DeliveryModule } from './modules/delivery.module';
 import { MarketingModule } from './modules/marketing.module';
 import { ScheduleModule } from '@nestjs/schedule';
 
@@ -73,6 +74,7 @@ import { ScheduleModule } from '@nestjs/schedule';
     CatalogModule,
     EventsModule,
     ReportsModule,
+    DeliveryModule,
     MarketingModule,
   ],
   providers: [

@@ -85,6 +85,7 @@ export function createMockPrisma() {
     plan: [] as Doc[],
     appointment: [] as Doc[],
     followUp: [] as Doc[],
+    courierPing: [] as Doc[],
   };
 
   // Filtros por relación (where: { conversation: {...} }) — resueltos por FK
@@ -94,6 +95,7 @@ export function createMockPrisma() {
     feedback: [{ key: 'order', fk: 'orderId', collection: 'order' }],
   };
 
+  const name_isOrder = (doc: Doc) => db.order.includes(doc);
   const attach = (doc: Doc, include?: Doc): Doc => {
     if (!include) return { ...doc }; // snapshot, como Prisma real
     const out = { ...doc };
@@ -113,6 +115,15 @@ export function createMockPrisma() {
     }
     if (include.items) {
       out.items = db.orderItem.filter((i) => i.orderId === doc.id);
+    }
+    if (include.statusHistory) {
+      out.statusHistory = sort(
+        db.orderStatusHistory.filter((h) => h.orderId === doc.id),
+        { createdAt: 'asc' },
+      );
+    }
+    if (include.feedback && name_isOrder(doc)) {
+      out.feedback = db.feedback.find((f) => f.orderId === doc.id) ?? null;
     }
     if (include.customer && doc.customerId) {
       out.customer = db.customer.find((c) => c.id === doc.customerId) ?? null;
@@ -270,6 +281,7 @@ export function createMockPrisma() {
     plan: model('plan'),
     appointment: model('appointment', { status: 'SCHEDULED', source: 'MANUAL' }),
     followUp: model('followUp', { status: 'PENDING' }),
+    courierPing: model('courierPing'),
   };
 
   return { prisma, db };

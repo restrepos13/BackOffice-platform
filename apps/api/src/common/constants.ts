@@ -5,7 +5,12 @@ export const ROLES = {
   COMPANY_VIEWER: 'COMPANY_VIEWER',
   /** Usuario de un área de producción: solo ve SUS ítems (User.productionAreaId). */
   COMPANY_AREA: 'COMPANY_AREA',
+  /** Domiciliario: solo su ruta del día, su turno y su GPS. */
+  COMPANY_COURIER: 'COMPANY_COURIER',
 } as const;
+
+/** Roles de mínimo privilegio: solo entran a endpoints que los nombran en @Roles. */
+export const RESTRICTED_ROLES: Role[] = [ROLES.COMPANY_AREA, ROLES.COMPANY_COURIER];
 
 export type Role = (typeof ROLES)[keyof typeof ROLES];
 

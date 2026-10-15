@@ -22,6 +22,7 @@ import {
   isPlatformRole,
   parseJson,
 } from '../common/constants';
+import { maskCompanyKey, storeCompanyKey } from '../ai/ai-access';
 import { AuditService } from './audit.module';
 import { COMPANY_TEMPLATES, findTemplate } from './company-templates';
 import { DEMO_COMPANY_SLUG } from '../demo/demo-company';
@@ -135,9 +136,7 @@ export class CompaniesService {
       limits: parseJson<Record<string, number>>(company.limitsJson, {}),
       // La llave de DeepInfra jamás sale completa del API
       hasDeepinfraKey: !!deepinfraApiKey,
-      deepinfraKeyMasked: deepinfraApiKey
-        ? `••••${String(deepinfraApiKey).slice(-4)}`
-        : null,
+      deepinfraKeyMasked: maskCompanyKey(deepinfraApiKey),
       orderConfig: parseJson<Record<string, any>>(company.orderConfigJson, {}),
       waTemplates: parseJson<any[]>(company.waTemplatesJson, []),
     };
@@ -490,7 +489,11 @@ export class CompaniesService {
       throw new ForbiddenException();
     }
     // Campos que un admin de empresa puede tocar vs. plataforma
-    const platformOnly = ['planId', 'status', 'modules', 'limits', 'slug'];
+    const platformOnly = [
+      'planId', 'status', 'modules', 'limits', 'slug',
+      // Quién paga la IA y cuánto se permite gastar lo decide BackOffice
+      'aiBillingMode', 'aiSpendCapUsd', 'aiIncludedOverride',
+    ];
     if (!isPlatformRole(actor.role)) {
       for (const key of platformOnly) {
         if (key in dto) throw new ForbiddenException(`Solo plataforma puede cambiar ${key}`);
@@ -515,7 +518,16 @@ export class CompaniesService {
         status: dto.status,
         // BYOK: la empresa configura su propia llave de DeepInfra
         ...(dto.deepinfraApiKey !== undefined
-          ? { deepinfraApiKey: dto.deepinfraApiKey || null }
+          ? { deepinfraApiKey: storeCompanyKey(dto.deepinfraApiKey) }
+          : {}),
+        ...(dto.aiBillingMode !== undefined
+          ? { aiBillingMode: dto.aiBillingMode === 'PLATFORM' ? 'PLATFORM' : 'BYOK' }
+          : {}),
+        ...(dto.aiSpendCapUsd !== undefined
+          ? { aiSpendCapUsd: dto.aiSpendCapUsd === null || dto.aiSpendCapUsd === '' ? null : Math.max(0, Number(dto.aiSpendCapUsd)) }
+          : {}),
+        ...(dto.aiIncludedOverride !== undefined
+          ? { aiIncludedOverride: dto.aiIncludedOverride === null || dto.aiIncludedOverride === '' ? null : Math.max(0, Math.round(Number(dto.aiIncludedOverride))) }
           : {}),
         // Parámetros del Reporte a Gerencia (ahorro estimado)
         ...(dto.savingsSalaryUsd != null

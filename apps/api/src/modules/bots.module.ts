@@ -13,6 +13,7 @@ import {
   Query,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { AGENT_PRESETS, AGENT_TOOLS, sanitizeToolsConfig } from '../ai/agent/tools';
 import { CurrentUser, Roles } from '../auth/decorators';
 import {
   AuthUser,
@@ -35,6 +36,19 @@ export class BotsService {
       ...bot,
       personality: parseJson<Record<string, string>>(bot.personalityJson, {}),
       sales: parseJson<Record<string, string>>(bot.salesJson, {}),
+      tools: sanitizeToolsConfig(parseJson<any[]>(bot.toolsJson, [])),
+    };
+  }
+
+  /** Catálogo de herramientas del agente + plantillas por tipo de negocio. */
+  agentCatalog() {
+    return {
+      tools: AGENT_TOOLS.map((t) => ({
+        name: t.name, access: t.access, description: t.description,
+      })),
+      presets: Object.entries(AGENT_PRESETS).map(([key, p]) => ({
+        key, label: p.label, description: p.description, tools: p.tools,
+      })),
     };
   }
 
@@ -99,6 +113,10 @@ export class BotsService {
         replyDelayMaxSec: dto.replyDelayMaxSec ?? 12,
         typingSimulation: dto.typingSimulation ?? true,
         salesJson: JSON.stringify(dto.sales ?? {}),
+        engineMode: dto.engineMode === 'AGENT' ? 'AGENT' : 'ORDERS',
+        toolsJson: JSON.stringify(
+          sanitizeToolsConfig(dto.tools ?? (dto.agentPreset ? AGENT_PRESETS[dto.agentPreset]?.tools : [])),
+        ),
       },
     });
     await this.audit.log({
@@ -128,6 +146,12 @@ export class BotsService {
         replyDelayMaxSec: dto.replyDelayMaxSec != null ? Number(dto.replyDelayMaxSec) : undefined,
         typingSimulation: dto.typingSimulation,
         ...(dto.sales ? { salesJson: JSON.stringify(dto.sales) } : {}),
+        ...(dto.engineMode !== undefined
+          ? { engineMode: dto.engineMode === 'AGENT' ? 'AGENT' : 'ORDERS' }
+          : {}),
+        ...(dto.tools !== undefined
+          ? { toolsJson: JSON.stringify(sanitizeToolsConfig(dto.tools)) }
+          : {}),
         ...(dto.personality
           ? { personalityJson: JSON.stringify(dto.personality) }
           : {}),
@@ -161,6 +185,11 @@ export class BotsController {
   @Get()
   list(@CurrentUser() user: AuthUser, @Query('companyId') companyId?: string) {
     return this.bots.list(user, companyId);
+  }
+
+  @Get('agent-catalog')
+  agentCatalog() {
+    return this.bots.agentCatalog();
   }
 
   @Get(':id')

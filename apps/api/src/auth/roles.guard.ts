@@ -5,7 +5,7 @@ import {
   Injectable,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
-import { Role } from '../common/constants';
+import { RESTRICTED_ROLES, Role } from '../common/constants';
 import { IS_PUBLIC_KEY, ROLES_KEY } from './decorators';
 
 @Injectable()
@@ -26,13 +26,17 @@ export class RolesGuard implements CanActivate {
     const request = ctx.switchToHttp().getRequest();
     const { user } = request;
 
-    // COMPANY_AREA opera con MÍNIMO privilegio: solo entra a endpoints que lo
-    // incluyen explícitamente en @Roles (su vista de área, marcar listo) y a
-    // lo básico de su propia cuenta (/auth/*). Todo lo demás: 403.
-    if (user?.role === 'COMPANY_AREA') {
+    // COMPANY_AREA y COMPANY_COURIER operan con MÍNIMO privilegio: solo entran
+    // a endpoints que los incluyen explícitamente en @Roles (su vista de área /
+    // su ruta) y a lo básico de su propia cuenta (/auth/*). Todo lo demás: 403.
+    if (RESTRICTED_ROLES.includes(user?.role)) {
       const isOwnAccount = String(request.url ?? '').startsWith('/api/auth/');
-      if (!isOwnAccount && !(required ?? []).includes('COMPANY_AREA' as Role)) {
-        throw new ForbiddenException('Tu rol solo tiene acceso a su área de producción');
+      if (!isOwnAccount && !(required ?? []).includes(user.role as Role)) {
+        throw new ForbiddenException(
+          user.role === 'COMPANY_COURIER'
+            ? 'Tu rol solo tiene acceso a tu ruta de domicilios'
+            : 'Tu rol solo tiene acceso a su área de producción',
+        );
       }
     }
 

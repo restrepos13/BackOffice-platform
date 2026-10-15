@@ -67,14 +67,16 @@ export class UsersService {
 
   async create(actor: AuthUser, dto: CreateUserDto) {
     // Roles de empresa solo pueden crear usuarios dentro de su empresa y de rango igual o menor
+    // El admin de la empresa también da de alta a sus domiciliarios
+    const companyRoles: string[] = [ROLES.COMPANY_ADMIN, ROLES.COMPANY_VIEWER, ROLES.COMPANY_COURIER];
     if (!isPlatformRole(actor.role)) {
-      if (![ROLES.COMPANY_ADMIN, ROLES.COMPANY_VIEWER].includes(dto.role as any)) {
+      if (!companyRoles.includes(dto.role)) {
         throw new ForbiddenException('No puedes crear usuarios de plataforma');
       }
       dto.companyId = actor.companyId ?? undefined;
     }
     if (
-      [ROLES.COMPANY_ADMIN, ROLES.COMPANY_VIEWER].includes(dto.role as any) &&
+      [...companyRoles, ROLES.COMPANY_AREA].includes(dto.role) &&
       !dto.companyId
     ) {
       throw new BadRequestException('Un usuario de empresa necesita companyId');

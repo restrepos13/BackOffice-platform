@@ -7,6 +7,7 @@ import {
   Query,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { computeAiQuota } from '../ai/ai-access';
 import { CurrentUser } from '../auth/decorators';
 import { AuthUser, scopeCompanyId } from '../common/constants';
 
@@ -46,7 +47,9 @@ export class BillingService {
       : 0;
     // BYOK: la IA la paga la empresa directo a DeepInfra con su llave —
     // se muestra como informativa y NO entra en la mensualidad de BackOffice.
-    const consumption = waCostUsd + storageCostUsd;
+    // PLATFORM: la IA es de BackOffice; entra el excedente de conversaciones.
+    const aiQuota = await computeAiQuota(this.prisma, company, now, { from, to });
+    const consumption = waCostUsd + storageCostUsd + aiQuota.extraChargeUsd;
     const planAmount = company.plan?.priceMonthly ?? 0;
 
     const round = (n: number) => Math.round(n * 100) / 100;
@@ -58,7 +61,17 @@ export class BillingService {
         ? { name: company.plan.name, code: company.plan.code, priceMonthly: planAmount }
         : null,
       consumption: {
-        ai: { costUsd: round(aiCostUsd), tokens: aiTokens, directBilled: true },
+        ai: {
+          costUsd: round(aiCostUsd),
+          tokens: aiTokens,
+          directBilled: aiQuota.mode === 'BYOK',
+          mode: aiQuota.mode,
+          conversations: aiQuota.conversations,
+          included: aiQuota.included,
+          extra: aiQuota.extra,
+          extraPriceUsd: aiQuota.extraPriceUsd,
+          extraChargeUsd: aiQuota.extraChargeUsd,
+        },
         whatsapp: { costUsd: round(waCostUsd), conversations: waConversations },
         storage: { costUsd: round(storageCostUsd), mb: round(storageMb) },
         totalUsd: round(consumption),

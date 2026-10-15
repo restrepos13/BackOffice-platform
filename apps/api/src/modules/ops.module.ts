@@ -314,8 +314,8 @@ export class ExecutiveService {
       },
       {
         area: 'Motor de IA',
-        ok: !!company.deepinfraApiKey && activeBots.length > 0,
-        detail: !company.deepinfraApiKey
+        ok: (company.aiBillingMode === 'PLATFORM' || !!company.deepinfraApiKey) && activeBots.length > 0,
+        detail: company.aiBillingMode !== 'PLATFORM' && !company.deepinfraApiKey
           ? 'Falta la llave de DeepInfra'
           : activeBots.length === 0
             ? 'Ningún bot activo'

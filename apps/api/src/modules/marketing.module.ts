@@ -28,6 +28,7 @@ import {
 import { AuditService } from './audit.module';
 import { AI_PROVIDER, AiProvider, extractJson } from '../ai/types';
 import { DeepInfraProvider } from '../ai/deepinfra.provider';
+import { recordAiUsage, resolveAiAccess } from '../ai/ai-access';
 
 /**
  * MARKETING (extra por empresa, módulo "marketing"): campañas, calendario de
@@ -204,11 +205,8 @@ export class MarketingService {
     const company = await this.prisma.company.findUniqueOrThrow({
       where: { id: piece.companyId },
     });
-    if (!company.deepinfraApiKey) {
-      throw new BadRequestException(
-        'La organización no tiene llave de DeepInfra configurada (Configuración → Llave DeepInfra)',
-      );
-    }
+    const access = await resolveAiAccess(this.prisma, company);
+    if (!access.ok) throw new BadRequestException(access.reason);
     const typeLabel: Record<string, string> = {
       REEL: 'un reel corto de video (vertical 9:16)',
       POST: 'una publicación de feed',
@@ -216,7 +214,7 @@ export class MarketingService {
       AD: 'un anuncio pago',
     };
     const result = await this.ai.chat({
-      apiKey: company.deepinfraApiKey,
+      apiKey: access.apiKey,
       model: 'meta-llama/Llama-3.3-70B-Instruct',
       temperature: 0.8,
       maxTokens: 700,
@@ -238,17 +236,10 @@ Brief: ${piece.brief ?? 'sin brief — proponlo tú a partir del título'}`,
       ],
     });
     // Consumo BYOK registrado como cualquier respuesta de IA
-    const catalogEntry = await this.prisma.aiModel.findUnique({
-      where: { modelId: result.model },
-    });
-    await this.prisma.aiUsageEvent.create({
-      data: {
-        companyId: company.id, model: result.model,
-        inputTokens: result.inputTokens, outputTokens: result.outputTokens,
-        costUsd: catalogEntry
-          ? Math.round(((result.inputTokens * catalogEntry.inputCostPerMTok + result.outputTokens * catalogEntry.outputCostPerMTok) / 1_000_000) * 1e6) / 1e6
-          : 0,
-      },
+    await recordAiUsage(this.prisma, {
+      companyId: company.id, model: result.model,
+      inputTokens: result.inputTokens, outputTokens: result.outputTokens,
+      billedTo: access.billedTo,
     });
     const parsed = extractJson(result.content) as any;
     if (!parsed?.copy) throw new BadRequestException('La IA no devolvió un copy válido — intenta de nuevo');

@@ -16,26 +16,31 @@ datasource db {
 // ─── Usuarios y roles ────────────────────────────────────────────────
 // role: SUPER_ADMIN | DEV | COMPANY_ADMIN | COMPANY_VIEWER
 model User {
-  id           String    @id @default(cuid()) @map("_id")
-  email        String    @unique
-  passwordHash String
-  name         String
-  role         String
-  companyId    String?
-  company      Company?  @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  phone        String?
-  jobTitle     String?
+  id               String    @id @default(cuid()) @map("_id")
+  email            String    @unique
+  passwordHash     String
+  name             String
+  role             String
+  companyId        String?
+  company          Company?  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  phone            String?
+  jobTitle         String?
   // Rol COMPANY_AREA: usuario que solo ve los ítems de SU área de producción
   productionAreaId String?
-  active       Boolean   @default(true)
-  lastLoginAt  DateTime?
+  active           Boolean   @default(true)
+  lastLoginAt      DateTime?
   // Endurecimiento del login: bloqueo temporal por intentos fallidos
-  failedLogins Int       @default(0)
-  lockedUntil  DateTime?
+  failedLogins     Int       @default(0)
+  lockedUntil      DateTime?
   // Tour de bienvenida: se muestra solo hasta que el usuario lo termina
-  tourDoneAt   DateTime?
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
+  tourDoneAt       DateTime?
+  // Rol COMPANY_COURIER (domiciliario): turno y última posición GPS conocida
+  onShift          Boolean   @default(false)
+  lastLat          Float?
+  lastLng          Float?
+  lastLocAt        DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
 
   auditLogs        AuditLog[]
   assignedContacts Contact[]  @relation("AssignedContacts")
@@ -43,91 +48,100 @@ model User {
 
 // ─── Planes ──────────────────────────────────────────────────────────
 model Plan {
-  id            String    @id @default(cuid()) @map("_id")
-  code          String    @unique // starter | growth | scale | enterprise | custom-xxx
-  name          String
-  priceMonthly  Float // USD; 0 = a medida
-  maxBots       Int // perfiles/modelos
-  maxWorkspaces Int
-  maxUsers      Int
-  featuresJson  String // string[] serializado
-  highlight     Boolean   @default(false)
-  isCustom      Boolean   @default(false)
-  active        Boolean   @default(true)
-  companies     Company[]
-  createdAt     DateTime  @default(now())
+  id                      String    @id @default(cuid()) @map("_id")
+  code                    String    @unique // starter | growth | scale | enterprise | custom-xxx
+  name                    String
+  priceMonthly            Float // USD; 0 = a medida
+  maxBots                 Int // perfiles/modelos
+  maxWorkspaces           Int
+  maxUsers                Int
+  featuresJson            String // string[] serializado
+  // IA revendida (modo PLATFORM): conversaciones IA incluidas al mes y precio
+  // de cada conversación adicional (USD). 0 = sin incluidas / sin excedente.
+  includedAiConversations Int       @default(0)
+  extraAiConversationUsd  Float     @default(0)
+  highlight               Boolean   @default(false)
+  isCustom                Boolean   @default(false)
+  active                  Boolean   @default(true)
+  companies               Company[]
+  createdAt               DateTime  @default(now())
 }
 
 // ─── Empresas (tenants) ──────────────────────────────────────────────
 // status: TRIAL | ACTIVE | SUSPENDED | CANCELLED
 model Company {
-  id           String   @id @default(cuid()) @map("_id")
-  name         String
-  slug         String   @unique
-  legalName    String?
-  industry     String?
-  country      String?
-  city         String?
-  website      String?
-  contactEmail String?
-  contactPhone String?
-  status       String   @default("TRIAL")
-  planId       String?
-  plan         Plan?    @relation(fields: [planId], references: [id])
-  timezone     String   @default("America/Bogota")
-  language     String   @default("es")
-  logoUrl      String?
-  brandColor   String?
+  id                    String    @id @default(cuid()) @map("_id")
+  name                  String
+  slug                  String    @unique
+  legalName             String?
+  industry              String?
+  country               String?
+  city                  String?
+  website               String?
+  contactEmail          String?
+  contactPhone          String?
+  status                String    @default("TRIAL")
+  planId                String?
+  plan                  Plan?     @relation(fields: [planId], references: [id])
+  timezone              String    @default("America/Bogota")
+  language              String    @default("es")
+  logoUrl               String?
+  brandColor            String?
   // BYOK: llave de DeepInfra de la empresa — el costo de IA lo asume el cliente
   // directo con el proveedor. Nunca se devuelve completa por el API (se enmascara).
-  deepinfraApiKey String?
+  deepinfraApiKey       String? // cifrada (enc:v1:…) desde oct 2026; texto plano legado se sigue leyendo
+  // Quién paga la IA: BYOK (llave propia del cliente, paga directo a DeepInfra)
+  // o PLATFORM (llave de BackOffice; se factura por conversación con tope de gasto)
+  aiBillingMode         String    @default("BYOK")
+  aiSpendCapUsd         Float? // tope duro mensual en modo PLATFORM (null = sin tope)
+  aiIncludedOverride    Int? // conversaciones incluidas propias (pisa al plan)
   // Parámetros del "Reporte a Gerencia": ahorro = conversaciones IA/mes ÷ capacidad × sueldo
-  savingsSalaryUsd      Float @default(400) // sueldo mensual equivalente de un agente humano
-  agentCapacityPerMonth Int   @default(300) // conversaciones que atiende una persona al mes
+  savingsSalaryUsd      Float     @default(400) // sueldo mensual equivalente de un agente humano
+  agentCapacityPerMonth Int       @default(300) // conversaciones que atiende una persona al mes
   // Moneda de la empresa para pantallas de consumo/costos (COP para Nexus; USD disponible)
-  currency        String @default("COP")
+  currency              String    @default("COP")
   // Configuración del módulo de pedidos (catering): JSON {statuses?, schedule:{days,open,close},
   // orderCutoff, minLeadHours, maxPerSlot, slots, holidays[], nonWorkingDays[]}
-  orderConfigJson String @default("{}")
+  orderConfigJson       String    @default("{}")
   // Plantillas aprobadas de Meta (vía Twilio Content API), por organización:
   // [{key, name, contentSid, category (UTILIDAD|MARKETING), body, variables[]}]
-  waTemplatesJson String @default("[]")
-  notes        String?
+  waTemplatesJson       String    @default("[]")
+  notes                 String?
   // Módulos habilitados para el tenant (string[] serializado):
   // inbox, contacts, bots, automations, analytics, billing, team
-  modulesJson  String   @default("[\"inbox\",\"contacts\",\"bots\",\"automations\",\"analytics\",\"billing\",\"team\"]")
+  modulesJson           String    @default("[\"inbox\",\"contacts\",\"bots\",\"automations\",\"analytics\",\"billing\",\"team\"]")
   // Overrides de límites del plan (JSON {maxBots?, maxUsers?, maxWorkspaces?})
-  limitsJson   String   @default("{}")
-  trialEndsAt  DateTime?
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  limitsJson            String    @default("{}")
+  trialEndsAt           DateTime?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
 
-  users         User[]
-  bots          Bot[]
-  integrations  Integration[]
-  contacts      Contact[]
-  conversations Conversation[]
-  automations   Automation[]
-  usageRecords  UsageRecord[]
-  invoices      Invoice[]
-  auditLogs        AuditLog[]
-  apiKeys          ApiKey[]
-  personaTemplates PersonaTemplate[]
-  payments         Payment[]
-  emailMessages    EmailMessage[]
-  mediaAssets      MediaAsset[]
-  aiUsageEvents    AiUsageEvent[]
-  appointments     Appointment[]
-  followUps        FollowUp[]
-  customers        Customer[]
-  products         Product[]
-  productionAreas  ProductionArea[]
-  orders           Order[]
-  orderItems       OrderItem[]
-  orderStatusLogs  OrderStatusHistory[]
-  reminders        Reminder[]
-  feedbacks        Feedback[]
-  dailyReports     DailyReport[]
+  users              User[]
+  bots               Bot[]
+  integrations       Integration[]
+  contacts           Contact[]
+  conversations      Conversation[]
+  automations        Automation[]
+  usageRecords       UsageRecord[]
+  invoices           Invoice[]
+  auditLogs          AuditLog[]
+  apiKeys            ApiKey[]
+  personaTemplates   PersonaTemplate[]
+  payments           Payment[]
+  emailMessages      EmailMessage[]
+  mediaAssets        MediaAsset[]
+  aiUsageEvents      AiUsageEvent[]
+  appointments       Appointment[]
+  followUps          FollowUp[]
+  customers          Customer[]
+  products           Product[]
+  productionAreas    ProductionArea[]
+  orders             Order[]
+  orderItems         OrderItem[]
+  orderStatusLogs    OrderStatusHistory[]
+  reminders          Reminder[]
+  feedbacks          Feedback[]
+  dailyReports       DailyReport[]
   marketingCampaigns MarketingCampaign[]
   contentPieces      ContentPiece[]
   videoJobs          VideoJob[]
@@ -136,31 +150,36 @@ model Company {
 // ─── Bots / Asistentes IA ────────────────────────────────────────────
 // status: ACTIVE | PAUSED | DRAFT
 model Bot {
-  id              String   @id @default(cuid()) @map("_id")
-  companyId       String
-  company         Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  name            String
-  description     String?
-  status          String   @default("DRAFT")
-  provider        String   @default("anthropic") // anthropic | openai | ...
-  model           String   @default("claude-sonnet-5")
-  temperature     Float    @default(0.7)
-  maxTokens       Int      @default(1024)
-  systemPrompt    String   @default("")
+  id               String   @id @default(cuid()) @map("_id")
+  companyId        String
+  company          Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  name             String
+  description      String?
+  status           String   @default("DRAFT")
+  provider         String   @default("anthropic") // anthropic | openai | ...
+  model            String   @default("claude-sonnet-5")
+  temperature      Float    @default(0.7)
+  maxTokens        Int      @default(1024)
+  systemPrompt     String   @default("")
   // personalidad: JSON {tone, style, limits, bio, language}
-  personalityJson String   @default("{}")
-  memoryEnabled   Boolean  @default(true)
-  welcomeMessage  String?
-  handoffKeywords String? // separado por comas
-  businessHours   String? // JSON {enabled, schedule}
+  personalityJson  String   @default("{}")
+  memoryEnabled    Boolean  @default(true)
+  welcomeMessage   String?
+  handoffKeywords  String? // separado por comas
+  businessHours    String? // JSON {enabled, schedule}
   // Tiempos de respuesta humanizados (segundos): la IA espera entre min y max
-  replyDelayMinSec Int     @default(3)
-  replyDelayMaxSec Int     @default(12)
-  typingSimulation Boolean @default(true) // muestra "escribiendo…" antes de responder
+  replyDelayMinSec Int      @default(3)
+  replyDelayMaxSec Int      @default(12)
+  typingSimulation Boolean  @default(true) // muestra "escribiendo…" antes de responder
   // Habilidades de venta (JSON {goal, style, catalog, upsell, objections})
-  salesJson       String   @default("{}")
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  salesJson        String   @default("{}")
+  // Motor: ORDERS = extracción estructurada de pedidos (Nexus) · AGENT = agente
+  // con herramientas sobre los módulos (menú, envío, pedidos, seguimiento…)
+  engineMode       String   @default("ORDERS")
+  // Herramientas del agente y su permiso: [{tool, access: "read"|"write"}]
+  toolsJson        String   @default("[]")
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
 
   conversations Conversation[]
   integrations  Integration[]
@@ -191,18 +210,18 @@ model Integration {
   errorMsg   String?
 
   // Personalización de IA por línea
-  promptMode              String  @default("INHERIT") // INHERIT | CUSTOM
-  overridePrompt          String  @default("")
-  overridePersonalityJson String  @default("{}") // {tone, style, limits, bio, language}
-  overrideWelcome         String?
-  overrideHandoff         String?
-  overrideModel           String?
-  overrideTemperature     Float?
+  promptMode               String  @default("INHERIT") // INHERIT | CUSTOM
+  overridePrompt           String  @default("")
+  overridePersonalityJson  String  @default("{}") // {tone, style, limits, bio, language}
+  overrideWelcome          String?
+  overrideHandoff          String?
+  overrideModel            String?
+  overrideTemperature      Float?
   // Tiempos de respuesta propios de la línea (null = hereda del bot)
   overrideReplyDelayMinSec Int?
   overrideReplyDelayMaxSec Int?
   // Habilidades de venta propias de la línea (JSON {goal, style, catalog, upsell, objections})
-  overrideSalesJson       String  @default("{}")
+  overrideSalesJson        String  @default("{}")
 
   conversations Conversation[]
   mediaAssets   MediaAsset[]
@@ -249,8 +268,8 @@ model Contact {
   createdAt      DateTime @default(now())
 
   // Módulo de pedidos: persona dentro de una empresa cliente (Customer)
-  customerId    String?
-  customer      Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  customerId String?
+  customer   Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
 
   conversations Conversation[]
   appointments  Appointment[]
@@ -270,19 +289,19 @@ model Conversation {
   integrationId  String? // línea/número por el que entró la conversación
   integration    Integration? @relation(fields: [integrationId], references: [id])
   contactId      String
-  contact        Contact  @relation(fields: [contactId], references: [id], onDelete: Cascade)
-  channel        String   @default("WHATSAPP")
-  status         String   @default("OPEN")
-  needsAttention Boolean  @default(false)
+  contact        Contact      @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  channel        String       @default("WHATSAPP")
+  status         String       @default("OPEN")
+  needsAttention Boolean      @default(false)
   // MODO HUMANO: pausa del bot POR conversación (nunca global) y quién atiende
-  botPaused      Boolean  @default(false)
+  botPaused      Boolean      @default(false)
   attendedByName String?
   // Estado de la máquina conversacional del motor: {state, missingFields, draftOrderId}
-  aiStateJson    String   @default("{}")
+  aiStateJson    String       @default("{}")
   customerId     String? // empresa cliente (módulo pedidos)
-  unreadCount    Int      @default(0)
-  lastMessageAt  DateTime @default(now())
-  createdAt      DateTime @default(now())
+  unreadCount    Int          @default(0)
+  lastMessageAt  DateTime     @default(now())
+  createdAt      DateTime     @default(now())
 
   messages Message[]
   orders   Order[]
@@ -311,6 +330,9 @@ model Message {
   metaCostUsd    Float?
   tokens         Int?
   mediaAssetId   String? // foto de la galería enviada en este mensaje
+  // Ubicación compartida por WhatsApp (type LOCATION)
+  latitude       Float?
+  longitude      Float?
   mediaAsset     MediaAsset?  @relation(fields: [mediaAssetId], references: [id])
   createdAt      DateTime     @default(now())
 
@@ -346,21 +368,22 @@ model Customer {
 
 // Catálogo configurable por organización.
 model Product {
-  id                String    @id @default(cuid()) @map("_id")
+  id                String          @id @default(cuid()) @map("_id")
   companyId         String
-  company           Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  company           Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
   name              String
   description       String?
   category          String? // p. ej. Almuerzos, Refrigerios, Bebidas
-  unit              String    @default("unidad") // unidad de medida
+  unit              String          @default("unidad") // unidad de medida
   // Presentaciones: [{name, note?}] — p. ej. bandeja x10, individual
-  presentationsJson String    @default("[]")
+  presentationsJson String          @default("[]")
+  price             Float? // precio unitario en la moneda de la empresa (lo cotiza el agente)
   productionAreaId  String? // área responsable por defecto
   productionArea    ProductionArea? @relation(fields: [productionAreaId], references: [id], onDelete: SetNull)
-  active            Boolean   @default(true)
+  active            Boolean         @default(true)
   deletedAt         DateTime?
-  createdAt         DateTime  @default(now())
-  updatedAt         DateTime  @updatedAt
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
 
   orderItems OrderItem[]
 
@@ -369,20 +392,20 @@ model Product {
 
 // Áreas internas (cocina, empaque, logística, despacho…) configurables.
 model ProductionArea {
-  id               String   @id @default(cuid()) @map("_id")
-  companyId        String
-  company          Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  name             String
-  description      String?
+  id                  String   @id @default(cuid()) @map("_id")
+  companyId           String
+  company             Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  name                String
+  description         String?
   // Responsables: [{name, phone?, email?}]
-  responsiblesJson String   @default("[]")
-  notifyChannel    String   @default("PANEL") // PANEL | WHATSAPP | EMAIL
-  notifyTarget     String? // teléfono o correo según canal
+  responsiblesJson    String   @default("[]")
+  notifyChannel       String   @default("PANEL") // PANEL | WHATSAPP | EMAIL
+  notifyTarget        String? // teléfono o correo según canal
   // Anticipación de recordatorio para esta área (horas antes de la entrega)
-  reminderHoursBefore Int   @default(24)
-  active           Boolean  @default(true)
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  reminderHoursBefore Int      @default(24)
+  active              Boolean  @default(true)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
 
   products   Product[]
   orderItems OrderItem[]
@@ -395,28 +418,39 @@ model ProductionArea {
 // despachado → entregado. Además: cancelado, requiere_atencion.
 // La trazabilidad llega HASTA EL DESPACHO/ENTREGA — no hay seguimiento en ruta.
 model Order {
-  id                String    @id @default(cuid()) @map("_id")
-  companyId         String
-  company           Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  customerId        String
-  customer          Customer  @relation(fields: [customerId], references: [id], onDelete: Cascade)
-  contactId         String? // persona que hizo el pedido
-  contact           Contact?  @relation(fields: [contactId], references: [id], onDelete: SetNull)
-  conversationId    String? // conversación de WhatsApp que lo originó
-  conversation      Conversation? @relation(fields: [conversationId], references: [id], onDelete: SetNull)
-  status            String    @default("borrador")
-  deliveryAt        DateTime // fecha/hora de entrega acordada
+  id                  String        @id @default(cuid()) @map("_id")
+  companyId           String
+  company             Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  customerId          String
+  customer            Customer      @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  contactId           String? // persona que hizo el pedido
+  contact             Contact?      @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  conversationId      String? // conversación de WhatsApp que lo originó
+  conversation        Conversation? @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+  status              String        @default("borrador")
+  deliveryAt          DateTime // fecha/hora de entrega acordada
   // Snapshot de la dirección al momento del pedido {label, address, city, instructions}
-  deliveryAddressJson String  @default("{}")
-  observations      String?
-  takenByType       String    @default("IA") // IA | HUMANO
-  takenByName       String? // nombre del usuario si fue humano
+  deliveryAddressJson String        @default("{}")
+  observations        String?
+  takenByType         String        @default("IA") // IA | HUMANO
+  takenByName         String? // nombre del usuario si fue humano
   // Confianza de la extracción de la IA (0-1) y si requirió corrección posterior
-  aiConfidence      Float?
-  correctedAfterAi  Boolean   @default(false) // alimenta el indicador de precisión (98%)
-  deletedAt         DateTime?
-  createdAt         DateTime  @default(now())
-  updatedAt         DateTime  @updatedAt
+  aiConfidence        Float?
+  correctedAfterAi    Boolean       @default(false) // alimenta el indicador de precisión (98%)
+  // Domicilios: seguimiento público con marca + domiciliario asignado
+  trackingToken       String? // link público /t/<token> (sin login, sin ids internos)
+  courierId           String? // User con rol COMPANY_COURIER
+  subtotal            Float?
+  deliveryFee         Float?
+  total               Float?
+  distanceKm          Float?
+  dispatchedAt        DateTime?
+  deliveredAt         DateTime?
+  etaAt               DateTime? // hora estimada de llegada (se recalcula con el GPS)
+  deliveryProofFile   String? // foto de la entrega en uploads/<companyId>/
+  deletedAt           DateTime?
+  createdAt           DateTime      @default(now())
+  updatedAt           DateTime      @updatedAt
 
   items         OrderItem[]
   statusHistory OrderStatusHistory[]
@@ -426,29 +460,31 @@ model Order {
   @@index([companyId, deliveryAt])
   @@index([companyId, status])
   @@index([companyId, customerId])
+  @@index([trackingToken])
+  @@index([companyId, courierId, status])
 }
 
 // Ítem del pedido, asignado a un área. Cada área ve SOLO sus ítems.
 model OrderItem {
-  id               String   @id @default(cuid()) @map("_id")
+  id               String          @id @default(cuid()) @map("_id")
   companyId        String // desnormalizado: filtro de tenant directo e índices
-  company          Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  company          Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
   orderId          String
-  order            Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  order            Order           @relation(fields: [orderId], references: [id], onDelete: Cascade)
   productId        String?
-  product          Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
+  product          Product?        @relation(fields: [productId], references: [id], onDelete: SetNull)
   productName      String // snapshot (el catálogo puede cambiar)
   quantity         Float
-  unit             String   @default("unidad")
+  unit             String          @default("unidad")
   presentation     String?
   specifications   String? // "sin cebolla", "vegetariano x5"…
   observations     String?
   productionAreaId String?
   productionArea   ProductionArea? @relation(fields: [productionAreaId], references: [id], onDelete: SetNull)
-  areaStatus       String   @default("pendiente") // pendiente | lista
+  areaStatus       String          @default("pendiente") // pendiente | lista
   areaReadyAt      DateTime?
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
 
   @@index([companyId, productionAreaId, areaStatus])
   @@index([orderId])
@@ -527,20 +563,20 @@ model Feedback {
 // ─── Marketing (extra por empresa: contenido para redes y campañas) ───
 // status campaña: BORRADOR | ACTIVA | PAUSADA | CERRADA
 model MarketingCampaign {
-  id         String    @id @default(cuid()) @map("_id")
-  companyId  String
-  company    Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  name       String
-  objective  String? // qué busca la campaña (ventas, alcance, lanzamiento…)
-  status     String    @default("BORRADOR")
+  id           String    @id @default(cuid()) @map("_id")
+  companyId    String
+  company      Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  name         String
+  objective    String? // qué busca la campaña (ventas, alcance, lanzamiento…)
+  status       String    @default("BORRADOR")
   // Canales destino: ["instagram","tiktok","facebook","youtube"]
-  channelsJson String  @default("[]")
-  startsAt   DateTime?
-  endsAt     DateTime?
-  budgetUsd  Float?
-  notes      String?
-  createdAt  DateTime  @default(now())
-  updatedAt  DateTime  @updatedAt
+  channelsJson String    @default("[]")
+  startsAt     DateTime?
+  endsAt       DateTime?
+  budgetUsd    Float?
+  notes        String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
 
   pieces ContentPiece[]
 
@@ -550,25 +586,25 @@ model MarketingCampaign {
 // Pieza de contenido: reel, post, historia o anuncio.
 // type: REEL | POST | STORY | AD — status: IDEA | BORRADOR | LISTO | PROGRAMADO | PUBLICADO
 model ContentPiece {
-  id          String    @id @default(cuid()) @map("_id")
-  companyId   String
-  company     Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  campaignId  String?
-  campaign    MarketingCampaign? @relation(fields: [campaignId], references: [id], onDelete: SetNull)
-  type        String    @default("POST")
-  status      String    @default("IDEA")
-  title       String
-  brief       String? // idea/brief de entrada para la IA
-  copy        String? // caption generado o escrito
-  hashtagsJson String  @default("[]")
-  script      String? // guion (para reels/videos)
-  channel     String? // instagram | tiktok | facebook | youtube
-  scheduledAt DateTime?
-  publishedAt DateTime?
-  videoJobId  String?
-  assetUrl    String? // video/imagen final (cuando exista)
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  id           String             @id @default(cuid()) @map("_id")
+  companyId    String
+  company      Company            @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  campaignId   String?
+  campaign     MarketingCampaign? @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+  type         String             @default("POST")
+  status       String             @default("IDEA")
+  title        String
+  brief        String? // idea/brief de entrada para la IA
+  copy         String? // caption generado o escrito
+  hashtagsJson String             @default("[]")
+  script       String? // guion (para reels/videos)
+  channel      String? // instagram | tiktok | facebook | youtube
+  scheduledAt  DateTime?
+  publishedAt  DateTime?
+  videoJobId   String?
+  assetUrl     String? // video/imagen final (cuando exista)
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
 
   @@index([companyId, status])
   @@index([companyId, scheduledAt])
@@ -617,21 +653,21 @@ model DailyReport {
 // o desde el chat; el motor de IA las creará solo (source IA) en fase 2.
 // status: SCHEDULED | CONFIRMED | COMPLETED | CANCELLED | NO_SHOW
 model Appointment {
-  id            String   @id @default(cuid()) @map("_id")
-  companyId     String
-  company       Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  contactId     String
-  contact       Contact  @relation(fields: [contactId], references: [id], onDelete: Cascade)
-  title         String
-  notes         String?
-  location      String?
-  startsAt      DateTime
-  durationMin   Int      @default(30)
-  status        String   @default("SCHEDULED")
-  source        String   @default("MANUAL") // MANUAL | IA
-  createdBy     String? // nombre del actor
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  id          String   @id @default(cuid()) @map("_id")
+  companyId   String
+  company     Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  contactId   String
+  contact     Contact  @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  title       String
+  notes       String?
+  location    String?
+  startsAt    DateTime
+  durationMin Int      @default(30)
+  status      String   @default("SCHEDULED")
+  source      String   @default("MANUAL") // MANUAL | IA
+  createdBy   String? // nombre del actor
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
   @@index([companyId, startsAt])
 }
@@ -641,17 +677,17 @@ model Appointment {
 // contactos (llamar, reintentar venta, confirmar cita…).
 // status: PENDING | DONE | CANCELLED
 model FollowUp {
-  id        String   @id @default(cuid()) @map("_id")
+  id        String    @id @default(cuid()) @map("_id")
   companyId String
-  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  company   Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
   contactId String
-  contact   Contact  @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  contact   Contact   @relation(fields: [contactId], references: [id], onDelete: Cascade)
   note      String
   dueAt     DateTime
-  status    String   @default("PENDING")
+  status    String    @default("PENDING")
   createdBy String?
   doneAt    DateTime?
-  createdAt DateTime @default(now())
+  createdAt DateTime  @default(now())
 
   @@index([companyId, dueAt])
 }
@@ -683,21 +719,24 @@ model MediaAsset {
 // con filtros por línea/modelo y proyección. El costo lo asume la empresa
 // directo con DeepInfra (BYOK).
 model AiUsageEvent {
-  id            String       @id @default(cuid()) @map("_id")
-  companyId     String
-  company       Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  integrationId String? // línea que originó la respuesta
-  integration   Integration? @relation(fields: [integrationId], references: [id], onDelete: SetNull)
-  botId         String?
-  bot           Bot?         @relation(fields: [botId], references: [id], onDelete: SetNull)
-  model         String // id DeepInfra
-  inputTokens   Int
-  outputTokens  Int
-  costUsd       Float
-  createdAt     DateTime     @default(now())
+  id             String       @id @default(cuid()) @map("_id")
+  companyId      String
+  company        Company      @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  integrationId  String? // línea que originó la respuesta
+  integration    Integration? @relation(fields: [integrationId], references: [id], onDelete: SetNull)
+  botId          String?
+  bot            Bot?         @relation(fields: [botId], references: [id], onDelete: SetNull)
+  model          String // id DeepInfra
+  inputTokens    Int
+  outputTokens   Int
+  costUsd        Float
+  billedTo       String       @default("BYOK") // BYOK | PLATFORM (IA revendida)
+  conversationId String? // para contar "conversaciones IA" del mes
+  createdAt      DateTime     @default(now())
 
   @@index([companyId, createdAt])
   @@index([companyId, integrationId, createdAt])
+  @@index([companyId, billedTo, createdAt])
 }
 
 // ─── Catálogo de modelos IA (DeepInfra) ──────────────────────────────
@@ -768,15 +807,15 @@ model UsageRecord {
 
 // status: PAID | PENDING | OVERDUE
 model Invoice {
-  id                String   @id @default(cuid()) @map("_id")
+  id                String    @id @default(cuid()) @map("_id")
   companyId         String
-  company           Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  company           Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
   period            String // "2026-08"
   planAmount        Float
   consumptionAmount Float
   totalAmount       Float
-  status            String   @default("PENDING")
-  issuedAt          DateTime @default(now())
+  status            String    @default("PENDING")
+  issuedAt          DateTime  @default(now())
   paidAt            DateTime?
   payments          Payment[]
 }
@@ -785,23 +824,23 @@ model Invoice {
 // provider: WOMPI (Colombia, activo) | STRIPE (internacional, pendiente)
 // status: PENDING | APPROVED | DECLINED | VOIDED | ERROR
 model Payment {
-  id                 String    @id @default(cuid()) @map("_id")
-  companyId          String
-  company            Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  invoiceId          String?
-  invoice            Invoice?  @relation(fields: [invoiceId], references: [id])
-  provider           String    @default("WOMPI")
-  reference          String    @unique // referencia enviada a la pasarela
-  amountUsd          Float
-  amountInCents      Int // en moneda local (COP centavos)
-  currency           String    @default("COP")
-  status             String    @default("PENDING")
-  checkoutUrl        String?
-  providerTxId       String? // id de transacción en Wompi
-  paymentMethod      String? // CARD, NEQUI, PSE, BANCOLOMBIA_TRANSFER…
-  eventsLog          String    @default("[]") // eventos del webhook, serializados
-  createdAt          DateTime  @default(now())
-  updatedAt          DateTime  @updatedAt
+  id            String   @id @default(cuid()) @map("_id")
+  companyId     String
+  company       Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  invoiceId     String?
+  invoice       Invoice? @relation(fields: [invoiceId], references: [id])
+  provider      String   @default("WOMPI")
+  reference     String   @unique // referencia enviada a la pasarela
+  amountUsd     Float
+  amountInCents Int // en moneda local (COP centavos)
+  currency      String   @default("COP")
+  status        String   @default("PENDING")
+  checkoutUrl   String?
+  providerTxId  String? // id de transacción en Wompi
+  paymentMethod String? // CARD, NEQUI, PSE, BANCOLOMBIA_TRANSFER…
+  eventsLog     String   @default("[]") // eventos del webhook, serializados
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 }
 
 // ─── Correos a empresas ──────────────────────────────────────────────
@@ -855,4 +894,21 @@ model PlatformSetting {
   key       String   @id @map("_id")
   value     String
   updatedAt DateTime @updatedAt
+}
+
+/// Rastro GPS de un domiciliario en turno (para el mapa en vivo y la ruta del
+/// día). Se depura a los 7 días con el cron de domicilios.
+model CourierPing {
+  id        String   @id @default(cuid()) @map("_id")
+  companyId String
+  userId    String
+  lat       Float
+  lng       Float
+  accuracy  Float?
+  speed     Float? // m/s
+  heading   Float?
+  createdAt DateTime @default(now())
+
+  @@index([companyId, userId, createdAt])
+  @@index([createdAt])
 }

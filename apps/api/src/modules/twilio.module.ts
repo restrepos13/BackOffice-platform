@@ -20,6 +20,7 @@ import { mkdirSync, writeFileSync } from 'fs';
 import { join, resolve } from 'path';
 import { randomBytes } from 'crypto';
 import twilio from 'twilio';
+import { isLatLng } from '../common/geo';
 import { PrismaService } from '../prisma/prisma.service';
 import { Public } from '../auth/decorators';
 import { SkipThrottle } from '@nestjs/throttler';
@@ -70,6 +71,18 @@ export interface TwilioLineConfig {
 export function isWithinServiceWindow(lastInboundAt: Date | null, now = new Date()): boolean {
   if (!lastInboundAt) return false;
   return now.getTime() - lastInboundAt.getTime() < 24 * 3600 * 1000;
+}
+
+/** Ubicación compartida por WhatsApp (Twilio: Latitude/Longitude/Address/Label). */
+export function parseSharedLocation(
+  payload: Record<string, any>,
+): { lat: number; lng: number; content: string } | null {
+  if (payload.Latitude == null || payload.Longitude == null) return null;
+  const lat = Number(payload.Latitude);
+  const lng = Number(payload.Longitude);
+  if (!isLatLng({ lat, lng })) return null;
+  const place = [payload.Label, payload.Address].filter(Boolean).join(' — ');
+  return { lat, lng, content: `[ubicación] ${place || `${lat.toFixed(5)}, ${lng.toFixed(5)}`}` };
 }
 
 export function mapMediaType(contentType: string | undefined): {
@@ -293,15 +306,22 @@ export class TwilioService implements OnModuleInit, OnApplicationShutdown {
       }
     }
 
+    // Ubicación compartida (clip > Ubicación): Twilio manda Latitude/Longitude
+    const location = parseSharedLocation(payload);
+    if (location) type = 'LOCATION';
+
     const message = await this.prisma.message.create({
       data: {
         conversationId: conversation.id,
         direction: 'IN',
         author: 'CONTACT',
-        content: payload.Body ?? (type !== 'TEXT' ? `[${type.toLowerCase()} recibido]` : ''),
+        content: location
+          ? location.content
+          : payload.Body ?? (type !== 'TEXT' ? `[${type.toLowerCase()} recibido]` : ''),
         type,
         fileName,
         providerId: sid,
+        ...(location ? { latitude: location.lat, longitude: location.lng } : {}),
       },
     });
     await this.prisma.conversation.update({

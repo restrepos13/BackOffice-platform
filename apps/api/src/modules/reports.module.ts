@@ -30,6 +30,7 @@ import { EmailsModule, EmailsService } from './emails.module';
 import { EventsService } from './events.module';
 import { AI_PROVIDER, AiProvider, extractJson } from '../ai/types';
 import { DeepInfraProvider } from '../ai/deepinfra.provider';
+import { AiBilling, recordAiUsage, resolveAiAccess } from '../ai/ai-access';
 
 /* ═══ Herramientas predefinidas de la consulta en lenguaje natural ═══
  * El modelo SOLO elige herramienta + parámetros de esta lista. El texto del
@@ -666,17 +667,11 @@ export class ReportsService {
     }
   }
 
-  private async recordUsage(companyId: string, model: string, inputTokens: number, outputTokens: number) {
-    const entry = await this.prisma.aiModel.findUnique({ where: { modelId: model } });
-    const costUsd = entry
-      ? (inputTokens * entry.inputCostPerMTok + outputTokens * entry.outputCostPerMTok) / 1_000_000
-      : 0;
-    await this.prisma.aiUsageEvent.create({
-      data: {
-        companyId, model, inputTokens, outputTokens,
-        costUsd: Math.round(costUsd * 1e6) / 1e6,
-      },
-    });
+  private async recordUsage(
+    companyId: string, model: string, inputTokens: number, outputTokens: number,
+    billedTo: AiBilling = 'BYOK',
+  ) {
+    await recordAiUsage(this.prisma, { companyId, model, inputTokens, outputTokens, billedTo });
   }
 
   /**
@@ -691,11 +686,8 @@ export class ReportsService {
     if (!this.ai) throw new BadRequestException('Motor de IA no disponible');
 
     const company = await this.prisma.company.findUniqueOrThrow({ where: { id: scoped } });
-    if (!company.deepinfraApiKey) {
-      throw new BadRequestException(
-        'La organización no tiene llave de DeepInfra configurada (Configuración → Llave DeepInfra)',
-      );
-    }
+    const access = await resolveAiAccess(this.prisma, company);
+    if (!access.ok) throw new BadRequestException(access.reason);
     const cfg = parseJson<Record<string, any>>(company.orderConfigJson, {});
     const model = cfg.askModel ?? 'meta-llama/Llama-3.3-70B-Instruct';
     const today = new Intl.DateTimeFormat('en-CA', { timeZone: company.timezone || 'America/Bogota' })
@@ -706,7 +698,7 @@ export class ReportsService {
       .map((t) => `- ${t.name}: ${t.description}. Parámetros: ${t.params}`)
       .join('\n');
     const selection = await this.ai.chat({
-      apiKey: company.deepinfraApiKey,
+      apiKey: access.apiKey,
       model,
       temperature: 0,
       maxTokens: 300,
@@ -722,7 +714,7 @@ Reglas: fechas siempre YYYY-MM-DD; si la pregunta menciona "el viernes", "mañan
         { role: 'user', content: q },
       ],
     });
-    await this.recordUsage(scoped, selection.model, selection.inputTokens, selection.outputTokens);
+    await this.recordUsage(scoped, selection.model, selection.inputTokens, selection.outputTokens, access.billedTo);
 
     const parsed = extractJson(selection.content) as { tool?: string; params?: any } | null;
     const tool = parsed?.tool ?? 'ninguna';
@@ -740,7 +732,7 @@ Reglas: fechas siempre YYYY-MM-DD; si la pregunta menciona "el viernes", "mañan
 
     // Paso 2: redacción de la respuesta citando los datos (que también se devuelven)
     const answerRes = await this.ai.chat({
-      apiKey: company.deepinfraApiKey,
+      apiKey: access.apiKey,
       model,
       temperature: 0.2,
       maxTokens: 400,
@@ -756,7 +748,7 @@ Reglas: fechas siempre YYYY-MM-DD; si la pregunta menciona "el viernes", "mañan
         },
       ],
     });
-    await this.recordUsage(scoped, answerRes.model, answerRes.inputTokens, answerRes.outputTokens);
+    await this.recordUsage(scoped, answerRes.model, answerRes.inputTokens, answerRes.outputTokens, access.billedTo);
 
     await this.audit.log({
       actor: user, companyId: scoped, action: 'report.ask',

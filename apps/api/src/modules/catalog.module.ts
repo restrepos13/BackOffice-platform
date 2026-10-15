@@ -84,6 +84,15 @@ export class CatalogService {
       unit: dto.unit ?? 'unidad',
       productionAreaId: dto.productionAreaId || null,
       active: dto.active ?? true,
+      // Precio que cotiza el agente (vacío = "a confirmar con el equipo")
+      ...(dto.price !== undefined
+        ? {
+            price:
+              dto.price === null || dto.price === '' || !Number.isFinite(Number(dto.price))
+                ? null
+                : Math.max(0, Number(dto.price)),
+          }
+        : {}),
       ...(dto.presentations
         ? { presentationsJson: JSON.stringify(dto.presentations) }
         : {}),

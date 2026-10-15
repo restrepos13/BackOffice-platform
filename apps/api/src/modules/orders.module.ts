@@ -5,10 +5,12 @@ import {
   Delete,
   ForbiddenException,
   Get,
+  Inject,
   Injectable,
   Logger,
   Module,
   NotFoundException,
+  Optional,
   Param,
   Patch,
   Post,
@@ -33,14 +35,19 @@ import { decryptSecret, isEncrypted } from '../common/crypto';
 import { AuditService } from './audit.module';
 import { EmailsModule, EmailsService } from './emails.module';
 import { validateDelivery } from '../common/agenda';
+import type { Queue } from 'bullmq';
+import { WA_OUTBOUND_QUEUE } from '../queue/queue.module';
+import { EventsService } from './events.module';
+import { notifyOrderDispatched } from '../common/customer-notify';
+import { newTrackingToken, orderCode, publicWebUrl, trackingUrl } from '../common/tracking';
 
 /* ═══ Utilidades puras (exportadas para tests) ═══════════════════════ */
 
 /**
  * Transiciones válidas del pedido — explícitas y en un solo lugar.
  * NO se puede saltar de "confirmado" a "despachado".
- * La trazabilidad llega HASTA EL DESPACHO/ENTREGA: no existe (ni existirá en
- * este alcance) seguimiento del vehículo en ruta.
+ * El seguimiento del domiciliario en ruta (GPS, link público con la marca)
+ * vive en el módulo de domicilios (delivery.module.ts).
  */
 export const ORDER_TRANSITIONS: Record<string, string[]> = {
   borrador: ['confirmado', 'cancelado', 'requiere_atencion'],
@@ -452,6 +459,8 @@ export class OrdersService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly reminders: RemindersService,
+    @Optional() @Inject(WA_OUTBOUND_QUEUE) private readonly outboundQueue?: Queue,
+    @Optional() private readonly events?: EventsService,
   ) {}
 
   private async assertOrder(user: AuthUser, id: string) {
@@ -569,7 +578,7 @@ export class OrdersService {
 
   async detail(user: AuthUser, id: string) {
     await this.assertOrder(user, id);
-    return this.prisma.order.findUnique({
+    const order = await this.prisma.order.findUnique({
       where: { id },
       include: {
         customer: true,
@@ -581,6 +590,22 @@ export class OrdersService {
         feedback: true,
       },
     });
+    if (!order) return order;
+    // Domicilio: link público de seguimiento + domiciliario asignado
+    const courier = order.courierId
+      ? await this.prisma.user.findUnique({
+          where: { id: order.courierId },
+          select: { id: true, name: true, phone: true, onShift: true, lastLat: true, lastLng: true, lastLocAt: true },
+        })
+      : null;
+    const { trackingToken, deliveryProofFile, ...rest } = order as any;
+    return {
+      ...rest,
+      code: orderCode(order.id),
+      trackingUrl: trackingToken ? trackingUrl(await publicWebUrl(this.prisma), trackingToken) : null,
+      hasDeliveryProof: !!deliveryProofFile,
+      courier,
+    };
   }
 
   /** Vista de calendario: entregas agrupadas por día con carga por franja. */
@@ -699,7 +724,11 @@ export class OrdersService {
     }
     const updated = await this.prisma.order.update({
       where: { id: orderId },
-      data: { status: to },
+      data: {
+        status: to,
+        ...(to === 'despachado' ? { dispatchedAt: new Date() } : {}),
+        ...(to === 'entregado' ? { deliveredAt: new Date() } : {}),
+      },
     });
     await this.prisma.orderStatusHistory.create({
       data: {
@@ -712,6 +741,21 @@ export class OrdersService {
     if (to === 'confirmado') await this.runConfirmationPipeline(orderId, author);
     if (to === 'cancelado') await this.reminders.cancelForOrder(orderId);
     if (to === 'entregado') await this.reminders.scheduleFeedback(orderId);
+    if (to === 'despachado') {
+      // Aviso "va en camino" con el link de seguimiento (nunca rompe el flujo)
+      try {
+        const notice = await notifyOrderDispatched(this.prisma, this.outboundQueue, orderId);
+        if (!notice.sent) {
+          await this.audit.log({
+            actor: null, companyId: order.companyId, action: 'delivery.notify_skipped',
+            entity: 'Order', entityId: orderId, detail: notice.reason,
+          });
+        }
+      } catch (err: any) {
+        this.logger.warn(`aviso de despacho falló (${orderId}): ${err.message}`);
+      }
+    }
+    this.events?.emit(order.companyId, { type: 'order.status', orderId, status: to });
     return updated;
   }
 
@@ -780,10 +824,10 @@ export class OrdersService {
     // 3 + 4) Recordatorios (idempotente) y notificación inmediata a áreas
     await this.reminders.createForOrder(orderId);
 
-    // 5) confirmado → programado (automático)
+    // 5) confirmado → programado (automático) + link público de seguimiento
     await this.prisma.order.update({
       where: { id: orderId },
-      data: { status: 'programado' },
+      data: { status: 'programado', ...(order.trackingToken ? {} : { trackingToken: newTrackingToken() }) },
     });
     await this.prisma.orderStatusHistory.create({
       data: {

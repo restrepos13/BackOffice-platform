@@ -16,6 +16,7 @@ import { Queue, Worker } from 'bullmq';
 import { WA_OUTBOUND_QUEUE, redisConnection } from '../queue/queue.module';
 import { OrdersModule, OrdersService } from './orders.module';
 import { validateDelivery } from '../common/agenda';
+import { isLatLng } from '../common/geo';
 // Reexport para compatibilidad (tests y consumidores existentes)
 export { validateDelivery };
 import { join, resolve } from 'path';
@@ -31,6 +32,8 @@ import {
 import { AuditService } from './audit.module';
 import { EventsService } from './events.module';
 import { DeepInfraProvider } from '../ai/deepinfra.provider';
+import { AiBilling, recordAiUsage, resolveAiAccess } from '../ai/ai-access';
+import { AgentService } from '../ai/agent/agent.service';
 import { buildSystemPrompt, PromptContext } from '../ai/prompt';
 import {
   AI_PROVIDER,
@@ -124,6 +127,7 @@ export class EngineService {
     @Optional() @Inject(WA_OUTBOUND_QUEUE) private readonly outboundQueue?: Queue,
     @Optional() private readonly orders?: OrdersService,
     @Optional() private readonly events?: EventsService,
+    @Optional() private readonly agent?: AgentService,
   ) {}
 
   /** Encola el envío real (Twilio) de las respuestas para canales reales,
@@ -187,9 +191,17 @@ export class EngineService {
     if (!bot || (bot.status !== 'ACTIVE' && !opts.allowDraftBot)) {
       return this.escalate(conversation, null, 'Sin bot activo para esta línea');
     }
-    if (!company.deepinfraApiKey) {
-      return this.escalate(conversation, null, 'La organización no tiene llave de DeepInfra configurada');
+    const access = await resolveAiAccess(this.prisma, company);
+    if (!access.ok) {
+      if (access.code === 'CAP_REACHED') {
+        await this.audit.log({
+          actor: null, companyId: company.id, action: 'ai.cap_reached',
+          entity: 'Conversation', entityId: conversationId, detail: access.reason,
+        });
+      }
+      return this.escalate(conversation, null, access.reason);
     }
+    const usage = { billedTo: access.billedTo, conversationId };
 
     const effective = resolveEffective(bot, integration);
     const orderConfig = parseJson<Record<string, any>>(company.orderConfigJson, {});
@@ -205,7 +217,7 @@ export class EngineService {
       if (message.direction === 'IN' && message.type === 'AUDIO' && !message.transcription && message.fileName) {
         try {
           const { text } = await this.ai.transcribe({
-            apiKey: company.deepinfraApiKey,
+            apiKey: access.apiKey,
             filePath: join(UPLOADS_DIR, company.id, message.fileName),
             mimeType: 'audio/ogg',
             language: 'es',
@@ -215,7 +227,7 @@ export class EngineService {
             data: { transcription: text },
           });
           (message as any).transcription = text;
-          await this.recordUsage(company.id, integration?.id, bot.id, 'openai/whisper-large-v3-turbo', 0, 0);
+          await this.recordUsage(company.id, integration?.id, bot.id, 'openai/whisper-large-v3-turbo', 0, 0, usage);
         } catch (err: any) {
           this.logger.warn(`transcripción falló: ${err.message}`);
         }
@@ -236,6 +248,24 @@ export class EngineService {
       return this.escalate(conversation, null, `Palabra clave de handoff: "${hit}"`, [
         'Claro, dame un momento que ya te contacto con el equipo.',
       ]);
+    }
+
+    // Modo AGENTE: la IA decide qué consultar y qué hacer con herramientas
+    if (bot.engineMode === 'AGENT' && this.agent) {
+      const run = await this.agent.run({
+        conversation, company, contact, integration, bot, effective,
+        messages, apiKey: access.apiKey, usage,
+      });
+      if (run.escalate) {
+        const openDraft = await this.prisma.order.findFirst({
+          where: { conversationId, status: 'borrador', ...NOT_DELETED },
+          orderBy: { createdAt: 'desc' },
+        });
+        return this.escalate(conversation, openDraft, run.reason ?? 'El agente pidió ayuda humana', run.reply);
+      }
+      return this.deliverReplies(conversation, company, effective, run.reply, {
+        state: run.state, draftOrderId: run.draftOrderId ?? null,
+      });
     }
 
     // Contexto: borrador vigente + pedidos anteriores + catálogo
@@ -326,7 +356,7 @@ export class EngineService {
     // escala a una persona con el motivo registrado.
     let output: Awaited<ReturnType<typeof this.callModel>>;
     try {
-      output = await this.callModel(company, integration, bot, effective, ctx, history);
+      output = await this.callModel(company, integration, bot, effective, ctx, history, access.apiKey, usage);
     } catch (err: any) {
       this.logger.error(`proveedor de IA caído [co=${company.id} conv=${conversationId}]: ${err.message}`);
       output = { ok: false, reason: `Proveedor de IA no disponible: ${err.message}` };
@@ -371,7 +401,24 @@ export class EngineService {
     }
 
     // Persistir respuestas (humanizadas) y estado de la conversación
-    const plan = humanizeDelays(result.reply, effective.delayMinSec, effective.delayMaxSec);
+    return this.deliverReplies(conversation, company, effective, result.reply, {
+      state: result.state,
+      missingFields: result.missingFields,
+      draftOrderId,
+      orderStatus,
+    });
+  }
+
+  /** Guarda las respuestas humanizadas, las encola al canal y actualiza el estado. */
+  private async deliverReplies(
+    conversation: any,
+    company: any,
+    effective: ReturnType<typeof resolveEffective>,
+    replies: string[],
+    state: { state: string; missingFields?: string[]; draftOrderId?: string | null; orderStatus?: string | null },
+  ): Promise<EngineResult> {
+    const conversationId = conversation.id;
+    const plan = humanizeDelays(replies, effective.delayMinSec, effective.delayMaxSec);
     const dispatch: Array<{ messageId: string; delayMs: number }> = [];
     for (const part of plan) {
       const created = await this.prisma.message.create({
@@ -393,9 +440,9 @@ export class EngineService {
         lastMessageAt: new Date(),
         status: 'OPEN',
         aiStateJson: JSON.stringify({
-          state: result.state,
-          missingFields: result.missingFields,
-          draftOrderId,
+          state: state.state,
+          missingFields: state.missingFields ?? [],
+          draftOrderId: state.draftOrderId ?? null,
         }),
       },
     });
@@ -408,10 +455,10 @@ export class EngineService {
     return {
       conversationId,
       replies: plan,
-      state: result.state,
+      state: state.state,
       escalated: false,
-      draftOrderId,
-      orderStatus,
+      draftOrderId: state.draftOrderId ?? null,
+      orderStatus: state.orderStatus ?? null,
     };
   }
 
@@ -423,6 +470,8 @@ export class EngineService {
     effective: ReturnType<typeof resolveEffective>,
     ctx: PromptContext,
     history: ChatMessage[],
+    apiKey: string,
+    usage: { billedTo: AiBilling; conversationId: string },
   ): Promise<{ ok: true; output: EngineOutput } | { ok: false; reason: string }> {
     const base: ChatMessage[] = [
       { role: 'system', content: buildSystemPrompt(ctx) },
@@ -441,7 +490,7 @@ export class EngineService {
               },
             ];
       const completion = await this.ai.chat({
-        apiKey: company.deepinfraApiKey,
+        apiKey,
         model: effective.model,
         temperature: effective.temperature,
         maxTokens: 1024,
@@ -450,7 +499,7 @@ export class EngineService {
       });
       await this.recordUsage(
         company.id, integration?.id ?? null, bot.id,
-        effective.model, completion.inputTokens, completion.outputTokens,
+        effective.model, completion.inputTokens, completion.outputTokens, usage,
       );
       const parsed = extractJson(completion.content);
       const validated = validateEngineOutput(parsed);
@@ -693,17 +742,11 @@ export class EngineService {
     model: string,
     inputTokens: number,
     outputTokens: number,
+    usage: { billedTo: AiBilling; conversationId: string },
   ) {
-    const catalogEntry = await this.prisma.aiModel.findUnique({ where: { modelId: model } });
-    const costUsd = catalogEntry
-      ? (inputTokens * catalogEntry.inputCostPerMTok + outputTokens * catalogEntry.outputCostPerMTok) / 1_000_000
-      : 0;
-    await this.prisma.aiUsageEvent.create({
-      data: {
-        companyId, integrationId, botId, model,
-        inputTokens, outputTokens,
-        costUsd: Math.round(costUsd * 1e6) / 1e6,
-      },
+    await recordAiUsage(this.prisma, {
+      companyId, integrationId, botId, model, inputTokens, outputTokens,
+      billedTo: usage.billedTo, conversationId: usage.conversationId,
     });
   }
 
@@ -711,6 +754,8 @@ export class EngineService {
   async simulate(user: AuthUser, dto: {
     companyId?: string; integrationId?: string; phone: string; name?: string;
     content: string; reset?: boolean;
+    /** Simula "compartir ubicación" de WhatsApp. */
+    latitude?: number; longitude?: number;
   }): Promise<EngineResult & { transcript: Array<{ author: string; content: string }> }> {
     const companyId = isPlatformRole(user.role) ? dto.companyId : user.companyId;
     if (!companyId) throw new ForbiddenException('Falta companyId');
@@ -762,10 +807,18 @@ export class EngineService {
       });
     }
 
+    const location = isLatLng({ lat: dto.latitude, lng: dto.longitude })
+      ? { lat: Number(dto.latitude), lng: Number(dto.longitude) }
+      : null;
     await this.prisma.message.create({
       data: {
         conversationId: conversation.id,
-        direction: 'IN', author: 'CONTACT', content: dto.content, type: 'TEXT',
+        direction: 'IN', author: 'CONTACT',
+        content: location
+          ? `[ubicación] ${dto.content?.trim() || `${location.lat.toFixed(5)}, ${location.lng.toFixed(5)}`}`
+          : dto.content,
+        type: location ? 'LOCATION' : 'TEXT',
+        ...(location ? { latitude: location.lat, longitude: location.lng } : {}),
       },
     });
 
@@ -832,6 +885,7 @@ export class EngineQueueWorker implements OnModuleInit, OnApplicationShutdown {
   providers: [
     EngineService,
     EngineQueueWorker,
+    AgentService,
     { provide: AI_PROVIDER, useClass: DeepInfraProvider },
   ],
   exports: [EngineService],

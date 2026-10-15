@@ -26,6 +26,7 @@ import { EmailsModule, EmailsService } from './emails.module';
 import { TwilioModule, TwilioService } from './twilio.module';
 import { AI_PROVIDER, AiProvider } from '../ai/types';
 import { DeepInfraProvider } from '../ai/deepinfra.provider';
+import { resolveAiAccess } from '../ai/ai-access';
 import {
   ENGINE_QUEUE,
   WA_INBOUND_QUEUE,
@@ -191,13 +192,12 @@ export class DevToolsService {
     if (!this.ai) throw new BadRequestException('Proveedor de IA no disponible');
     const company = await this.prisma.company.findUnique({ where: { id: companyId } });
     if (!company) throw new NotFoundException('Empresa no encontrada');
-    if (!company.deepinfraApiKey) {
-      return { ok: false, error: 'La empresa no tiene llave configurada' };
-    }
+    const access = await resolveAiAccess(this.prisma, company);
+    if (!access.ok) return { ok: false, error: access.reason };
     const start = Date.now();
     try {
       const res = await this.ai.chat({
-        apiKey: company.deepinfraApiKey,
+        apiKey: access.apiKey,
         model: 'meta-llama/Llama-3.3-70B-Instruct',
         temperature: 0,
         maxTokens: 5,
@@ -205,9 +205,9 @@ export class DevToolsService {
       });
       await this.audit.log({
         actor, companyId, action: 'dev.test_deepinfra',
-        entity: 'Company', entityId: companyId, detail: `ok en ${Date.now() - start} ms`,
+        entity: 'Company', entityId: companyId, detail: `ok en ${Date.now() - start} ms (${access.billedTo})`,
       });
-      return { ok: true, latencyMs: Date.now() - start, model: res.model, reply: res.content.trim().slice(0, 40) };
+      return { ok: true, latencyMs: Date.now() - start, model: res.model, reply: res.content.trim().slice(0, 40), billedTo: access.billedTo };
     } catch (err: any) {
       return { ok: false, latencyMs: Date.now() - start, error: err.message };
     }
