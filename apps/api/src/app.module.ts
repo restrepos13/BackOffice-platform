@@ -35,6 +35,14 @@ import { CatalogModule } from './modules/catalog.module';
 import { EventsModule } from './modules/events.module';
 import { ReportsModule } from './modules/reports.module';
 import { DeliveryModule } from './modules/delivery.module';
+import { AiCreditsModule } from './modules/ai-credits.module';
+import { CampaignsModule } from './modules/campaigns.module';
+import { PromotionsModule } from './modules/promotions.module';
+import { KnowledgeModule } from './modules/knowledge.module';
+import { PipelinesModule } from './modules/pipelines.module';
+import { MenuModule } from './modules/menu.module';
+import { InboundOrdersModule } from './modules/inbound-orders.module';
+import { AiSetupModule } from './modules/ai-setup.module';
 import { MarketingModule } from './modules/marketing.module';
 import { ScheduleModule } from '@nestjs/schedule';
 
@@ -75,6 +83,14 @@ import { ScheduleModule } from '@nestjs/schedule';
     EventsModule,
     ReportsModule,
     DeliveryModule,
+    AiCreditsModule,
+    CampaignsModule,
+    PromotionsModule,
+    KnowledgeModule,
+    PipelinesModule,
+    MenuModule,
+    InboundOrdersModule,
+    AiSetupModule,
     MarketingModule,
   ],
   providers: [

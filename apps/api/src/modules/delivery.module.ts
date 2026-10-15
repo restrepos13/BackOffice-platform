@@ -5,10 +5,12 @@ import {
   ForbiddenException,
   Get,
   Injectable,
+  Delete,
   Logger,
   Module,
   NotFoundException,
   Param,
+  Patch,
   Post,
   Query,
   Res,
@@ -32,11 +34,15 @@ import {
   parseJson,
   scopeCompanyId,
 } from '../common/constants';
-import { geocodeAddress, isLatLng, quoteDelivery, roadKm, travelMinutes } from '../common/geo';
+import { geocodeAddress, isLatLng, nearestBranch, quoteDelivery, roadKm, suggestRoute, travelMinutes } from '../common/geo';
+import { queueBotText, withinServiceWindow } from '../common/customer-notify';
 import { CUSTOMER_STATUS_LABEL, orderCode } from '../common/tracking';
 import { AuditService } from './audit.module';
 import { EventsService } from './events.module';
 import { OrdersModule, OrdersService } from './orders.module';
+import { Inject, Optional } from '@nestjs/common';
+import type { Queue } from 'bullmq';
+import { WA_OUTBOUND_QUEUE } from '../queue/queue.module';
 
 /**
  * Domicilios (tipo Rappi, con la marca de cada empresa):
@@ -65,6 +71,7 @@ export class DeliveryService {
     private readonly orders: OrdersService,
     private readonly audit: AuditService,
     private readonly events: EventsService,
+    @Optional() @Inject(WA_OUTBOUND_QUEUE) private readonly outboundQueue?: Queue,
   ) {}
 
   private resolveCompany(user: AuthUser, companyId?: string): string {
@@ -92,7 +99,7 @@ export class DeliveryService {
     const company = await this.prisma.company.findUniqueOrThrow({ where: { id: scoped } });
     const cfg = parseJson<Record<string, any>>(company.orderConfigJson, {});
     const since = new Date(Date.now() - 36 * 3600e3);
-    const [couriers, orders] = await Promise.all([
+    const [couriers, orders, branches] = await Promise.all([
       this.prisma.user.findMany({
         where: { companyId: scoped, role: ROLES.COMPANY_COURIER, active: true },
         select: {
@@ -117,6 +124,7 @@ export class DeliveryService {
         orderBy: { deliveryAt: 'asc' },
         take: 300,
       }),
+      this.prisma.branch.findMany({ where: { companyId: scoped }, orderBy: { name: 'asc' } }),
     ]);
     const activeByCourier = new Map<string, number>();
     for (const o of orders) {
@@ -127,6 +135,8 @@ export class DeliveryService {
     return {
       origin: isLatLng(cfg.delivery?.origin) ? cfg.delivery.origin : null,
       deliveryEnabled: !!cfg.delivery?.enabled,
+      autoAssign: !!cfg.delivery?.autoAssign,
+      branches,
       couriers: couriers.map((c) => ({ ...c, activeOrders: activeByCourier.get(c.id) ?? 0 })),
       orders: orders.map((o) => ({
         id: o.id,
@@ -137,6 +147,9 @@ export class DeliveryService {
         dispatchedAt: o.dispatchedAt,
         deliveredAt: o.deliveredAt,
         courierId: o.courierId,
+        branchId: o.branchId,
+        delayed: !!o.delayAlertedAt,
+        paymentStatus: o.paymentStatus,
         customer: o.customer?.name ?? o.contact?.name ?? 'Cliente',
         phone: o.contact?.phone ?? null,
         total: o.total,
@@ -208,11 +221,18 @@ export class DeliveryService {
       const hit = await geocodeAddress(String(dto.address).slice(0, 200), { city: company.city, country: company.country });
       if (hit) { point = { lat: hit.lat, lng: hit.lng }; resolved = hit.formatted; }
     }
-    if (!point) throw new NotFoundException('No pudimos ubicar esa dirección');
+    const zonesMode = cfg.delivery?.pricingMode === 'ZONES';
+    if (!point && !zonesMode) throw new NotFoundException('No pudimos ubicar esa dirección');
+    const branches = await this.prisma.branch.findMany({ where: { companyId: scoped, active: true } });
+    const branch = nearestBranch(branches, point);
     return {
       point,
       resolved,
-      ...quoteDelivery(cfg.delivery, point, Number(dto?.subtotal) || 0, company.currency ?? 'COP'),
+      branch: branch ? { id: branch.id, name: branch.name } : null,
+      ...quoteDelivery(cfg.delivery, point, Number(dto?.subtotal) || 0, company.currency ?? 'COP', {
+        addressText: [dto?.address, resolved].filter(Boolean).join(' '),
+        origin: branch ? { lat: branch.lat, lng: branch.lng } : null,
+      }),
     };
   }
 
@@ -253,13 +273,28 @@ export class DeliveryService {
       orderBy: { deliveryAt: 'asc' },
     });
     const cfg = parseJson<Record<string, any>>(company.orderConfigJson, {});
+    // Ruta sugerida: lo que falta por entregar, del más cercano en adelante
+    const start = courier.lastLat != null && courier.lastLng != null
+      ? { lat: courier.lastLat, lng: courier.lastLng }
+      : isLatLng(cfg.delivery?.origin) ? cfg.delivery.origin : null;
+    const pending = orders.filter((o) => o.status !== 'entregado');
+    const ordered = suggestRoute(start, pending.map((o) => ({ ...o, ...this.destinationOf(o) })));
+    const sequence = new Map(ordered.map((o, i) => [o.id, i + 1]));
+    const waypoints = ordered.filter((o) => isLatLng(o)).map((o) => `${o.lat},${o.lng}`);
+    const routeUrl = waypoints.length >= 2
+      ? `https://www.google.com/maps/dir/?api=1&destination=${waypoints[waypoints.length - 1]}&waypoints=${encodeURIComponent(waypoints.slice(0, -1).join('|'))}&travelmode=driving`
+      : null;
+    orders.sort((a, b) => (sequence.get(a.id) ?? 999) - (sequence.get(b.id) ?? 999));
     return {
+      routeUrl,
       company: { name: company.name, brandColor: company.brandColor, logoUrl: company.logoUrl, currency: company.currency },
       courier: { name: courier.name, onShift: courier.onShift, lastLocAt: courier.lastLocAt },
       origin: isLatLng(cfg.delivery?.origin) ? cfg.delivery.origin : null,
       stops: orders.map((o) => ({
         id: o.id,
+        sequence: sequence.get(o.id) ?? null,
         code: orderCode(o.id),
+        paymentStatus: o.paymentStatus,
         status: o.status,
         deliveryAt: o.deliveryAt,
         etaAt: o.etaAt,
@@ -496,6 +531,120 @@ export class DeliveryService {
     };
   }
 
+  /* ── Alertas de demora ───────────────────────────────────────────── */
+
+  /**
+   * Cada 2 min: pedidos en ruta que pasaron su hora estimada por más de
+   * delayAlertMinutes (y opcionalmente se le avisa al cliente), y pedidos
+   * listos sin domiciliario por más de unassignedAlertMinutes. Una alerta por
+   * pedido (delayAlertedAt).
+   */
+  @Cron('*/2 * * * *')
+  async delayCron() {
+    if (process.env.JEST_WORKER_ID) return;
+    try {
+      await this.checkDelays();
+    } catch (err: any) {
+      this.logger.warn(`alertas de demora: ${err.message}`);
+    }
+  }
+
+  async checkDelays(now = new Date()) {
+    const companies = await this.prisma.company.findMany({
+      where: { status: { in: ['ACTIVE', 'TRIAL'] }, orderConfigJson: { contains: '"delivery"' } },
+    });
+    const alerts: Array<{ orderId: string; kind: 'LATE' | 'UNASSIGNED'; minutes: number }> = [];
+    for (const company of companies) {
+      const cfg = parseJson<Record<string, any>>(company.orderConfigJson, {}).delivery ?? {};
+      if (!cfg.enabled) continue;
+      const lateAfter = Math.max(1, Number(cfg.delayAlertMinutes ?? 10));
+      const unassignedAfter = Math.max(1, Number(cfg.unassignedAlertMinutes ?? 15));
+      const late = await this.prisma.order.findMany({
+        where: {
+          companyId: company.id, status: 'despachado', delayAlertedAt: null,
+          etaAt: { lt: new Date(now.getTime() - lateAfter * 60e3) }, ...NOT_DELETED,
+        },
+      });
+      for (const order of late) {
+        const minutes = Math.round((now.getTime() - order.etaAt!.getTime()) / 60e3);
+        const claim = await this.prisma.order.updateMany({ where: { id: order.id, delayAlertedAt: null }, data: { delayAlertedAt: now } });
+        if (!claim.count) continue;
+        alerts.push({ orderId: order.id, kind: 'LATE', minutes });
+        await this.audit.log({ actor: null, companyId: company.id, action: 'delivery.delay', entity: 'Order', entityId: order.id, detail: `#${orderCode(order.id)} va ${minutes} min tarde` });
+        this.events.emit(company.id, { type: 'delivery.delay', orderId: order.id, minutes, code: orderCode(order.id) });
+        if (cfg.notifyDelayToCustomer && order.conversationId) {
+          const conversation = await this.prisma.conversation.findUnique({ where: { id: order.conversationId } });
+          if (conversation && (await withinServiceWindow(this.prisma, conversation.id, now))) {
+            await queueBotText(this.prisma, this.outboundQueue, conversation,
+              `Tu pedido #${orderCode(order.id)} viene con un pequeño retraso. Ya está en camino, gracias por la paciencia.`,
+              { authorName: 'Domicilios' });
+          }
+        }
+      }
+      const ready = await this.prisma.order.findMany({
+        where: { companyId: company.id, status: 'listo', courierId: null, delayAlertedAt: null, ...NOT_DELETED },
+        include: { statusHistory: { where: { toStatus: 'listo' }, orderBy: { createdAt: 'desc' }, take: 1 } },
+      });
+      for (const order of ready) {
+        const readyAt = (order as any).statusHistory?.[0]?.createdAt ?? order.updatedAt;
+        const minutes = Math.round((now.getTime() - new Date(readyAt).getTime()) / 60e3);
+        if (minutes < unassignedAfter) continue;
+        const claim = await this.prisma.order.updateMany({ where: { id: order.id, delayAlertedAt: null }, data: { delayAlertedAt: now } });
+        if (!claim.count) continue;
+        alerts.push({ orderId: order.id, kind: 'UNASSIGNED', minutes });
+        await this.audit.log({ actor: null, companyId: company.id, action: 'delivery.unassigned', entity: 'Order', entityId: order.id, detail: `#${orderCode(order.id)} lleva ${minutes} min listo sin domiciliario` });
+        this.events.emit(company.id, { type: 'delivery.unassigned', orderId: order.id, minutes, code: orderCode(order.id) });
+      }
+    }
+    return alerts;
+  }
+
+  /* ── Sucursales ──────────────────────────────────────────────────── */
+
+  async listBranches(user: AuthUser, companyId?: string) {
+    const scoped = this.resolveCompany(user, companyId);
+    return this.prisma.branch.findMany({ where: { companyId: scoped }, orderBy: { name: 'asc' } });
+  }
+
+  async saveBranch(user: AuthUser, dto: any, id?: string, companyId?: string) {
+    const name = String(dto?.name ?? '').trim().slice(0, 80);
+    if (!name) throw new BadRequestException('Ponle un nombre a la sucursal');
+    const lat = Number(dto?.lat);
+    const lng = Number(dto?.lng);
+    if (!isLatLng({ lat, lng })) throw new BadRequestException('Ubica la sucursal en el mapa (latitud y longitud)');
+    const data = {
+      name, lat, lng,
+      address: dto?.address ? String(dto.address).slice(0, 200) : null,
+      phone: dto?.phone ? String(dto.phone).slice(0, 30) : null,
+      active: dto?.active ?? true,
+    };
+    let scoped: string;
+    if (id) {
+      const existing = await this.prisma.branch.findUnique({ where: { id } });
+      if (!existing) throw new NotFoundException('Sucursal no encontrada');
+      if (!isPlatformRole(user.role) && existing.companyId !== user.companyId) throw new ForbiddenException();
+      scoped = existing.companyId;
+    } else {
+      scoped = this.resolveCompany(user, companyId ?? dto?.companyId);
+      const count = await this.prisma.branch.count({ where: { companyId: scoped } });
+      if (count >= 30) throw new BadRequestException('Máximo 30 sucursales');
+    }
+    const branch = id
+      ? await this.prisma.branch.update({ where: { id }, data })
+      : await this.prisma.branch.create({ data: { companyId: scoped, ...data } });
+    await this.audit.log({ actor: user, companyId: scoped, action: id ? 'branch.update' : 'branch.create', entity: 'Branch', entityId: branch.id, detail: name });
+    return branch;
+  }
+
+  async removeBranch(user: AuthUser, id: string) {
+    const existing = await this.prisma.branch.findUnique({ where: { id } });
+    if (!existing) throw new NotFoundException('Sucursal no encontrada');
+    if (!isPlatformRole(user.role) && existing.companyId !== user.companyId) throw new ForbiddenException();
+    await this.prisma.branch.delete({ where: { id } });
+    await this.audit.log({ actor: user, companyId: existing.companyId, action: 'branch.delete', entity: 'Branch', entityId: id, detail: existing.name });
+    return { ok: true };
+  }
+
   /* ── Mantenimiento ───────────────────────────────────────────────── */
 
   /** Diario 03:00: depura rastro GPS viejo y cierra turnos olvidados. */
@@ -548,6 +697,30 @@ export class DeliveryController {
   @Throttle({ default: { limit: 20, ttl: 60_000 } })
   quote(@CurrentUser() user: AuthUser, @Body() dto: any, @Query('companyId') companyId?: string) {
     return this.delivery.quote(user, dto, companyId);
+  }
+
+  @Get('branches')
+  @Roles(ROLES.SUPER_ADMIN, ROLES.DEV, ROLES.COMPANY_ADMIN, ROLES.COMPANY_VIEWER)
+  branches(@CurrentUser() user: AuthUser, @Query('companyId') companyId?: string) {
+    return this.delivery.listBranches(user, companyId);
+  }
+
+  @Post('branches')
+  @Roles(ROLES.SUPER_ADMIN, ROLES.DEV, ROLES.COMPANY_ADMIN)
+  createBranch(@CurrentUser() user: AuthUser, @Body() dto: any, @Query('companyId') companyId?: string) {
+    return this.delivery.saveBranch(user, dto, undefined, companyId);
+  }
+
+  @Patch('branches/:id')
+  @Roles(ROLES.SUPER_ADMIN, ROLES.DEV, ROLES.COMPANY_ADMIN)
+  updateBranch(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: any) {
+    return this.delivery.saveBranch(user, dto, id);
+  }
+
+  @Delete('branches/:id')
+  @Roles(ROLES.SUPER_ADMIN, ROLES.DEV, ROLES.COMPANY_ADMIN)
+  removeBranch(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.delivery.removeBranch(user, id);
   }
 
   @Get('couriers/:id/trail')

@@ -13,7 +13,9 @@ import { AGENT_PRESETS, enabledTools, matchProduct, sanitizeToolsConfig } from '
 import { AiProviderError } from '../src/ai/deepinfra.provider';
 import {
   AiSession,
-  computeAiQuota,
+  recordAiUsage,
+  computeAiCredits,
+  creditAiLot,
   maskCompanyKey,
   readCompanyKey,
   resolveAiAccess,
@@ -195,7 +197,7 @@ describe('agente: domicilio de punta a punta', () => {
     const r1 = await engine.processConversation('conv1');
     expect(r1!.escalated).toBe(false);
     // el resultado de la herramienta volvió al modelo con precios reales
-    const toolResult = provider.calls[1].messages.find((m) => m.content.startsWith('[RESULTADO ver_menu]'));
+    const toolResult = provider.calls[1].messages.find((m) => String(m.content).startsWith('[RESULTADO ver_menu]'));
     expect(toolResult!.content).toContain('18.000');
 
     // el cliente pide y comparte su ubicación
@@ -233,7 +235,7 @@ describe('agente: domicilio de punta a punta', () => {
     expect(confirmed.status).toBe('confirmado');
     expect(confirmed.trackingToken).toMatch(/^[A-Za-z0-9_-]{20,}$/);
     expect(db.contact[0].stage).toBe('CLIENTE');
-    const confirmResult = provider.calls.at(-1)!.messages.find((m) => m.content.startsWith('[RESULTADO confirmar_pedido]'));
+    const confirmResult = provider.calls.at(-1)!.messages.find((m) => String(m.content).startsWith('[RESULTADO confirmar_pedido]'));
     expect(confirmResult!.content).toContain(`/t/${confirmed.trackingToken}`);
 
     // cada llamada al modelo quedó registrada como BYOK y ligada a la conversación
@@ -250,7 +252,7 @@ describe('agente: domicilio de punta a punta', () => {
     );
     await engine.processConversation('conv1');
     expect(db.order).toHaveLength(0);
-    const result = provider.calls[1].messages.find((m) => m.content.startsWith('[RESULTADO armar_pedido]'));
+    const result = provider.calls[1].messages.find((m) => String(m.content).startsWith('[RESULTADO armar_pedido]'));
     expect(result!.content).toContain('no_encontrados');
   });
 
@@ -291,7 +293,7 @@ describe('agente: domicilio de punta a punta', () => {
     );
     await engine.processConversation('conv1');
     expect(db.order).toHaveLength(0);
-    const denied = provider.calls[1].messages.find((m) => m.content.startsWith('[RESULTADO armar_pedido]'));
+    const denied = provider.calls[1].messages.find((m) => String(m.content).startsWith('[RESULTADO armar_pedido]'));
     expect(denied!.content).toContain('No tienes permiso');
   });
 
@@ -331,7 +333,7 @@ describe('agente: domicilio de punta a punta', () => {
     );
     const r = await engine.processConversation('conv1');
     expect(r!.escalated).toBe(false);
-    expect(provider.calls[1].messages.some((m) => m.content.includes('no existe'))).toBe(true);
+    expect(provider.calls[1].messages.some((m) => String(m.content).includes('no existe'))).toBe(true);
   });
 });
 
@@ -356,22 +358,25 @@ describe('IA: BYOK cifrada, IA de BackOffice y tope de gasto', () => {
     expect(await resolveAiAccess(prisma, { aiBillingMode: 'PLATFORM' })).toMatchObject({ ok: false, code: 'NO_PLATFORM_KEY' });
   });
 
-  it('PLATFORM cuenta conversaciones, excedente y corta al llegar al tope', async () => {
+  it('PLATFORM: sin saldo prepago ni incluidas → NO_CREDITS; con paquete → disponible', async () => {
     process.env.DEEPINFRA_API_KEY = 'platform_key';
     const { prisma, db } = createMockPrisma();
-    db.plan.push({ id: 'plan1', includedAiConversations: 2, extraAiConversationUsd: 0.05 });
-    const company = { id: 'co1', aiBillingMode: 'PLATFORM', aiSpendCapUsd: 1, planId: 'plan1', aiIncludedOverride: null };
-    const now = new Date();
-    for (const [conv, cost] of [['a', 0.1], ['a', 0.1], ['b', 0.2], ['c', 0.1], ['d', 0.1]] as const) {
-      db.aiUsageEvent.push({ companyId: 'co1', billedTo: 'PLATFORM', conversationId: conv, costUsd: cost, createdAt: now });
-    }
-    db.aiUsageEvent.push({ companyId: 'co1', billedTo: 'BYOK', conversationId: 'z', costUsd: 5, createdAt: now });
-
-    const quota = await computeAiQuota(prisma, company, now);
-    expect(quota).toMatchObject({ conversations: 4, included: 2, extra: 2, extraChargeUsd: 0.1, spendUsd: 0.6, capReached: false });
+    const company = { id: 'co1', aiBillingMode: 'PLATFORM', aiSpendCapUsd: null, planId: null, aiIncludedOverride: null };
+    db.company.push({ ...company });
+    expect(await resolveAiAccess(prisma, company)).toMatchObject({ ok: false, code: 'NO_CREDITS' });
+    await creditAiLot(prisma, { companyId: 'co1', conversations: 500, source: 'PURCHASE', paymentRef: 'PKG-1' });
+    await creditAiLot(prisma, { companyId: 'co1', conversations: 500, source: 'PURCHASE', paymentRef: 'PKG-1' }); // webhook repetido
+    expect(db.aiCreditLot).toHaveLength(1);
     expect(await resolveAiAccess(prisma, company)).toMatchObject({ ok: true, apiKey: 'platform_key', billedTo: 'PLATFORM' });
+    const credits = await computeAiCredits(prisma, company);
+    expect(credits).toMatchObject({ balance: 500, available: 500, includedLeft: 0 });
+  });
 
-    db.aiUsageEvent.push({ companyId: 'co1', billedTo: 'PLATFORM', conversationId: 'e', costUsd: 0.5, createdAt: now });
+  it('PLATFORM: el tope de gasto sigue cortando aunque haya saldo', async () => {
+    process.env.DEEPINFRA_API_KEY = 'platform_key';
+    const { prisma, db } = createMockPrisma();
+    const company = { id: 'co1', aiBillingMode: 'PLATFORM', aiSpendCapUsd: 1, planId: null, aiIncludedOverride: 100 };
+    db.aiUsageEvent.push({ companyId: 'co1', billedTo: 'PLATFORM', conversationId: 'x', costUsd: 1.2, createdAt: new Date() });
     expect(await resolveAiAccess(prisma, company)).toMatchObject({ ok: false, code: 'CAP_REACHED' });
   });
 
@@ -391,6 +396,7 @@ describe('IA: BYOK cifrada, IA de BackOffice y tope de gasto', () => {
   it('en modo PLATFORM el consumo se registra como PLATFORM', async () => {
     process.env.DEEPINFRA_API_KEY = 'platform_key';
     const { db, provider, engine, say } = setup({ billing: 'PLATFORM' });
+    db.company[0].aiIncludedOverride = 100; // conversaciones incluidas en el plan
     say('hola');
     provider.script({ reply: ['¡Hola!'], confidence: 0.9, state: 'saludo' });
     await engine.processConversation('conv1');
@@ -559,7 +565,7 @@ describe('IA híbrida: la empresa usa su cuenta y BackOffice le vende IA aparte'
 
   it('principal + respaldo según aiHybridPrimary', async () => {
     const { prisma } = createMockPrisma();
-    const base = { id: 'co1', aiBillingMode: 'HYBRID', deepinfraApiKey: 'byok_key', aiSpendCapUsd: null, planId: null };
+    const base = { id: 'co1', aiBillingMode: 'HYBRID', deepinfraApiKey: 'byok_key', aiSpendCapUsd: null, planId: null, aiIncludedOverride: 100 };
     expect(await resolveAiAccess(prisma, { ...base, aiHybridPrimary: 'BYOK' })).toMatchObject({
       ok: true, apiKey: 'byok_key', billedTo: 'BYOK', mode: 'HYBRID',
       fallback: { apiKey: 'platform_key', billedTo: 'PLATFORM' },
@@ -571,7 +577,7 @@ describe('IA híbrida: la empresa usa su cuenta y BackOffice le vende IA aparte'
 
   it('si falta la principal arranca con la otra; si no hay ninguna, NO_AI con los dos motivos', async () => {
     const { prisma, db } = createMockPrisma();
-    const noKey = { id: 'co1', aiBillingMode: 'HYBRID', aiHybridPrimary: 'BYOK', deepinfraApiKey: null, aiSpendCapUsd: null, planId: null };
+    const noKey = { id: 'co1', aiBillingMode: 'HYBRID', aiHybridPrimary: 'BYOK', deepinfraApiKey: null, aiSpendCapUsd: null, planId: null, aiIncludedOverride: 100 };
     const access = await resolveAiAccess(prisma, noKey);
     expect(access).toMatchObject({ ok: true, billedTo: 'PLATFORM' });
     expect((access as any).fallback).toBeUndefined();
@@ -585,7 +591,7 @@ describe('IA híbrida: la empresa usa su cuenta y BackOffice le vende IA aparte'
 
   it('un asistente vendido aparte (aiSource PLATFORM) usa la IA de BackOffice aunque la empresa sea BYOK', async () => {
     const { prisma } = createMockPrisma();
-    const company = { id: 'co1', aiBillingMode: 'BYOK', deepinfraApiKey: 'byok_key', aiSpendCapUsd: null, planId: null };
+    const company = { id: 'co1', aiBillingMode: 'BYOK', deepinfraApiKey: 'byok_key', aiSpendCapUsd: null, planId: null, aiIncludedOverride: 100 };
     expect(await resolveAiAccess(prisma, company, { aiSource: 'PLATFORM' })).toMatchObject({ billedTo: 'PLATFORM' });
     expect(await resolveAiAccess(prisma, company, { aiSource: 'INHERIT' })).toMatchObject({ billedTo: 'BYOK' });
   });
@@ -617,7 +623,7 @@ describe('IA híbrida: la empresa usa su cuenta y BackOffice le vende IA aparte'
     db.company.push({
       id: 'co1', name: 'Híbrida', timezone: 'America/Bogota', currency: 'COP',
       deepinfraApiKey: 'di_byok_key', aiBillingMode: 'HYBRID', aiHybridPrimary: 'BYOK',
-      aiSpendCapUsd: null, planId: null, orderConfigJson: '{}',
+      aiSpendCapUsd: null, planId: null, aiIncludedOverride: 100, orderConfigJson: '{}',
     });
     db.bot.push({
       id: 'bot1', companyId: 'co1', status: 'ACTIVE', engineMode: 'AGENT', toolsJson: '[]',
@@ -648,13 +654,15 @@ describe('IA híbrida: la empresa usa su cuenta y BackOffice le vende IA aparte'
     expect(db.conversation[0]).toMatchObject({ botPaused: true, needsAttention: true });
   });
 
-  it('el excedente se factura también en híbrido (solo lo que pagó BackOffice)', async () => {
+  it('en híbrido solo lo que pagó BackOffice descuenta saldo (BYOK no consume créditos)', async () => {
     const { prisma, db } = createMockPrisma();
-    db.plan.push({ id: 'p', includedAiConversations: 1, extraAiConversationUsd: 0.1 });
-    const now = new Date();
-    for (const conv of ['a', 'b', 'c']) db.aiUsageEvent.push({ companyId: 'co1', billedTo: 'PLATFORM', conversationId: conv, costUsd: 0.01, createdAt: now });
-    db.aiUsageEvent.push({ companyId: 'co1', billedTo: 'BYOK', conversationId: 'd', costUsd: 0.01, createdAt: now });
-    const quota = await computeAiQuota(prisma, { id: 'co1', aiBillingMode: 'HYBRID', planId: 'p' }, now);
-    expect(quota).toMatchObject({ mode: 'HYBRID', conversations: 3, extra: 2, extraChargeUsd: 0.2 });
+    db.company.push({ id: 'co1', aiBillingMode: 'HYBRID', planId: null, aiIncludedOverride: 0 });
+    await creditAiLot(prisma, { companyId: 'co1', conversations: 10, source: 'GRANT' });
+    for (const [conv, billedTo] of [['a', 'PLATFORM'], ['a', 'PLATFORM'], ['b', 'BYOK'], ['c', 'PLATFORM']] as const) {
+      await recordAiUsage(prisma, { companyId: 'co1', model: 'm', inputTokens: 10, outputTokens: 5, billedTo, conversationId: conv });
+    }
+    const credits = await computeAiCredits(prisma, { id: 'co1', aiBillingMode: 'HYBRID', planId: null, aiIncludedOverride: 0 });
+    // a (1 vez por ventana de 24 h) + c = 2 créditos; b fue con la llave del cliente
+    expect(credits).toMatchObject({ mode: 'HYBRID', balance: 8, usedThisMonth: 2 });
   });
 });

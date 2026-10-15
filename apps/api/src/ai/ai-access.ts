@@ -25,7 +25,11 @@ export interface AiKey {
   billedTo: AiBilling;
 }
 
-type AiDenied = { ok: false; code: 'NO_KEY' | 'NO_PLATFORM_KEY' | 'CAP_REACHED' | 'NO_AI'; reason: string };
+type AiDenied = {
+  ok: false;
+  code: 'NO_KEY' | 'NO_PLATFORM_KEY' | 'CAP_REACHED' | 'NO_CREDITS' | 'NO_AI';
+  reason: string;
+};
 
 export type AiAccess = ({ ok: true } & AiKey & { fallback?: AiKey; mode: AiMode }) | AiDenied;
 
@@ -70,72 +74,171 @@ export async function platformAiKey(prisma?: any): Promise<string | null> {
   return row?.value?.trim() || null;
 }
 
-/** Inicio del mes calendario en curso (UTC) — periodo de topes y facturación. */
+/** Inicio del mes calendario en curso (UTC) — periodo de lo incluido en el plan. */
 export function monthStart(now = new Date()): Date {
   return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
 }
 
-export interface AiQuota {
+/* ─── Saldo prepago de IA de BackOffice ──────────────────────────────
+ * 1 crédito = 1 conversación atendida por la IA de BackOffice en una ventana
+ * de 24 h (igual que cuenta Meta), o 1 consulta fuera de chat (reportes,
+ * marketing). Primero se usa lo incluido en el plan del mes; después los
+ * paquetes, del más antiguo al más nuevo (FIFO), y vencen a los 12 meses.
+ */
+
+export const CREDIT_WINDOW_MS = 24 * 3600e3;
+/** Aviso de saldo bajo: queda ≤ 20 % del último paquete. */
+export const LOW_BALANCE_RATIO = 0.2;
+
+export interface AiCredits {
   mode: AiMode;
   period: string; // YYYY-MM
-  conversations: number; // conversaciones IA del mes (PLATFORM)
-  included: number;
-  extra: number; // conversaciones por encima de las incluidas
+  includedMonthly: number;
+  includedUsed: number;
+  includedLeft: number;
+  balance: number; // créditos prepagos vigentes
+  available: number; // includedLeft + balance
+  usedThisMonth: number;
+  nextExpiry: Date | null;
+  lowBalance: boolean;
   spendUsd: number; // costo real del mes con la llave de BackOffice
   capUsd: number | null;
-  capPct: number | null; // 0..100+
+  capPct: number | null;
   capReached: boolean;
 }
 
-/**
- * Consumo de un mes en modo PLATFORM vs incluidas y tope.
- * Sin rango = mes en curso; la facturación pasa el rango del período cerrado.
- */
-export async function computeAiQuota(
-  prisma: any,
-  company: any,
-  now = new Date(),
-  range?: { from: Date; to: Date },
-): Promise<AiQuota & { extraChargeUsd: number; extraPriceUsd: number }> {
-  const since = range?.from ?? monthStart(now);
-  const mode = normalizeAiMode(company.aiBillingMode);
-  const events: Array<{ conversationId: string | null; costUsd: number }> =
-    await prisma.aiUsageEvent.findMany({
-      where: {
-        companyId: company.id,
-        billedTo: 'PLATFORM',
-        createdAt: range ? { gte: range.from, lt: range.to } : { gte: since },
-      },
-      select: { conversationId: true, costUsd: true },
-    });
-  const conversations = new Set(events.map((e) => e.conversationId).filter(Boolean)).size;
-  const spendUsd = Math.round(events.reduce((sum, e) => sum + (e.costUsd ?? 0), 0) * 1e4) / 1e4;
-  const plan = company.planId
-    ? await prisma.plan.findUnique({ where: { id: company.planId } })
-    : null;
-  const included = Number(company.aiIncludedOverride ?? plan?.includedAiConversations ?? 0);
-  const extraPriceUsd = Number(plan?.extraAiConversationUsd ?? 0);
+export async function computeAiCredits(prisma: any, company: any, now = new Date()): Promise<AiCredits> {
+  const since = monthStart(now);
+  const [plan, usesThisMonth, lots, events] = await Promise.all([
+    company.planId ? prisma.plan.findUnique({ where: { id: company.planId } }) : null,
+    prisma.aiCreditUse.findMany({
+      where: { companyId: company.id, createdAt: { gte: since } },
+      select: { fromIncluded: true },
+    }),
+    prisma.aiCreditLot.findMany({
+      where: { companyId: company.id, expiresAt: { gt: now } },
+      orderBy: { createdAt: 'asc' },
+    }),
+    prisma.aiUsageEvent.findMany({
+      where: { companyId: company.id, billedTo: 'PLATFORM', createdAt: { gte: since } },
+      select: { costUsd: true },
+    }),
+  ]);
+  const includedMonthly = Number(company.aiIncludedOverride ?? plan?.includedAiConversations ?? 0);
+  const includedUsed = usesThisMonth.filter((u: any) => u.fromIncluded).length;
+  const includedLeft = Math.max(0, includedMonthly - includedUsed);
+  const balance = lots.reduce((sum: number, l: any) => sum + Math.max(0, l.remaining), 0);
+  const lastLot = lots[lots.length - 1];
+  const spendUsd = Math.round(events.reduce((sum: number, e: any) => sum + (e.costUsd ?? 0), 0) * 1e4) / 1e4;
   const capUsd = company.aiSpendCapUsd ?? null;
-  const capPct = capUsd ? Math.round((spendUsd / capUsd) * 1000) / 10 : null;
-  const extra = Math.max(0, conversations - included);
   return {
-    mode,
+    mode: normalizeAiMode(company.aiBillingMode),
     period: since.toISOString().slice(0, 7),
-    conversations,
-    included,
-    extra,
-    extraPriceUsd,
-    // Excedente facturable: solo cuenta lo que pagó BackOffice (PLATFORM, sea por
-    // modo de la empresa, híbrido o un asistente vendido aparte); BYOK nunca
-    extraChargeUsd: Math.round(extra * extraPriceUsd * 100) / 100,
+    includedMonthly,
+    includedUsed,
+    includedLeft,
+    balance,
+    available: includedLeft + balance,
+    usedThisMonth: usesThisMonth.length,
+    nextExpiry: lots.find((l: any) => l.remaining > 0)?.expiresAt ?? null,
+    lowBalance: includedLeft === 0 && !!lastLot && balance <= lastLot.total * LOW_BALANCE_RATIO,
     spendUsd,
     capUsd,
-    capPct,
+    capPct: capUsd ? Math.round((spendUsd / capUsd) * 1000) / 10 : null,
     capReached: capUsd != null && spendUsd >= capUsd,
   };
 }
 
-async function platformCandidate(prisma: any, company: any): Promise<AiKey | AiDenied> {
+/** ¿Esta conversación ya pagó su crédito en las últimas 24 h? */
+async function chargedRecently(prisma: any, companyId: string, conversationId: string | null | undefined, now: Date) {
+  if (!conversationId) return false;
+  const recent = await prisma.aiCreditUse.findFirst({
+    where: { companyId, conversationId, createdAt: { gte: new Date(now.getTime() - CREDIT_WINDOW_MS) } },
+  });
+  return !!recent;
+}
+
+/**
+ * Descuenta 1 crédito (si corresponde). Devuelve si hay que avisar saldo
+ * bajo o agotado. Idempotente por conversación dentro de la ventana de 24 h.
+ */
+export async function consumeAiCredit(
+  prisma: any,
+  company: any,
+  opts: { conversationId?: string | null; purpose?: string; now?: Date } = {},
+): Promise<{ charged: boolean; source: 'INCLUDED' | 'PREPAID' | 'NONE'; alert: 'LOW' | 'EMPTY' | null }> {
+  const now = opts.now ?? new Date();
+  if (await chargedRecently(prisma, company.id, opts.conversationId, now)) {
+    return { charged: false, source: 'NONE', alert: null };
+  }
+  const credits = await computeAiCredits(prisma, company, now);
+  const purpose = opts.purpose ?? (opts.conversationId ? 'CHAT' : 'CONSULTA');
+  if (credits.includedLeft > 0) {
+    await prisma.aiCreditUse.create({
+      data: { companyId: company.id, conversationId: opts.conversationId ?? null, purpose, fromIncluded: true },
+    });
+    return { charged: true, source: 'INCLUDED', alert: null };
+  }
+  // FIFO sobre lotes vigentes; el updateMany condicional evita sobregiros concurrentes
+  const lots = await prisma.aiCreditLot.findMany({
+    where: { companyId: company.id, expiresAt: { gt: now }, remaining: { gt: 0 } },
+    orderBy: { createdAt: 'asc' },
+  });
+  for (const lot of lots) {
+    const res = await prisma.aiCreditLot.updateMany({
+      where: { id: lot.id, remaining: { gt: 0 } },
+      data: { remaining: { decrement: 1 } },
+    });
+    if (res.count === 0) continue;
+    await prisma.aiCreditUse.create({
+      data: { companyId: company.id, conversationId: opts.conversationId ?? null, purpose, lotId: lot.id },
+    });
+    const after = credits.balance - 1;
+    const lastLot = lots[lots.length - 1];
+    let alert: 'LOW' | 'EMPTY' | null = null;
+    if (after <= 0 && !lastLot.alertedEmpty) {
+      alert = 'EMPTY';
+      await prisma.aiCreditLot.updateMany({ where: { id: lastLot.id }, data: { alertedEmpty: true, alertedLow: true } });
+    } else if (after <= lastLot.total * LOW_BALANCE_RATIO && !lastLot.alertedLow) {
+      alert = 'LOW';
+      await prisma.aiCreditLot.updateMany({ where: { id: lastLot.id }, data: { alertedLow: true } });
+    }
+    return { charged: true, source: 'PREPAID', alert };
+  }
+  return { charged: false, source: 'NONE', alert: 'EMPTY' };
+}
+
+/** Acredita un paquete (compra aprobada) o un regalo de plataforma. */
+export async function creditAiLot(
+  prisma: any,
+  input: {
+    companyId: string; conversations: number; source: 'PURCHASE' | 'GRANT';
+    validityMonths?: number; packageId?: string | null; paymentRef?: string | null;
+    note?: string | null; createdBy?: string | null; now?: Date;
+  },
+) {
+  const now = input.now ?? new Date();
+  if (input.paymentRef) {
+    const existing = await prisma.aiCreditLot.findFirst({ where: { paymentRef: input.paymentRef } });
+    if (existing) return existing; // webhook repetido: no duplica saldo
+  }
+  const expiresAt = new Date(now);
+  expiresAt.setMonth(expiresAt.getMonth() + (input.validityMonths ?? 12));
+  const total = Math.max(1, Math.round(input.conversations));
+  return prisma.aiCreditLot.create({
+    data: {
+      companyId: input.companyId, source: input.source, packageId: input.packageId ?? null,
+      total, remaining: total, expiresAt, paymentRef: input.paymentRef ?? null,
+      note: input.note ?? null, createdBy: input.createdBy ?? null,
+    },
+  });
+}
+
+async function platformCandidate(
+  prisma: any,
+  company: any,
+  conversationId?: string | null,
+): Promise<AiKey | AiDenied> {
   const key = await platformAiKey(prisma);
   if (!key) {
     return {
@@ -144,11 +247,16 @@ async function platformCandidate(prisma: any, company: any): Promise<AiKey | AiD
       reason: 'La IA de BackOffice no está configurada (DEEPINFRA_API_KEY en .env o Dev Tools → Settings)',
     };
   }
-  if (company.aiSpendCapUsd != null) {
-    const quota = await computeAiQuota(prisma, company);
-    if (quota.capReached) {
-      return { ok: false, code: 'CAP_REACHED', reason: `Se alcanzó el tope mensual de IA (USD ${quota.capUsd})` };
-    }
+  const credits = await computeAiCredits(prisma, company);
+  if (credits.capReached) {
+    return { ok: false, code: 'CAP_REACHED', reason: `Se alcanzó el tope mensual de IA (USD ${credits.capUsd})` };
+  }
+  if (credits.available <= 0 && !(await chargedRecently(prisma, company.id, conversationId, new Date()))) {
+    return {
+      ok: false,
+      code: 'NO_CREDITS',
+      reason: 'Sin saldo de IA de BackOffice: recarga un paquete en Consumo IA',
+    };
   }
   return { apiKey: key, billedTo: 'PLATFORM' };
 }
@@ -180,10 +288,15 @@ export function effectiveAiMode(company: any, bot?: any): AiMode {
  * Decide la(s) llave(s) de una llamada. En PLATFORM revisa el tope ANTES de
  * gastar. En HYBRID devuelve la principal + la de respaldo disponibles.
  */
-export async function resolveAiAccess(prisma: any, company: any, bot?: any): Promise<AiAccess> {
+export async function resolveAiAccess(
+  prisma: any,
+  company: any,
+  bot?: any,
+  ctx: { conversationId?: string | null } = {},
+): Promise<AiAccess> {
   const mode = effectiveAiMode(company, bot);
   if (mode === 'PLATFORM') {
-    const c = await platformCandidate(prisma, company);
+    const c = await platformCandidate(prisma, company, ctx.conversationId);
     return isDenied(c) ? c : { ok: true, ...c, mode };
   }
   if (mode === 'BYOK') {
@@ -192,8 +305,8 @@ export async function resolveAiAccess(prisma: any, company: any, bot?: any): Pro
   }
   // HYBRID: principal primero; la otra queda de respaldo si está disponible
   const platformFirst = company.aiHybridPrimary === 'PLATFORM';
-  const first = platformFirst ? await platformCandidate(prisma, company) : byokCandidate(company);
-  const second = platformFirst ? byokCandidate(company) : await platformCandidate(prisma, company);
+  const first = platformFirst ? await platformCandidate(prisma, company, ctx.conversationId) : byokCandidate(company);
+  const second = platformFirst ? byokCandidate(company) : await platformCandidate(prisma, company, ctx.conversationId);
   const available = [first, second].filter((c): c is AiKey => !isDenied(c));
   if (available.length === 0) {
     return {
@@ -244,7 +357,11 @@ export class AiSession {
   }
 }
 
-/** Un registro por llamada al modelo, con el costo declarado del catálogo. */
+/**
+ * Un registro por llamada al modelo, con el costo declarado del catálogo.
+ * Si la pagó BackOffice, descuenta el crédito (1 por conversación cada 24 h)
+ * y devuelve si hay que avisar saldo bajo o agotado.
+ */
 export async function recordAiUsage(
   prisma: any,
   entry: {
@@ -256,8 +373,9 @@ export async function recordAiUsage(
     integrationId?: string | null;
     botId?: string | null;
     conversationId?: string | null;
+    purpose?: string;
   },
-) {
+): Promise<{ alert: 'LOW' | 'EMPTY' | null }> {
   const catalogEntry = await prisma.aiModel.findUnique({ where: { modelId: entry.model } });
   const costUsd = catalogEntry
     ? (entry.inputTokens * catalogEntry.inputCostPerMTok +
@@ -276,4 +394,24 @@ export async function recordAiUsage(
       billedTo: entry.billedTo,
     },
   });
+  if (entry.billedTo !== 'PLATFORM') return { alert: null };
+  const company = await prisma.company.findUnique({ where: { id: entry.companyId } });
+  if (!company) return { alert: null };
+  const result = await consumeAiCredit(prisma, company, {
+    conversationId: entry.conversationId, purpose: entry.purpose,
+  });
+  if (result.alert) {
+    // Queda registrado (y el panel muestra el aviso con el saldo actual)
+    await prisma.auditLog.create({
+      data: {
+        actorName: 'Sistema', companyId: entry.companyId,
+        action: result.alert === 'EMPTY' ? 'ai.credits_empty' : 'ai.credits_low',
+        entity: 'AiCreditLot',
+        detail: result.alert === 'EMPTY'
+          ? 'Se agotó el saldo de IA de BackOffice'
+          : 'Queda poco saldo de IA de BackOffice (≤ 20 % del último paquete)',
+      },
+    });
+  }
+  return { alert: result.alert };
 }

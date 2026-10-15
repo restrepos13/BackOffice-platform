@@ -40,6 +40,7 @@ import { WA_OUTBOUND_QUEUE } from '../queue/queue.module';
 import { EventsService } from './events.module';
 import { notifyOrderDispatched } from '../common/customer-notify';
 import { newTrackingToken, orderCode, publicWebUrl, trackingUrl } from '../common/tracking';
+import { isLatLng, pickCourier } from '../common/geo';
 
 /* ═══ Utilidades puras (exportadas para tests) ═══════════════════════ */
 
@@ -741,6 +742,11 @@ export class OrdersService {
     if (to === 'confirmado') await this.runConfirmationPipeline(orderId, author);
     if (to === 'cancelado') await this.reminders.cancelForOrder(orderId);
     if (to === 'entregado') await this.reminders.scheduleFeedback(orderId);
+    if (to === 'listo' && !order.courierId) {
+      await this.autoAssignCourier(orderId).catch((err) =>
+        this.logger.warn(`asignación automática falló (${orderId}): ${err.message}`),
+      );
+    }
     if (to === 'despachado') {
       // Aviso "va en camino" con el link de seguimiento (nunca rompe el flujo)
       try {
@@ -757,6 +763,40 @@ export class OrdersService {
     }
     this.events?.emit(order.companyId, { type: 'order.status', orderId, status: to });
     return updated;
+  }
+
+  /**
+   * Domicilios con asignación automática (orderConfig.delivery.autoAssign):
+   * al quedar "listo", se asigna el domiciliario en turno con menos pedidos
+   * activos y más cerca del punto de despacho (o de la sucursal del pedido).
+   */
+  async autoAssignCourier(orderId: string) {
+    const order = await this.prisma.order.findUniqueOrThrow({ where: { id: orderId } });
+    const company = await this.prisma.company.findUniqueOrThrow({ where: { id: order.companyId } });
+    const delivery = parseJson<Record<string, any>>(company.orderConfigJson, {}).delivery ?? {};
+    if (!delivery.enabled || !delivery.autoAssign || order.courierId) return null;
+    const [couriers, active, branch] = await Promise.all([
+      this.prisma.user.findMany({ where: { companyId: order.companyId, role: ROLES.COMPANY_COURIER, active: true, onShift: true } }),
+      this.prisma.order.findMany({
+        where: { companyId: order.companyId, status: { in: ['listo', 'empacado', 'despachado'] }, courierId: { not: null }, ...NOT_DELETED },
+        select: { courierId: true },
+      }),
+      order.branchId ? this.prisma.branch.findUnique({ where: { id: order.branchId } }) : null,
+    ]);
+    const loads = new Map<string, number>();
+    for (const o of active) if (o.courierId) loads.set(o.courierId, (loads.get(o.courierId) ?? 0) + 1);
+    const origin = branch ?? (isLatLng(delivery.origin) ? delivery.origin : null);
+    const courier = pickCourier(couriers, loads, origin);
+    if (!courier) return null;
+    // Condicional: si alguien lo asignó a mano en el mismo instante, se respeta
+    const claim = await this.prisma.order.updateMany({ where: { id: orderId, courierId: null }, data: { courierId: courier.id } });
+    if (claim.count === 0) return null;
+    await this.audit.log({
+      actor: null, companyId: order.companyId, action: 'delivery.auto_assign', entity: 'Order', entityId: orderId,
+      detail: `#${orderCode(orderId)} → ${courier.name} (${loads.get(courier.id) ?? 0} activos)`,
+    });
+    this.events?.emit(order.companyId, { type: 'delivery.updated', orderId });
+    return courier;
   }
 
   /**

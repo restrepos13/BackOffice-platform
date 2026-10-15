@@ -7,7 +7,7 @@ import {
   Query,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { computeAiQuota } from '../ai/ai-access';
+import { computeAiCredits } from '../ai/ai-access';
 import { CurrentUser, Roles } from '../auth/decorators';
 import { AuthUser, ROLES, scopeCompanyId } from '../common/constants';
 
@@ -182,7 +182,8 @@ export class AiUsageService {
       aiBillingMode: company?.aiBillingMode ?? 'BYOK',
       aiHybridPrimary: company?.aiHybridPrimary ?? 'BYOK',
       byBilling,
-      quota: company ? await computeAiQuota(this.prisma, company) : null,
+      // Saldo de IA de BackOffice: incluido del plan + paquetes prepagos
+      credits: company ? await computeAiCredits(this.prisma, company) : null,
       series: [...byDay.values()],
       byModel: [...byModel.values()].sort((a, b) => b.costUsd - a.costUsd),
       byLine: [...byLine.values()]

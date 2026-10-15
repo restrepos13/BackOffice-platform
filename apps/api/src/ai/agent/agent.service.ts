@@ -3,9 +3,13 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { parseJson } from '../../common/constants';
 import { geocodeAddress } from '../../common/geo';
 import { OrdersService } from '../../modules/orders.module';
+import { EventsService } from '../../modules/events.module';
+import { PaymentsService } from '../../modules/payments.module';
+import { KnowledgeService } from '../../modules/knowledge.module';
 import { AiSession, recordAiUsage } from '../ai-access';
 import { AI_PROVIDER, AiProvider, ChatMessage, extractJson } from '../types';
 import { buildAgentPrompt, validateAgentStep } from './protocol';
+import { messageForModel } from '../vision';
 import { AGENT_TOOLS, AgentTool, ToolAccess, ToolContext, enabledTools } from './tools';
 
 export interface AgentRunInput {
@@ -55,6 +59,9 @@ export class AgentService {
     private readonly prisma: PrismaService,
     @Inject(AI_PROVIDER) private readonly ai: AiProvider,
     @Optional() private readonly orders?: OrdersService,
+    @Optional() private readonly events?: EventsService,
+    @Optional() private readonly payments?: PaymentsService,
+    @Optional() private readonly knowledge?: KnowledgeService,
   ) {}
 
   /** Herramientas que el bot puede EJECUTAR (las de escritura exigen permiso write). */
@@ -77,6 +84,8 @@ export class AgentService {
     const ctx: ToolContext = {
       prisma: this.prisma,
       orders: this.orders,
+      payments: this.payments,
+      knowledge: this.knowledge,
       company,
       orderConfig,
       conversation,
@@ -103,9 +112,7 @@ export class AgentService {
 
     const history: ChatMessage[] = input.messages.slice(-24).map((m: any) => ({
       role: m.direction === 'IN' ? ('user' as const) : ('assistant' as const),
-      content:
-        (m.direction === 'IN' && m.transcription ? `[audio] ${m.transcription}` : m.content) +
-        (m.author === 'AGENT' ? ' [respondió una persona del equipo]' : ''),
+      content: messageForModel(m),
     }));
     const transcript: ChatMessage[] = [{ role: 'system', content: system }, ...history];
 
@@ -128,7 +135,7 @@ export class AgentService {
           jsonMode: true,
         }),
       );
-      await recordAiUsage(this.prisma, {
+      const usageResult = await recordAiUsage(this.prisma, {
         companyId: company.id,
         integrationId: input.integration?.id ?? null,
         botId: bot.id,
@@ -138,6 +145,7 @@ export class AgentService {
         billedTo,
         conversationId: input.conversationId,
       });
+      if (usageResult.alert) this.events?.emit(company.id, { type: 'ai.credits', level: usageResult.alert });
 
       const validated = validateAgentStep(extractJson(completion.content));
       if (!validated.ok) {

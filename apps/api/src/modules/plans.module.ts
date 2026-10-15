@@ -23,13 +23,27 @@ export class PlansService {
 
   async list() {
     const plans = await this.prisma.plan.findMany({
-      orderBy: { priceMonthly: 'asc' },
+      orderBy: [{ line: 'asc' }, { sortOrder: 'asc' }, { priceMonthly: 'asc' }],
       include: { _count: { select: { companies: true } } },
     });
     return plans.map((p) => ({
       ...p,
       features: parseJson<string[]>(p.featuresJson, []),
     }));
+  }
+
+  /** Línea comercial, moneda, límites operativos y permanencia. */
+  private commercialFields(dto: any) {
+    const int = (v: unknown) => Math.max(0, Math.round(Number(v)));
+    return {
+      ...(dto.line !== undefined ? { line: dto.line === 'NEGOCIOS' ? 'NEGOCIOS' : 'PRO' } : {}),
+      ...(dto.currency !== undefined ? { currency: dto.currency === 'COP' ? 'COP' : 'USD' } : {}),
+      ...(dto.maxLines != null ? { maxLines: int(dto.maxLines) } : {}),
+      ...(dto.maxCouriers != null ? { maxCouriers: int(dto.maxCouriers) } : {}),
+      ...(dto.minTermMonths != null ? { minTermMonths: int(dto.minTermMonths) } : {}),
+      ...(dto.setupFeeValue != null ? { setupFeeValue: Math.max(0, Number(dto.setupFeeValue)) } : {}),
+      ...(dto.sortOrder != null ? { sortOrder: int(dto.sortOrder) } : {}),
+    };
   }
 
   async create(actor: AuthUser, dto: any) {
@@ -43,8 +57,8 @@ export class PlansService {
         maxUsers: dto.maxUsers ?? 5,
         featuresJson: JSON.stringify(dto.features ?? []),
         includedAiConversations: Math.max(0, Math.round(Number(dto.includedAiConversations ?? 0))),
-        extraAiConversationUsd: Math.max(0, Number(dto.extraAiConversationUsd ?? 0)),
         highlight: !!dto.highlight,
+        ...this.commercialFields(dto),
         isCustom: !!dto.isCustom,
       },
     });
@@ -70,10 +84,8 @@ export class PlansService {
         ...(dto.includedAiConversations != null
           ? { includedAiConversations: Math.max(0, Math.round(Number(dto.includedAiConversations))) }
           : {}),
-        ...(dto.extraAiConversationUsd != null
-          ? { extraAiConversationUsd: Math.max(0, Number(dto.extraAiConversationUsd)) }
-          : {}),
         highlight: dto.highlight,
+        ...this.commercialFields(dto),
         active: dto.active,
         ...(dto.features ? { featuresJson: JSON.stringify(dto.features) } : {}),
       },

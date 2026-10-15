@@ -40,11 +40,13 @@ export class IntegrationsService {
       authTokenEnc,
       authToken: _plain,
       authTokenEncrypted: _legacy,
+      accessTokenEnc,
+      accessToken: _metaPlain,
       ...config
     } = parseJson<Record<string, any>>(i.configJson, {});
     return {
       ...row,
-      config: { ...config, twilioConfigured: !!authTokenEnc },
+      config: { ...config, twilioConfigured: !!authTokenEnc, metaConfigured: !!accessTokenEnc },
       overridePersonality: parseJson<Record<string, string>>(
         i.overridePersonalityJson,
         {},
@@ -56,7 +58,7 @@ export class IntegrationsService {
   /** Mezcla la config nueva con la existente y cifra los secretos entrantes.
    *  El authToken de Twilio llega en claro UNA vez y se guarda cifrado. */
   private mergeConfig(existingJson: string, incoming: Record<string, any>): string {
-    const { twilioConfigured: _ignored, authToken, ...rest } = incoming;
+    const { twilioConfigured: _ignored, metaConfigured: _ignored2, authToken, accessToken, ...rest } = incoming;
     const merged: Record<string, any> = {
       ...parseJson<Record<string, any>>(existingJson, {}),
       ...rest,
@@ -65,6 +67,11 @@ export class IntegrationsService {
       merged.authTokenEnc = encryptSecret(authToken.trim());
     }
     if (authToken === '') delete merged.authTokenEnc; // quitar credencial
+    // Token de página de Meta (Instagram / Messenger / WhatsApp Cloud API)
+    if (typeof accessToken === 'string' && accessToken.trim()) {
+      merged.accessTokenEnc = encryptSecret(accessToken.trim());
+    }
+    if (accessToken === '') delete merged.accessTokenEnc;
     return JSON.stringify(merged);
   }
 

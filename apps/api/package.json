@@ -12,7 +12,8 @@
     "db:seed:nexus": "ts-node --transpile-only prisma/seed-nexus.ts",
     "db:seed:demo-empresa": "ts-node --transpile-only prisma/seed-demo-empresa.ts",
     "db:studio": "prisma studio",
-    "test": "jest"
+    "test": "jest",
+    "db:seed:precios": "ts-node --transpile-only prisma/seed-precios.ts"
   },
   "dependencies": {
     "@nestjs/common": "^10.4.15",

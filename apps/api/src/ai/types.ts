@@ -5,9 +5,14 @@
  * implemente AiProvider, sin tocar el motor.
  */
 
+export type ChatContentPart =
+  | { type: 'text'; text: string }
+  | { type: 'image_url'; image_url: { url: string } };
+
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant';
-  content: string;
+  /** Texto, o partes con imagen (modelos de visión: comprobantes, fotos) */
+  content: string | ChatContentPart[];
 }
 
 export interface AiChatOptions {

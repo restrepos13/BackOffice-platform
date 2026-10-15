@@ -1,7 +1,7 @@
 import { Controller, Injectable, Logger, Module, Post, Query } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { PrismaService } from '../prisma/prisma.service';
-import { computeAiQuota } from '../ai/ai-access';
+import { computeCompanyInvoice, invoiceCurrency } from '../common/billing-engine';
 import { CurrentUser, Roles } from '../auth/decorators';
 import { AuthUser, ROLES } from '../common/constants';
 import { AuditService } from './audit.module';
@@ -14,9 +14,9 @@ const round = (n: number) => Math.round(n * 100) / 100;
 /**
  * Trabajos programados de la plataforma:
  *  - Facturación mensual (día 1, 06:00): factura del período anterior por
- *    empresa activa = plan + consumo (WhatsApp + storage + excedente de IA
- *    si la empresa usa la IA de BackOffice; con BYOK la IA se paga directo a
- *    DeepInfra). Idempotente: no duplica períodos.
+ *    empresa activa = plan o precio pactado + ajustes del mes (cargos,
+ *    descuentos) + consumo de WhatsApp/storage. La IA de BackOffice va en
+ *    paquetes prepagos. Idempotente: no duplica períodos.
  *  - Reporte diario a gerencia (07:00): el resumen del bot jefe al correo de
  *    contacto de cada empresa activa (queda en cola hasta que haya SMTP).
  * Ambos también se pueden disparar a mano desde Dev Tools.
@@ -39,8 +39,6 @@ export class JobsService {
       ? new Date(Number(period.split('-')[0]), Number(period.split('-')[1]) - 1, 1)
       : new Date(now.getFullYear(), now.getMonth() - 1, 1);
     const p = `${base.getFullYear()}-${String(base.getMonth() + 1).padStart(2, '0')}`;
-    const from = new Date(base.getFullYear(), base.getMonth(), 1);
-    const to = new Date(base.getFullYear(), base.getMonth() + 1, 1);
 
     const companies = await this.prisma.company.findMany({
       where: { status: 'ACTIVE', planId: { not: null } },
@@ -57,22 +55,17 @@ export class JobsService {
         skipped++;
         continue;
       }
-      const usage = await this.prisma.usageRecord.findMany({
-        where: { companyId: company.id, date: { gte: from, lt: to } },
-      });
-      // IA revendida (modo PLATFORM): conversaciones por encima de las incluidas
-      const aiQuota = await computeAiQuota(this.prisma, company, now, { from, to });
-      const consumption = round(
-        usage.reduce((s, u) => s + u.waCostUsd + u.storageCostUsd, 0) + aiQuota.extraChargeUsd,
-      );
-      const planAmount = company.plan?.priceMonthly ?? 0;
+      // Cobro personalizado del mes: plan o precio pactado + ajustes + consumo
+      const inv = await computeCompanyInvoice(this.prisma, company, p);
       await this.prisma.invoice.create({
         data: {
           companyId: company.id,
           period: p,
-          planAmount,
-          consumptionAmount: consumption,
-          totalAmount: round(planAmount + consumption),
+          planAmount: inv.planAmount,
+          consumptionAmount: inv.consumptionAmount,
+          totalAmount: inv.total,
+          currency: invoiceCurrency(company),
+          linesJson: JSON.stringify(inv.lines),
           status: 'PENDING',
         },
       });

@@ -15,8 +15,12 @@ import {
 import { Queue, Worker } from 'bullmq';
 import { WA_OUTBOUND_QUEUE, redisConnection } from '../queue/queue.module';
 import { OrdersModule, OrdersService } from './orders.module';
+import { PaymentsModule } from './payments.module';
+import { KnowledgeModule, KnowledgeService } from './knowledge.module';
 import { validateDelivery } from '../common/agenda';
 import { isLatLng } from '../common/geo';
+import { applyConsent } from '../common/customer-notify';
+import { VISION_MODEL, analyzeImage, messageForModel, receiptMatches } from '../ai/vision';
 // Reexport para compatibilidad (tests y consumidores existentes)
 export { validateDelivery };
 import { join, resolve } from 'path';
@@ -128,6 +132,7 @@ export class EngineService {
     @Optional() private readonly orders?: OrdersService,
     @Optional() private readonly events?: EventsService,
     @Optional() private readonly agent?: AgentService,
+    @Optional() private readonly knowledge?: KnowledgeService,
   ) {}
 
   /** Encola el envío real (Twilio) de las respuestas para canales reales,
@@ -136,7 +141,7 @@ export class EngineService {
     conversation: any,
     parts: Array<{ messageId: string; delayMs: number }>,
   ) {
-    if (conversation.channel !== 'WHATSAPP' || !this.outboundQueue) return;
+    if (!['WHATSAPP', 'INSTAGRAM', 'MESSENGER'].includes(conversation.channel) || !this.outboundQueue) return;
     let accumulated = 0;
     for (const part of parts) {
       accumulated += part.delayMs;
@@ -191,9 +196,9 @@ export class EngineService {
     if (!bot || (bot.status !== 'ACTIVE' && !opts.allowDraftBot)) {
       return this.escalate(conversation, null, 'Sin bot activo para esta línea');
     }
-    const access = await resolveAiAccess(this.prisma, company, bot);
+    const access = await resolveAiAccess(this.prisma, company, bot, { conversationId });
     if (!access.ok) {
-      if (access.code === 'CAP_REACHED' || access.code === 'NO_AI') {
+      if (['CAP_REACHED', 'NO_AI', 'NO_CREDITS'].includes(access.code)) {
         await this.audit.log({
           actor: null, companyId: company.id, action: 'ai.cap_reached',
           entity: 'Conversation', entityId: conversationId, detail: access.reason,
@@ -233,6 +238,25 @@ export class EngineService {
           await this.recordUsage(company.id, integration?.id, bot.id, 'openai/whisper-large-v3-turbo', 0, 0, { billedTo, conversationId });
         } catch (err: any) {
           this.logger.warn(`transcripción falló: ${err.message}`);
+        }
+      }
+      // Imágenes: comprobantes de pago (Nequi, transferencias) y fotos
+      if (message.direction === 'IN' && message.type === 'IMAGE' && message.fileName && !(message as any).analysisJson) {
+        try {
+          const ext = message.fileName.split('.').pop()?.toLowerCase();
+          const mime = ext === 'png' ? 'image/png' : ext === 'webp' ? 'image/webp' : 'image/jpeg';
+          const vision = await analyzeImage(this.ai, session, join(UPLOADS_DIR, company.id, message.fileName), mime);
+          const analysisJson = JSON.stringify(vision.analysis);
+          await this.prisma.message.update({ where: { id: message.id }, data: { analysisJson } });
+          (message as any).analysisJson = analysisJson;
+          await this.recordUsage(company.id, integration?.id, bot.id, VISION_MODEL, vision.inputTokens, vision.outputTokens, {
+            billedTo: vision.billedTo, conversationId,
+          });
+          if (vision.analysis.kind === 'RECEIPT') {
+            await this.attachReceipt(company.id, contact, message.id, vision.analysis);
+          }
+        } catch (err: any) {
+          this.logger.warn(`lectura de imagen falló: ${err.message}`);
         }
       }
     }
@@ -358,12 +382,23 @@ export class EngineService {
         : null,
       confidenceThreshold: threshold,
     };
+    // Base de conocimiento: los fragmentos más relevantes para el último mensaje
+    if (this.knowledge) {
+      const hits = await this.knowledge.search(company.id, lastText, 2).catch(() => []);
+      if (hits.length) {
+        ctx.orderConfig = {
+          ...orderConfig,
+          knowledgeBase: [
+            ...(Array.isArray(orderConfig.knowledgeBase) ? orderConfig.knowledgeBase : []),
+            ...hits.map((h) => `${h.doc}: ${h.text.slice(0, 700)}`),
+          ],
+        };
+      }
+    }
 
     const history: ChatMessage[] = messages.slice(-24).map((m) => ({
       role: m.direction === 'IN' ? ('user' as const) : ('assistant' as const),
-      content:
-        (m.direction === 'IN' && m.transcription ? `[audio] ${m.transcription}` : m.content) +
-        (m.author === 'AGENT' ? ' [respondió una persona del equipo]' : ''),
+      content: messageForModel(m as any),
     }));
 
     // Llamada al modelo con validación estricta + un reintento.
@@ -444,7 +479,7 @@ export class EngineService {
           author: 'BOT',
           content: part.content,
           type: 'TEXT',
-          deliveryStatus: conversation.channel === 'WHATSAPP' ? 'QUEUED' : null,
+          deliveryStatus: ['WHATSAPP', 'INSTAGRAM', 'MESSENGER'].includes(conversation.channel) ? 'QUEUED' : null,
         },
       });
       dispatch.push({ messageId: created.id, delayMs: part.delayMs });
@@ -730,7 +765,7 @@ export class EngineService {
         data: {
           conversationId: conversation.id,
           direction: 'OUT', author: 'BOT', content: part.content, type: 'TEXT',
-          deliveryStatus: conversation.channel === 'WHATSAPP' ? 'QUEUED' : null,
+          deliveryStatus: ['WHATSAPP', 'INSTAGRAM', 'MESSENGER'].includes(conversation.channel) ? 'QUEUED' : null,
         },
       });
       dispatch.push({ messageId: created.id, delayMs: part.delayMs });
@@ -753,6 +788,43 @@ export class EngineService {
     };
   }
 
+  /**
+   * Comprobante leído por la IA → el pedido abierto más reciente del cliente
+   * queda "comprobante recibido" (por verificar). Jamás se marca PAGADO solo.
+   */
+  private async attachReceipt(companyId: string, contact: any, messageId: string, analysis: any) {
+    if (!contact?.id) return;
+    const order = await this.prisma.order.findFirst({
+      where: {
+        companyId,
+        AND: [
+          { OR: [{ contactId: contact.id }, ...(contact.customerId ? [{ customerId: contact.customerId }] : [])] },
+          NOT_DELETED,
+        ],
+        status: { notIn: ['cancelado', 'borrador'] },
+        paymentStatus: { not: 'PAID' },
+        createdAt: { gte: new Date(Date.now() - 7 * 86400e3) },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (!order) return;
+    const matches = receiptMatches(analysis.amount, order.total);
+    await this.prisma.order.update({
+      where: { id: order.id },
+      data: {
+        paymentStatus: 'REPORTED',
+        receiptMessageId: messageId,
+        receiptJson: JSON.stringify({ ...analysis, matches, orderTotal: order.total }),
+        paymentMethod: analysis.bank ? String(analysis.bank).toUpperCase().slice(0, 20) : 'TRANSFERENCIA',
+      },
+    });
+    await this.audit.log({
+      actor: null, companyId, action: 'order.receipt', entity: 'Order', entityId: order.id,
+      detail: `Comprobante ${analysis.bank ?? ''} por ${analysis.amount ?? '¿?'}${matches ? ' (cubre el total)' : ' (NO cubre el total)'}`,
+    });
+    this.events?.emit(companyId, { type: 'order.payment', orderId: order.id, status: 'REPORTED', matches });
+  }
+
   /** Deja constancia cuando el modo híbrido tuvo que pasar a la llave de respaldo. */
   private async auditFallback(session: AiSession, companyId: string, conversationId: string) {
     if (!session.switched) return;
@@ -773,10 +845,11 @@ export class EngineService {
     outputTokens: number,
     usage: { billedTo: AiBilling; conversationId: string },
   ) {
-    await recordAiUsage(this.prisma, {
+    const { alert } = await recordAiUsage(this.prisma, {
       companyId, integrationId, botId, model, inputTokens, outputTokens,
       billedTo: usage.billedTo, conversationId: usage.conversationId,
     });
+    if (alert) this.events?.emit(companyId, { type: 'ai.credits', level: alert });
   }
 
   /* ── Simulador interno (sandbox de conversación, sin canal real) ── */
@@ -851,8 +924,11 @@ export class EngineService {
       },
     });
 
+    // Baja / re-alta igual que por WhatsApp (sin pasar por la IA)
+    const consent = location ? null : await applyConsent(this.prisma, this.outboundQueue, contact, conversation, dto.content ?? '');
+
     // En el simulador el bot en borrador también responde (para probar antes de activar)
-    const result = await this.processConversation(conversation.id, { allowDraftBot: true });
+    const result = consent ? null : await this.processConversation(conversation.id, { allowDraftBot: true });
     const transcript = await this.prisma.message.findMany({
       where: { conversationId: conversation.id },
       orderBy: { createdAt: 'asc' },
@@ -909,7 +985,7 @@ export class EngineQueueWorker implements OnModuleInit, OnApplicationShutdown {
 }
 
 @Module({
-  imports: [OrdersModule],
+  imports: [OrdersModule, PaymentsModule, KnowledgeModule],
   controllers: [EngineController],
   providers: [
     EngineService,

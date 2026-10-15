@@ -21,6 +21,8 @@ import { join, resolve } from 'path';
 import { randomBytes } from 'crypto';
 import twilio from 'twilio';
 import { isLatLng } from '../common/geo';
+import { applyConsent, queueBotText } from '../common/customer-notify';
+import { MetaLineConfig, metaLineConfig, sendMetaText } from '../common/meta';
 import { PrismaService } from '../prisma/prisma.service';
 import { Public } from '../auth/decorators';
 import { SkipThrottle } from '@nestjs/throttler';
@@ -342,6 +344,12 @@ export class TwilioService implements OnModuleInit, OnApplicationShutdown {
       direction: 'IN',
     });
 
+    // Baja / re-alta de mensajes promocionales: determinista, sin pasar por la IA
+    if (type === 'TEXT' && payload.Body) {
+      const consent = await this.handleConsent(contact, conversation, String(payload.Body));
+      if (consent) return { messageId: message.id, conversationId: conversation.id, consent };
+    }
+
     // Feedback post-entrega (Fase 6): si este contacto tiene una encuesta
     // abierta ya preguntada, el mensaje ES la respuesta — no pasa por el motor
     if (type === 'TEXT') {
@@ -368,6 +376,14 @@ export class TwilioService implements OnModuleInit, OnApplicationShutdown {
     );
 
     return { messageId: message.id, conversationId: conversation.id };
+  }
+
+  /**
+   * "STOP" / "no más mensajes" → el contacto sale de campañas y seguimientos
+   * (se le confirma). "ALTA" lo vuelve a incluir. Devuelve qué pasó o null.
+   */
+  handleConsent(contact: any, conversation: any, body: string) {
+    return applyConsent(this.prisma, this.outboundQueue, contact, conversation, body);
   }
 
   /**
@@ -434,6 +450,21 @@ export class TwilioService implements OnModuleInit, OnApplicationShutdown {
         botPaused: true,
       });
     }
+    // Cliente feliz (4 o 5) → se le invita a dejar la reseña en Google
+    if (!dissatisfied && rating != null && rating >= 4) {
+      const company = await this.prisma.company.findUnique({ where: { id: companyId } });
+      if (company?.googleReviewUrl) {
+        const cfg = parseJson<Record<string, any>>(company.orderConfigJson, {});
+        const text = String(cfg.reviewMessage || '¡Gracias por tu calificación! Nos ayudarías muchísimo con una reseña en Google: {{link}}')
+          .replace(/\{\{\s*link\s*\}\}/g, company.googleReviewUrl);
+        const conversation = await this.prisma.conversation.findUnique({ where: { id: conversationId } });
+        if (conversation) {
+          await queueBotText(this.prisma, this.outboundQueue, conversation, text.includes(company.googleReviewUrl) ? text : `${text} ${company.googleReviewUrl}`,
+            { authorName: 'Reseñas', delayMs: 4000 });
+          await this.prisma.feedback.update({ where: { id: pending.id }, data: { reviewRequested: true } }).catch(() => undefined);
+        }
+      }
+    }
     this.events?.emit(companyId, { type: 'feedback.new', orderId: pending.orderId });
     return true;
   }
@@ -445,7 +476,7 @@ export class TwilioService implements OnModuleInit, OnApplicationShutdown {
     metaCategory?: string;
     contentSid?: string;
     contentVariables?: Record<string, string>;
-  }) {
+  }): Promise<Record<string, any>> {
     const message = await this.prisma.message.findUnique({
       where: { id: data.messageId },
       include: { conversation: { include: { contact: true, integration: true, company: true } } },
@@ -455,6 +486,11 @@ export class TwilioService implements OnModuleInit, OnApplicationShutdown {
       return { skipped: 'ya enviado' }; // idempotencia del worker
     }
     const conversation: any = message.conversation;
+    // Instagram / Messenger / WhatsApp Cloud API: salen por la Graph API de Meta
+    const meta = metaLineConfig(conversation.integration);
+    if (meta || ['INSTAGRAM', 'MESSENGER'].includes(conversation.channel)) {
+      return this.processMetaOutbound(message, conversation, meta, data);
+    }
     const creds = this.lineConfig(conversation.integration);
     if (!creds) {
       throw new Error('La línea no tiene configuración de Twilio');
@@ -525,6 +561,34 @@ export class TwilioService implements OnModuleInit, OnApplicationShutdown {
       deliveryStatus: 'SENT',
     });
     return { sid: providerId, category };
+  }
+
+  /** Envío por Meta (ventana de 24 h; en sandbox o sin token no sale nada real). */
+  private async processMetaOutbound(message: any, conversation: any, meta: MetaLineConfig | null, data: { metaCategory?: string }) {
+    const within = isWithinServiceWindow(
+      (await this.prisma.message.findFirst({ where: { conversationId: conversation.id, direction: 'IN' }, orderBy: { createdAt: 'desc' } }))?.createdAt ?? null,
+    );
+    if (!within) {
+      await this.markSendFailed(message.id, 'Fuera de la ventana de 24 h (Meta no permite escribir primero por este canal)', false);
+      return { failed: 'fuera de ventana' };
+    }
+    let providerId: string;
+    if (!meta || meta.sandbox) {
+      providerId = `SANDBOX_${randomBytes(8).toString('hex')}`;
+      this.logger.log(`[sandbox ${conversation.channel}] ${conversation.company.slug}: ${message.content.slice(0, 60)}`);
+    } else {
+      const recipient = conversation.channel === 'WHATSAPP'
+        ? conversation.contact.phone
+        : String(conversation.contact.externalId ?? '').split(':').pop();
+      const sent = await sendMetaText({ channel: conversation.channel, config: meta, recipient, text: message.content });
+      providerId = sent.id;
+    }
+    await this.prisma.message.update({
+      where: { id: message.id },
+      data: { providerId, deliveryStatus: 'SENT', metaCategory: data.metaCategory ?? 'SERVICIO', metaCostUsd: 0 },
+    });
+    this.events?.emit(conversation.companyId, { type: 'message.status', conversationId: conversation.id, messageId: message.id, deliveryStatus: 'SENT' });
+    return { sid: providerId, channel: conversation.channel };
   }
 
   private async markSendFailed(messageId: string, reason: string, retryable = true) {

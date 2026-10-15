@@ -241,6 +241,7 @@ Brief: ${piece.brief ?? 'sin brief — proponlo tú a partir del título'}`,
       companyId: company.id, model: result.model,
       inputTokens: result.inputTokens, outputTokens: result.outputTokens,
       billedTo,
+      purpose: 'MARKETING',
     });
     const parsed = extractJson(result.content) as any;
     if (!parsed?.copy) throw new BadRequestException('La IA no devolvió un copy válido — intenta de nuevo');

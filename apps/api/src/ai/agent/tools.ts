@@ -4,13 +4,16 @@ import {
   LatLng,
   geocodeAddress,
   isLatLng,
+  nearestBranch,
   quoteDelivery,
   roundMoney,
 } from '../../common/geo';
+import { normalizeCode, pickPromotion } from '../../common/promotions';
 import {
   CUSTOMER_STATUS_LABEL,
   ensureTrackingLink,
   orderCode,
+  publicWebUrl,
 } from '../../common/tracking';
 
 /**
@@ -33,6 +36,10 @@ export interface ToolContext {
     runConfirmationPipeline(orderId: string, author: { type: 'IA' | 'USUARIO' | 'SISTEMA'; name: string }): Promise<{ scheduled: boolean; reason?: string }>;
     changeStatus(orderId: string, to: string, author: { type: 'IA' | 'USUARIO' | 'SISTEMA'; name: string }, reason?: string): Promise<any>;
   };
+  /** Cobro con la cuenta Wompi de la empresa (PaymentsService) */
+  payments?: { createOrderPaymentLink(orderId: string, actor: null): Promise<{ url: string; reference: string }> };
+  /** Base de conocimiento (KnowledgeService) */
+  knowledge?: { search(companyId: string, query: string, top?: number): Promise<Array<{ text: string; doc: string; score: number }>> };
   company: any;
   orderConfig: Record<string, any>;
   conversation: any;
@@ -40,7 +47,7 @@ export interface ToolContext {
   now: Date;
   geocode?: typeof geocodeAddress;
   /** Estado acumulado de la corrida (borrador tocado, pedido confirmado…). */
-  state: { draftOrderId: string | null; confirmedOrderId: string | null };
+  state: { draftOrderId: string | null; confirmedOrderId: string | null; branches?: any[] };
 }
 
 export interface AgentTool {
@@ -52,6 +59,14 @@ export interface AgentTool {
 }
 
 /* ─── utilidades ─────────────────────────────────────────────────────── */
+
+const PAYMENT_LABEL: Record<string, string> = {
+  NONE: 'Pendiente de pago',
+  PENDING: 'Link de pago enviado',
+  REPORTED: 'Comprobante recibido, en verificación',
+  PAID: 'Pagado',
+  FAILED: 'El pago no se completó',
+};
 
 const ACTIVE_STATUSES = ['borrador', 'confirmado', 'programado', 'en_produccion', 'listo', 'empacado', 'despachado', 'requiere_atencion'];
 const CANCELLABLE = ['borrador', 'confirmado', 'programado'];
@@ -97,6 +112,30 @@ async function activeProducts(ctx: ToolContext) {
     where: { companyId: ctx.company.id, active: true, ...NOT_DELETED },
     take: 200,
   });
+}
+
+/** Agotado ahora (indefinido o hasta una fecha que todavía no llega). */
+export function isSoldOut(p: { soldOut?: boolean; soldOutUntil?: Date | string | null }, now: Date): boolean {
+  if (!p.soldOut) return false;
+  return !p.soldOutUntil || new Date(p.soldOutUntil) > now;
+}
+
+async function branchesOf(ctx: ToolContext): Promise<any[]> {
+  if (!ctx.state.branches) {
+    ctx.state.branches = (await ctx.prisma.branch?.findMany({ where: { companyId: ctx.company.id, active: true } })) ?? [];
+  }
+  return ctx.state.branches ?? [];
+}
+
+/** Cotiza con la sucursal más cercana (si hay) y las zonas por barrio. */
+async function quoteFor(ctx: ToolContext, dest: Destination, subtotal: number) {
+  const point = isLatLng(dest) ? { lat: Number(dest.lat), lng: Number(dest.lng) } : null;
+  const branch = nearestBranch(await branchesOf(ctx), point);
+  const quote = quoteDelivery(deliveryCfg(ctx), point, subtotal, ctx.company.currency ?? 'COP', {
+    addressText: [dest.address, dest.label, dest.city].filter(Boolean).join(' '),
+    origin: branch ? { lat: branch.lat, lng: branch.lng } : null,
+  });
+  return { quote, branch };
 }
 
 /** Última ubicación compartida por WhatsApp en esta conversación (48 h). */
@@ -239,7 +278,9 @@ async function orderSummary(ctx: ToolContext, order: any) {
     direccion: address.address ?? null,
     subtotal: money(order.subtotal, currency),
     envio: order.deliveryFee != null ? money(order.deliveryFee, currency) : null,
+    ...(order.discount ? { descuento: money(order.discount, currency) } : {}),
     total: money(order.total, currency),
+    pago: PAYMENT_LABEL[order.paymentStatus ?? 'NONE'] ?? 'Pendiente',
   };
 }
 
@@ -258,11 +299,16 @@ export const AGENT_TOOLS: AgentTool[] = [
       const q = normalize(str(args.buscar, 60));
       if (cat) products = products.filter((p: any) => normalize(p.category ?? '').includes(cat));
       if (q) products = products.filter((p: any) => normalize(`${p.name} ${p.description ?? ''}`).includes(q));
+      const menu = ctx.orderConfig?.menu?.enabled
+        ? `${await publicWebUrl(ctx.prisma)}/m/${ctx.company.slug}`
+        : null;
       return {
         moneda: currency,
+        ...(menu ? { link_menu: menu } : {}),
         productos: products.slice(0, 60).map((p: any) => ({
           nombre: p.name,
           categoria: p.category ?? null,
+          ...(isSoldOut(p, ctx.now) ? { agotado: true } : {}),
           precio: p.price != null ? money(p.price, currency) : 'precio a confirmar con el equipo',
           unidad: p.unit,
           ...(p.description ? { descripcion: p.description } : {}),
@@ -335,18 +381,19 @@ export const AGENT_TOOLS: AgentTool[] = [
       if (!resolved.ok) return { error: resolved.error };
       const { dest } = resolved;
       const currency = ctx.company.currency ?? 'COP';
-      const point = isLatLng(dest) ? { lat: Number(dest.lat), lng: Number(dest.lng) } : null;
-      if (!point) {
+      const { quote, branch } = await quoteFor(ctx, dest, Number(args.subtotal) || 0);
+      if (!quote.covered && !isLatLng(dest) && deliveryCfg(ctx).pricingMode !== 'ZONES') {
         return {
           error: 'No pude ubicar esa dirección en el mapa. Pídele al cliente que comparta su ubicación por WhatsApp.',
           direccion: dest.address,
         };
       }
-      const quote = quoteDelivery(deliveryCfg(ctx), point, Number(args.subtotal) || 0, currency);
       return {
         direccion: dest.address,
         cubierto: quote.covered,
         ...(quote.reason ? { motivo: quote.reason } : {}),
+        ...(quote.zone ? { zona: quote.zone } : {}),
+        ...(branch ? { sucursal: branch.name } : {}),
         distancia_km: quote.km,
         costo_envio: quote.fee != null ? money(quote.fee, currency) : null,
         tiempo_estimado_min: quote.etaMinutes,
@@ -357,7 +404,7 @@ export const AGENT_TOOLS: AgentTool[] = [
     name: 'armar_pedido',
     access: 'write',
     description: 'Crea o REEMPLAZA el borrador del pedido de esta conversación (lista completa de ítems, entrega y dirección). Devuelve el resumen con precios para que se lo muestres al cliente',
-    params: '{"items": [{"producto": string, "cantidad": number, "presentacion"?: string, "notas"?: string}], "entrega"?: "YYYY-MM-DDTHH:mm" | "lo antes posible", "direccion"?: string, "etiqueta_direccion"?: string, "usar_ubicacion_compartida"?: boolean, "observaciones"?: string}',
+    params: '{"items": [{"producto": string, "cantidad": number, "presentacion"?: string, "notas"?: string}], "entrega"?: "YYYY-MM-DDTHH:mm" | "lo antes posible", "direccion"?: string, "etiqueta_direccion"?: string, "usar_ubicacion_compartida"?: boolean, "observaciones"?: string, "cupon"?: string}',
     async run(ctx, args) {
       const rawItems = Array.isArray(args.items) ? args.items.slice(0, 40) : [];
       if (rawItems.length === 0) return { error: 'items vacío: arma el pedido con al menos un producto.' };
@@ -365,6 +412,7 @@ export const AGENT_TOOLS: AgentTool[] = [
       const currency = ctx.company.currency ?? 'COP';
       const items: any[] = [];
       const notFound: string[] = [];
+      const soldOut: string[] = [];
       for (const raw of rawItems) {
         const name = str(raw?.producto, 120);
         const qty = Number(raw?.cantidad);
@@ -373,6 +421,7 @@ export const AGENT_TOOLS: AgentTool[] = [
         }
         const product = matchProduct(products, name);
         if (!product) { notFound.push(name); continue; }
+        if (isSoldOut(product, ctx.now)) { soldOut.push(product.name); continue; }
         items.push({
           companyId: ctx.company.id,
           productId: product.id,
@@ -389,6 +438,12 @@ export const AGENT_TOOLS: AgentTool[] = [
         return {
           error: 'Hay productos que no están en el menú. No inventes: muéstrale opciones reales (ver_menu) o pregunta.',
           no_encontrados: notFound,
+        };
+      }
+      if (soldOut.length) {
+        return {
+          error: 'Hay productos agotados en este momento: ofrécele otra opción del menú.',
+          agotados: soldOut,
         };
       }
       const pricesComplete = items.every((i) => i._price != null);
@@ -416,11 +471,25 @@ export const AGENT_TOOLS: AgentTool[] = [
       let fee: number | null = null;
       let km: number | null = null;
       let etaMinutes: number | null = null;
-      if (delivery.enabled && address && isLatLng(address)) {
-        const quote = quoteDelivery(delivery, { lat: Number(address.lat), lng: Number(address.lng) }, subtotal, currency);
+      let branchId: string | null = null;
+      let zone: string | null = null;
+      if (delivery.enabled && address && (isLatLng(address) || delivery.pricingMode === 'ZONES')) {
+        const { quote, branch } = await quoteFor(ctx, address, subtotal);
         if (!quote.covered) return { error: `Fuera de cobertura: ${quote.reason}`, distancia_km: quote.km };
         fee = quote.fee; km = quote.km; etaMinutes = quote.etaMinutes;
+        branchId = branch?.id ?? null; zone = quote.zone ?? null;
       }
+
+      // Promoción: el cupón que dijo el cliente o la mejor automática
+      const promos = await ctx.prisma.promotion.findMany({ where: { companyId: ctx.company.id, active: true } });
+      const promoPick = pickPromotion(promos, {
+        items: items.map((i) => ({ productId: i.productId, quantity: i.quantity, unitPrice: i._price })),
+        subtotal, deliveryFee: fee, now: ctx.now,
+      }, str(args.cupon, 30) || existing?.couponCode || null);
+      if (str(args.cupon, 30) && !promoPick.result.ok) {
+        return { error: `Cupón no aplicado: ${promoPick.result.reason}` };
+      }
+      const discount = promoPick.result.ok ? roundMoney(promoPick.result.discount, currency) : 0;
 
       // Entrega: "lo antes posible" (domicilios) o fecha/hora concreta
       let deliveryAt: Date | null = null;
@@ -439,8 +508,11 @@ export const AGENT_TOOLS: AgentTool[] = [
         deliveryAt = parsed;
       }
 
-      const total = fee != null ? roundMoney(subtotal + fee, currency) : subtotal;
+      const total = Math.max(0, roundMoney(subtotal + (fee ?? 0) - discount, currency));
       const data: Record<string, any> = {
+        discount: discount || null,
+        couponCode: promoPick.result.ok ? normalizeCode(promoPick.promo?.code) ?? null : null,
+        branchId,
         deliveryAt: deliveryAt ?? existing?.deliveryAt ?? new Date(ctx.now.getTime() + 24 * 3600e3),
         deliveryAddressJson: JSON.stringify(address ?? {}),
         observations: str(args.observaciones, 500) || existing?.observations || null,
@@ -484,7 +556,7 @@ export const AGENT_TOOLS: AgentTool[] = [
       const missing: string[] = [];
       if (!address?.address) missing.push('direccion');
       if (!deliveryAt && !delivery.enabled) missing.push('fecha y hora de entrega');
-      if (delivery.enabled && address && !isLatLng(address)) missing.push('ubicacion (pide que comparta la ubicación para calcular el envío)');
+      if (delivery.enabled && address && !isLatLng(address) && delivery.pricingMode !== 'ZONES') missing.push('ubicacion (pide que comparta la ubicación para calcular el envío)');
       return {
         ok: true,
         borrador: {
@@ -496,7 +568,9 @@ export const AGENT_TOOLS: AgentTool[] = [
             ...(i.specifications ? { notas: i.specifications } : {}),
           })),
           subtotal: pricesComplete ? money(subtotal, currency) : 'a confirmar (hay productos sin precio)',
-          envio: fee != null ? money(fee, currency) : delivery.enabled ? 'pendiente de ubicación' : null,
+          envio: fee != null ? (fee === 0 ? 'gratis' : money(fee, currency)) : delivery.enabled ? 'pendiente de ubicación' : null,
+          ...(zone ? { zona: zone } : {}),
+          ...(discount ? { descuento: `-${money(discount, currency)} (${promoPick.promo?.name})` } : {}),
           total: pricesComplete ? money(total, currency) : 'a confirmar',
           entrega: asap
             ? `lo antes posible (aprox. ${etaMinutes ?? (delivery.prepMinutes ?? 25) + 20} min)`
@@ -531,7 +605,7 @@ export const AGENT_TOOLS: AgentTool[] = [
       if (draft.items.length === 0) return { error: 'El borrador no tiene productos.' };
       const address = parseJson<any>(draft.deliveryAddressJson, {});
       if (!address.address) return { error: 'Falta la dirección de entrega.' };
-      if (deliveryCfg(ctx).enabled && !isLatLng(address)) {
+      if (deliveryCfg(ctx).enabled && deliveryCfg(ctx).pricingMode !== 'ZONES' && !isLatLng(address)) {
         return { error: 'Falta la ubicación exacta para el domiciliario: pide que comparta la ubicación.' };
       }
       if (ctx.orders) {
@@ -555,9 +629,23 @@ export const AGENT_TOOLS: AgentTool[] = [
         const pipeline = await ctx.orders.runConfirmationPipeline(draft.id, { type: 'IA', name: 'Agente IA' });
         scheduled = pipeline.scheduled;
       }
-      if (ctx.contact?.id && ctx.contact.stage !== 'CLIENTE') {
+      // Embudo estándar: quien confirma pasa a CLIENTE (los embudos propios los mueve la empresa)
+      if (ctx.contact?.id && !ctx.contact.pipelineId && ctx.contact.stage !== 'CLIENTE') {
         await ctx.prisma.contact.update({ where: { id: ctx.contact.id }, data: { stage: 'CLIENTE' } });
       }
+      // Uso del cupón (condicional: nunca pasa de los usos máximos)
+      if (draft.couponCode || draft.discount) {
+        const promo = draft.couponCode
+          ? await ctx.prisma.promotion.findFirst({ where: { companyId: ctx.company.id, code: draft.couponCode } })
+          : null;
+        if (promo) {
+          await ctx.prisma.promotion.updateMany({
+            where: { id: promo.id, ...(promo.maxUses != null ? { usedCount: { lt: promo.maxUses } } : {}) },
+            data: { usedCount: { increment: 1 } },
+          });
+        }
+      }
+      const payCfg = parseJson<Record<string, any>>(ctx.company.paymentConfigJson, {});
       ctx.state.confirmedOrderId = draft.id;
       ctx.state.draftOrderId = draft.id;
       const link = await ensureTrackingLink(ctx.prisma, draft.id);
@@ -567,7 +655,14 @@ export const AGENT_TOOLS: AgentTool[] = [
         quedo_en_revision: !scheduled,
         pedido: await orderSummary(ctx, fresh ?? draft),
         link_seguimiento: link,
-        siguiente_paso: 'Confírmale al cliente con el código y compártele el link de seguimiento tal cual.',
+        cobro: {
+          pago_en_linea: !!payCfg.publicKey && !!ctx.payments,
+          ...(payCfg.manualInstructions ? { instrucciones_pago: payCfg.manualInstructions } : {}),
+          efectivo: payCfg.acceptCash !== false,
+        },
+        siguiente_paso: payCfg.publicKey
+          ? 'Confírmale con el código y el link de seguimiento; si quiere pagar en línea usa enviar_link_pago.'
+          : 'Confírmale al cliente con el código y compártele el link de seguimiento tal cual.',
       };
     },
   },
@@ -659,6 +754,79 @@ export const AGENT_TOOLS: AgentTool[] = [
         data: { addressesJson: JSON.stringify(addresses.slice(-10)) },
       });
       return { ok: true, guardada: { etiqueta: label, direccion: entry.address, con_ubicacion: isLatLng(entry) } };
+    },
+  },
+  {
+    name: 'ver_promociones',
+    access: 'read',
+    description: 'Promociones y cupones vigentes que puedes ofrecer (combos, % de descuento, domicilio gratis)',
+    params: '{}',
+    async run(ctx) {
+      const currency = ctx.company.currency ?? 'COP';
+      const promos = await ctx.prisma.promotion.findMany({ where: { companyId: ctx.company.id, active: true, public: true } });
+      const now = ctx.now;
+      const vigentes = promos.filter((p: any) =>
+        (!p.startsAt || new Date(p.startsAt) <= now) && (!p.endsAt || new Date(p.endsAt) >= now) &&
+        (p.maxUses == null || (p.usedCount ?? 0) < p.maxUses));
+      return {
+        promociones: vigentes.map((p: any) => ({
+          nombre: p.name,
+          ...(p.description ? { detalle: p.description } : {}),
+          beneficio: p.kind === 'PERCENT' ? `${p.value}% de descuento` : p.kind === 'FIXED' ? `${money(p.value, currency)} de descuento` : 'domicilio gratis',
+          ...(p.code ? { cupon: p.code } : { se_aplica_sola: true }),
+          ...(p.minSubtotal ? { compra_minima: money(p.minSubtotal, currency) } : {}),
+          ...(p.endsAt ? { hasta: fmtDate(new Date(p.endsAt), ctx.company.timezone) } : {}),
+        })),
+        ...(vigentes.length === 0 ? { nota: 'No hay promociones vigentes.' } : {}),
+      };
+    },
+  },
+  {
+    name: 'enviar_link_pago',
+    access: 'write',
+    description: 'Genera el link de pago en línea (Wompi: tarjeta, Nequi, PSE) del pedido confirmado del cliente. Si el negocio no cobra en línea, devuelve las instrucciones de pago manual',
+    params: '{"codigo"?: string}',
+    async run(ctx, args) {
+      const where: Record<string, any> = { companyId: ctx.company.id, status: { notIn: ['borrador', 'cancelado'] }, paymentStatus: { not: 'PAID' }, ...NOT_DELETED };
+      if (ctx.contact?.customerId) where.customerId = ctx.contact.customerId;
+      else where.contactId = ctx.contact?.id ?? '__none__';
+      const orders = await ctx.prisma.order.findMany({ where, orderBy: { createdAt: 'desc' }, take: 10 });
+      const code = str(args.codigo, 12).replace('#', '').toUpperCase();
+      const order = code ? orders.find((o: any) => orderCode(o.id) === code) : orders[0];
+      if (!order) return { error: 'No hay un pedido confirmado pendiente de pago (si aún no confirma, usa confirmar_pedido primero).' };
+      const payCfg = parseJson<Record<string, any>>(ctx.company.paymentConfigJson, {});
+      if (!payCfg.publicKey || !ctx.payments) {
+        return payCfg.manualInstructions
+          ? { pago_en_linea: false, instrucciones_pago: payCfg.manualInstructions, nota: 'Pídele que envíe la foto del comprobante por aquí.' }
+          : { error: 'El negocio no tiene pago en línea configurado: acuerda el pago con el cliente o pasar_a_humano.' };
+      }
+      try {
+        const link = await ctx.payments.createOrderPaymentLink(order.id, null);
+        return {
+          ok: true,
+          codigo: orderCode(order.id),
+          total: money(order.total, ctx.company.currency ?? 'COP'),
+          link_pago: link.url,
+          siguiente_paso: 'Compártele el link de pago tal cual. Cuando pague, el pedido se marca solo como pagado.',
+        };
+      } catch (err: any) {
+        return { error: err?.message ?? 'No se pudo generar el link de pago' };
+      }
+    },
+  },
+  {
+    name: 'buscar_conocimiento',
+    access: 'read',
+    description: 'Busca en la base de conocimiento del negocio (políticas, preguntas frecuentes, documentos, página web) la respuesta a una duda del cliente',
+    params: '{"pregunta": string}',
+    async run(ctx, args) {
+      const q = str(args.pregunta, 300);
+      if (!q) return { error: 'Falta la pregunta.' };
+      if (!ctx.knowledge) return { resultados: [], nota: 'Base de conocimiento no disponible.' };
+      const hits = await ctx.knowledge.search(ctx.company.id, q, 3);
+      return hits.length
+        ? { resultados: hits.map((h) => ({ fuente: h.doc, texto: h.text.slice(0, 1200) })) }
+        : { resultados: [], nota: 'No encontré nada sobre eso: no inventes, ofrece pasar_a_humano.' };
     },
   },
   {

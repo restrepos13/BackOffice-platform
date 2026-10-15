@@ -32,7 +32,8 @@ async function bootstrap() {
   app.disable('x-powered-by');
 
   // Límite de payload (los uploads de galería van por multer con su propio límite)
-  app.use(json({ limit: '1mb' }));
+  // El cuerpo crudo se guarda para verificar firmas de webhooks (Meta)
+  app.use(json({ limit: '1mb', verify: (req: any, _res, buf) => { req.rawBody = buf; } }));
   app.use(urlencoded({ extended: true, limit: '1mb' }));
 
   app.enableCors({

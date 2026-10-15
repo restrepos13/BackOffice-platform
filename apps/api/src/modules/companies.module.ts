@@ -23,6 +23,9 @@ import {
   parseJson,
 } from '../common/constants';
 import { maskCompanyKey, normalizeAiMode, storeCompanyKey } from '../ai/ai-access';
+import { serializePaymentConfig } from './payments.module';
+import { serializeEinvoiceConfig } from '../common/einvoice';
+import { earlyExitFee, periodOf } from '../common/billing-engine';
 import { AGENT_PRESETS } from '../ai/agent/tools';
 import { AuditService } from './audit.module';
 import { COMPANY_TEMPLATES, findTemplate } from './company-templates';
@@ -130,9 +133,12 @@ export class CompaniesService {
   ) {}
 
   private serialize(company: any) {
-    const { deepinfraApiKey, ...rest } = company;
+    const { deepinfraApiKey, paymentConfigJson, einvoiceConfigJson, ...rest } = company;
     return {
       ...rest,
+      // Pagos y facturación electrónica: solo el estado, jamás los secretos
+      paymentConfig: serializePaymentConfig(paymentConfigJson),
+      einvoiceConfig: serializeEinvoiceConfig(einvoiceConfigJson),
       modules: parseJson<string[]>(company.modulesJson, []),
       limits: parseJson<Record<string, number>>(company.limitsJson, {}),
       // La llave de DeepInfra jamás sale completa del API
@@ -496,15 +502,27 @@ export class CompaniesService {
     return this.detail(actor, company.id);
   }
 
+  private cleanUrl(value: unknown): string | null {
+    const url = String(value ?? '').trim();
+    if (!url) return null;
+    if (!/^https:\/\/[^\s]+$/i.test(url) || url.length > 300) {
+      throw new BadRequestException('El link debe empezar por https://');
+    }
+    return url;
+  }
+
   async update(actor: AuthUser, id: string, dto: any) {
     if (!isPlatformRole(actor.role) && actor.companyId !== id) {
       throw new ForbiddenException();
     }
+    const before = await this.prisma.company.findUniqueOrThrow({ where: { id } });
     // Campos que un admin de empresa puede tocar vs. plataforma
     const platformOnly = [
       'planId', 'status', 'modules', 'limits', 'slug',
       // Quién paga la IA y cuánto se permite gastar lo decide BackOffice
       'aiBillingMode', 'aiHybridPrimary', 'aiSpendCapUsd', 'aiIncludedOverride',
+      // Lo que se le cobra a la empresa y su permanencia también
+      'customPriceMonthly', 'contractStartAt', 'minTermMonths', 'setupFeeValue',
     ];
     if (!isPlatformRole(actor.role)) {
       for (const key of platformOnly) {
@@ -557,8 +575,46 @@ export class CompaniesService {
         ...(dto.orderConfig ? { orderConfigJson: JSON.stringify(dto.orderConfig) } : {}),
         ...(dto.waTemplates ? { waTemplatesJson: JSON.stringify(dto.waTemplates) } : {}),
         ...(dto.currency ? { currency: dto.currency } : {}),
+        ...(dto.googleReviewUrl !== undefined ? { googleReviewUrl: this.cleanUrl(dto.googleReviewUrl) } : {}),
+        ...(dto.customPriceMonthly !== undefined
+          ? { customPriceMonthly: dto.customPriceMonthly === null || dto.customPriceMonthly === '' ? null : Math.max(0, Number(dto.customPriceMonthly)) }
+          : {}),
+        ...(dto.contractStartAt !== undefined
+          ? { contractStartAt: dto.contractStartAt ? new Date(dto.contractStartAt) : null }
+          : {}),
+        ...(dto.minTermMonths !== undefined
+          ? { minTermMonths: dto.minTermMonths === null || dto.minTermMonths === '' ? null : Math.max(0, Math.round(Number(dto.minTermMonths))) }
+          : {}),
+        ...(dto.setupFeeValue !== undefined
+          ? { setupFeeValue: dto.setupFeeValue === null || dto.setupFeeValue === '' ? null : Math.max(0, Number(dto.setupFeeValue)) }
+          : {}),
+        // Al asignar plan por primera vez arranca la permanencia
+        ...(dto.planId && !before.contractStartAt ? { contractStartAt: new Date() } : {}),
       },
+      include: { plan: true },
     });
+    // Salida anticipada: si se cancela antes de cumplir la permanencia, se cobra
+    // la parte proporcional del montaje (que fue gratis con permanencia)
+    if (dto.status === 'CANCELLED' && before.status !== 'CANCELLED') {
+      const fee = earlyExitFee({
+        contractStartAt: company.contractStartAt,
+        minTermMonths: company.minTermMonths ?? company.plan?.minTermMonths ?? 0,
+        setupFeeValue: company.setupFeeValue ?? company.plan?.setupFeeValue ?? 0,
+      });
+      if (fee.amount > 0 && !dto.waiveSetupFee) {
+        const adj = await this.prisma.billingAdjustment.create({
+          data: {
+            companyId: id, kind: 'SETUP', startPeriod: periodOf(),
+            concept: `Montaje — salida anticipada (${fee.remainingMonths} meses de permanencia pendientes)`,
+            amount: Math.round(fee.amount), createdBy: actor.name,
+          },
+        });
+        await this.audit.log({
+          actor, companyId: id, action: 'billing.early_exit_fee', entity: 'BillingAdjustment',
+          entityId: adj.id, detail: `${Math.round(fee.amount)} · ${fee.remainingMonths} meses`,
+        });
+      }
+    }
     await this.audit.log({
       actor,
       companyId: id,

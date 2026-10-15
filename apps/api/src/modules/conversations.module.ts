@@ -201,8 +201,9 @@ export class ConversationsService {
     if (!content?.trim() && !mediaAssetId) {
       throw new ForbiddenException('Mensaje vacío');
     }
+    // Respuesta humana por el canal real: WhatsApp, Instagram o Messenger
     const viaWhatsApp =
-      conversation.channel === 'WHATSAPP' && !!conversation.integrationId;
+      ['WHATSAPP', 'INSTAGRAM', 'MESSENGER'].includes(conversation.channel) && !!conversation.integrationId;
     const message = await this.prisma.message.create({
       data: {
         conversationId: id,

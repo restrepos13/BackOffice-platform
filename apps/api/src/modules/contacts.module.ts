@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -13,6 +14,7 @@ import {
   Query,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { DEFAULT_STAGES } from '../common/pipelines';
 import { CurrentUser, Roles } from '../auth/decorators';
 import {
   AuthUser,
@@ -48,12 +50,15 @@ export class ContactsService {
     companyId?: string,
     stage?: string,
     search?: string,
+    pipelineId?: string,
   ) {
     const scoped = scopeCompanyId(user, companyId);
     const contacts = await this.prisma.contact.findMany({
       where: {
         ...(scoped ? { companyId: scoped } : {}),
         ...(stage ? { stage } : {}),
+        // Embudo: "default" = contactos sin embudo propio
+        ...(pipelineId ? (pipelineId === 'default' ? { pipelineId: null } : { pipelineId }) : {}),
         ...(search
           ? {
               OR: [
@@ -98,8 +103,28 @@ export class ContactsService {
     return this.serialize(contact);
   }
 
+  /** Etapas del embudo (el estándar si no tiene uno propio). */
+  private async stagesOf(pipelineId: string | null, companyId: string): Promise<Array<{ key: string }>> {
+    if (!pipelineId) return DEFAULT_STAGES;
+    const p = await this.prisma.pipeline.findFirst({ where: { id: pipelineId, companyId } });
+    if (!p) throw new BadRequestException('El embudo no existe');
+    return parseJson<Array<{ key: string }>>(p.stagesJson, DEFAULT_STAGES);
+  }
+
   async update(user: AuthUser, id: string, dto: any) {
     const existing = await this.assertAccess(user, id);
+    // Embudo y etapa: la etapa debe existir en el embudo del contacto; al
+    // cambiar de embudo sin etapa, el contacto entra en la primera
+    const pipelineChanged = dto.pipelineId !== undefined;
+    const pipelineId = pipelineChanged
+      ? (!dto.pipelineId || dto.pipelineId === 'default' ? null : String(dto.pipelineId))
+      : existing.pipelineId ?? null;
+    let stage: string | undefined = dto.stage;
+    if (pipelineChanged || stage) {
+      const stages = await this.stagesOf(pipelineId, existing.companyId);
+      if (!stage) stage = stages[0].key;
+      if (!stages.some((s) => s.key === stage)) throw new BadRequestException(`La etapa ${stage} no está en ese embudo`);
+    }
     const contact = await this.prisma.contact.update({
       where: { id },
       data: {
@@ -107,19 +132,22 @@ export class ContactsService {
         phone: dto.phone,
         email: dto.email,
         channel: dto.channel,
-        stage: dto.stage,
+        stage,
         notes: dto.notes,
+        ...(dto.pipelineId !== undefined ? { pipelineId } : {}),
+        // Baja manual de campañas y seguimientos
+        ...(dto.optOut !== undefined ? { optOut: !!dto.optOut, optOutAt: dto.optOut ? new Date() : null } : {}),
         assignedToId: dto.assignedToId,
         ...(dto.customerId !== undefined ? { customerId: dto.customerId || null } : {}),
         ...(dto.tags ? { tagsJson: JSON.stringify(dto.tags) } : {}),
         lastActivityAt: new Date(),
       },
     });
-    if (dto.stage && dto.stage !== existing.stage) {
+    if (stage && stage !== existing.stage) {
       await this.audit.log({
         actor: user, companyId: existing.companyId, action: 'contact.stage',
         entity: 'Contact', entityId: id,
-        detail: `${contact.name}: ${existing.stage} → ${dto.stage}`,
+        detail: `${contact.name}: ${existing.stage} → ${stage}`,
       });
     }
     return this.serialize(contact);
@@ -146,8 +174,9 @@ export class ContactsController {
     @Query('companyId') companyId?: string,
     @Query('stage') stage?: string,
     @Query('search') search?: string,
+    @Query('pipelineId') pipelineId?: string,
   ) {
-    return this.contacts.list(user, companyId, stage, search);
+    return this.contacts.list(user, companyId, stage, search, pipelineId);
   }
 
   @Post()

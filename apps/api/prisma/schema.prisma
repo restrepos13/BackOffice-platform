@@ -65,6 +65,15 @@ model Plan {
   active                  Boolean   @default(true)
   companies               Company[]
   createdAt               DateTime  @default(now())
+
+  // Línea comercial: PRO (USD, webcam/empresas) | NEGOCIOS (COP, comidas/domicilios)
+  line          String @default("PRO")
+  currency      String @default("USD")
+  maxLines      Int    @default(1)
+  maxCouriers   Int    @default(0)
+  minTermMonths Int    @default(0) // permanencia mínima (montaje gratis)
+  setupFeeValue Float  @default(0) // valor de referencia del montaje (salida anticipada)
+  sortOrder     Int    @default(0)
 }
 
 // ─── Empresas (tenants) ──────────────────────────────────────────────
@@ -146,6 +155,19 @@ model Company {
   marketingCampaigns MarketingCampaign[]
   contentPieces      ContentPiece[]
   videoJobs          VideoJob[]
+
+  // Cobro personalizado: precio pactado (pisa al plan) y permanencia
+  customPriceMonthly Float?
+  contractStartAt    DateTime?
+  minTermMonths      Int?
+  setupFeeValue      Float?
+  // Reseña en Google tras una buena calificación del cliente
+  googleReviewUrl    String?
+  // Pagos de los pedidos (cuenta Wompi PROPIA de la empresa, secretos cifrados)
+  paymentConfigJson  String    @default("{}")
+  // Facturación electrónica DIAN (proveedor ALEGRA o SIMULADO), token cifrado
+  einvoiceConfigJson String    @default("{}")
+  branches           Branch[]
 }
 
 // ─── Bots / Asistentes IA ────────────────────────────────────────────
@@ -280,6 +302,14 @@ model Contact {
   followUps     FollowUp[]
   orders        Order[]
   feedbacks     Feedback[]
+
+  // No recibir campañas ni seguimientos (pidió la baja por WhatsApp o a mano)
+  optOut     Boolean   @default(false)
+  optOutAt   DateTime?
+  // Embudo configurable (null = embudo estándar CURIOSO → CLIENTE)
+  pipelineId String?
+  // Identificadores en otros canales (Instagram / Messenger)
+  externalId String?
 }
 
 // ─── Conversaciones y mensajes ───────────────────────────────────────
@@ -340,6 +370,9 @@ model Message {
   mediaAsset     MediaAsset?  @relation(fields: [mediaAssetId], references: [id])
   createdAt      DateTime     @default(now())
 
+  // Lo que la IA leyó de una imagen (comprobante de pago, foto)
+  analysisJson String?
+
   @@index([conversationId, createdAt])
   @@index([providerId])
 }
@@ -390,6 +423,11 @@ model Product {
   updatedAt         DateTime        @updatedAt
 
   orderItems OrderItem[]
+
+  // Agotado (hasta una fecha o indefinido) — el agente no lo ofrece
+  soldOut      Boolean   @default(false)
+  soldOutUntil DateTime?
+  imageFile    String? // foto para el menú digital (uploads/<companyId>/)
 
   @@index([companyId, active])
 }
@@ -460,6 +498,29 @@ model Order {
   statusHistory OrderStatusHistory[]
   reminders     Reminder[]
   feedback      Feedback?
+
+  // Origen del pedido: WHATSAPP | MENU | MANUAL | RAPPI | UBER_EATS | WEB | OTRO
+  source           String    @default("WHATSAPP")
+  externalId       String? // id en la plataforma externa (idempotencia)
+  branchId         String? // sucursal que despacha
+  // Promociones
+  discount         Float?
+  couponCode       String?
+  // Cobro del pedido: NONE | PENDING | REPORTED | PAID | FAILED
+  paymentStatus    String    @default("NONE")
+  paymentMethod    String?
+  paymentLinkUrl   String?
+  paymentRef       String?
+  paidAt           DateTime?
+  receiptMessageId String? // comprobante enviado por el cliente
+  receiptJson      String? // lo que leyó la IA del comprobante
+  // Alertas de domicilio
+  delayAlertedAt   DateTime?
+  // Factura electrónica
+  einvoiceStatus   String? // EMITIDA | ERROR
+  einvoiceNumber   String?
+  einvoiceId       String?
+  einvoiceError    String?
 
   @@index([companyId, deliveryAt])
   @@index([companyId, status])
@@ -540,23 +601,24 @@ model Reminder {
 
 // Retroalimentación post-entrega, ligada al pedido.
 model Feedback {
-  id          String    @id @default(cuid()) @map("_id")
-  companyId   String
-  company     Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  orderId     String    @unique
-  order       Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  customerId  String?
-  customer    Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
-  contactId   String?
-  contact     Contact?  @relation(fields: [contactId], references: [id], onDelete: SetNull)
-  requestedAt DateTime  @default(now())
-  respondedAt DateTime?
-  rating      Int? // 1-5 si se logra extraer
-  comment     String?
-  sentiment   String? // POSITIVO | NEUTRO | NEGATIVO
-  alerted     Boolean   @default(false) // insatisfacción → alerta inmediata
-  status      String    @default("PENDIENTE") // PENDIENTE | RESPONDIDO | SIN_RESPUESTA
-  createdAt   DateTime  @default(now())
+  id              String    @id @default(cuid()) @map("_id")
+  companyId       String
+  company         Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  orderId         String    @unique
+  order           Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  customerId      String?
+  customer        Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  contactId       String?
+  contact         Contact?  @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  requestedAt     DateTime  @default(now())
+  respondedAt     DateTime?
+  rating          Int? // 1-5 si se logra extraer
+  comment         String?
+  sentiment       String? // POSITIVO | NEUTRO | NEGATIVO
+  alerted         Boolean   @default(false) // insatisfacción → alerta inmediata
+  status          String    @default("PENDIENTE") // PENDIENTE | RESPONDIDO | SIN_RESPUESTA
+  createdAt       DateTime  @default(now())
+  reviewRequested Boolean   @default(false) // se le pidió reseña en Google
 
   @@index([companyId, status])
 }
@@ -822,6 +884,11 @@ model Invoice {
   issuedAt          DateTime  @default(now())
   paidAt            DateTime?
   payments          Payment[]
+
+  currency  String  @default("USD")
+  // Líneas: [{kind: PLAN|ADJUSTMENT|AI|WHATSAPP|STORAGE|SETUP, concept, amount}]
+  linesJson String  @default("[]")
+  notes     String?
 }
 
 // ─── Pagos (pasarela) ────────────────────────────────────────────────
@@ -845,6 +912,9 @@ model Payment {
   eventsLog     String   @default("[]") // eventos del webhook, serializados
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
+  // Para qué es: INVOICE (mensualidad) | AI_CREDITS (paquete prepago de IA)
+  purpose       String   @default("INVOICE")
+  metaJson      String   @default("{}")
 }
 
 // ─── Correos a empresas ──────────────────────────────────────────────
@@ -915,4 +985,202 @@ model CourierPing {
 
   @@index([companyId, userId, createdAt])
   @@index([createdAt])
+}
+
+/// Ajustes de cobro por empresa: un cargo, un descuento o un precio pactado
+/// para un mes o un rango de meses ("este mes se le cobra esto").
+model BillingAdjustment {
+  id          String   @id @default(cuid()) @map("_id")
+  companyId   String
+  // CHARGE (cargo extra) | DISCOUNT (descuento) | PRICE (precio del plan para esos meses)
+  kind        String
+  concept     String
+  amount      Float    @default(0) // en la moneda de la factura
+  percent     Float? // DISCOUNT porcentual sobre el plan (pisa amount)
+  startPeriod String // YYYY-MM
+  endPeriod   String? // YYYY-MM inclusive; null = solo startPeriod (o indefinido si recurring)
+  recurring   Boolean  @default(false)
+  active      Boolean  @default(true)
+  createdBy   String?
+  createdAt   DateTime @default(now())
+
+  @@index([companyId, startPeriod])
+}
+
+/// Paquetes prepagos de IA de BackOffice (catálogo de plataforma).
+model AiCreditPackage {
+  id             String   @id @default(cuid()) @map("_id")
+  name           String
+  conversations  Int
+  price          Float
+  currency       String   @default("COP")
+  validityMonths Int      @default(12)
+  active         Boolean  @default(true)
+  sortOrder      Int      @default(0)
+  createdAt      DateTime @default(now())
+}
+
+/// Saldo prepago de una empresa: cada compra/regalo es un lote con vencimiento;
+/// el consumo descuenta del lote más antiguo (FIFO).
+model AiCreditLot {
+  id           String   @id @default(cuid()) @map("_id")
+  companyId    String
+  source       String // PURCHASE | GRANT
+  packageId    String?
+  total        Int
+  remaining    Int
+  expiresAt    DateTime
+  paymentRef   String?
+  note         String?
+  alertedLow   Boolean  @default(false)
+  alertedEmpty Boolean  @default(false)
+  createdBy    String?
+  createdAt    DateTime @default(now())
+
+  @@index([companyId, expiresAt])
+}
+
+/// Consumo de créditos: 1 por conversación atendida con la IA de BackOffice
+/// por ventana de 24 h (o por consulta fuera de chat).
+model AiCreditUse {
+  id             String   @id @default(cuid()) @map("_id")
+  companyId      String
+  conversationId String?
+  purpose        String   @default("CHAT") // CHAT | CONSULTA | MARKETING | SETUP
+  fromIncluded   Boolean  @default(false) // salió de lo incluido en el plan
+  lotId          String?
+  createdAt      DateTime @default(now())
+
+  @@index([companyId, createdAt])
+  @@index([companyId, conversationId, createdAt])
+}
+
+/// Campañas por WhatsApp (envío masivo segmentado).
+model Broadcast {
+  id               String    @id @default(cuid()) @map("_id")
+  companyId        String
+  name             String
+  integrationId    String // línea que envía
+  segmentJson      String    @default("{}")
+  message          String
+  templateKey      String? // plantilla aprobada para contactos fuera de la ventana de 24 h
+  status           String    @default("DRAFT") // DRAFT | SCHEDULED | SENDING | SENT | CANCELLED
+  scheduledAt      DateTime?
+  startedAt        DateTime?
+  finishedAt       DateTime?
+  recipientsCount  Int       @default(0)
+  estimatedCostUsd Float     @default(0)
+  createdBy        String?
+  createdAt        DateTime  @default(now())
+
+  recipients BroadcastRecipient[]
+
+  @@index([companyId, createdAt])
+  @@index([status, scheduledAt])
+}
+
+model BroadcastRecipient {
+  id             String    @id @default(cuid()) @map("_id")
+  broadcastId    String
+  broadcast      Broadcast @relation(fields: [broadcastId], references: [id], onDelete: Cascade)
+  companyId      String
+  contactId      String
+  conversationId String?
+  messageId      String?
+  status         String    @default("PENDING") // PENDING | QUEUED | SKIPPED | FAILED
+  skipReason     String?
+  createdAt      DateTime  @default(now())
+
+  @@index([broadcastId])
+  @@index([companyId, contactId])
+}
+
+/// Promociones y cupones (porcentaje, valor fijo o domicilio gratis).
+model Promotion {
+  id             String    @id @default(cuid()) @map("_id")
+  companyId      String
+  code           String? // null = se aplica sola (combo/promo del día)
+  name           String
+  description    String?
+  kind           String // PERCENT | FIXED | FREE_DELIVERY
+  value          Float     @default(0)
+  minSubtotal    Float?
+  productIdsJson String    @default("[]") // vacío = todo el menú
+  startsAt       DateTime?
+  endsAt         DateTime?
+  maxUses        Int?
+  usedCount      Int       @default(0)
+  public         Boolean   @default(true) // el agente la puede ofrecer
+  active         Boolean   @default(true)
+  createdAt      DateTime  @default(now())
+
+  @@index([companyId, active])
+}
+
+/// Respuestas rápidas del equipo humano en la bandeja ("/saludo").
+model QuickReply {
+  id        String   @id @default(cuid()) @map("_id")
+  companyId String
+  shortcut  String
+  title     String
+  body      String
+  createdAt DateTime @default(now())
+
+  @@index([companyId])
+}
+
+/// Sucursales: cada una despacha desde su ubicación; el pedido va a la más cercana.
+model Branch {
+  id        String   @id @default(cuid()) @map("_id")
+  companyId String
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  name      String
+  address   String?
+  lat       Float
+  lng       Float
+  phone     String?
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  @@index([companyId, active])
+}
+
+/// Base de conocimiento: documentos (texto, página web o PDF) en fragmentos
+/// que el agente consulta con buscar_conocimiento.
+model KnowledgeDoc {
+  id        String   @id @default(cuid()) @map("_id")
+  companyId String
+  title     String
+  source    String // TEXT | URL | PDF
+  url       String?
+  status    String   @default("READY") // READY | ERROR
+  error     String?
+  chars     Int      @default(0)
+  chunks    Int      @default(0)
+  createdAt DateTime @default(now())
+
+  @@index([companyId])
+}
+
+model KnowledgeChunk {
+  id        String @id @default(cuid()) @map("_id")
+  companyId String
+  docId     String
+  idx       Int
+  text      String
+
+  @@index([companyId, docId])
+}
+
+/// Embudos de venta configurables por empresa.
+model Pipeline {
+  id         String   @id @default(cuid()) @map("_id")
+  companyId  String
+  name       String
+  // [{key, label, kind: OPEN|WON|LOST}]
+  stagesJson String
+  isDefault  Boolean  @default(false)
+  createdAt  DateTime @default(now())
+
+  @@index([companyId])
 }

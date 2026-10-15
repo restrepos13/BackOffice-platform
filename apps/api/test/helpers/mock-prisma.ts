@@ -29,10 +29,15 @@ function matches(doc: Doc, where: Doc | undefined): boolean {
       if (value !== null && value !== undefined) return false;
     } else if (typeof cond === 'object' && cond !== null && !Array.isArray(cond) && !(cond instanceof Date)) {
       if ('in' in cond && !cond.in.includes(value)) return false;
+      if ('notIn' in cond && cond.notIn.includes(value)) return false;
+      if ('gt' in cond && !(value > cond.gt)) return false;
+      if ('contains' in cond && !(typeof value === 'string' && value.includes(cond.contains))) return false;
       if ('gte' in cond && !(value >= cond.gte)) return false;
       if ('lte' in cond && !(value <= cond.lte)) return false;
       if ('lt' in cond && !(value < cond.lt)) return false;
-      if ('not' in cond && value === cond.not) return false;
+      if ('not' in cond) {
+        if (cond.not === null ? value === null || value === undefined : value === cond.not) return false;
+      }
       if ('isSet' in cond) {
         const has = value !== undefined;
         if (cond.isSet !== has) return false;
@@ -86,6 +91,22 @@ export function createMockPrisma() {
     appointment: [] as Doc[],
     followUp: [] as Doc[],
     courierPing: [] as Doc[],
+    aiCreditLot: [] as Doc[],
+    aiCreditUse: [] as Doc[],
+    aiCreditPackage: [] as Doc[],
+    billingAdjustment: [] as Doc[],
+    broadcast: [] as Doc[],
+    broadcastRecipient: [] as Doc[],
+    promotion: [] as Doc[],
+    quickReply: [] as Doc[],
+    branch: [] as Doc[],
+    knowledgeDoc: [] as Doc[],
+    knowledgeChunk: [] as Doc[],
+    pipeline: [] as Doc[],
+    payment: [] as Doc[],
+    apiKey: [] as Doc[],
+    invoice: [] as Doc[],
+    usageRecord: [] as Doc[],
   };
 
   // Filtros por relación (where: { conversation: {...} }) — resueltos por FK
@@ -183,7 +204,16 @@ export function createMockPrisma() {
     },
     updateMany: async ({ where, data }: Doc) => {
       const docs = db[name].filter((d) => match(d, where));
-      for (const doc of docs) Object.assign(doc, definedOnly(data), { updatedAt: new Date() });
+      for (const doc of docs) {
+        const plain: Doc = { ...definedOnly(data) };
+        for (const [key, value] of Object.entries(plain)) {
+          if (value && typeof value === 'object' && !(value instanceof Date)) {
+            if ('increment' in (value as Doc)) plain[key] = (doc[key] ?? 0) + (value as Doc).increment;
+            if ('decrement' in (value as Doc)) plain[key] = (doc[key] ?? 0) - (value as Doc).decrement;
+          }
+        }
+        Object.assign(doc, plain, { updatedAt: new Date() });
+      }
       return { count: docs.length };
     },
     count: async ({ where }: Doc = {}) => db[name].filter((d) => match(d, where)).length,
@@ -282,6 +312,22 @@ export function createMockPrisma() {
     appointment: model('appointment', { status: 'SCHEDULED', source: 'MANUAL' }),
     followUp: model('followUp', { status: 'PENDING' }),
     courierPing: model('courierPing'),
+    aiCreditLot: model('aiCreditLot', { alertedLow: false, alertedEmpty: false }),
+    aiCreditUse: model('aiCreditUse', { fromIncluded: false, purpose: 'CHAT' }),
+    aiCreditPackage: model('aiCreditPackage', { active: true, currency: 'COP', validityMonths: 12, sortOrder: 0 }),
+    billingAdjustment: model('billingAdjustment', { active: true, recurring: false }),
+    broadcast: model('broadcast', { status: 'DRAFT', recipientsCount: 0, estimatedCostUsd: 0 }),
+    broadcastRecipient: model('broadcastRecipient', { status: 'PENDING' }),
+    promotion: model('promotion', { usedCount: 0, active: true, public: true, productIdsJson: '[]' }),
+    quickReply: model('quickReply'),
+    branch: model('branch', { active: true }),
+    knowledgeDoc: model('knowledgeDoc', { status: 'READY' }),
+    knowledgeChunk: model('knowledgeChunk'),
+    pipeline: model('pipeline', { isDefault: false }),
+    payment: model('payment', { status: 'PENDING', eventsLog: '[]', purpose: 'INVOICE', metaJson: '{}' }),
+    apiKey: model('apiKey', { scopesJson: '[]', revokedAt: null }),
+    invoice: model('invoice', { status: 'PENDING', currency: 'USD', linesJson: '[]' }),
+    usageRecord: model('usageRecord'),
   };
 
   return { prisma, db };

@@ -1,3 +1,4 @@
+import { randomUUID } from 'crypto';
 import {
   BadRequestException,
   Body,
@@ -669,9 +670,12 @@ export class ReportsService {
 
   private async recordUsage(
     companyId: string, model: string, inputTokens: number, outputTokens: number,
-    billedTo: AiBilling = 'BYOK',
+    billedTo: AiBilling = 'BYOK', askId?: string,
   ) {
-    await recordAiUsage(this.prisma, { companyId, model, inputTokens, outputTokens, billedTo });
+    // Una pregunta = 1 crédito aunque use 2 llamadas (mismo askId en la ventana)
+    await recordAiUsage(this.prisma, {
+      companyId, model, inputTokens, outputTokens, billedTo, purpose: 'CONSULTA', conversationId: askId,
+    });
   }
 
   /**
@@ -690,6 +694,7 @@ export class ReportsService {
     if (!access.ok) throw new BadRequestException(access.reason);
     // Híbrido: si DeepInfra rechaza la llave principal, sigue con la otra
     const session = new AiSession(access);
+    const askId = `consulta-${randomUUID()}`;
     const ai = this.ai;
     const chat = (opts: Omit<AiChatOptions, 'apiKey'>) => session.run((apiKey) => ai.chat({ ...opts, apiKey }));
     const cfg = parseJson<Record<string, any>>(company.orderConfigJson, {});
@@ -717,7 +722,7 @@ Reglas: fechas siempre YYYY-MM-DD; si la pregunta menciona "el viernes", "mañan
         { role: 'user', content: q },
       ],
     });
-    await this.recordUsage(scoped, selection.model, selection.inputTokens, selection.outputTokens, selectionBilledTo);
+    await this.recordUsage(scoped, selection.model, selection.inputTokens, selection.outputTokens, selectionBilledTo, askId);
 
     const parsed = extractJson(selection.content) as { tool?: string; params?: any } | null;
     const tool = parsed?.tool ?? 'ninguna';
@@ -750,7 +755,7 @@ Reglas: fechas siempre YYYY-MM-DD; si la pregunta menciona "el viernes", "mañan
         },
       ],
     });
-    await this.recordUsage(scoped, answerRes.model, answerRes.inputTokens, answerRes.outputTokens, answerBilledTo);
+    await this.recordUsage(scoped, answerRes.model, answerRes.inputTokens, answerRes.outputTokens, answerBilledTo, askId);
 
     await this.audit.log({
       actor: user, companyId: scoped, action: 'report.ask',
