@@ -116,8 +116,10 @@ export interface Company {
   /** BYOK DeepInfra: la llave nunca viaja completa */
   hasDeepinfraKey: boolean;
   deepinfraKeyMasked?: string | null;
-  /** Quién paga la IA: llave propia (BYOK) o la de BackOffice (PLATFORM) */
-  aiBillingMode?: 'BYOK' | 'PLATFORM';
+  /** Quién paga la IA: llave propia (BYOK), la de BackOffice (PLATFORM) o las dos (HYBRID) */
+  aiBillingMode?: AiMode;
+  /** En HYBRID: cuál va primero (la otra queda de respaldo) */
+  aiHybridPrimary?: 'BYOK' | 'PLATFORM';
   aiSpendCapUsd?: number | null;
   aiIncludedOverride?: number | null;
   logoUrl?: string | null;
@@ -169,6 +171,8 @@ export interface Bot {
   sales: Record<string, string>;
   /** ORDERS = pedidos estructurados (Nexus) · AGENT = agente con herramientas */
   engineMode?: 'ORDERS' | 'AGENT';
+  /** Quién paga la IA de este asistente (INHERIT = lo de la empresa) */
+  aiSource?: 'INHERIT' | AiMode;
   tools?: AgentToolGrant[];
   integrations?: Integration[];
   _count?: { conversations: number };
@@ -615,7 +619,7 @@ export interface BillingSummary {
   consumption: {
     ai: {
       costUsd: number; tokens: number;
-      directBilled?: boolean; mode?: 'BYOK' | 'PLATFORM';
+      directBilled?: boolean; mode?: AiMode;
       conversations?: number; included?: number; extra?: number;
       extraPriceUsd?: number; extraChargeUsd?: number;
     };
@@ -747,8 +751,11 @@ export interface AiUsageKpis {
 export interface CompanyAiUsage {
   kpis: AiUsageKpis;
   hasDeepinfraKey: boolean;
-  aiBillingMode?: 'BYOK' | 'PLATFORM';
+  aiBillingMode?: AiMode;
+  aiHybridPrimary?: 'BYOK' | 'PLATFORM';
   quota?: AiQuota | null;
+  /** Lo que pagó la empresa con su llave vs. lo que puso BackOffice */
+  byBilling?: Record<'BYOK' | 'PLATFORM', { costUsd: number; events: number }>;
   series: { date: string; costUsd: number; inputTokens: number; outputTokens: number; events: number }[];
   byModel: { model: string; costUsd: number; tokens: number; events: number }[];
   byLine: { integrationId: string | null; name: string; costUsd: number; tokens: number; events: number }[];
@@ -863,8 +870,10 @@ export interface PublicTracking {
   expired: boolean;
 }
 
+export type AiMode = 'BYOK' | 'PLATFORM' | 'HYBRID';
+
 export interface AiQuota {
-  mode: 'BYOK' | 'PLATFORM';
+  mode: AiMode;
   period: string;
   conversations: number;
   included: number;

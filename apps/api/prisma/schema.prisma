@@ -92,7 +92,8 @@ model Company {
   deepinfraApiKey       String? // cifrada (enc:v1:…) desde oct 2026; texto plano legado se sigue leyendo
   // Quién paga la IA: BYOK (llave propia del cliente, paga directo a DeepInfra)
   // o PLATFORM (llave de BackOffice; se factura por conversación con tope de gasto)
-  aiBillingMode         String    @default("BYOK")
+  aiBillingMode         String    @default("BYOK") // BYOK | PLATFORM | HYBRID (las dos, con respaldo)
+  aiHybridPrimary       String    @default("BYOK") // en HYBRID: cuál llave va primero (la otra es respaldo)
   aiSpendCapUsd         Float? // tope duro mensual en modo PLATFORM (null = sin tope)
   aiIncludedOverride    Int? // conversaciones incluidas propias (pisa al plan)
   // Parámetros del "Reporte a Gerencia": ahorro = conversaciones IA/mes ÷ capacidad × sueldo
@@ -176,6 +177,9 @@ model Bot {
   // Motor: ORDERS = extracción estructurada de pedidos (Nexus) · AGENT = agente
   // con herramientas sobre los módulos (menú, envío, pedidos, seguimiento…)
   engineMode       String   @default("ORDERS")
+  // Quién paga la IA de ESTE asistente: INHERIT (lo de la empresa) | BYOK |
+  // PLATFORM (asistente vendido con la IA de BackOffice) | HYBRID
+  aiSource         String   @default("INHERIT")
   // Herramientas del agente y su permiso: [{tool, access: "read"|"write"}]
   toolsJson        String   @default("[]")
   createdAt        DateTime @default(now())

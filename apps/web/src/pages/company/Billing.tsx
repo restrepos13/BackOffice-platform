@@ -98,7 +98,7 @@ export default function Billing() {
 
         <Card kicker="Consumo · al costo, variable" title="Tu operación">
           <ul className="space-y-2 text-sm">
-            {summary.consumption.ai.mode === 'PLATFORM' ? (
+            {summary.consumption.ai.mode && summary.consumption.ai.mode !== 'BYOK' && (
               <li className="flex justify-between border-b border-line pb-1.5">
                 <span>
                   Conversaciones con IA
@@ -110,7 +110,8 @@ export default function Billing() {
                 </span>
                 <strong>{fmtUsd(summary.consumption.ai.extraChargeUsd ?? 0)}</strong>
               </li>
-            ) : (
+            )}
+            {summary.consumption.ai.mode !== 'PLATFORM' && (
               <li className="flex justify-between border-b border-line pb-1.5 text-ink-3">
                 <span>
                   Recursos de IA (informativo)

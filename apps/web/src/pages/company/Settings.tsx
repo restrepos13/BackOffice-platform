@@ -249,6 +249,15 @@ export default function CompanySettings() {
                 </p>
               </div>
             </Card>
+          ) : company.aiBillingMode === 'HYBRID' ? (
+            <Card kicker="Tu cuenta + IA de BackOffice" title="Inteligencia artificial">
+              <p className="mb-3 text-sm text-ink-2">
+                Usas tu propia cuenta de DeepInfra y además la IA de BackOffice
+                {company.aiHybridPrimary === 'PLATFORM' ? ' (va primero; tu cuenta queda de respaldo)' : ' de respaldo'}.
+                Si una no está disponible, la otra sigue respondiendo: tus clientes nunca quedan sin atención.
+              </p>
+              <DeepinfraKeyForm company={company} canWrite={canWrite} />
+            </Card>
           ) : (
             <Card kicker="BYOK · el costo de IA lo pagas directo a DeepInfra" title="Llave DeepInfra">
               <DeepinfraKeyForm company={company} canWrite={canWrite} />

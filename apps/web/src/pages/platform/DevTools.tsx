@@ -81,13 +81,25 @@ function HealthTab({ companies }: { companies: Company[] }) {
 
   const [diCompany, setDiCompany] = useState('');
   const testDi = useMutation({
-    mutationFn: () => api.post<{ ok: boolean; latencyMs?: number; model?: string; error?: string }>(
-      '/dev/test-deepinfra', { companyId: diCompany },
-    ),
-    onSuccess: (r) =>
+    mutationFn: () => api.post<{
+      ok: boolean; latencyMs?: number; model?: string; error?: string;
+      checks?: Array<{ source: 'BYOK' | 'PLATFORM'; ok: boolean; latencyMs: number; error?: string }>;
+    }>('/dev/test-deepinfra', { companyId: diCompany }),
+    onSuccess: (r) => {
+      const label = { BYOK: 'Cuenta de la empresa', PLATFORM: 'IA de BackOffice' };
+      // Una línea por cuenta probada (en híbrido, las dos)
+      if (r.checks?.length) {
+        for (const c of r.checks) {
+          c.ok
+            ? toast.success(`${label[c.source]}: OK · ${c.latencyMs} ms`)
+            : toast.error(`${label[c.source]}: falló — ${c.error}`, { duration: 8000 });
+        }
+        return;
+      }
       r.ok
         ? toast.success(`Llave OK · ${r.latencyMs} ms · ${r.model}`)
-        : toast.error(`Llave falló: ${r.error}`, { duration: 8000 }),
+        : toast.error(`Llave falló: ${r.error}`, { duration: 8000 });
+    },
     onError: (e) => toast.error(e instanceof Error ? e.message : 'Error'),
   });
 

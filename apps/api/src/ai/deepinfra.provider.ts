@@ -12,9 +12,16 @@ const CHAT_URL = 'https://api.deepinfra.com/v1/openai/chat/completions';
 const TRANSCRIBE_URL = 'https://api.deepinfra.com/v1/openai/audio/transcriptions';
 const WHISPER_MODEL = 'openai/whisper-large-v3-turbo';
 
+/** Error del proveedor con su código HTTP (401/402/403 = llave rechazada o sin saldo). */
+export class AiProviderError extends ServiceUnavailableException {
+  constructor(public readonly providerStatus: number, message: string) {
+    super(message);
+  }
+}
+
 /**
  * Proveedor DeepInfra (API compatible con OpenAI).
- * La llave es SIEMPRE la de la organización (BYOK) — jamás una global.
+ * La llave la decide ai-access.ts (la del cliente o la de BackOffice).
  */
 @Injectable()
 export class DeepInfraProvider implements AiProvider {
@@ -38,7 +45,8 @@ export class DeepInfraProvider implements AiProvider {
     if (!res.ok) {
       const body = await res.text().catch(() => '');
       this.logger.error(`chat ${res.status}: ${body.slice(0, 300)}`);
-      throw new ServiceUnavailableException(
+      throw new AiProviderError(
+        res.status,
         `DeepInfra respondió ${res.status} — revisar llave/modelo de la organización`,
       );
     }
@@ -69,7 +77,7 @@ export class DeepInfraProvider implements AiProvider {
     if (!res.ok) {
       const body = await res.text().catch(() => '');
       this.logger.error(`transcribe ${res.status}: ${body.slice(0, 300)}`);
-      throw new ServiceUnavailableException('No se pudo transcribir el audio');
+      throw new AiProviderError(res.status, 'No se pudo transcribir el audio');
     }
     const data: any = await res.json();
     return { text: data?.text ?? '' };

@@ -217,3 +217,12 @@ export const AGENT_TOOL_HELP: Record<string, string> = {
   guardar_direccion: 'Guarda direcciones del cliente (casa, oficina) para que no las repita.',
   pasar_a_humano: 'Pasa la conversación a tu equipo ante reclamos, casos raros o dudas.',
 };
+
+/* ─── Quién paga la IA ─── */
+
+export const AI_MODE_LABELS: Record<string, string> = {
+  INHERIT: 'Lo que tenga la empresa',
+  BYOK: 'Cuenta DeepInfra de la empresa',
+  PLATFORM: 'IA de BackOffice (revendida)',
+  HYBRID: 'Híbrido: las dos, con respaldo',
+};

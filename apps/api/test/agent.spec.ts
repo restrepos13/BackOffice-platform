@@ -10,7 +10,9 @@ import { EngineService } from '../src/modules/engine.module';
 import { AgentService } from '../src/ai/agent/agent.service';
 import { validateAgentStep } from '../src/ai/agent/protocol';
 import { AGENT_PRESETS, enabledTools, matchProduct, sanitizeToolsConfig } from '../src/ai/agent/tools';
+import { AiProviderError } from '../src/ai/deepinfra.provider';
 import {
+  AiSession,
   computeAiQuota,
   maskCompanyKey,
   readCompanyKey,
@@ -532,5 +534,127 @@ describe('seguimiento público: lo que ve el cliente final', () => {
     expect(view.map).toBeNull();
     await expect(service.publicTracking('../../etc')).rejects.toBeInstanceOf(NotFoundException);
     await expect(service.publicTracking('tok_inexistente_00000000')).rejects.toBeInstanceOf(NotFoundException);
+  });
+});
+
+/* ═══ IA híbrida: llave propia + IA de BackOffice con respaldo ═══ */
+
+/** Proveedor que rechaza una llave concreta (sin saldo / inválida). */
+class RejectingProvider extends FakeProvider {
+  constructor(private readonly rejectKey: string, private readonly status = 402) {
+    super();
+  }
+  async chat(opts: AiChatOptions): Promise<AiChatResult> {
+    if (opts.apiKey === this.rejectKey) {
+      this.calls.push(opts);
+      throw new AiProviderError(this.status, `DeepInfra respondió ${this.status}`);
+    }
+    return super.chat(opts);
+  }
+}
+
+describe('IA híbrida: la empresa usa su cuenta y BackOffice le vende IA aparte', () => {
+  beforeEach(() => { process.env.DEEPINFRA_API_KEY = 'platform_key'; });
+  afterEach(() => { delete process.env.DEEPINFRA_API_KEY; });
+
+  it('principal + respaldo según aiHybridPrimary', async () => {
+    const { prisma } = createMockPrisma();
+    const base = { id: 'co1', aiBillingMode: 'HYBRID', deepinfraApiKey: 'byok_key', aiSpendCapUsd: null, planId: null };
+    expect(await resolveAiAccess(prisma, { ...base, aiHybridPrimary: 'BYOK' })).toMatchObject({
+      ok: true, apiKey: 'byok_key', billedTo: 'BYOK', mode: 'HYBRID',
+      fallback: { apiKey: 'platform_key', billedTo: 'PLATFORM' },
+    });
+    expect(await resolveAiAccess(prisma, { ...base, aiHybridPrimary: 'PLATFORM' })).toMatchObject({
+      ok: true, billedTo: 'PLATFORM', fallback: { billedTo: 'BYOK' },
+    });
+  });
+
+  it('si falta la principal arranca con la otra; si no hay ninguna, NO_AI con los dos motivos', async () => {
+    const { prisma, db } = createMockPrisma();
+    const noKey = { id: 'co1', aiBillingMode: 'HYBRID', aiHybridPrimary: 'BYOK', deepinfraApiKey: null, aiSpendCapUsd: null, planId: null };
+    const access = await resolveAiAccess(prisma, noKey);
+    expect(access).toMatchObject({ ok: true, billedTo: 'PLATFORM' });
+    expect((access as any).fallback).toBeUndefined();
+
+    db.aiUsageEvent.push({ companyId: 'co1', billedTo: 'PLATFORM', conversationId: 'x', costUsd: 5, createdAt: new Date() });
+    const denied = await resolveAiAccess(prisma, { ...noKey, aiSpendCapUsd: 1 });
+    expect(denied).toMatchObject({ ok: false, code: 'NO_AI' });
+    expect((denied as any).reason).toMatch(/llave de DeepInfra/);
+    expect((denied as any).reason).toMatch(/tope mensual/);
+  });
+
+  it('un asistente vendido aparte (aiSource PLATFORM) usa la IA de BackOffice aunque la empresa sea BYOK', async () => {
+    const { prisma } = createMockPrisma();
+    const company = { id: 'co1', aiBillingMode: 'BYOK', deepinfraApiKey: 'byok_key', aiSpendCapUsd: null, planId: null };
+    expect(await resolveAiAccess(prisma, company, { aiSource: 'PLATFORM' })).toMatchObject({ billedTo: 'PLATFORM' });
+    expect(await resolveAiAccess(prisma, company, { aiSource: 'INHERIT' })).toMatchObject({ billedTo: 'BYOK' });
+  });
+
+  it('AiSession: si DeepInfra rechaza la principal (402) sigue con el respaldo y se queda con él', async () => {
+    const seen: string[] = [];
+    const session = new AiSession({ apiKey: 'byok_key', billedTo: 'BYOK', fallback: { apiKey: 'platform_key', billedTo: 'PLATFORM' } });
+    const call = (apiKey: string) => {
+      seen.push(apiKey);
+      if (apiKey === 'byok_key') throw new AiProviderError(402, 'sin saldo');
+      return Promise.resolve('ok');
+    };
+    expect(await session.run(call)).toEqual({ result: 'ok', billedTo: 'PLATFORM' });
+    expect(await session.run(call)).toEqual({ result: 'ok', billedTo: 'PLATFORM' });
+    expect(seen).toEqual(['byok_key', 'platform_key', 'platform_key']);
+    expect(session.switched).toBe(true);
+
+    // Un error que NO es de llave (500) no cambia de cuenta: se propaga
+    const other = new AiSession({ apiKey: 'a', billedTo: 'BYOK', fallback: { apiKey: 'b', billedTo: 'PLATFORM' } });
+    await expect(other.run(() => Promise.reject(new AiProviderError(500, 'caído')))).rejects.toThrow('caído');
+  });
+
+  it('agente en híbrido: la llave del cliente se queda sin saldo y la conversación sigue con BackOffice', async () => {
+    const { prisma, db } = createMockPrisma();
+    const provider = new RejectingProvider('di_byok_key');
+    const audit = { log: jest.fn(async () => undefined) };
+    const agent = new AgentService(prisma as any, provider);
+    const engine = new EngineService(prisma as any, provider, audit as any, undefined, undefined, undefined, agent);
+    db.company.push({
+      id: 'co1', name: 'Híbrida', timezone: 'America/Bogota', currency: 'COP',
+      deepinfraApiKey: 'di_byok_key', aiBillingMode: 'HYBRID', aiHybridPrimary: 'BYOK',
+      aiSpendCapUsd: null, planId: null, orderConfigJson: '{}',
+    });
+    db.bot.push({
+      id: 'bot1', companyId: 'co1', status: 'ACTIVE', engineMode: 'AGENT', toolsJson: '[]',
+      systemPrompt: '', personalityJson: '{}', salesJson: '{}', model: 'meta-llama/Llama-3.3-70B-Instruct',
+      temperature: 0.5, replyDelayMinSec: 1, replyDelayMaxSec: 2, handoffKeywords: '',
+    });
+    db.aiModel.push({ modelId: 'meta-llama/Llama-3.3-70B-Instruct', inputCostPerMTok: 0.23, outputCostPerMTok: 0.4 });
+    db.contact.push({ id: 'ct1', companyId: 'co1', name: 'Ana', phone: '+57300' });
+    db.conversation.push({ id: 'conv1', companyId: 'co1', contactId: 'ct1', botId: 'bot1', channel: 'SIMULATOR', status: 'OPEN', botPaused: false, aiStateJson: '{}' });
+    db.message.push({ id: 'm1', conversationId: 'conv1', direction: 'IN', author: 'CONTACT', content: 'hola', type: 'TEXT', createdAt: new Date() });
+
+    provider.script({ reply: ['¡Hola! ¿Qué se te antoja?'], confidence: 0.9, state: 'saludo' });
+    const r = await engine.processConversation('conv1');
+    expect(r!.escalated).toBe(false);
+    expect(provider.calls.map((c) => c.apiKey)).toEqual(['di_byok_key', 'platform_key']);
+    expect(db.aiUsageEvent).toHaveLength(1);
+    expect(db.aiUsageEvent[0]).toMatchObject({ billedTo: 'PLATFORM', conversationId: 'conv1' });
+    expect(audit.log).toHaveBeenCalledWith(expect.objectContaining({ action: 'ai.fallback' }));
+  });
+
+  it('agente sin proveedor (DeepInfra caído): escala con motivo, nunca deja la conversación colgada', async () => {
+    const { db, provider, engine, say } = setup();
+    say('hola');
+    jest.spyOn(provider, 'chat').mockRejectedValue(new AiProviderError(503, 'DeepInfra respondió 503'));
+    const r = await engine.processConversation('conv1');
+    expect(r!.escalated).toBe(true);
+    expect(r!.escalationReason).toMatch(/Proveedor de IA no disponible/);
+    expect(db.conversation[0]).toMatchObject({ botPaused: true, needsAttention: true });
+  });
+
+  it('el excedente se factura también en híbrido (solo lo que pagó BackOffice)', async () => {
+    const { prisma, db } = createMockPrisma();
+    db.plan.push({ id: 'p', includedAiConversations: 1, extraAiConversationUsd: 0.1 });
+    const now = new Date();
+    for (const conv of ['a', 'b', 'c']) db.aiUsageEvent.push({ companyId: 'co1', billedTo: 'PLATFORM', conversationId: conv, costUsd: 0.01, createdAt: now });
+    db.aiUsageEvent.push({ companyId: 'co1', billedTo: 'BYOK', conversationId: 'd', costUsd: 0.01, createdAt: now });
+    const quota = await computeAiQuota(prisma, { id: 'co1', aiBillingMode: 'HYBRID', planId: 'p' }, now);
+    expect(quota).toMatchObject({ mode: 'HYBRID', conversations: 3, extra: 2, extraChargeUsd: 0.2 });
   });
 });

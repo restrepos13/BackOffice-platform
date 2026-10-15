@@ -26,7 +26,7 @@ import { EmailsModule, EmailsService } from './emails.module';
 import { TwilioModule, TwilioService } from './twilio.module';
 import { AI_PROVIDER, AiProvider } from '../ai/types';
 import { DeepInfraProvider } from '../ai/deepinfra.provider';
-import { resolveAiAccess } from '../ai/ai-access';
+import { platformAiKey, readCompanyKey, resolveAiAccess } from '../ai/ai-access';
 import {
   ENGINE_QUEUE,
   WA_INBOUND_QUEUE,
@@ -195,24 +195,50 @@ export class DevToolsService {
     const company = await this.prisma.company.findUnique({ where: { id: companyId } });
     if (!company) throw new NotFoundException('Empresa no encontrada');
     const access = await resolveAiAccess(this.prisma, company);
-    if (!access.ok) return { ok: false, error: access.reason };
-    const start = Date.now();
-    try {
-      const res = await this.ai.chat({
-        apiKey: access.apiKey,
-        model: 'meta-llama/Llama-3.3-70B-Instruct',
-        temperature: 0,
-        maxTokens: 5,
-        messages: [{ role: 'user', content: 'Responde solo: OK' }],
-      });
-      await this.audit.log({
-        actor, companyId, action: 'dev.test_deepinfra',
-        entity: 'Company', entityId: companyId, detail: `ok en ${Date.now() - start} ms (${access.billedTo})`,
-      });
-      return { ok: true, latencyMs: Date.now() - start, model: res.model, reply: res.content.trim().slice(0, 40), billedTo: access.billedTo };
-    } catch (err: any) {
-      return { ok: false, latencyMs: Date.now() - start, error: err.message };
+    if (!access.ok) return { ok: false, error: access.reason, checks: [] };
+    // Se prueba CADA llave que la empresa puede usar (en híbrido, las dos)
+    const ai = this.ai;
+    const candidates = [
+      { source: 'BYOK' as const, key: readCompanyKey(company.deepinfraApiKey) },
+      { source: 'PLATFORM' as const, key: await platformAiKey(this.prisma) },
+    ].filter((c) =>
+      c.key && (access.mode === 'HYBRID' || c.source === access.billedTo),
+    );
+    const checks: Array<{
+      source: 'BYOK' | 'PLATFORM'; ok: boolean; latencyMs: number;
+      model?: string; reply?: string; error?: string;
+    }> = [];
+    for (const candidate of candidates) {
+      const start = Date.now();
+      try {
+        const res = await ai.chat({
+          apiKey: candidate.key!,
+          model: 'meta-llama/Llama-3.3-70B-Instruct',
+          temperature: 0,
+          maxTokens: 5,
+          messages: [{ role: 'user', content: 'Responde solo: OK' }],
+        });
+        checks.push({ source: candidate.source, ok: true, latencyMs: Date.now() - start, model: res.model, reply: res.content.trim().slice(0, 40) });
+      } catch (err: any) {
+        checks.push({ source: candidate.source, ok: false, latencyMs: Date.now() - start, error: err.message });
+      }
     }
+    const primary = checks.find((c) => c.source === access.billedTo) ?? checks[0];
+    await this.audit.log({
+      actor, companyId, action: 'dev.test_deepinfra',
+      entity: 'Company', entityId: companyId,
+      detail: checks.map((c) => `${c.source}: ${c.ok ? `ok ${c.latencyMs} ms` : 'falló'}`).join(' · '),
+    });
+    return {
+      ok: checks.some((c) => c.ok),
+      mode: access.mode,
+      billedTo: access.billedTo,
+      latencyMs: primary?.latencyMs,
+      model: primary?.model,
+      reply: primary?.reply,
+      error: checks.every((c) => !c.ok) ? primary?.error : undefined,
+      checks,
+    };
   }
 
   async health() {

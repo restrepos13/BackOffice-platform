@@ -60,6 +60,7 @@ export class AiUsageService {
       select: {
         companyId: true, integrationId: true, model: true,
         inputTokens: true, outputTokens: true, costUsd: true, createdAt: true,
+        billedTo: true,
       },
       orderBy: { createdAt: 'asc' },
     });
@@ -110,7 +111,7 @@ export class AiUsageService {
         where: { id: scoped },
         select: {
           id: true, deepinfraApiKey: true, planId: true,
-          aiBillingMode: true, aiSpendCapUsd: true, aiIncludedOverride: true,
+          aiBillingMode: true, aiHybridPrimary: true, aiSpendCapUsd: true, aiIncludedOverride: true,
         },
       }),
       this.prisma.integration.findMany({
@@ -130,9 +131,17 @@ export class AiUsageService {
     const byModel = new Map<string, { model: string; costUsd: number; tokens: number; events: number }>();
     const byLine = new Map<string, { integrationId: string | null; costUsd: number; tokens: number; events: number }>();
     let totalCost = 0, totalIn = 0, totalOut = 0;
+    // Híbrido: cuánto pagó la empresa con su llave y cuánto puso BackOffice
+    const byBilling = {
+      BYOK: { costUsd: 0, events: 0 },
+      PLATFORM: { costUsd: 0, events: 0 },
+    };
 
     for (const ev of events) {
       totalCost += ev.costUsd;
+      const bucket = byBilling[(ev as any).billedTo === 'PLATFORM' ? 'PLATFORM' : 'BYOK'];
+      bucket.costUsd = round4(bucket.costUsd + ev.costUsd);
+      bucket.events += 1;
       totalIn += ev.inputTokens;
       totalOut += ev.outputTokens;
       const dRow = byDay.get(dayKey(ev.createdAt));
@@ -171,6 +180,8 @@ export class AiUsageService {
       hasDeepinfraKey: !!company?.deepinfraApiKey,
       // Quién paga la IA y cómo va el mes (incluidas, excedente, tope)
       aiBillingMode: company?.aiBillingMode ?? 'BYOK',
+      aiHybridPrimary: company?.aiHybridPrimary ?? 'BYOK',
+      byBilling,
       quota: company ? await computeAiQuota(this.prisma, company) : null,
       series: [...byDay.values()],
       byModel: [...byModel.values()].sort((a, b) => b.costUsd - a.costUsd),
@@ -336,8 +347,8 @@ export class AiUsageService {
       kpis: {
         costRange: round2(totalCost),
         events: events.length,
-        companiesWithKey: companies.filter((c) => !!c.deepinfraApiKey || c.aiBillingMode === 'PLATFORM').length,
-        companiesOnPlatformAi: companies.filter((c) => c.aiBillingMode === 'PLATFORM').length,
+        companiesWithKey: companies.filter((c) => !!c.deepinfraApiKey || c.aiBillingMode !== 'BYOK').length,
+        companiesOnPlatformAi: companies.filter((c) => c.aiBillingMode !== 'BYOK').length,
         companies: companies.length,
         ...projection,
       },
@@ -350,7 +361,7 @@ export class AiUsageService {
             ...r,
             name: c?.name ?? '—',
             status: c?.status ?? '—',
-            hasKey: !!c?.deepinfraApiKey || c?.aiBillingMode === 'PLATFORM',
+            hasKey: !!c?.deepinfraApiKey || (!!c?.aiBillingMode && c.aiBillingMode !== 'BYOK'),
             aiBillingMode: c?.aiBillingMode ?? 'BYOK',
             costMonth: round2(costMonth),
             projectedMonth: round2((costMonth / now.getDate()) * daysInMonth),

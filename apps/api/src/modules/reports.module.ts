@@ -28,9 +28,9 @@ import {
 import { AuditService } from './audit.module';
 import { EmailsModule, EmailsService } from './emails.module';
 import { EventsService } from './events.module';
-import { AI_PROVIDER, AiProvider, extractJson } from '../ai/types';
+import { AI_PROVIDER, AiChatOptions, AiProvider, extractJson } from '../ai/types';
 import { DeepInfraProvider } from '../ai/deepinfra.provider';
-import { AiBilling, recordAiUsage, resolveAiAccess } from '../ai/ai-access';
+import { AiBilling, AiSession, recordAiUsage, resolveAiAccess } from '../ai/ai-access';
 
 /* ═══ Herramientas predefinidas de la consulta en lenguaje natural ═══
  * El modelo SOLO elige herramienta + parámetros de esta lista. El texto del
@@ -688,6 +688,10 @@ export class ReportsService {
     const company = await this.prisma.company.findUniqueOrThrow({ where: { id: scoped } });
     const access = await resolveAiAccess(this.prisma, company);
     if (!access.ok) throw new BadRequestException(access.reason);
+    // Híbrido: si DeepInfra rechaza la llave principal, sigue con la otra
+    const session = new AiSession(access);
+    const ai = this.ai;
+    const chat = (opts: Omit<AiChatOptions, 'apiKey'>) => session.run((apiKey) => ai.chat({ ...opts, apiKey }));
     const cfg = parseJson<Record<string, any>>(company.orderConfigJson, {});
     const model = cfg.askModel ?? 'meta-llama/Llama-3.3-70B-Instruct';
     const today = new Intl.DateTimeFormat('en-CA', { timeZone: company.timezone || 'America/Bogota' })
@@ -697,8 +701,7 @@ export class ReportsService {
     const toolCatalog = ASK_TOOLS
       .map((t) => `- ${t.name}: ${t.description}. Parámetros: ${t.params}`)
       .join('\n');
-    const selection = await this.ai.chat({
-      apiKey: access.apiKey,
+    const { result: selection, billedTo: selectionBilledTo } = await chat({
       model,
       temperature: 0,
       maxTokens: 300,
@@ -714,7 +717,7 @@ Reglas: fechas siempre YYYY-MM-DD; si la pregunta menciona "el viernes", "mañan
         { role: 'user', content: q },
       ],
     });
-    await this.recordUsage(scoped, selection.model, selection.inputTokens, selection.outputTokens, access.billedTo);
+    await this.recordUsage(scoped, selection.model, selection.inputTokens, selection.outputTokens, selectionBilledTo);
 
     const parsed = extractJson(selection.content) as { tool?: string; params?: any } | null;
     const tool = parsed?.tool ?? 'ninguna';
@@ -731,8 +734,7 @@ Reglas: fechas siempre YYYY-MM-DD; si la pregunta menciona "el viernes", "mañan
     const data = await this.runTool(scoped, tool, params);
 
     // Paso 2: redacción de la respuesta citando los datos (que también se devuelven)
-    const answerRes = await this.ai.chat({
-      apiKey: access.apiKey,
+    const { result: answerRes, billedTo: answerBilledTo } = await chat({
       model,
       temperature: 0.2,
       maxTokens: 400,
@@ -748,7 +750,7 @@ Reglas: fechas siempre YYYY-MM-DD; si la pregunta menciona "el viernes", "mañan
         },
       ],
     });
-    await this.recordUsage(scoped, answerRes.model, answerRes.inputTokens, answerRes.outputTokens, access.billedTo);
+    await this.recordUsage(scoped, answerRes.model, answerRes.inputTokens, answerRes.outputTokens, answerBilledTo);
 
     await this.audit.log({
       actor: user, companyId: scoped, action: 'report.ask',

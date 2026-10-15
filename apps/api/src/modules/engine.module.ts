@@ -32,7 +32,7 @@ import {
 import { AuditService } from './audit.module';
 import { EventsService } from './events.module';
 import { DeepInfraProvider } from '../ai/deepinfra.provider';
-import { AiBilling, recordAiUsage, resolveAiAccess } from '../ai/ai-access';
+import { AiBilling, AiSession, recordAiUsage, resolveAiAccess } from '../ai/ai-access';
 import { AgentService } from '../ai/agent/agent.service';
 import { buildSystemPrompt, PromptContext } from '../ai/prompt';
 import {
@@ -191,9 +191,9 @@ export class EngineService {
     if (!bot || (bot.status !== 'ACTIVE' && !opts.allowDraftBot)) {
       return this.escalate(conversation, null, 'Sin bot activo para esta línea');
     }
-    const access = await resolveAiAccess(this.prisma, company);
+    const access = await resolveAiAccess(this.prisma, company, bot);
     if (!access.ok) {
-      if (access.code === 'CAP_REACHED') {
+      if (access.code === 'CAP_REACHED' || access.code === 'NO_AI') {
         await this.audit.log({
           actor: null, companyId: company.id, action: 'ai.cap_reached',
           entity: 'Conversation', entityId: conversationId, detail: access.reason,
@@ -201,7 +201,8 @@ export class EngineService {
       }
       return this.escalate(conversation, null, access.reason);
     }
-    const usage = { billedTo: access.billedTo, conversationId };
+    // Híbrido: si DeepInfra rechaza la llave principal, sigue con la de respaldo
+    const session = new AiSession(access);
 
     const effective = resolveEffective(bot, integration);
     const orderConfig = parseJson<Record<string, any>>(company.orderConfigJson, {});
@@ -216,18 +217,20 @@ export class EngineService {
     for (const message of messages) {
       if (message.direction === 'IN' && message.type === 'AUDIO' && !message.transcription && message.fileName) {
         try {
-          const { text } = await this.ai.transcribe({
-            apiKey: access.apiKey,
-            filePath: join(UPLOADS_DIR, company.id, message.fileName),
-            mimeType: 'audio/ogg',
-            language: 'es',
-          });
+          const { result: { text }, billedTo } = await session.run((apiKey) =>
+            this.ai.transcribe({
+              apiKey,
+              filePath: join(UPLOADS_DIR, company.id, message.fileName!),
+              mimeType: 'audio/ogg',
+              language: 'es',
+            }),
+          );
           await this.prisma.message.update({
             where: { id: message.id },
             data: { transcription: text },
           });
           (message as any).transcription = text;
-          await this.recordUsage(company.id, integration?.id, bot.id, 'openai/whisper-large-v3-turbo', 0, 0, usage);
+          await this.recordUsage(company.id, integration?.id, bot.id, 'openai/whisper-large-v3-turbo', 0, 0, { billedTo, conversationId });
         } catch (err: any) {
           this.logger.warn(`transcripción falló: ${err.message}`);
         }
@@ -252,10 +255,22 @@ export class EngineService {
 
     // Modo AGENTE: la IA decide qué consultar y qué hacer con herramientas
     if (bot.engineMode === 'AGENT' && this.agent) {
-      const run = await this.agent.run({
-        conversation, company, contact, integration, bot, effective,
-        messages, apiKey: access.apiKey, usage,
-      });
+      let run: Awaited<ReturnType<AgentService['run']>>;
+      try {
+        run = await this.agent.run({
+          conversation, company, contact, integration, bot, effective,
+          messages, session, conversationId,
+        });
+      } catch (err: any) {
+        // Proveedor caído (o ambas llaves rechazadas): la conversación NUNCA se pierde
+        this.logger.error(`agente sin proveedor [co=${company.id} conv=${conversationId}]: ${err.message}`);
+        run = {
+          reply: ['Dame un momento, ya reviso con el equipo y te confirmo.'],
+          state: 'escalado', escalate: true, toolTrace: [],
+          reason: `Proveedor de IA no disponible: ${err.message}`,
+        };
+      }
+      await this.auditFallback(session, company.id, conversationId);
       if (run.escalate) {
         const openDraft = await this.prisma.order.findFirst({
           where: { conversationId, status: 'borrador', ...NOT_DELETED },
@@ -356,7 +371,8 @@ export class EngineService {
     // escala a una persona con el motivo registrado.
     let output: Awaited<ReturnType<typeof this.callModel>>;
     try {
-      output = await this.callModel(company, integration, bot, effective, ctx, history, access.apiKey, usage);
+      output = await this.callModel(company, integration, bot, effective, ctx, history, session, conversationId);
+      await this.auditFallback(session, company.id, conversationId);
     } catch (err: any) {
       this.logger.error(`proveedor de IA caído [co=${company.id} conv=${conversationId}]: ${err.message}`);
       output = { ok: false, reason: `Proveedor de IA no disponible: ${err.message}` };
@@ -470,8 +486,8 @@ export class EngineService {
     effective: ReturnType<typeof resolveEffective>,
     ctx: PromptContext,
     history: ChatMessage[],
-    apiKey: string,
-    usage: { billedTo: AiBilling; conversationId: string },
+    session: AiSession,
+    conversationId: string,
   ): Promise<{ ok: true; output: EngineOutput } | { ok: false; reason: string }> {
     const base: ChatMessage[] = [
       { role: 'system', content: buildSystemPrompt(ctx) },
@@ -489,17 +505,20 @@ export class EngineService {
                 content: `Tu respuesta anterior no cumplió el formato: ${lastErrors.join('; ')}. Devuelve SOLO el objeto JSON válido.`,
               },
             ];
-      const completion = await this.ai.chat({
-        apiKey,
-        model: effective.model,
-        temperature: effective.temperature,
-        maxTokens: 1024,
-        messages,
-        jsonMode: true,
-      });
+      const { result: completion, billedTo } = await session.run((apiKey) =>
+        this.ai.chat({
+          apiKey,
+          model: effective.model,
+          temperature: effective.temperature,
+          maxTokens: 1024,
+          messages,
+          jsonMode: true,
+        }),
+      );
       await this.recordUsage(
         company.id, integration?.id ?? null, bot.id,
-        effective.model, completion.inputTokens, completion.outputTokens, usage,
+        effective.model, completion.inputTokens, completion.outputTokens,
+        { billedTo, conversationId },
       );
       const parsed = extractJson(completion.content);
       const validated = validateEngineOutput(parsed);
@@ -732,6 +751,16 @@ export class EngineService {
       draftOrderId: draft?.id ?? null,
       orderStatus: draft ? 'requiere_atencion' : null,
     };
+  }
+
+  /** Deja constancia cuando el modo híbrido tuvo que pasar a la llave de respaldo. */
+  private async auditFallback(session: AiSession, companyId: string, conversationId: string) {
+    if (!session.switched) return;
+    await this.audit.log({
+      actor: null, companyId, action: 'ai.fallback',
+      entity: 'Conversation', entityId: conversationId,
+      detail: `DeepInfra rechazó la llave principal; se respondió con la ${session.billedTo === 'PLATFORM' ? 'IA de BackOffice' : 'llave propia de la empresa'}`,
+    });
   }
 
   /* ── Registro de consumo (UsageLog de IA) ── */

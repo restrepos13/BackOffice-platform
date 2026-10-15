@@ -22,7 +22,7 @@ import {
   isPlatformRole,
   parseJson,
 } from '../common/constants';
-import { maskCompanyKey, storeCompanyKey } from '../ai/ai-access';
+import { maskCompanyKey, normalizeAiMode, storeCompanyKey } from '../ai/ai-access';
 import { AGENT_PRESETS } from '../ai/agent/tools';
 import { AuditService } from './audit.module';
 import { COMPANY_TEMPLATES, findTemplate } from './company-templates';
@@ -504,7 +504,7 @@ export class CompaniesService {
     const platformOnly = [
       'planId', 'status', 'modules', 'limits', 'slug',
       // Quién paga la IA y cuánto se permite gastar lo decide BackOffice
-      'aiBillingMode', 'aiSpendCapUsd', 'aiIncludedOverride',
+      'aiBillingMode', 'aiHybridPrimary', 'aiSpendCapUsd', 'aiIncludedOverride',
     ];
     if (!isPlatformRole(actor.role)) {
       for (const key of platformOnly) {
@@ -533,7 +533,10 @@ export class CompaniesService {
           ? { deepinfraApiKey: storeCompanyKey(dto.deepinfraApiKey) }
           : {}),
         ...(dto.aiBillingMode !== undefined
-          ? { aiBillingMode: dto.aiBillingMode === 'PLATFORM' ? 'PLATFORM' : 'BYOK' }
+          ? { aiBillingMode: normalizeAiMode(dto.aiBillingMode) }
+          : {}),
+        ...(dto.aiHybridPrimary !== undefined
+          ? { aiHybridPrimary: dto.aiHybridPrimary === 'PLATFORM' ? 'PLATFORM' : 'BYOK' }
           : {}),
         ...(dto.aiSpendCapUsd !== undefined
           ? { aiSpendCapUsd: dto.aiSpendCapUsd === null || dto.aiSpendCapUsd === '' ? null : Math.max(0, Number(dto.aiSpendCapUsd)) }

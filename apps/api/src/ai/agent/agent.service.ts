@@ -3,7 +3,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { parseJson } from '../../common/constants';
 import { geocodeAddress } from '../../common/geo';
 import { OrdersService } from '../../modules/orders.module';
-import { AiBilling, recordAiUsage } from '../ai-access';
+import { AiSession, recordAiUsage } from '../ai-access';
 import { AI_PROVIDER, AiProvider, ChatMessage, extractJson } from '../types';
 import { buildAgentPrompt, validateAgentStep } from './protocol';
 import { AGENT_TOOLS, AgentTool, ToolAccess, ToolContext, enabledTools } from './tools';
@@ -23,8 +23,9 @@ export interface AgentRunInput {
     temperature: number;
   };
   messages: any[];
-  apiKey: string;
-  usage: { billedTo: AiBilling; conversationId: string };
+  /** Llave(s) de la corrida: principal + respaldo en modo híbrido */
+  session: AiSession;
+  conversationId: string;
   now?: Date;
 }
 
@@ -117,14 +118,16 @@ export class AgentService {
 
     let invalidStreak = 0;
     for (let step = 0; step < MAX_AGENT_STEPS; step++) {
-      const completion = await this.ai.chat({
-        apiKey: input.apiKey,
-        model: effective.model,
-        temperature: Math.min(effective.temperature, 0.6),
-        maxTokens: 900,
-        messages: transcript,
-        jsonMode: true,
-      });
+      const { result: completion, billedTo } = await input.session.run((apiKey) =>
+        this.ai.chat({
+          apiKey,
+          model: effective.model,
+          temperature: Math.min(effective.temperature, 0.6),
+          maxTokens: 900,
+          messages: transcript,
+          jsonMode: true,
+        }),
+      );
       await recordAiUsage(this.prisma, {
         companyId: company.id,
         integrationId: input.integration?.id ?? null,
@@ -132,8 +135,8 @@ export class AgentService {
         model: effective.model,
         inputTokens: completion.inputTokens,
         outputTokens: completion.outputTokens,
-        billedTo: input.usage.billedTo,
-        conversationId: input.usage.conversationId,
+        billedTo,
+        conversationId: input.conversationId,
       });
 
       const validated = validateAgentStep(extractJson(completion.content));

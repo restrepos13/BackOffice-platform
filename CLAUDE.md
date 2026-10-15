@@ -185,10 +185,18 @@ la vieja `backoffice2026` ya no existe):
   detalle. Token aleatorio en `Order.trackingToken` (se crea al programar).
   Base del link: `PUBLIC_WEB_URL` (Dev Tools) → WEBHOOK_BASE_URL si no es el
   puerto del API → CORS_ORIGIN → localhost:5173.
-- **IA revendida** (`src/ai/ai-access.ts`, punto ÚNICO para motor/agente/reportes/
-  marketing/devtools): `Company.aiBillingMode` BYOK (llave propia, ahora CIFRADA con
-  MASTER_ENCRYPTION_KEY; texto plano legado se sigue leyendo) o PLATFORM (llave de
-  BackOffice: `DEEPINFRA_API_KEY` en .env o Dev Tools → Settings). `AiUsageEvent`
+- **IA revendida e híbrida** (`src/ai/ai-access.ts`, punto ÚNICO para motor/agente/
+  reportes/marketing/devtools; las dos cuentas son DeepInfra): `Company.aiBillingMode`
+  BYOK (llave propia, ahora CIFRADA con MASTER_ENCRYPTION_KEY; texto plano legado se
+  sigue leyendo), PLATFORM (llave de BackOffice: `DEEPINFRA_API_KEY` en .env o Dev
+  Tools → Settings) o **HYBRID** (las dos: `aiHybridPrimary` decide cuál va primero;
+  si no está disponible —sin llave, tope— arranca con la otra, y si DeepInfra la
+  rechaza a mitad de corrida —401/402/403, `AiProviderError.providerStatus`— la
+  `AiSession` pasa a la de respaldo y se queda con ella; audit `ai.fallback`).
+  `Bot.aiSource` (INHERIT|BYOK|PLATFORM|HYBRID, solo plataforma lo cambia) permite
+  venderle a la empresa UN asistente con la IA de BackOffice. Cada llamada registra
+  quién pagó (`billedTo`); solo lo PLATFORM cuenta para incluidas/excedente. El
+  agente con el proveedor caído escala (antes podía quedar sin respuesta). `AiUsageEvent`
   guarda `billedTo` y `conversationId`; "conversación IA" = conversación distinta
   del mes. Plan: `includedAiConversations` + `extraAiConversationUsd`; empresa:
   `aiIncludedOverride`, `aiSpendCapUsd` (tope duro: con el tope alcanzado la IA no

@@ -167,11 +167,17 @@ export default function Usage() {
   if (isLoading || !data) return <Loading label="Calculando consumo de IA…" />;
   const { kpis } = data;
   const platformAi = data.aiBillingMode === 'PLATFORM';
+  const hybridAi = data.aiBillingMode === 'HYBRID';
+  const usesPlatform = platformAi || hybridAi || (data.byBilling?.PLATFORM.events ?? 0) > 0;
 
   return (
     <>
       <PageHeader
-        kicker={platformAi ? 'IA de BackOffice · incluida en tu plan' : 'BYOK · pagado directo a DeepInfra con tu llave'}
+        kicker={
+          platformAi ? 'IA de BackOffice · incluida en tu plan'
+            : hybridAi ? 'Híbrido · tu cuenta de DeepInfra + IA de BackOffice'
+              : 'BYOK · pagado directo a DeepInfra con tu llave'
+        }
         title="Consumo"
         accent="IA."
         actions={
@@ -181,13 +187,30 @@ export default function Usage() {
         }
       />
 
-      {platformAi && data.quota && <QuotaBanner quota={data.quota} />}
+      {usesPlatform && data.quota && <QuotaBanner quota={data.quota} />}
+
+      {hybridAi && data.byBilling && (
+        <div className="mb-4 grid gap-3 md:grid-cols-2">
+          <Stat
+            label="Con tu cuenta DeepInfra"
+            value={fmtUsd(data.byBilling.BYOK.costUsd)}
+            hint={`${fmtNum(data.byBilling.BYOK.events)} respuestas · lo pagas directo al proveedor`}
+          />
+          <Stat
+            label="Con la IA de BackOffice"
+            value={fmtNum(data.byBilling.PLATFORM.events)}
+            hint="respuestas · se cobran por conversación según tu plan"
+          />
+        </div>
+      )}
 
       {!platformAi && !data.hasDeepinfraKey && (
         <div className="mb-4 flex flex-wrap items-center justify-between gap-2 border-2 border-warn bg-warn-soft px-4 py-2.5">
           <p className="text-sm text-warn">
-            <strong>Sin llave de DeepInfra.</strong> Tu IA no podrá responder hasta
-            conectarla — el costo lo pagas tú directo al proveedor, sin margen nuestro.
+            <strong>Sin llave de DeepInfra.</strong>{' '}
+            {hybridAi
+              ? 'Mientras tanto responde la IA de BackOffice; conéctala para usar tu propia cuenta.'
+              : 'Tu IA no podrá responder hasta conectarla — el costo lo pagas tú directo al proveedor, sin margen nuestro.'}
           </p>
           <Link to="/app/settings" className="text-xs font-semibold uppercase tracking-wider text-warn underline">
             Conectar llave →
@@ -291,7 +314,9 @@ export default function Usage() {
         ).{' '}
         {platformAi
           ? 'Con la IA de BackOffice pagas por conversación: las incluidas en tu plan y, si te pasas, el excedente en la factura del mes.'
-          : 'Este gasto te lo cobra DeepInfra directamente con tu llave — BackOffice no le gana nada.'}
+          : hybridAi
+            ? 'Lo que responde tu cuenta te lo cobra DeepInfra directo; lo que responde la IA de BackOffice se cobra por conversación según tu plan.'
+            : 'Este gasto te lo cobra DeepInfra directamente con tu llave — BackOffice no le gana nada.'}
       </p>
     </>
   );

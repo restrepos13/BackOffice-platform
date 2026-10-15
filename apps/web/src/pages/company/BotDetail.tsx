@@ -4,7 +4,7 @@ import { useParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import { api } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
-import { BOT_STATUS_LABELS, INTEGRATION_STATUS_LABELS, timeAgo } from '../../lib/format';
+import { AI_MODE_LABELS, BOT_STATUS_LABELS, INTEGRATION_STATUS_LABELS, timeAgo } from '../../lib/format';
 import type { Bot, PersonaTemplate } from '../../lib/types';
 import {
   Badge, Button, Card, Field, Input, Loading, PageHeader, Select, Switch,
@@ -17,7 +17,7 @@ import { AgentConfig, AgentSimulator } from '../../components/AgentConfig';
 
 export default function BotDetail() {
   const { id = '' } = useParams();
-  const { canWrite } = useAuth();
+  const { canWrite, isPlatform } = useAuth();
   const { q, companyId } = useCompanyScope();
   const queryClient = useQueryClient();
   const [tab, setTab] = useState('personalidad');
@@ -55,6 +55,7 @@ export default function BotDetail() {
         salesObjections: bot.sales.objections ?? '',
         engineMode: bot.engineMode ?? 'ORDERS',
         tools: bot.tools ?? [],
+        aiSource: bot.aiSource ?? 'INHERIT',
       });
     }
   }, [bot, form]);
@@ -84,6 +85,8 @@ export default function BotDetail() {
         },
         engineMode: form.engineMode,
         tools: form.tools,
+        // Quién paga la IA del asistente: solo BackOffice lo cambia
+        ...(isPlatform ? { aiSource: form.aiSource } : {}),
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['bot', id] });
@@ -216,6 +219,22 @@ export default function BotDetail() {
                   onChange={(e) => set({ maxTokens: e.target.value })}
                 />
               </Field>
+            </div>
+            <div className="mt-4 border-2 border-line bg-bone px-4 py-3">
+              <p className="text-sm font-semibold">Quién paga la IA de este asistente</p>
+              <p className="mb-2 text-xs text-ink-3">
+                Por defecto, lo que tenga la empresa. BackOffice puede vender este asistente con su propia IA
+                aunque la empresa use su cuenta de DeepInfra para los demás.
+              </p>
+              {isPlatform ? (
+                <Select value={form.aiSource} onChange={(e) => set({ aiSource: e.target.value })}>
+                  {['INHERIT', 'BYOK', 'PLATFORM', 'HYBRID'].map((v) => (
+                    <option key={v} value={v}>{AI_MODE_LABELS[v]}</option>
+                  ))}
+                </Select>
+              ) : (
+                <Badge tone="neutral">{AI_MODE_LABELS[form.aiSource] ?? form.aiSource}</Badge>
+              )}
             </div>
             <div className="mt-4 flex items-center justify-between border-2 border-line bg-bone px-4 py-3">
               <div>

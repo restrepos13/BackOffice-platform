@@ -14,6 +14,10 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { AGENT_PRESETS, AGENT_TOOLS, sanitizeToolsConfig } from '../ai/agent/tools';
+
+function normalizeAiSource(value: unknown): string {
+  return value === 'BYOK' || value === 'PLATFORM' || value === 'HYBRID' ? value : 'INHERIT';
+}
 import { CurrentUser, Roles } from '../auth/decorators';
 import {
   AuthUser,
@@ -38,6 +42,14 @@ export class BotsService {
       sales: parseJson<Record<string, string>>(bot.salesJson, {}),
       tools: sanitizeToolsConfig(parseJson<any[]>(bot.toolsJson, [])),
     };
+  }
+
+  /** Solo plataforma fija quién paga la IA de un asistente. */
+  private aiSourceFor(user: AuthUser, value: unknown): string {
+    if (!isPlatformRole(user.role)) {
+      throw new ForbiddenException('Solo BackOffice define quién paga la IA de un asistente');
+    }
+    return normalizeAiSource(value);
   }
 
   /** Catálogo de herramientas del agente + plantillas por tipo de negocio. */
@@ -114,6 +126,8 @@ export class BotsService {
         typingSimulation: dto.typingSimulation ?? true,
         salesJson: JSON.stringify(dto.sales ?? {}),
         engineMode: dto.engineMode === 'AGENT' ? 'AGENT' : 'ORDERS',
+        // Quién paga la IA del asistente: solo BackOffice lo decide (lo vende aparte)
+        ...(isPlatformRole(user.role) && dto.aiSource ? { aiSource: normalizeAiSource(dto.aiSource) } : {}),
         toolsJson: JSON.stringify(
           sanitizeToolsConfig(dto.tools ?? (dto.agentPreset ? AGENT_PRESETS[dto.agentPreset]?.tools : [])),
         ),
@@ -152,6 +166,7 @@ export class BotsService {
         ...(dto.tools !== undefined
           ? { toolsJson: JSON.stringify(sanitizeToolsConfig(dto.tools)) }
           : {}),
+        ...(dto.aiSource !== undefined ? { aiSource: this.aiSourceFor(user, dto.aiSource) } : {}),
         ...(dto.personality
           ? { personalityJson: JSON.stringify(dto.personality) }
           : {}),

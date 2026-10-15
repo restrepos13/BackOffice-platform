@@ -28,7 +28,7 @@ import {
 import { AuditService } from './audit.module';
 import { AI_PROVIDER, AiProvider, extractJson } from '../ai/types';
 import { DeepInfraProvider } from '../ai/deepinfra.provider';
-import { recordAiUsage, resolveAiAccess } from '../ai/ai-access';
+import { AiSession, recordAiUsage, resolveAiAccess } from '../ai/ai-access';
 
 /**
  * MARKETING (extra por empresa, módulo "marketing"): campañas, calendario de
@@ -213,8 +213,9 @@ export class MarketingService {
       STORY: 'una historia',
       AD: 'un anuncio pago',
     };
-    const result = await this.ai.chat({
-      apiKey: access.apiKey,
+    const ai = this.ai;
+    const { result, billedTo } = await new AiSession(access).run((apiKey) => ai.chat({
+      apiKey,
       model: 'meta-llama/Llama-3.3-70B-Instruct',
       temperature: 0.8,
       maxTokens: 700,
@@ -234,12 +235,12 @@ Título/idea actual: ${piece.title}
 Brief: ${piece.brief ?? 'sin brief — proponlo tú a partir del título'}`,
         },
       ],
-    });
+    }));
     // Consumo BYOK registrado como cualquier respuesta de IA
     await recordAiUsage(this.prisma, {
       companyId: company.id, model: result.model,
       inputTokens: result.inputTokens, outputTokens: result.outputTokens,
-      billedTo: access.billedTo,
+      billedTo,
     });
     const parsed = extractJson(result.content) as any;
     if (!parsed?.copy) throw new BadRequestException('La IA no devolvió un copy válido — intenta de nuevo');
