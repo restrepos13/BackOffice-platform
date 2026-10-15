@@ -2,7 +2,8 @@
  * Generador de códigos QR (ISO/IEC 18004) sin dependencias: modo byte,
  * corrección de errores M, versiones 1 a 10 (hasta 213 bytes — sobra para un
  * link). Devuelve la matriz y un SVG nítido para imprimir el menú.
- * Verificado módulo a módulo contra la librería `qrcode` (ver test/qr.spec.ts).
+ * Verificado módulo a módulo contra la librería `qrcode` (misma versión, todas
+ * las máscaras y la misma selección automática); pruebas en test/growth.spec.ts.
  */
 
 // Corrección M, versiones 1..10: [codewords totales, EC por bloque, [[bloques, datos por bloque], …]]

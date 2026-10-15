@@ -41,7 +41,13 @@ export function normalizeProposal(raw: unknown): SetupProposal {
   const o = (raw && typeof raw === 'object' ? raw : {}) as Record<string, any>;
   const str = (v: unknown, max: number) => (typeof v === 'string' && v.trim() ? v.trim().slice(0, max) : null);
   const num = (v: unknown, max: number) => {
-    const n = typeof v === 'number' ? v : Number(String(v ?? '').replace(/[^\d.]/g, ''));
+    let n: number;
+    if (typeof v === 'number') n = v;
+    else {
+      // "18.000" / "18,000" = dieciocho mil (separador de miles colombiano)
+      const raw = String(v ?? '').replace(/[^\d.,]/g, '');
+      n = /^\d{1,3}([.,]\d{3})+$/.test(raw) ? Number(raw.replace(/[.,]/g, '')) : Number(raw.replace(',', '.'));
+    }
     return Number.isFinite(n) && n > 0 && n <= max ? Math.round(n) : null;
   };
   const seen = new Set<string>();

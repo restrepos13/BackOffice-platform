@@ -89,23 +89,23 @@ export function buildInvoiceLines(input: {
     });
   }
 
-  // 2) Cargos y descuentos
-  for (const adj of applicable) {
-    if (adj.kind === 'CHARGE') {
-      lines.push({ kind: 'CHARGE', concept: adj.concept, amount: roundFor(currency, Math.max(0, adj.amount)), adjustmentId: adj.id });
-    }
-    if (adj.kind === 'DISCOUNT') {
-      const value = adj.percent != null ? (base * Math.min(Math.max(adj.percent, 0), 100)) / 100 : Math.max(0, adj.amount);
-      lines.push({
-        kind: 'DISCOUNT',
-        concept: adj.percent != null ? `${adj.concept} (${adj.percent}%)` : adj.concept,
-        amount: -roundFor(currency, value),
-        adjustmentId: adj.id,
-      });
-    }
-    if (adj.kind === 'SETUP') {
-      lines.push({ kind: 'SETUP', concept: adj.concept, amount: roundFor(currency, Math.max(0, adj.amount)), adjustmentId: adj.id });
-    }
+  // 2) Cargos (y montaje por salida anticipada), después los descuentos
+  for (const adj of applicable.filter((a) => a.kind === 'CHARGE' || a.kind === 'SETUP')) {
+    lines.push({
+      kind: adj.kind as InvoiceLineKind,
+      concept: adj.concept,
+      amount: roundFor(currency, Math.max(0, adj.amount)),
+      adjustmentId: adj.id,
+    });
+  }
+  for (const adj of applicable.filter((a) => a.kind === 'DISCOUNT')) {
+    const value = adj.percent != null ? (base * Math.min(Math.max(adj.percent, 0), 100)) / 100 : Math.max(0, adj.amount);
+    lines.push({
+      kind: 'DISCOUNT',
+      concept: adj.percent != null ? `${adj.concept} (${adj.percent}%)` : adj.concept,
+      amount: -roundFor(currency, value),
+      adjustmentId: adj.id,
+    });
   }
 
   // 3) Consumo al costo
