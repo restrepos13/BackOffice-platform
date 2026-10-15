@@ -1,14 +1,15 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { clsx } from 'clsx';
 import {
-  ArrowLeft, Bike, Bot, Check, Copy, ExternalLink, Image as ImageIcon, MapPin, MessageSquare, Pencil, Star, UserRound,
+  ArrowLeft, Bike, Bot, Check, Copy, ExternalLink, FileCheck2, Image as ImageIcon, MapPin, MessageSquare, Pencil, Printer, Receipt, Star, UserRound,
 } from 'lucide-react';
 import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import { api, getToken, openPdf } from '../../lib/api';
 import {
-  ORDER_STATUS_LABELS, REMINDER_STATUS_LABELS, fmtDateTime, fmtMoney, fmtTime, minutesUntil, orderStatusTone,
+  ORDER_SOURCE_LABELS, ORDER_STATUS_LABELS, PAYMENT_STATUS_LABELS, REMINDER_STATUS_LABELS, fmtDateTime, fmtMoney, fmtTime,
+  minutesUntil, orderStatusTone, paymentTone,
 } from '../../lib/format';
 import type { Order, Product, UserRow } from '../../lib/types';
 import {
@@ -267,6 +268,137 @@ function DeliveryCard({ order, q, canWrite }: { order: Order; q: string; canWrit
   );
 }
 
+const PAY_METHODS = [
+  ['EFECTIVO', 'Efectivo'], ['TRANSFERENCIA', 'Transferencia'], ['NEQUI', 'Nequi'],
+  ['DAVIPLATA', 'Daviplata'], ['DATAFONO', 'Datáfono'], ['OTRO', 'Otro'],
+] as const;
+
+/** Cobro del pedido: link Wompi, comprobante leído por IA, pago manual y factura DIAN. */
+function PaymentCard({ order, canWrite }: { order: Order; canWrite: boolean }) {
+  const queryClient = useQueryClient();
+  const [method, setMethod] = useState(order.paymentMethod ?? 'TRANSFERENCIA');
+  const refresh = () => {
+    queryClient.invalidateQueries({ queryKey: ['order', order.id] });
+    queryClient.invalidateQueries({ queryKey: ['orders'] });
+  };
+  const link = useMutation({
+    mutationFn: () => api.post<{ url: string; reused?: boolean }>(`/payments/orders/${order.id}/link`),
+    onSuccess: async (r) => {
+      await navigator.clipboard?.writeText(r.url).catch(() => undefined);
+      toast.success(r.reused ? 'Link vigente copiado' : 'Link de pago creado y copiado');
+      refresh();
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : 'Error'),
+  });
+  const mark = useMutation({
+    mutationFn: (verified: boolean) => api.post(`/payments/orders/${order.id}/mark-paid`, { method, verified }),
+    onSuccess: (_d, verified) => { toast.success(verified ? 'Pedido marcado como pagado' : 'Comprobante rechazado'); refresh(); },
+    onError: (e) => toast.error(e instanceof Error ? e.message : 'Error'),
+  });
+  const einvoice = useMutation({
+    mutationFn: () => api.post<{ einvoiceStatus: string; einvoiceNumber?: string; einvoiceError?: string }>(`/orders/${order.id}/einvoice`),
+    onSuccess: (r) => {
+      if (r.einvoiceStatus === 'EMITIDA') toast.success(`Factura ${r.einvoiceNumber} emitida`);
+      else toast.error(r.einvoiceError ?? 'No se pudo emitir');
+      refresh();
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : 'Error'),
+  });
+  const receipt = (() => {
+    try { return order.receiptJson ? JSON.parse(order.receiptJson) : null; } catch { return null; }
+  })() as { amount?: number | null; bank?: string | null; reference?: string | null; date?: string | null; matches?: boolean } | null;
+  const status = order.paymentStatus ?? 'NONE';
+  const open = !['cancelado', 'borrador'].includes(order.status);
+
+  return (
+    <section className="border-2 border-ink bg-paper p-5">
+      <div className="mb-3 flex items-center justify-between gap-2">
+        <p className="kicker">Cobro</p>
+        <Badge tone={paymentTone(status)}>{PAYMENT_STATUS_LABELS[status] ?? status}</Badge>
+      </div>
+      <dl className="space-y-1 text-sm">
+        {order.subtotal != null && (
+          <div className="flex justify-between"><dt className="text-ink-3">Subtotal</dt><dd className="tabular-nums">{fmtMoney(order.subtotal)}</dd></div>
+        )}
+        {(order.discount ?? 0) > 0 && (
+          <div className="flex justify-between text-ok">
+            <dt>Descuento{order.couponCode && <span className="ml-1 font-mono text-xs">{order.couponCode}</span>}</dt>
+            <dd className="tabular-nums">−{fmtMoney(order.discount)}</dd>
+          </div>
+        )}
+        {(order.deliveryFee ?? 0) > 0 && (
+          <div className="flex justify-between"><dt className="text-ink-3">Domicilio</dt><dd className="tabular-nums">{fmtMoney(order.deliveryFee)}</dd></div>
+        )}
+        <div className="flex justify-between border-t-2 border-ink pt-1 font-semibold">
+          <dt>Total</dt><dd className="display text-xl tabular-nums">{order.total != null ? fmtMoney(order.total) : '—'}</dd>
+        </div>
+      </dl>
+      {status === 'PAID' && (
+        <p className="mt-2 text-xs text-ink-3">
+          Pagado{order.paymentMethod ? ` · ${PAY_METHODS.find(([k]) => k === order.paymentMethod)?.[1] ?? order.paymentMethod}` : ''}
+          {order.paidAt ? ` · ${fmtDateTime(order.paidAt)}` : ''}
+        </p>
+      )}
+      {status === 'REPORTED' && receipt && (
+        <div className="mt-3 border-2 border-warn bg-warn-soft p-3 text-sm">
+          <p className="flex items-center gap-1.5 font-semibold"><Receipt size={14} /> El cliente envió un comprobante</p>
+          <p className="mt-1 tabular-nums">
+            {receipt.amount != null ? fmtMoney(receipt.amount) : 'Monto ilegible'}
+            {receipt.bank && ` · ${receipt.bank}`}{receipt.reference && ` · ref ${receipt.reference}`}
+          </p>
+          {receipt.matches === false && <p className="mt-1 text-xs font-semibold text-bad">El monto no coincide con el total</p>}
+          <p className="mt-1 text-[11px] text-ink-3">La IA lee el comprobante, pero el pago se confirma en tu banco.</p>
+          {canWrite && (
+            <div className="mt-2 flex gap-2">
+              <Button size="sm" onClick={() => mark.mutate(true)} disabled={mark.isPending}>Confirmar pago</Button>
+              <Button size="sm" variant="outline" onClick={() => mark.mutate(false)} disabled={mark.isPending}>Rechazar</Button>
+            </div>
+          )}
+        </div>
+      )}
+      {order.paymentLinkUrl && status !== 'PAID' && (
+        <div className="mt-3 flex items-center gap-2 border-2 border-line bg-bone-2 px-2 py-1.5 text-xs">
+          <span className="truncate">{order.paymentLinkUrl}</span>
+          <button
+            className="cursor-pointer text-ink-3 hover:text-ink"
+            aria-label="Copiar link de pago"
+            onClick={() => navigator.clipboard?.writeText(order.paymentLinkUrl!).then(() => toast.success('Link copiado'))}
+          >
+            <Copy size={12} />
+          </button>
+        </div>
+      )}
+      {canWrite && open && status !== 'PAID' && (
+        <div className="mt-3 space-y-2">
+          <Button size="sm" variant="outline" className="w-full" onClick={() => link.mutate()} disabled={link.isPending || !order.total}>
+            {link.isPending ? 'Generando…' : order.paymentLinkUrl ? 'Copiar link de pago' : 'Generar link de pago (Wompi)'}
+          </Button>
+          <div className="flex gap-2">
+            <Select value={method} onChange={(e) => setMethod(e.target.value)} className="!py-1.5 text-xs" aria-label="Medio de pago">
+              {PAY_METHODS.map(([k, label]) => <option key={k} value={k}>{label}</option>)}
+            </Select>
+            <Button size="sm" onClick={() => mark.mutate(true)} disabled={mark.isPending}>Marcar pagado</Button>
+          </div>
+        </div>
+      )}
+      {/* Factura electrónica DIAN */}
+      <div className="mt-4 border-t border-line pt-3">
+        <div className="flex items-center justify-between gap-2">
+          <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider"><FileCheck2 size={13} /> Factura electrónica</p>
+          {order.einvoiceStatus === 'EMITIDA' && <Badge tone="ok">{order.einvoiceNumber}</Badge>}
+          {order.einvoiceStatus === 'ERROR' && <Badge tone="bad">Error</Badge>}
+        </div>
+        {order.einvoiceError && order.einvoiceStatus === 'ERROR' && <p className="mt-1 text-xs text-bad">{order.einvoiceError}</p>}
+        {canWrite && open && order.einvoiceStatus !== 'EMITIDA' && (
+          <Button size="sm" variant="ghost" className="mt-1 w-full" onClick={() => einvoice.mutate()} disabled={einvoice.isPending}>
+            {einvoice.isPending ? 'Emitiendo…' : order.einvoiceStatus === 'ERROR' ? 'Reintentar factura' : 'Emitir factura electrónica'}
+          </Button>
+        )}
+      </div>
+    </section>
+  );
+}
+
 export default function OrderDetail() {
   const { id } = useParams<{ id: string }>();
   const { ready, q, canWrite } = useCompanyScope();
@@ -310,7 +442,7 @@ export default function OrderDetail() {
   return (
     <>
       <PageHeader
-        kicker={`Pedido · ${order.customer.name}`}
+        kicker={`Pedido${order.code ? ` #${order.code}` : ''} · ${order.customer.name}${order.source && order.source !== 'WHATSAPP' ? ` · ${ORDER_SOURCE_LABELS[order.source] ?? order.source}` : ''}`}
         title={ORDER_STATUS_LABELS[order.status] ?? order.status}
         actions={
           <>
@@ -334,6 +466,9 @@ export default function OrderDetail() {
               }
             >
               PDF
+            </Button>
+            <Button size="sm" variant="outline" onClick={() => window.open(`/print/order/${order.id}`, '_blank', 'noopener,width=420,height=720')}>
+              <Printer size={13} /> Comanda
             </Button>
             {canWrite && (
               <Button size="sm" variant="outline" onClick={() => setEditing(true)}>
@@ -491,6 +626,8 @@ export default function OrderDetail() {
               </div>
             </section>
           )}
+
+          <PaymentCard order={order} canWrite={canWrite} />
 
           <DeliveryCard order={order} q={q} canWrite={canWrite} />
 

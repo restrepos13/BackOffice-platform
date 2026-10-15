@@ -42,6 +42,9 @@ const Marketing = lazy(() => import('./pages/company/Marketing'));
 const Deliveries = lazy(() => import('./pages/company/Deliveries'));
 const CourierApp = lazy(() => import('./pages/courier/CourierApp'));
 const Tracking = lazy(() => import('./pages/public/Tracking'));
+const Campaigns = lazy(() => import('./pages/company/Campaigns'));
+const PrintOrder = lazy(() => import('./pages/print/PrintOrder'));
+const PublicMenu = lazy(() => import('./pages/public/Menu'));
 
 function RequireAuth({ children }: { children: ReactNode }) {
   const { user, loading } = useAuth();
@@ -88,6 +91,8 @@ export default function App() {
       <Route path="/login" element={<Login />} />
       {/* Público: seguimiento del pedido para el cliente final (sin login) */}
       <Route path="/t/:token" element={<Tracking />} />
+      <Route path="/m/:slug" element={<PublicMenu />} />
+      <Route path="/print/order/:id" element={<RequireAuth><PrintOrder /></RequireAuth>} />
       {/* App móvil del domiciliario (fuera del panel) */}
       <Route path="/courier" element={<RequireAuth><RequireCourier><CourierApp /></RequireCourier></RequireAuth>} />
       <Route path="/" element={<HomeRedirect />} />
@@ -125,6 +130,7 @@ export default function App() {
         <Route path="/app/marketing" element={<BlockArea><Marketing /></BlockArea>} />
         <Route path="/app/area" element={<AreaView />} />
         <Route path="/app/contacts" element={<Contacts />} />
+        <Route path="/app/campaigns" element={<BlockArea><Campaigns /></BlockArea>} />
         <Route path="/app/bots" element={<Bots />} />
         <Route path="/app/bots/:id" element={<BotDetail />} />
         <Route path="/app/automations" element={<Automations />} />

@@ -15,10 +15,13 @@ export function MediaImage({
   id,
   alt,
   className,
+  path,
 }: {
   id: string;
   alt: string;
   className?: string;
+  /** Endpoint autenticado alternativo (p. ej. foto de producto) */
+  path?: string;
 }) {
   const [src, setSrc] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
@@ -26,7 +29,7 @@ export function MediaImage({
   useEffect(() => {
     let url: string | null = null;
     let cancelled = false;
-    fetch(`/api/media/${id}/file`, {
+    fetch(path ? `/api${path}` : `/api/media/${id}/file`, {
       headers: { Authorization: `Bearer ${getToken()}` },
     })
       .then((res) => {
@@ -43,7 +46,7 @@ export function MediaImage({
       cancelled = true;
       if (url) URL.revokeObjectURL(url);
     };
-  }, [id]);
+  }, [id, path]);
 
   if (failed) {
     return (

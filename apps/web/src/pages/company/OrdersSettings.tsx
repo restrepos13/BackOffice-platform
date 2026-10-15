@@ -1,17 +1,22 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, Crosshair, MapPin, Plus, Search, Trash2 } from 'lucide-react';
+import { ArrowLeft, Crosshair, MapPin, Plus, Search, Sparkles, Trash2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import LiveMap from '../../components/LiveMap';
 import { fmtMoney } from '../../lib/format';
 import { toast } from 'sonner';
-import { api } from '../../lib/api';
+import { api, uploadFile } from '../../lib/api';
+import { MediaImage } from '../../components/media';
 import { useAuth } from '../../lib/auth';
 import type { Company, Product, ProductionArea } from '../../lib/types';
 import {
   Badge, Button, Field, Input, Loading, Modal, PageHeader, Select, Switch, Tabs, Textarea,
 } from '../../components/ui';
 import { PickCompany, useCompanyScope, withScope } from './shared';
+import {
+  AiSetupWizard, BranchesPanel, KnowledgeDocs, MenuTab, PaymentsTab, PromotionsTab, ZonesEditor, useOrderConfig,
+  type ZoneDraft,
+} from './OrdersSettingsExtra';
 
 const DAY_NAMES = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
 
@@ -37,6 +42,26 @@ function ProductsTab({ q, companyId, canWrite }: { q: string; companyId: string 
     queryFn: () => api.get<ProductionArea[]>(withScope('/catalog/areas', q)),
   });
 
+  const soldOut = useMutation({
+    mutationFn: ({ id, value }: { id: string; value: string }) =>
+      api.patch(`/catalog/products/${id}/sold-out`, value === 'NO' ? { soldOut: false } : { soldOut: true, until: value }),
+    onSuccess: (_d, v) => {
+      toast.success(v.value === 'NO' ? 'Disponible de nuevo' : 'Marcado como agotado: el asistente ya no lo ofrece');
+      queryClient.invalidateQueries({ queryKey: ['products-all'] });
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : 'Error'),
+  });
+  const image = useMutation({
+    mutationFn: ({ id, file }: { id: string; file: File | null }) =>
+      file ? uploadFile(`/catalog/products/${id}/image`, 'image', file) : api.delete(`/catalog/products/${id}/image`),
+    onSuccess: (_d, v) => {
+      toast.success(v.file ? 'Foto actualizada' : 'Foto eliminada');
+      queryClient.invalidateQueries({ queryKey: ['products-all'] });
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : 'Error'),
+  });
+  const isSoldOut = (p: Product) => !!p.soldOut && (!p.soldOutUntil || new Date(p.soldOutUntil) > new Date());
+
   const remove = useMutation({
     mutationFn: (id: string) => api.delete(`/catalog/products/${id}`),
     onSuccess: () => {
@@ -58,11 +83,32 @@ function ProductsTab({ q, companyId, canWrite }: { q: string; companyId: string 
       <div className="divide-y divide-line border-2 border-ink bg-paper">
         {products?.map((p) => (
           <div key={p.id} className="flex flex-wrap items-center justify-between gap-2 px-4 py-2.5">
+            <div className="flex min-w-0 items-center gap-3">
+            <label className={`relative block h-12 w-12 shrink-0 border-2 border-ink bg-bone-2 ${canWrite ? 'cursor-pointer' : ''}`} title={canWrite ? 'Cambiar foto (JPG, PNG o WEBP, máx. 5 MB)' : undefined}>
+              {p.imageFile ? (
+                <MediaImage id={p.imageFile} path={`/catalog/products/${p.id}/image`} alt={p.name} className="h-full w-full" />
+              ) : (
+                <span className="flex h-full items-center justify-center text-[9px] font-semibold uppercase text-ink-3">{canWrite ? '+ Foto' : '—'}</span>
+              )}
+              {canWrite && (
+                <input
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp"
+                  className="sr-only"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) image.mutate({ id: p.id, file });
+                    e.target.value = '';
+                  }}
+                />
+              )}
+            </label>
             <div className="min-w-0">
               <p className="text-sm font-semibold">
                 {p.name} <span className="font-normal text-ink-3">· {p.unit}</span>
                 <span className="ml-2 font-normal">{p.price != null ? fmtMoney(p.price) : <span className="text-warn">sin precio</span>}</span>
                 {!p.active && <Badge tone="neutral">Inactivo</Badge>}
+                {isSoldOut(p) && <span className="ml-2"><Badge tone="bad">Agotado{p.soldOutUntil ? ' hoy' : ''}</Badge></span>}
               </p>
               <p className="text-xs text-ink-3">
                 {p.category ?? 'Sin categoría'}
@@ -70,8 +116,22 @@ function ProductsTab({ q, companyId, canWrite }: { q: string; companyId: string 
                 {p.presentations.length ? ` · ${p.presentations.join(' / ')}` : ''}
               </p>
             </div>
+            </div>
             {canWrite && (
-              <div className="flex gap-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <Select
+                  value={isSoldOut(p) ? (p.soldOutUntil ? 'TODAY' : 'INDEFINITE') : 'NO'}
+                  onChange={(e) => soldOut.mutate({ id: p.id, value: e.target.value })}
+                  className="!w-auto !py-1 text-xs"
+                  aria-label={`Disponibilidad de ${p.name}`}
+                >
+                  <option value="NO">Disponible</option>
+                  <option value="TODAY">Agotado hoy</option>
+                  <option value="INDEFINITE">Agotado hasta nuevo aviso</option>
+                </Select>
+                {p.imageFile && (
+                  <Button size="sm" variant="ghost" onClick={() => image.mutate({ id: p.id, file: null })}>Quitar foto</Button>
+                )}
                 <Button size="sm" variant="outline" onClick={() => setEditing(p)}>Editar</Button>
                 <Button size="sm" variant="ghost" onClick={() => remove.mutate(p.id)} aria-label={`Eliminar ${p.name}`}>
                   <Trash2 size={13} />
@@ -306,26 +366,6 @@ function AreaModal({ area, companyId, onClose }: {
 }
 
 /* ─── Config sobre orderConfig (agenda, reglas, plantillas, FAQs) ───── */
-
-function useOrderConfig(companyId: string | null) {
-  const queryClient = useQueryClient();
-  const { data: company, isLoading } = useQuery({
-    queryKey: ['company', companyId],
-    queryFn: () => api.get<Company>(`/companies/${companyId}`),
-    enabled: !!companyId,
-  });
-  const save = useMutation({
-    mutationFn: (orderConfig: Record<string, any>) =>
-      api.patch(`/companies/${companyId}`, { orderConfig }),
-    onSuccess: () => {
-      toast.success('Configuración guardada');
-      queryClient.invalidateQueries({ queryKey: ['company', companyId] });
-      queryClient.invalidateQueries({ queryKey: ['companies'] }); // menú (p. ej. Domicilios)
-    },
-    onError: (e) => toast.error(e instanceof Error ? e.message : 'Error'),
-  });
-  return { company, config: company?.orderConfig ?? {}, isLoading, save };
-}
 
 function AgendaTab({ companyId, canWrite }: { companyId: string | null; canWrite: boolean }) {
   const { config, isLoading, save } = useOrderConfig(companyId);
@@ -588,7 +628,7 @@ function TemplatesTab({ companyId, canWrite }: { companyId: string | null; canWr
   );
 }
 
-function KnowledgeTab({ companyId, canWrite }: { companyId: string | null; canWrite: boolean }) {
+function KnowledgeTab({ companyId, canWrite, q }: { companyId: string | null; canWrite: boolean; q: string }) {
   const { config, isLoading, save } = useOrderConfig(companyId);
   const [faqs, setFaqs] = useState<Array<{ question: string; answer: string }> | null>(null);
 
@@ -600,7 +640,9 @@ function KnowledgeTab({ companyId, canWrite }: { companyId: string | null; canWr
   if (isLoading || faqs === null) return <Loading />;
 
   return (
-    <div className="max-w-3xl space-y-4">
+    <div className="grid gap-8 xl:grid-cols-2">
+    <div className="space-y-4">
+      <p className="kicker">Preguntas frecuentes</p>
       <p className="text-sm text-ink-2">
         Preguntas frecuentes que la IA responde sin escalar (formas de pago,
         cobertura, políticas). Solo responde con lo que esté aquí: no inventa.
@@ -641,6 +683,8 @@ function KnowledgeTab({ companyId, canWrite }: { companyId: string | null; canWr
         )}
       </div>
     </div>
+    <KnowledgeDocs q={q} canWrite={canWrite} />
+    </div>
   );
 }
 
@@ -651,6 +695,8 @@ function KnowledgeTab({ companyId, canWrite }: { companyId: string | null; canWr
 const DELIVERY_DEFAULTS = {
   enabled: false, origin: null as null | { lat: number; lng: number; address?: string },
   maxKm: 6, baseFee: 3000, perKm: 1000, minFee: 4000, freeFromSubtotal: '', prepMinutes: 25, avgSpeedKmh: 22,
+  pricingMode: 'KM' as 'KM' | 'ZONES', zonesFallbackKm: true, autoAssign: false,
+  delayAlertMinutes: 10, unassignedAlertMinutes: 15, notifyDelayToCustomer: false,
 };
 
 function DeliveryTab({ companyId, canWrite, q }: { companyId: string | null; canWrite: boolean; q: string }) {
@@ -660,11 +706,13 @@ function DeliveryTab({ companyId, canWrite, q }: { companyId: string | null; can
   const [originQuery, setOriginQuery] = useState('');
   const [testAddress, setTestAddress] = useState('');
   const [testSubtotal, setTestSubtotal] = useState('40000');
+  const [zones, setZones] = useState<ZoneDraft[]>([]);
 
   useEffect(() => {
     if (!isLoading && draft === null) {
       const d = { ...DELIVERY_DEFAULTS, ...(config.delivery ?? {}) };
       setDraft(d);
+      setZones((config.delivery?.zones ?? []).map((z: any) => ({ name: z.name, fee: z.fee, keywords: (z.keywords ?? []).join(', ') })));
       setOriginQuery(d.origin?.address ?? '');
       setMessage(config.deliveryMessages?.dispatched ?? '');
     }
@@ -707,9 +755,16 @@ function DeliveryTab({ companyId, canWrite, q }: { companyId: string | null; can
       enabled: !!draft.enabled,
       origin: draft.origin ? { ...draft.origin, address: originQuery || draft.origin.address } : null,
       ...Object.fromEntries(
-        ['maxKm', 'baseFee', 'perKm', 'minFee', 'freeFromSubtotal', 'prepMinutes', 'avgSpeedKmh']
+        ['maxKm', 'baseFee', 'perKm', 'minFee', 'freeFromSubtotal', 'prepMinutes', 'avgSpeedKmh', 'delayAlertMinutes', 'unassignedAlertMinutes']
           .map((k) => [k, draft[k] === '' || draft[k] == null ? undefined : Number(draft[k])]),
       ),
+      pricingMode: draft.pricingMode === 'ZONES' ? 'ZONES' : 'KM',
+      zonesFallbackKm: !!draft.zonesFallbackKm,
+      zones: zones
+        .filter((z) => z.name.trim() && z.keywords.trim() && z.fee !== '')
+        .map((z) => ({ name: z.name.trim(), fee: Number(z.fee) || 0, keywords: z.keywords.split(',').map((k) => k.trim()).filter(Boolean) })),
+      autoAssign: !!draft.autoAssign,
+      notifyDelayToCustomer: !!draft.notifyDelayToCustomer,
     };
     save.mutate({
       ...config,
@@ -759,7 +814,28 @@ function DeliveryTab({ companyId, canWrite, q }: { companyId: string | null; can
             <p className="text-xs text-warn">Sin ubicar: sin este punto no se puede calcular el envío.</p>
           )}
 
-          <p className="kicker pt-2">Cobertura y tarifas ({currency})</p>
+          <div className="flex flex-wrap items-center justify-between gap-2 pt-2">
+            <p className="kicker">Cobertura y tarifas ({currency})</p>
+            <div className="flex border-2 border-ink" role="group" aria-label="Cómo se cobra el domicilio">
+              {(['KM', 'ZONES'] as const).map((m) => (
+                <button
+                  key={m}
+                  type="button"
+                  onClick={() => set({ pricingMode: m })}
+                  className={`cursor-pointer px-3 py-1 text-[11px] font-semibold uppercase tracking-wider ${draft.pricingMode === m ? 'bg-ink text-bone' : 'bg-paper hover:bg-bone-2'}`}
+                >
+                  {m === 'KM' ? 'Por distancia' : 'Por barrio'}
+                </button>
+              ))}
+            </div>
+          </div>
+          {draft.pricingMode === 'ZONES' && (
+            <div className="space-y-2">
+              <p className="text-xs text-ink-3">Tarifa fija por zona: el agente reconoce el barrio en la dirección del cliente.</p>
+              <ZonesEditor zones={zones} onChange={setZones} disabled={!canWrite} />
+              <Switch checked={!!draft.zonesFallbackKm} onChange={(v) => set({ zonesFallbackKm: v })} label="Si el barrio no está en ninguna zona, cobrar por distancia" />
+            </div>
+          )}
           <div className="grid gap-4 md:grid-cols-3">
             <Field label="Cobertura máxima (km)">{num('maxKm')}</Field>
             <Field label="Tarifa base">{num('baseFee')}</Field>
@@ -768,6 +844,16 @@ function DeliveryTab({ companyId, canWrite, q }: { companyId: string | null; can
             <Field label="Gratis desde (subtotal)" hint="Vacío = nunca gratis">{num('freeFromSubtotal')}</Field>
             <Field label="Preparación (min)" hint="Se suma al viaje">{num('prepMinutes')}</Field>
             <Field label="Velocidad promedio (km/h)" hint="Moto en ciudad ≈ 22">{num('avgSpeedKmh')}</Field>
+          </div>
+
+          <p className="kicker pt-2">Operación</p>
+          <div className="space-y-3">
+            <Switch checked={!!draft.autoAssign} onChange={(v) => set({ autoAssign: v })} label="Asignar solo al domiciliario libre más cercano cuando el pedido queda listo" />
+            <div className="grid gap-4 md:grid-cols-2">
+              <Field label="Alerta de retraso (min)" hint="Pasada la hora estimada">{num('delayAlertMinutes')}</Field>
+              <Field label="Alerta sin domiciliario (min)" hint="Pedido listo esperando">{num('unassignedAlertMinutes')}</Field>
+            </div>
+            <Switch checked={!!draft.notifyDelayToCustomer} onChange={(v) => set({ notifyDelayToCustomer: v })} label="Avisarle al cliente por WhatsApp si su pedido viene retrasado" />
           </div>
 
           <Field
@@ -814,15 +900,20 @@ function DeliveryTab({ companyId, canWrite, q }: { companyId: string | null; can
               {quote.data.covered ? (
                 <>
                   <p><strong>Envío:</strong> {quote.data.fee === 0 ? 'gratis' : fmtMoney(quote.data.fee, currency)}</p>
-                  <p><strong>Distancia:</strong> {quote.data.km} km · <strong>Llega en</strong> ~{quote.data.etaMinutes} min</p>
+                  {quote.data.km != null && (
+                    <p><strong>Distancia:</strong> {quote.data.km} km{quote.data.etaMinutes != null && <> · <strong>Llega en</strong> ~{quote.data.etaMinutes} min</>}</p>
+                  )}
                 </>
               ) : (
                 <p className="text-bad">{quote.data.reason}</p>
               )}
+              {quote.data.zone && <p className="mt-1 text-xs">Zona: <strong>{quote.data.zone}</strong></p>}
+              {quote.data.branch && <p className="mt-1 text-xs">Sale de: <strong>{quote.data.branch.name ?? quote.data.branch}</strong></p>}
               {quote.data.resolved && <p className="mt-1 text-xs text-ink-3">{quote.data.resolved}</p>}
             </div>
           )}
         </div>
+        <BranchesPanel q={q} canWrite={canWrite} />
       </div>
     </div>
   );
@@ -835,6 +926,7 @@ export default function OrdersSettings() {
   const [searchParams] = useSearchParams();
   const [tab, setTab] = useState(searchParams.get('tab') ?? 'productos');
   const companyId = scopedId ?? user?.companyId ?? null;
+  const [wizard, setWizard] = useState(false);
 
   if (!ready) return <PickCompany />;
 
@@ -844,9 +936,16 @@ export default function OrdersSettings() {
         kicker="Módulo de pedidos"
         title="Configuración"
         actions={
-          <Button size="sm" variant="outline" onClick={() => navigate('/app/orders')}>
-            <ArrowLeft size={13} /> Pedidos
-          </Button>
+          <>
+            <Button size="sm" variant="outline" onClick={() => navigate('/app/orders')}>
+              <ArrowLeft size={13} /> Pedidos
+            </Button>
+            {canWrite && (
+              <Button size="sm" onClick={() => setWizard(true)}>
+                <Sparkles size={13} /> Configurar con IA
+              </Button>
+            )}
+          </>
         }
       />
       <div className="mb-5">
@@ -861,6 +960,9 @@ export default function OrdersSettings() {
             { id: 'plantillas', label: 'Recordatorios' },
             { id: 'conocimiento', label: 'Conocimiento' },
             { id: 'domicilios', label: 'Domicilios' },
+            { id: 'promociones', label: 'Promociones' },
+            { id: 'menu', label: 'Menú QR' },
+            { id: 'pagos', label: 'Pagos' },
           ]}
         />
       </div>
@@ -869,8 +971,12 @@ export default function OrdersSettings() {
       {tab === 'reglas' && <RulesTab companyId={companyId} canWrite={canWrite} q={q} />}
       {tab === 'agenda' && <AgendaTab companyId={companyId} canWrite={canWrite} />}
       {tab === 'plantillas' && <TemplatesTab companyId={companyId} canWrite={canWrite} />}
-      {tab === 'conocimiento' && <KnowledgeTab companyId={companyId} canWrite={canWrite} />}
+      {tab === 'conocimiento' && <KnowledgeTab companyId={companyId} canWrite={canWrite} q={q} />}
       {tab === 'domicilios' && <DeliveryTab companyId={companyId} canWrite={canWrite} q={q} />}
+      {tab === 'promociones' && <PromotionsTab q={q} canWrite={canWrite} />}
+      {tab === 'menu' && <MenuTab q={q} companyId={companyId} canWrite={canWrite} />}
+      {tab === 'pagos' && <PaymentsTab q={q} canWrite={canWrite} />}
+      <AiSetupWizard open={wizard} onClose={() => setWizard(false)} q={q} />
     </>
   );
 }

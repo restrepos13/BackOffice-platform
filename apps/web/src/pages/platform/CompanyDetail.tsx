@@ -9,6 +9,7 @@ import {
   AI_MODE_LABELS, MODULE_LABELS, ROLE_LABELS, fmtDate, fmtUsd, timeAgo,
 } from '../../lib/format';
 import type { AuditEntry, Company, Plan } from '../../lib/types';
+import CompanyBilling from '../../components/CompanyBilling';
 import {
   Badge, Button, Card, Field, Input, Loading, Modal, PageHeader, Select,
   Switch, Table, Tabs, Textarea, statusTone,
@@ -116,6 +117,7 @@ export default function CompanyDetail() {
           { id: 'resumen', label: 'Resumen' },
           { id: 'config', label: 'Configuración' },
           { id: 'plan', label: 'Plan y módulos' },
+          { id: 'cobro', label: 'Cobro' },
           { id: 'usuarios', label: 'Usuarios', badge: company.users?.length },
           { id: 'bots', label: 'Bots', badge: company.bots?.length },
           { id: 'integraciones', label: 'Integraciones', badge: company.integrations?.length },
@@ -292,6 +294,8 @@ export default function CompanyDetail() {
             </Card>
           </div>
         )}
+
+        {tab === 'cobro' && <CompanyBilling company={company} />}
 
         {tab === 'usuarios' && (
           <Table head={['Usuario', 'Rol', 'Cargo', 'Estado', 'Último acceso']}>

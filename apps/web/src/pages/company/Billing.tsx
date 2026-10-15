@@ -2,8 +2,10 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { toast } from 'sonner';
 import { api } from '../../lib/api';
-import { INVOICE_STATUS_LABELS, fmtDate, fmtDateTime, fmtNum, fmtUsd, timeAgo } from '../../lib/format';
-import type { BillingSummary, Invoice, Payment } from '../../lib/types';
+import { Link } from 'react-router-dom';
+import { INVOICE_STATUS_LABELS, fmtDate, fmtDateTime, fmtMoney, fmtNum, fmtPeriod, fmtUsd } from '../../lib/format';
+import type { BillingSummaryV2, InvoiceRow, Payment } from '../../lib/types';
+import { Lines } from '../../components/CompanyBilling';
 import {
   Badge, Button, Card, Loading, PageHeader, Select, Table, statusTone,
 } from '../../components/ui';
@@ -37,12 +39,12 @@ export default function Billing() {
   const { data: summary, isLoading } = useQuery({
     queryKey: ['billing-summary', q, period],
     queryFn: () =>
-      api.get<BillingSummary>(withScope(`/billing/summary?period=${period}`, q)),
+      api.get<BillingSummaryV2>(withScope(`/billing/summary?period=${period}`, q)),
     enabled: ready,
   });
   const { data: invoices } = useQuery({
     queryKey: ['invoices', q],
-    queryFn: () => api.get<Invoice[]>(withScope('/billing/invoices', q)),
+    queryFn: () => api.get<InvoiceRow[]>(withScope('/billing/invoices', q)),
     enabled: ready,
   });
   const { data: payments } = useQuery({
@@ -72,96 +74,52 @@ export default function Billing() {
   return (
     <>
       <PageHeader
-        kicker="Tu factura = plan + consumo"
+        kicker="Tu factura = plan + ajustes + consumo"
         title="Facturación"
         actions={
           <Select value={period} onChange={(e) => setPeriod(e.target.value)} className="!w-auto">
-            {lastPeriods(6).map((p) => <option key={p} value={p}>{p}</option>)}
+            {lastPeriods(6).map((p) => <option key={p} value={p}>{fmtPeriod(p)}</option>)}
           </Select>
         }
       />
 
-      {/* Composición de la mensualidad, como en la landing */}
-      <div className="grid items-stretch gap-4 lg:grid-cols-[1fr_auto_1fr_auto_1fr]">
-        <Card kicker="Tarifa fija mensual" title={summary.plan?.name ?? 'Sin plan'}>
-          <p className="display text-4xl">
-            {summary.plan ? fmtUsd(summary.plan.priceMonthly) : '—'}
-          </p>
-          <p className="mt-1 text-xs text-ink-3">
-            Plataforma, panel, supervisión, analytics y soporte. Siempre el mismo monto.
+      {/* Lo que se cobra este mes: plan (o precio pactado) + ajustes + consumo */}
+      <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_360px]">
+        <Card kicker={`Tu mensualidad · ${fmtPeriod(summary.period)}`} title={summary.plan?.name ? `Plan ${summary.plan.name}` : 'Sin plan'}>
+          <Lines lines={summary.lines} currency={summary.currency} />
+          <p className="mt-3 text-xs text-ink-3">
+            {summary.customPriceMonthly != null ? 'Tienes un precio pactado con BackOffice. ' : ''}
+            WhatsApp y almacenamiento se trasladan al costo. Nunca una factura sorpresa.
           </p>
         </Card>
-
-        <div className="hidden items-center lg:flex">
-          <span className="display text-4xl">+</span>
-        </div>
-
-        <Card kicker="Consumo · al costo, variable" title="Tu operación">
-          <ul className="space-y-2 text-sm">
-            {summary.consumption.ai.mode && summary.consumption.ai.mode !== 'BYOK' && (
-              <li className="flex justify-between border-b border-line pb-1.5">
-                <span>
-                  Conversaciones con IA
-                  <span className="block text-[11px] text-ink-3">
-                    {fmtNum(summary.consumption.ai.conversations ?? 0)} este mes
-                    {(summary.consumption.ai.included ?? 0) > 0 && ` · ${fmtNum(summary.consumption.ai.included!)} incluidas`}
-                    {(summary.consumption.ai.extra ?? 0) > 0 && ` · ${fmtNum(summary.consumption.ai.extra!)} adicionales`}
-                  </span>
-                </span>
-                <strong>{fmtUsd(summary.consumption.ai.extraChargeUsd ?? 0)}</strong>
-              </li>
-            )}
-            {summary.consumption.ai.mode !== 'PLATFORM' && (
-              <li className="flex justify-between border-b border-line pb-1.5 text-ink-3">
-                <span>
-                  Recursos de IA (informativo)
-                  <span className="block text-[11px]">
-                    {fmtNum(summary.consumption.ai.tokens)} tokens · lo pagas directo a DeepInfra con tu llave
-                  </span>
-                </span>
-                <span className="tabular-nums">{fmtUsd(summary.consumption.ai.costUsd)}</span>
-              </li>
-            )}
-            <li className="flex justify-between border-b border-line pb-1.5">
-              <span>
-                API de WhatsApp
-                <span className="block text-[11px] text-ink-3">{fmtNum(summary.consumption.whatsapp.conversations)} conversaciones Meta</span>
-              </span>
-              <strong>{fmtUsd(summary.consumption.whatsapp.costUsd)}</strong>
-            </li>
-            <li className="flex justify-between border-b border-line pb-1.5">
-              <span>
-                Almacenamiento
-                <span className="block text-[11px] text-ink-3">{fmtNum(Math.round(summary.consumption.storage.mb))} MB</span>
-              </span>
-              <strong>{fmtUsd(summary.consumption.storage.costUsd)}</strong>
-            </li>
-            <li className="flex justify-between pt-1">
-              <span className="font-semibold">Total consumo (sin IA)</span>
-              <strong>{fmtUsd(summary.consumption.totalUsd)}</strong>
-            </li>
-          </ul>
-        </Card>
-
-        <div className="hidden items-center lg:flex">
-          <span className="display text-4xl">=</span>
-        </div>
-
-        <section className="border-2 border-ink bg-ink text-bone">
-          <header className="border-b-2 border-bone/30 px-5 py-3">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-line">
-              Tu mensualidad · {summary.period}
+        <div className="space-y-4">
+          <section className="border-2 border-ink bg-ink text-bone">
+            <header className="border-b-2 border-bone/30 px-5 py-3">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-line">Total del mes</p>
+            </header>
+            <div className="p-5">
+              <p className="display text-5xl">{fmtMoney(summary.total, summary.currency)}</p>
+              <p className="mt-2 text-xs text-line">Un solo cobro mensual.</p>
+            </div>
+          </section>
+          <Card kicker="Inteligencia artificial" title={summary.ai.mode === 'BYOK' ? 'Tu cuenta DeepInfra' : `${fmtNum(summary.ai.available)} conversaciones`}>
+            <p className="text-sm text-ink-2">
+              {summary.ai.mode === 'BYOK'
+                ? `La IA la pagas directo a DeepInfra con tu llave (${fmtUsd(summary.consumption.aiCostUsd)} este mes, informativo).`
+                : 'La IA de BackOffice va en paquetes prepagos: no se suma a esta factura.'}
             </p>
-            <h2 className="display text-lg leading-tight">Un solo cobro</h2>
-          </header>
-          <div className="p-5">
-            <p className="display text-5xl">{fmtUsd(summary.totalUsd)}</p>
-            <p className="mt-2 text-xs text-line">
-              Sin costos ocultos: el consumo se traslada al costo y lo ves desglosado
-              aquí, en vivo. Nunca una factura sorpresa.
+            {summary.ai.mode !== 'BYOK' && (
+              <Link to="/app/usage" className="mt-2 inline-block text-xs font-semibold uppercase tracking-wider underline">
+                Ver saldo y recargar →
+              </Link>
+            )}
+          </Card>
+          {summary.contract.inForce && (
+            <p className="border-2 border-line bg-paper px-4 py-3 text-xs text-ink-3">
+              Permanencia hasta {fmtDate(summary.contract.endsAt!)} (montaje incluido sin costo).
             </p>
-          </div>
-        </section>
+          )}
+        </div>
       </div>
 
       {/* Historial */}
@@ -172,13 +130,16 @@ export default function Billing() {
             Pagos en Colombia vía Wompi · Internacional: próximamente
           </p>
         </div>
-        <Table head={['Período', 'Plan', 'Consumo', 'Total', 'Estado', 'Pagada', '']}>
+        <Table head={['Período', 'Plan y ajustes', 'Consumo', 'Total', 'Estado', 'Pagada', '']}>
           {invoices?.map((invoice) => (
             <tr key={invoice.id}>
-              <td className="px-4 py-3 font-mono text-sm">{invoice.period}</td>
-              <td className="px-4 py-3 tabular-nums">{fmtUsd(invoice.planAmount)}</td>
-              <td className="px-4 py-3 tabular-nums">{fmtUsd(invoice.consumptionAmount)}</td>
-              <td className="px-4 py-3 font-semibold tabular-nums">{fmtUsd(invoice.totalAmount)}</td>
+              <td className="px-4 py-3 text-sm">
+                {fmtPeriod(invoice.period)}
+                {invoice.notes && <span className="block text-[11px] text-ink-3">{invoice.notes}</span>}
+              </td>
+              <td className="px-4 py-3 tabular-nums">{fmtMoney(invoice.planAmount, invoice.currency)}</td>
+              <td className="px-4 py-3 tabular-nums">{fmtMoney(invoice.consumptionAmount, invoice.currency)}</td>
+              <td className="px-4 py-3 font-semibold tabular-nums">{fmtMoney(invoice.totalAmount, invoice.currency)}</td>
               <td className="px-4 py-3">
                 <Badge tone={statusTone(invoice.status)}>{INVOICE_STATUS_LABELS[invoice.status]}</Badge>
               </td>
@@ -208,7 +169,7 @@ export default function Billing() {
       <div className="mt-8">
         <div className="mb-3 flex flex-wrap items-end justify-between gap-2">
           <h2 className="display text-2xl">Costos de los modelos IA</h2>
-          <p className="kicker">Servidos por DeepInfra · trasladados al costo, sin margen</p>
+          <p className="kicker">Servidos por DeepInfra · referencia si usas tu propia cuenta</p>
         </div>
         <Table head={['Modelo', 'Entrada (USD / 1M tokens)', 'Salida (USD / 1M tokens)', 'Contexto', 'Nota']}>
           {aiModels?.filter((m) => m.active).map((model) => (

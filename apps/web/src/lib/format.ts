@@ -202,6 +202,9 @@ export const AGENT_TOOL_LABELS: Record<string, string> = {
   cancelar_pedido: 'Cancelar pedido',
   guardar_direccion: 'Guardar direcciones',
   pasar_a_humano: 'Pasar a una persona',
+  ver_promociones: 'Promociones y cupones',
+  enviar_link_pago: 'Enviar link de pago',
+  buscar_conocimiento: 'Buscar en la base de conocimiento',
 };
 
 /** Qué hace cada herramienta, explicado para el dueño del negocio. */
@@ -216,7 +219,47 @@ export const AGENT_TOOL_HELP: Record<string, string> = {
   cancelar_pedido: 'Cancela pedidos que aún no entraron a cocina; los demás los pasa a una persona.',
   guardar_direccion: 'Guarda direcciones del cliente (casa, oficina) para que no las repita.',
   pasar_a_humano: 'Pasa la conversación a tu equipo ante reclamos, casos raros o dudas.',
+  ver_promociones: 'Ofrece las promociones vigentes y los cupones públicos.',
+  enviar_link_pago: 'Manda el link de pago en línea (Wompi) o las instrucciones de pago manual.',
+  buscar_conocimiento: 'Responde dudas con tus documentos: políticas, preguntas frecuentes, tu página web.',
 };
+
+export const PAYMENT_STATUS_LABELS: Record<string, string> = {
+  NONE: 'Sin pagar',
+  PENDING: 'Link enviado',
+  REPORTED: 'Comprobante por verificar',
+  PAID: 'Pagado',
+  FAILED: 'Pago fallido',
+};
+
+export function paymentTone(status?: string | null): 'ok' | 'warn' | 'bad' | 'info' | 'neutral' {
+  switch (status) {
+    case 'PAID': return 'ok';
+    case 'REPORTED': return 'warn';
+    case 'PENDING': return 'info';
+    case 'FAILED': return 'bad';
+    default: return 'neutral';
+  }
+}
+
+export const ORDER_SOURCE_LABELS: Record<string, string> = {
+  WHATSAPP: 'WhatsApp', MENU: 'Menú digital', MANUAL: 'Manual', RAPPI: 'Rappi',
+  UBER_EATS: 'Uber Eats', DIDI: 'DiDi Food', IFOOD: 'iFood', WEB: 'Tienda web', POS: 'Punto de venta', OTRO: 'Otro',
+};
+
+export const ADJUSTMENT_LABELS: Record<string, string> = {
+  CHARGE: 'Cargo extra', DISCOUNT: 'Descuento', PRICE: 'Precio del mes', SETUP: 'Montaje (salida anticipada)',
+};
+
+export const LINE_KIND_LABELS: Record<string, string> = {
+  PLAN: 'Plan', CHARGE: 'Cargo', DISCOUNT: 'Descuento', WHATSAPP: 'WhatsApp', STORAGE: 'Almacenamiento', SETUP: 'Montaje',
+};
+
+/** "2026-11" → "noviembre 2026" */
+export function fmtPeriod(period: string): string {
+  const [y, m] = period.split('-').map(Number);
+  return new Intl.DateTimeFormat('es-CO', { month: 'long', year: 'numeric' }).format(new Date(y, m - 1, 1));
+}
 
 /* ─── Quién paga la IA ─── */
 

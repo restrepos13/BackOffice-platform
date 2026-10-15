@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { clsx } from 'clsx';
 import {
   AlertTriangle, ArrowLeft, Bot, Check, CheckCheck, Hand,
-  Image as ImageIcon, MapPin, Paperclip, Search, Send, UserRound, X,
+  Image as ImageIcon, MapPin, Paperclip, Receipt, Search, Send, UserRound, X, Zap,
 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
@@ -10,11 +10,11 @@ import { toast } from 'sonner';
 import { api } from '../../lib/api';
 import { useLiveEvents } from '../../lib/events';
 import {
-  CHANNEL_LABELS, CONVO_STATUS_LABELS, STAGE_LABELS, fmtDateTime, fmtUsd, timeAgo,
+  CHANNEL_LABELS, CONVO_STATUS_LABELS, STAGE_LABELS, fmtDateTime, fmtMoney, fmtUsd, timeAgo,
 } from '../../lib/format';
-import type { Conversation, Integration, MediaAsset, Message } from '../../lib/types';
+import type { Conversation, Integration, MediaAsset, Message, QuickReply } from '../../lib/types';
 import {
-  Badge, Button, Input, Loading, Modal, PageHeader, Select, Textarea, statusTone,
+  Badge, Button, Field, Input, Loading, Modal, PageHeader, Select, Textarea, statusTone,
 } from '../../components/ui';
 import { MediaImage, MessageFile } from '../../components/media';
 import { AppointmentModal, FollowUpModal } from './Agenda';
@@ -35,6 +35,89 @@ function DeliveryTicks({ status }: { status?: Message['deliveryStatus'] }) {
   );
 }
 
+/** Lectura del comprobante de pago que hizo la IA (nunca marca pagado sola). */
+function ReceiptReading({ json }: { json?: string | null }) {
+  if (!json) return null;
+  let a: { kind?: string; amount?: number | null; currency?: string | null; bank?: string | null; reference?: string | null; date?: string | null; summary?: string } = {};
+  try { a = JSON.parse(json); } catch { return null; }
+  if (a.kind !== 'RECEIPT') {
+    return a.summary ? <p className="mt-1 border-l-2 border-line pl-2 text-xs italic text-ink-3">IA: {a.summary}</p> : null;
+  }
+  return (
+    <div className="mt-1.5 border-2 border-ok bg-ok-soft px-2 py-1.5 text-xs text-ink">
+      <p className="flex items-center gap-1 font-semibold"><Receipt size={12} /> Comprobante leído por IA</p>
+      <p className="mt-0.5 tabular-nums">
+        {a.amount != null ? fmtMoney(a.amount, a.currency ?? 'COP') : 'Monto ilegible'}
+        {a.bank && ` · ${a.bank}`}{a.reference && ` · ref ${a.reference}`}
+      </p>
+      {a.date && <p className="text-ink-3">{a.date}</p>}
+      <p className="mt-0.5 text-[10px] uppercase tracking-wider text-ink-3">Verifica en el banco antes de marcar pagado</p>
+    </div>
+  );
+}
+
+/** Administrador de respuestas rápidas ("/" en el compositor). */
+function QuickRepliesModal({ open, onClose, q }: { open: boolean; onClose: () => void; q: string }) {
+  const queryClient = useQueryClient();
+  const { data: replies } = useQuery({
+    queryKey: ['quick-replies', q],
+    queryFn: () => api.get<QuickReply[]>(withScope('/quick-replies', q)),
+    enabled: open,
+  });
+  const [form, setForm] = useState<Partial<QuickReply>>({ shortcut: '', title: '', body: '' });
+  const save = useMutation({
+    mutationFn: () => form.id
+      ? api.patch(withScope(`/quick-replies/${form.id}`, q), form)
+      : api.post(withScope('/quick-replies', q), form),
+    onSuccess: () => {
+      toast.success('Respuesta guardada');
+      setForm({ shortcut: '', title: '', body: '' });
+      queryClient.invalidateQueries({ queryKey: ['quick-replies'] });
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : 'Error'),
+  });
+  const remove = useMutation({
+    mutationFn: (id: string) => api.delete(withScope(`/quick-replies/${id}`, q)),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['quick-replies'] }),
+  });
+  return (
+    <Modal open={open} onClose={onClose} kicker="Conversaciones" title="Respuestas rápidas" wide>
+      <div className="grid gap-6 md:grid-cols-2">
+        <div className="max-h-[55vh] space-y-2 overflow-y-auto">
+          {replies?.map((r) => (
+            <div key={r.id} className="border-2 border-ink bg-paper p-3">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-sm font-semibold"><span className="font-mono text-ink-3">/{r.shortcut}</span> · {r.title}</p>
+                <div className="flex gap-1">
+                  <Button size="sm" variant="ghost" onClick={() => setForm(r)}>Editar</Button>
+                  <Button size="sm" variant="ghost" onClick={() => remove.mutate(r.id)}>Quitar</Button>
+                </div>
+              </div>
+              <p className="mt-1 line-clamp-2 whitespace-pre-wrap text-xs text-ink-2">{r.body}</p>
+            </div>
+          ))}
+          {replies?.length === 0 && <p className="py-6 text-center text-sm text-ink-3">Aún no hay respuestas rápidas.</p>}
+        </div>
+        <div className="space-y-3">
+          <div className="grid grid-cols-[120px_1fr] gap-2">
+            <Field label="Atajo"><Input value={form.shortcut ?? ''} placeholder="horario" onChange={(e) => setForm({ ...form, shortcut: e.target.value.replace(/^\//, '') })} /></Field>
+            <Field label="Título"><Input value={form.title ?? ''} placeholder="Horario de atención" onChange={(e) => setForm({ ...form, title: e.target.value })} /></Field>
+          </div>
+          <Field label="Texto" hint="Usa {nombre} para el nombre del cliente">
+            <Textarea rows={5} value={form.body ?? ''} onChange={(e) => setForm({ ...form, body: e.target.value })} />
+          </Field>
+          <div className="flex justify-end gap-2">
+            {form.id && <Button variant="outline" onClick={() => setForm({ shortcut: '', title: '', body: '' })}>Nueva</Button>}
+            <Button disabled={!form.shortcut || !form.body || save.isPending} onClick={() => save.mutate()}>
+              {form.id ? 'Guardar cambios' : 'Agregar'}
+            </Button>
+          </div>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
 export default function Inbox() {
   const { ready, q, canWrite, companyId } = useCompanyScope();
   const [params] = useSearchParams();
@@ -47,6 +130,8 @@ export default function Inbox() {
   const [to, setTo] = useState('');
   const [selectedId, setSelectedId] = useState<string | null>(params.get('open'));
   const [draft, setDraft] = useState('');
+  const [managingReplies, setManagingReplies] = useState(false);
+  const [replyIndex, setReplyIndex] = useState(0);
   const [photoPicker, setPhotoPicker] = useState(false);
   const [scheduling, setScheduling] = useState(false);
   const [followingUp, setFollowingUp] = useState(false);
@@ -105,6 +190,23 @@ export default function Inbox() {
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
   }, [detail?.messages?.length]);
+
+  const { data: quickReplies } = useQuery({
+    queryKey: ['quick-replies', q],
+    queryFn: () => api.get<QuickReply[]>(withScope('/quick-replies', q)),
+    enabled: ready && canWrite,
+  });
+  // "/atajo" al inicio del borrador abre el selector de respuestas rápidas
+  const slash = /^\/(\S*)$/.exec(draft);
+  const replyMatches = slash
+    ? (quickReplies ?? []).filter((r) =>
+        `${r.shortcut} ${r.title}`.toLowerCase().includes(slash[1].toLowerCase())).slice(0, 6)
+    : [];
+  function applyReply(r: QuickReply) {
+    const first = detail?.contact.name?.split(' ')[0] ?? '';
+    setDraft(r.body.replace(/\{nombre\}/gi, first));
+    setReplyIndex(0);
+  }
 
   const send = useMutation({
     mutationFn: (payload?: { mediaAssetId?: string }) =>
@@ -358,6 +460,7 @@ export default function Inbox() {
                     {message.fileName && message.type && message.type !== 'TEXT' && (
                       <div className="mb-1.5">
                         <MessageFile messageId={message.id} type={message.type as 'AUDIO' | 'IMAGE' | 'DOCUMENT'} />
+                        {message.type === 'IMAGE' && <ReceiptReading json={message.analysisJson} />}
                         {message.type === 'AUDIO' && message.transcription && (
                           <p className="mt-1 border-l-2 border-line pl-2 text-xs italic text-ink-3">
                             "{message.transcription}"
@@ -412,13 +515,28 @@ export default function Inbox() {
             </div>
 
             {canWrite && (
-              <footer className="flex gap-2 border-t-2 border-ink p-3">
+              <footer className="relative flex gap-2 border-t-2 border-ink p-3">
+                {replyMatches.length > 0 && (
+                  <div className="absolute bottom-full left-3 right-3 mb-1 border-2 border-ink bg-paper shadow-[4px_4px_0_0_rgba(26,26,26,0.9)]">
+                    {replyMatches.map((r, i) => (
+                      <button
+                        key={r.id}
+                        className={clsx('block w-full cursor-pointer px-3 py-2 text-left', i === replyIndex % replyMatches.length ? 'bg-ink text-bone' : 'hover:bg-bone-2')}
+                        onMouseDown={(e) => { e.preventDefault(); applyReply(r); }}
+                      >
+                        <span className="font-mono text-xs opacity-70">/{r.shortcut}</span>
+                        <span className="ml-2 text-sm font-semibold">{r.title}</span>
+                        <span className="block truncate text-xs opacity-70">{r.body}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
                 <Textarea
                   rows={2}
                   placeholder={
                     detail.botPaused
                       ? 'Responder como humano…'
-                      : 'Intervenir como humano… (la IA se pausa en esta conversación)'
+                      : 'Intervenir como humano… (la IA se pausa) · / para respuestas rápidas'
                   }
                   value={draft}
                   onChange={(e) => {
@@ -426,6 +544,18 @@ export default function Inbox() {
                     notifyTyping();
                   }}
                   onKeyDown={(e) => {
+                    if (replyMatches.length) {
+                      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+                        e.preventDefault();
+                        setReplyIndex((i) => (i + (e.key === 'ArrowDown' ? 1 : replyMatches.length - 1)) % replyMatches.length);
+                        return;
+                      }
+                      if (e.key === 'Enter' || e.key === 'Tab') {
+                        e.preventDefault();
+                        applyReply(replyMatches[replyIndex % replyMatches.length]);
+                        return;
+                      }
+                    }
                     if (e.key === 'Enter' && !e.shiftKey && draft.trim()) {
                       e.preventDefault();
                       send.mutate(undefined);
@@ -446,6 +576,14 @@ export default function Inbox() {
                     aria-label="Enviar foto de la galería"
                   >
                     <ImageIcon size={14} />
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={() => setManagingReplies(true)}
+                    aria-label="Respuestas rápidas"
+                    title="Respuestas rápidas (escribe / en el mensaje)"
+                  >
+                    <Zap size={14} />
                   </Button>
                 </div>
               </footer>
@@ -477,6 +615,8 @@ export default function Inbox() {
           />
         </>
       )}
+
+      <QuickRepliesModal open={managingReplies} onClose={() => setManagingReplies(false)} q={q} />
 
       {/* Enviar foto de la galería */}
       <Modal

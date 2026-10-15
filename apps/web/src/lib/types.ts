@@ -86,6 +86,13 @@ export interface Plan {
   /** IA de BackOffice: conversaciones incluidas al mes y precio del excedente (USD) */
   includedAiConversations?: number;
   extraAiConversationUsd?: number;
+  line?: 'PRO' | 'NEGOCIOS';
+  currency?: 'USD' | 'COP';
+  maxLines?: number;
+  maxCouriers?: number;
+  minTermMonths?: number;
+  setupFeeValue?: number;
+  sortOrder?: number;
   _count?: { companies: number };
 }
 
@@ -123,6 +130,13 @@ export interface Company {
   aiSpendCapUsd?: number | null;
   aiIncludedOverride?: number | null;
   logoUrl?: string | null;
+  customPriceMonthly?: number | null;
+  contractStartAt?: string | null;
+  minTermMonths?: number | null;
+  setupFeeValue?: number | null;
+  googleReviewUrl?: string | null;
+  paymentConfig?: PaymentConfig;
+  einvoiceConfig?: EinvoiceConfig;
   /** Parámetros del Reporte a Gerencia */
   savingsSalaryUsd: number;
   agentCapacityPerMonth: number;
@@ -270,7 +284,12 @@ export interface Contact {
   phone?: string | null;
   email?: string | null;
   channel: string;
-  stage: 'CURIOSO' | 'POTENCIAL' | 'CALIENTE' | 'CLIENTE' | 'DESCARTADO';
+  /** Etapa del embudo (estándar o propio de la empresa) */
+  stage: string;
+  pipelineId?: string | null;
+  optOut?: boolean;
+  optOutAt?: string | null;
+  externalId?: string | null;
   tags: string[];
   notes?: string | null;
   assignedTo?: { id: string; name: string } | null;
@@ -290,6 +309,8 @@ export interface Message {
   /** Ubicación compartida por WhatsApp */
   latitude?: number | null;
   longitude?: number | null;
+  /** Lo que leyó la IA de una imagen (comprobantes) */
+  analysisJson?: string | null;
   transcription?: string | null;
   deliveryStatus?: 'QUEUED' | 'SENT' | 'DELIVERED' | 'READ' | 'FAILED' | null;
   metaCategory?: string | null;
@@ -328,6 +349,9 @@ export interface Product {
   presentations: string[];
   /** Precio unitario (moneda de la empresa). Vacío = "a confirmar" */
   price?: number | null;
+  soldOut?: boolean;
+  soldOutUntil?: string | null;
+  imageFile?: string | null;
   productionAreaId?: string | null;
   productionArea?: { id: string; name: string } | null;
   active: boolean;
@@ -429,6 +453,19 @@ export interface Order {
   deliveredAt?: string | null;
   etaAt?: string | null;
   hasDeliveryProof?: boolean;
+  source?: string;
+  externalId?: string | null;
+  discount?: number | null;
+  couponCode?: string | null;
+  paymentStatus?: 'NONE' | 'PENDING' | 'REPORTED' | 'PAID' | 'FAILED';
+  paymentMethod?: string | null;
+  paymentLinkUrl?: string | null;
+  paidAt?: string | null;
+  receiptMessageId?: string | null;
+  receiptJson?: string | null;
+  einvoiceStatus?: string | null;
+  einvoiceNumber?: string | null;
+  einvoiceError?: string | null;
   createdAt: string;
 }
 
@@ -754,6 +791,7 @@ export interface CompanyAiUsage {
   aiBillingMode?: AiMode;
   aiHybridPrimary?: 'BYOK' | 'PLATFORM';
   quota?: AiQuota | null;
+  credits?: AiCredits | null;
   /** Lo que pagó la empresa con su llave vs. lo que puso BackOffice */
   byBilling?: Record<'BYOK' | 'PLATFORM', { costUsd: number; events: number }>;
   series: { date: string; costUsd: number; inputTokens: number; outputTokens: number; events: number }[];
@@ -884,4 +922,267 @@ export interface AiQuota {
   capUsd: number | null;
   capPct: number | null;
   capReached: boolean;
+}
+
+/* ─── Cobro personalizable ─────────────────────────────────────────── */
+
+export interface InvoiceLine {
+  kind: 'PLAN' | 'CHARGE' | 'DISCOUNT' | 'WHATSAPP' | 'STORAGE' | 'SETUP';
+  concept: string;
+  amount: number;
+}
+
+export interface BillingAdjustment {
+  id: string;
+  companyId: string;
+  kind: 'CHARGE' | 'DISCOUNT' | 'PRICE' | 'SETUP';
+  concept: string;
+  amount: number;
+  percent: number | null;
+  startPeriod: string;
+  endPeriod: string | null;
+  recurring: boolean;
+  active: boolean;
+  createdBy?: string | null;
+  createdAt: string;
+}
+
+export interface ContractInfo {
+  contractStartAt: string | null;
+  minTermMonths: number;
+  setupFeeValue: number;
+  endsAt: string | null;
+  inForce: boolean;
+  earlyExit: { remainingMonths: number; amount: number };
+}
+
+export interface AiCredits {
+  mode: AiMode;
+  period: string;
+  includedMonthly: number;
+  includedUsed: number;
+  includedLeft: number;
+  balance: number;
+  available: number;
+  usedThisMonth: number;
+  nextExpiry: string | null;
+  lowBalance: boolean;
+  spendUsd: number;
+  capUsd: number | null;
+  capPct: number | null;
+  capReached: boolean;
+}
+
+export interface BillingSummaryV2 {
+  period: string;
+  currency: string;
+  company: { id: string; name: string; status: string };
+  plan: { name: string; code: string; line: string; priceMonthly: number; currency: string } | null;
+  customPriceMonthly: number | null;
+  lines: InvoiceLine[];
+  planAmount: number;
+  consumptionAmount: number;
+  total: number;
+  consumption: {
+    aiCostUsd: number; aiTokens: number; whatsappCostUsd: number; whatsappConversations: number;
+    storageCostUsd: number; storageMb: number;
+  };
+  ai: AiCredits;
+  contract: ContractInfo;
+}
+
+export interface InvoiceRow {
+  id: string;
+  companyId: string;
+  company?: { name: string; slug: string };
+  period: string;
+  planAmount: number;
+  consumptionAmount: number;
+  totalAmount: number;
+  currency: string;
+  status: string;
+  issuedAt: string;
+  paidAt?: string | null;
+  notes?: string | null;
+  lines: InvoiceLine[];
+}
+
+export interface AiCreditPackage {
+  id: string;
+  name: string;
+  conversations: number;
+  price: number;
+  currency: string;
+  validityMonths: number;
+  active: boolean;
+  sortOrder: number;
+}
+
+export interface AiCreditLot {
+  id: string;
+  source: 'PURCHASE' | 'GRANT';
+  total: number;
+  remaining: number;
+  expiresAt: string;
+  note?: string | null;
+  createdBy?: string | null;
+  createdAt: string;
+  expired: boolean;
+}
+
+export interface AiCreditsStatus {
+  credits: AiCredits;
+  lots: AiCreditLot[];
+  recentUses: Array<{ id: string; conversationId: string | null; purpose: string; fromIncluded: boolean; createdAt: string }>;
+  packages: AiCreditPackage[];
+}
+
+/* ─── Campañas ─────────────────────────────────────────────────────── */
+
+export interface CampaignSegment {
+  stages?: string[];
+  tags?: string[];
+  inactiveDays?: number;
+  activeWithinDays?: number;
+  productIds?: string[];
+  customersOnly?: boolean;
+  fromBroadcastId?: string;
+  fromBroadcastFilter?: 'all' | 'no_reply';
+}
+
+export interface Broadcast {
+  id: string;
+  companyId: string;
+  name: string;
+  integrationId: string;
+  segment: CampaignSegment;
+  message: string;
+  templateKey: string | null;
+  status: 'DRAFT' | 'SCHEDULED' | 'SENDING' | 'SENT' | 'CANCELLED';
+  scheduledAt: string | null;
+  startedAt: string | null;
+  finishedAt: string | null;
+  recipientsCount: number;
+  estimatedCostUsd: number;
+  createdBy: string | null;
+  createdAt: string;
+  stats?: {
+    recipients: number; queued: number; skipped: number; sent: number; delivered: number;
+    read: number; failed: number; replied: number; orders: number; revenue: number;
+  };
+  skipReasons?: string[];
+}
+
+export interface CampaignPreview {
+  count: number;
+  inWindow: number;
+  outWindow: number;
+  willSkip: number;
+  estimatedCostUsd: number;
+  sample: string[];
+  templates: Array<{ key: string; name: string }>;
+}
+
+/* ─── Promociones, respuestas rápidas, embudos, conocimiento ──────── */
+
+export interface Promotion {
+  id: string;
+  companyId: string;
+  code: string | null;
+  name: string;
+  description: string | null;
+  kind: 'PERCENT' | 'FIXED' | 'FREE_DELIVERY';
+  value: number;
+  minSubtotal: number | null;
+  productIds: string[];
+  startsAt: string | null;
+  endsAt: string | null;
+  maxUses: number | null;
+  usedCount: number;
+  public: boolean;
+  active: boolean;
+}
+
+export interface QuickReply {
+  id: string;
+  shortcut: string;
+  title: string;
+  body: string;
+}
+
+export interface PipelineStage {
+  key: string;
+  label: string;
+  kind: 'OPEN' | 'WON' | 'LOST';
+}
+
+export interface Pipeline {
+  id: string;
+  name: string;
+  stages: PipelineStage[];
+  isDefault: boolean;
+  builtIn?: boolean;
+}
+
+export interface KnowledgeDoc {
+  id: string;
+  title: string;
+  source: 'TEXT' | 'URL' | 'PDF';
+  url: string | null;
+  status: string;
+  chars: number;
+  chunks: number;
+  createdAt: string;
+}
+
+export interface Branch {
+  id: string;
+  name: string;
+  address: string | null;
+  lat: number;
+  lng: number;
+  phone: string | null;
+  active: boolean;
+}
+
+export interface PaymentConfig {
+  provider: string | null;
+  env: 'test' | 'prod';
+  publicKey: string | null;
+  hasIntegritySecret: boolean;
+  hasEventsSecret: boolean;
+  onlineReady: boolean;
+  manualInstructions: string | null;
+  acceptCash: boolean;
+  webhookUrl?: string;
+}
+
+export interface EinvoiceConfig {
+  provider: 'ALEGRA' | 'SIMULADO' | null;
+  email: string | null;
+  hasToken: boolean;
+  taxRate: number;
+  alegraTaxId: number | null;
+  alegraItemId: number | null;
+  ready: boolean;
+}
+
+export interface PublicMenu {
+  company: { name: string; slug: string; brandColor: string | null; logoUrl: string | null; city: string | null; currency: string };
+  title: string | null;
+  note: string | null;
+  whatsapp: string | null;
+  categories: Array<{
+    name: string;
+    items: Array<{ id: string; name: string; description: string | null; price: number | null; unit: string; presentations: string[]; soldOut: boolean; hasImage: boolean }>;
+  }>;
+  promotions: Array<{ name: string; description: string | null; code: string | null; kind: string; value: number }>;
+}
+
+export interface SetupProposal {
+  products: Array<{ name: string; category: string | null; price: number | null; description: string | null; presentations: string[] }>;
+  schedule: { days: number[]; open: string; close: string } | null;
+  delivery: { enabled: boolean; baseFee: number | null; perKm: number | null; maxKm: number | null; prepMinutes: number | null } | null;
+  faqs: Array<{ question: string; answer: string }>;
+  assistant: { name: string; tone: string; style: string; welcome: string; instructions: string } | null;
 }

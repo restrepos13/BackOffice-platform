@@ -5,9 +5,9 @@ import { api } from '../../lib/api';
 import { COMPANY_STATUS_LABELS, MODULE_LABELS, fmtDate, fmtUsd } from '../../lib/format';
 import type { Company } from '../../lib/types';
 import {
-  Badge, Button, Card, Field, Input, Loading, PageHeader, Textarea, statusTone,
+  Badge, Button, Card, Field, Input, Loading, PageHeader, Select, Textarea, statusTone,
 } from '../../components/ui';
-import { PickCompany, useCompanyScope } from './shared';
+import { PickCompany, useCompanyScope, withScope } from './shared';
 
 function DeepinfraKeyForm({
   company,
@@ -121,8 +121,98 @@ function SavingsForm({
   );
 }
 
+/** Reseñas en Google: tras una calificación de 4 o 5 se invita al cliente. */
+function ReviewsCard({ company, canWrite }: { company: Company; canWrite: boolean }) {
+  const queryClient = useQueryClient();
+  const [url, setUrl] = useState(company.googleReviewUrl ?? '');
+  const [message, setMessage] = useState<string>((company.orderConfig as any)?.reviewMessage ?? '');
+  const save = useMutation({
+    mutationFn: () => api.patch(`/companies/${company.id}`, {
+      googleReviewUrl: url.trim() || null,
+      orderConfig: { ...(company.orderConfig ?? {}), reviewMessage: message.trim() || undefined },
+    }),
+    onSuccess: () => {
+      toast.success('Reseñas guardadas');
+      queryClient.invalidateQueries({ queryKey: ['companies'] });
+      queryClient.invalidateQueries({ queryKey: ['company', company.id] });
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : 'Error'),
+  });
+  return (
+    <Card kicker="Reputación" title="Reseñas en Google">
+      <fieldset disabled={!canWrite} className="space-y-3">
+        <p className="text-xs text-ink-3">Cuando un cliente califica 4 o 5 estrellas, el asistente le pide la reseña con este link. A quien califica bajo no se le pide: se alerta al equipo.</p>
+        <Field label="Link para dejar reseña" hint="Google Business → Pedir reseñas → copiar link">
+          <Input value={url} placeholder="https://g.page/r/…/review" onChange={(e) => setUrl(e.target.value)} />
+        </Field>
+        <Field label="Mensaje" hint="Usa {{link}} donde va el enlace. Vacío = mensaje estándar">
+          <Textarea rows={2} value={message} onChange={(e) => setMessage(e.target.value)} placeholder="¡Gracias por tu calificación! Nos ayudarías muchísimo con una reseña en Google: {{link}}" />
+        </Field>
+        {canWrite && <Button size="sm" disabled={save.isPending} onClick={() => save.mutate()}>{save.isPending ? 'Guardando…' : 'Guardar'}</Button>}
+      </fieldset>
+    </Card>
+  );
+}
+
+/** Factura electrónica DIAN (Alegra o modo simulado para demos). */
+function EinvoiceCard({ company, canWrite, q }: { company: Company; canWrite: boolean; q: string }) {
+  const queryClient = useQueryClient();
+  const cfg = company.einvoiceConfig;
+  const [form, setForm] = useState({
+    provider: cfg?.provider ?? '', email: cfg?.email ?? '', token: '',
+    taxRate: String(cfg?.taxRate ?? 0.08), alegraTaxId: cfg?.alegraTaxId ? String(cfg.alegraTaxId) : '', alegraItemId: cfg?.alegraItemId ? String(cfg.alegraItemId) : '',
+  });
+  const save = useMutation({
+    mutationFn: () => api.patch(withScope('/einvoice/config', q), {
+      provider: form.provider || null, email: form.email, token: form.token || undefined,
+      taxRate: Number(form.taxRate), alegraTaxId: form.alegraTaxId || null, alegraItemId: form.alegraItemId || null,
+    }),
+    onSuccess: () => {
+      toast.success('Facturación electrónica guardada');
+      setForm((f) => ({ ...f, token: '' }));
+      queryClient.invalidateQueries({ queryKey: ['companies'] });
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : 'Error'),
+  });
+  return (
+    <Card kicker="DIAN" title="Factura electrónica">
+      <fieldset disabled={!canWrite} className="space-y-3">
+        <div className="flex items-center justify-between gap-2">
+          <p className="text-xs text-ink-3">Emite la factura de cada pedido desde su detalle.</p>
+          <Badge tone={cfg?.ready ? 'ok' : 'neutral'}>{cfg?.ready ? 'Lista' : 'Inactiva'}</Badge>
+        </div>
+        <Field label="Proveedor">
+          <Select value={form.provider} onChange={(e) => setForm({ ...form, provider: e.target.value })}>
+            <option value="">Desactivada</option>
+            <option value="ALEGRA">Alegra (proveedor tecnológico)</option>
+            <option value="SIMULADO">Simulado (demos y pruebas)</option>
+          </Select>
+        </Field>
+        {form.provider === 'ALEGRA' && (
+          <>
+            <Field label="Correo de la cuenta Alegra"><Input value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} /></Field>
+            <Field label="Token de API" hint={cfg?.hasToken ? 'Guardado (cifrado). Escribe uno nuevo para reemplazarlo.' : 'Alegra → Configuración → Integraciones'}>
+              <Input type="password" autoComplete="off" value={form.token} onChange={(e) => setForm({ ...form, token: e.target.value })} />
+            </Field>
+            <div className="grid grid-cols-2 gap-2">
+              <Field label="ID impuesto Alegra"><Input value={form.alegraTaxId} onChange={(e) => setForm({ ...form, alegraTaxId: e.target.value })} /></Field>
+              <Field label="ID ítem genérico"><Input value={form.alegraItemId} onChange={(e) => setForm({ ...form, alegraItemId: e.target.value })} /></Field>
+            </div>
+          </>
+        )}
+        {form.provider && (
+          <Field label="Impuesto incluido" hint="0,08 = impoconsumo restaurantes · 0,19 = IVA">
+            <Input type="number" step={0.01} min={0} max={0.3} value={form.taxRate} onChange={(e) => setForm({ ...form, taxRate: e.target.value })} />
+          </Field>
+        )}
+        {canWrite && <Button size="sm" disabled={save.isPending} onClick={() => save.mutate()}>{save.isPending ? 'Guardando…' : 'Guardar'}</Button>}
+      </fieldset>
+    </Card>
+  );
+}
+
 export default function CompanySettings() {
-  const { ready, companyId, canWrite, isPlatform } = useCompanyScope();
+  const { ready, companyId, canWrite, isPlatform, q } = useCompanyScope();
   const queryClient = useQueryClient();
 
   const { data: companies } = useQuery({
@@ -169,6 +259,7 @@ export default function CompanySettings() {
       <PageHeader kicker="Tu cuenta" title="Configuración" />
 
       <div className="grid gap-6 lg:grid-cols-[1fr_340px]">
+        <div className="space-y-6">
         <Card kicker="Editable" title="Datos de la empresa">
           <fieldset disabled={!canWrite} className="grid gap-4 md:grid-cols-2">
             <Field label="Nombre">
@@ -205,6 +296,11 @@ export default function CompanySettings() {
             )}
           </fieldset>
         </Card>
+          <div className="grid gap-6 md:grid-cols-2">
+            <ReviewsCard key={`r-${company.id}`} company={company} canWrite={canWrite} />
+            <EinvoiceCard key={`e-${company.id}`} company={company} canWrite={canWrite} q={q} />
+          </div>
+        </div>
 
         <div className="space-y-4">
           <Card kicker="Suscripción" title={company.plan?.name ?? 'Sin plan'}>

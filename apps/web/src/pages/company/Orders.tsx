@@ -5,7 +5,7 @@ import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { api } from '../../lib/api';
-import { ORDER_STATUS_LABELS, fmtDateTime, orderStatusTone } from '../../lib/format';
+import { ORDER_SOURCE_LABELS, ORDER_STATUS_LABELS, PAYMENT_STATUS_LABELS, fmtDateTime, orderStatusTone, paymentTone } from '../../lib/format';
 import type { Customer, Order, OrdersCalendar, Product } from '../../lib/types';
 import {
   Badge, Button, EmptyState, Field, Input, Loading, Modal, PageHeader, Select,
@@ -368,9 +368,17 @@ export default function Orders() {
                     </span>
                   </td>
                   <td className="px-4 py-2.5">
-                    <Badge tone={orderStatusTone(order.status)}>
-                      {ORDER_STATUS_LABELS[order.status] ?? order.status}
-                    </Badge>
+                    <div className="flex flex-wrap gap-1">
+                      <Badge tone={orderStatusTone(order.status)}>
+                        {ORDER_STATUS_LABELS[order.status] ?? order.status}
+                      </Badge>
+                      {order.paymentStatus && order.paymentStatus !== 'NONE' && (
+                        <Badge tone={paymentTone(order.paymentStatus)}>{PAYMENT_STATUS_LABELS[order.paymentStatus]}</Badge>
+                      )}
+                      {order.source && !['WHATSAPP', 'MANUAL'].includes(order.source) && (
+                        <Badge tone="neutral">{ORDER_SOURCE_LABELS[order.source] ?? order.source}</Badge>
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))}

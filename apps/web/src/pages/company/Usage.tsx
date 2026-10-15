@@ -1,8 +1,9 @@
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
+import { toast } from 'sonner';
 import { Link } from 'react-router-dom';
 import { api } from '../../lib/api';
-import { fmtCop, fmtNum, fmtUsd, timeAgo } from '../../lib/format';
-import type { AiQuota, CompanyAiUsage, MonthlyConsumption } from '../../lib/types';
+import { fmtCop, fmtMoney, fmtNum, fmtUsd, timeAgo } from '../../lib/format';
+import type { AiCreditsStatus, CompanyAiUsage, MonthlyConsumption, Payment } from '../../lib/types';
 import { Badge, Card, Loading, PageHeader, Select, Stat, Table } from '../../components/ui';
 import { CostSeriesChart } from '../../components/charts';
 import { useAiModels } from '../../components/media';
@@ -103,50 +104,85 @@ function MonthlySection({ q }: { q: string }) {
   );
 }
 
-/** Conversaciones IA del mes vs. incluidas en el plan (modo IA de BackOffice). */
-function QuotaBanner({ quota }: { quota: AiQuota }) {
-  const pct = quota.included > 0 ? Math.min(100, Math.round((quota.conversations / quota.included) * 100)) : null;
-  const over = quota.extra > 0;
+/** Saldo de IA de BackOffice: incluidas del mes + paquetes prepagos, y compra. */
+function CreditsPanel({ q, canBuy }: { q: string; canBuy: boolean }) {
+  const { data } = useQuery({
+    queryKey: ['ai-credits', q],
+    queryFn: () => api.get<AiCreditsStatus>(withScope('/ai-credits/status', q)),
+    refetchInterval: 30_000,
+  });
+  const buy = useMutation({
+    mutationFn: (packageId: string) => api.post<Payment>(withScope('/ai-credits/checkout', q), { packageId }),
+    onSuccess: (payment) => {
+      if (!payment.configured) toast.warning('Wompi aún sin llaves de comercio: el pago se generó en modo demostración.');
+      if (payment.checkoutUrl) window.open(payment.checkoutUrl, '_blank', 'noopener');
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : 'Error'),
+  });
+  if (!data) return null;
+  const { credits } = data;
+  const empty = credits.available <= 0;
   return (
-    <section className="mb-4 border-2 border-ink bg-paper px-5 py-4">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <p className="kicker">Conversaciones con IA · {quota.period}</p>
-          <p className="display mt-1 text-4xl">
-            {fmtNum(quota.conversations)}
-            {quota.included > 0 && <span className="text-ink-3"> / {fmtNum(quota.included)}</span>}
-          </p>
+    <section className="mb-6 border-2 border-ink bg-paper">
+      <div className="grid gap-0 md:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)]">
+        <div className="border-b-2 border-ink p-5 md:border-b-0 md:border-r-2">
+          <p className="kicker">Conversaciones con IA disponibles</p>
+          <p className={`display mt-1 text-5xl ${empty ? 'text-bad' : credits.lowBalance ? 'text-warn' : ''}`}>{fmtNum(credits.available)}</p>
           <p className="mt-1 text-xs text-ink-3">
-            {quota.included > 0 ? 'incluidas en tu plan este mes' : 'conversaciones atendidas por la IA este mes'}
+            {fmtNum(credits.includedLeft)} incluidas este mes · {fmtNum(credits.balance)} prepagas
+            {credits.nextExpiry ? ` · el paquete más viejo vence ${new Intl.DateTimeFormat('es-CO', { day: 'numeric', month: 'short', year: 'numeric' }).format(new Date(credits.nextExpiry))}` : ''}
           </p>
+          {(empty || credits.lowBalance) && (
+            <p className={`mt-3 border-2 px-3 py-2 text-xs font-semibold ${empty ? 'border-bad bg-bad-soft text-bad' : 'border-warn bg-warn-soft text-warn'}`}>
+              {empty
+                ? 'Sin saldo: las conversaciones pasan a tu equipo (o a tu cuenta de DeepInfra si estás en híbrido).'
+                : 'Te queda poco saldo: recarga para que tu asistente no se detenga.'}
+            </p>
+          )}
+          <p className="mt-3 text-xs text-ink-3">1 conversación = un cliente atendido por la IA en 24 h, sin importar cuántos mensajes.</p>
         </div>
-        {over && (
-          <div className="text-right">
-            <Badge tone="warn">{fmtNum(quota.extra)} adicionales</Badge>
-            {quota.extraChargeUsd > 0 && (
-              <p className="mt-1 text-xs text-ink-2">
-                {fmtUsd(quota.extraChargeUsd)} en la próxima factura ({fmtUsd(quota.extraPriceUsd)} c/u)
-              </p>
-            )}
+        <div className="p-5">
+          <p className="kicker mb-3">Recargar</p>
+          <div className="grid gap-2 sm:grid-cols-2">
+            {data.packages.map((pkg) => (
+              <button
+                key={pkg.id}
+                type="button"
+                disabled={!canBuy || buy.isPending}
+                onClick={() => buy.mutate(pkg.id)}
+                className="cursor-pointer border-2 border-ink bg-bone px-4 py-3 text-left transition-colors hover:bg-ink hover:text-bone disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <p className="text-sm font-semibold">{fmtNum(pkg.conversations)} conversaciones</p>
+                <p className="text-xs opacity-80">
+                  {fmtMoney(pkg.price, pkg.currency)} · {fmtMoney(Math.round(pkg.price / pkg.conversations), pkg.currency)} c/u · vigencia {pkg.validityMonths} meses
+                </p>
+              </button>
+            ))}
+            {data.packages.length === 0 && <p className="text-sm text-ink-3">No hay paquetes disponibles.</p>}
           </div>
-        )}
-      </div>
-      {pct != null && (
-        <div className="mt-3 h-2.5 border-2 border-ink bg-bone" role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100}>
-          <div className={over ? 'h-full bg-warn' : 'h-full bg-ink'} style={{ width: `${pct}%` }} />
+          {data.lots.length > 0 && (
+            <details className="mt-4 text-xs">
+              <summary className="kicker cursor-pointer">Historial de paquetes</summary>
+              <ul className="mt-2 divide-y divide-line border-2 border-line">
+                {data.lots.map((lot) => (
+                  <li key={lot.id} className="flex justify-between px-3 py-1.5">
+                    <span>{lot.source === 'GRANT' ? 'Cortesía' : 'Compra'}{lot.note ? ` · ${lot.note}` : ''}</span>
+                    <span className={lot.expired ? 'text-bad' : ''}>
+                      {fmtNum(lot.remaining)}/{fmtNum(lot.total)} · {lot.expired ? 'vencido' : `vence ${new Intl.DateTimeFormat('es-CO', { day: 'numeric', month: 'short' }).format(new Date(lot.expiresAt))}`}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </details>
+          )}
         </div>
-      )}
-      {quota.capReached && (
-        <p className="mt-3 text-sm font-semibold text-bad">
-          Se alcanzó el tope de gasto del mes: la IA pasa las conversaciones al equipo hasta que se amplíe.
-        </p>
-      )}
+      </div>
     </section>
   );
 }
 
 export default function Usage() {
-  const { ready, q } = useCompanyScope();
+  const { ready, q, canWrite } = useCompanyScope();
   const [days, setDays] = useState(30);
   const [lineId, setLineId] = useState('');
   const [model, setModel] = useState('');
@@ -187,7 +223,7 @@ export default function Usage() {
         }
       />
 
-      {usesPlatform && data.quota && <QuotaBanner quota={data.quota} />}
+      {usesPlatform && <CreditsPanel q={q} canBuy={canWrite} />}
 
       {hybridAi && data.byBilling && (
         <div className="mb-4 grid gap-3 md:grid-cols-2">
@@ -199,7 +235,7 @@ export default function Usage() {
           <Stat
             label="Con la IA de BackOffice"
             value={fmtNum(data.byBilling.PLATFORM.events)}
-            hint="respuestas · se cobran por conversación según tu plan"
+            hint="respuestas · descuentan de tu saldo prepago"
           />
         </div>
       )}
@@ -313,7 +349,7 @@ export default function Usage() {
         <Link to="/app/billing" className="underline">Facturación → Costos de los modelos IA</Link>
         ).{' '}
         {platformAi
-          ? 'Con la IA de BackOffice pagas por conversación: las incluidas en tu plan y, si te pasas, el excedente en la factura del mes.'
+          ? 'Con la IA de BackOffice usas tus conversaciones incluidas y luego tus paquetes prepagos (vencen a los 12 meses).'
           : hybridAi
             ? 'Lo que responde tu cuenta te lo cobra DeepInfra directo; lo que responde la IA de BackOffice se cobra por conversación según tu plan.'
             : 'Este gasto te lo cobra DeepInfra directamente con tu llave — BackOffice no le gana nada.'}

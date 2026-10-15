@@ -1,17 +1,23 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ChevronLeft, ChevronRight, Download, LayoutGrid, List } from 'lucide-react';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { api } from '../../lib/api';
 import { CHANNEL_LABELS, STAGE_LABELS, timeAgo } from '../../lib/format';
-import type { Contact } from '../../lib/types';
+import type { Contact, Pipeline, PipelineStage } from '../../lib/types';
 import {
-  Badge, Button, Field, Input, Loading, Modal, PageHeader, Select, Table,
-  Textarea, statusTone,
+  Badge, Button, Field, Input, Loading, Modal, PageHeader, Select, Switch, Table,
+  Textarea,
 } from '../../components/ui';
 import { PickCompany, useCompanyScope, withScope } from './shared';
 
-const STAGES = ['CURIOSO', 'POTENCIAL', 'CALIENTE', 'CLIENTE', 'DESCARTADO'];
+const DEFAULT_STAGES: PipelineStage[] = ['CURIOSO', 'POTENCIAL', 'CALIENTE', 'CLIENTE', 'DESCARTADO'].map((key) => ({
+  key, label: STAGE_LABELS[key], kind: key === 'CLIENTE' ? 'WON' : key === 'DESCARTADO' ? 'LOST' : 'OPEN',
+}));
+
+function stageTone(stage?: PipelineStage): 'ok' | 'bad' | 'neutral' {
+  return stage?.kind === 'WON' ? 'ok' : stage?.kind === 'LOST' ? 'bad' : 'neutral';
+}
 
 interface ContactForm {
   id?: string;
@@ -22,11 +28,18 @@ interface ContactForm {
   channel: string;
   tags: string;
   notes: string;
+  pipelineId: string;
+  optOut: boolean;
 }
 
 const emptyForm: ContactForm = {
-  name: '', phone: '', email: '', stage: 'CURIOSO', channel: 'WHATSAPP', tags: '', notes: '',
+  name: '', phone: '', email: '', stage: '', channel: 'WHATSAPP', tags: '', notes: '', pipelineId: 'default', optOut: false,
 };
+
+const toForm = (c: Contact): ContactForm => ({
+  id: c.id, name: c.name, phone: c.phone ?? '', email: c.email ?? '', stage: c.stage, channel: c.channel,
+  tags: c.tags.join(', '), notes: c.notes ?? '', pipelineId: c.pipelineId ?? 'default', optOut: !!c.optOut,
+});
 
 export default function Contacts() {
   const { ready, q, canWrite, companyId } = useCompanyScope();
@@ -35,9 +48,26 @@ export default function Contacts() {
   const [stage, setStage] = useState('');
   const [view, setView] = useState<'lista' | 'tablero'>('lista');
   const [editing, setEditing] = useState<ContactForm | null>(null);
+  const [pipelineId, setPipelineId] = useState('default');
+  const [editingPipeline, setEditingPipeline] = useState<Partial<Pipeline> | null>(null);
+
+  const { data: pipelines } = useQuery({
+    queryKey: ['pipelines', q],
+    queryFn: () => api.get<Pipeline[]>(withScope('/pipelines', q)),
+    enabled: ready,
+  });
+  const pipeline = pipelines?.find((p) => p.id === pipelineId);
+  const STAGES = pipeline?.stages ?? DEFAULT_STAGES;
+  const stagesFor = (id: string) => pipelines?.find((p) => p.id === id)?.stages ?? DEFAULT_STAGES;
+  const labelOf = useMemo(() => {
+    const map = new Map<string, PipelineStage>();
+    (pipelines ?? []).forEach((p) => p.stages.forEach((st) => map.set(st.key, st)));
+    DEFAULT_STAGES.forEach((st) => map.has(st.key) || map.set(st.key, st));
+    return map;
+  }, [pipelines]);
 
   const path = withScope(
-    `/contacts?x=1${stage ? `&stage=${stage}` : ''}${search ? `&search=${encodeURIComponent(search)}` : ''}`,
+    `/contacts?pipelineId=${pipelineId}${stage ? `&stage=${stage}` : ''}${search ? `&search=${encodeURIComponent(search)}` : ''}`,
     q,
   );
   const { data: contacts, isLoading } = useQuery({
@@ -53,6 +83,8 @@ export default function Contacts() {
         email: form.email || undefined, stage: form.stage, channel: form.channel,
         tags: form.tags.split(',').map((t) => t.trim()).filter(Boolean),
         notes: form.notes || undefined,
+        pipelineId: form.pipelineId,
+        optOut: form.optOut,
         ...(companyId ? { companyId } : {}),
       };
       return form.id
@@ -77,8 +109,9 @@ export default function Contacts() {
   if (!ready) return <PickCompany />;
 
   const counts = STAGES.map((s) => ({
-    stage: s,
-    count: contacts?.filter((c) => c.stage === s).length ?? 0,
+    stage: s.key,
+    label: s.label,
+    count: contacts?.filter((c) => c.stage === s.key).length ?? 0,
   }));
 
   /** "Tu base de datos de clientes, 100% tuya" — exportación a CSV. */
@@ -89,7 +122,7 @@ export default function Contacts() {
       ['Nombre', 'Teléfono', 'Correo', 'Etapa', 'Canal', 'Etiquetas', 'Notas', 'Última actividad', 'Creado'].join(';'),
       ...rows.map((c) =>
         [
-          esc(c.name), esc(c.phone), esc(c.email), esc(STAGE_LABELS[c.stage]),
+          esc(c.name), esc(c.phone), esc(c.email), esc(labelOf.get(c.stage)?.label ?? c.stage),
           esc(CHANNEL_LABELS[c.channel] ?? c.channel), esc(c.tags.join(', ')),
           esc(c.notes), esc(new Date(c.lastActivityAt).toLocaleString('es-CO')),
           esc(new Date(c.createdAt).toLocaleString('es-CO')),
@@ -117,15 +150,47 @@ export default function Contacts() {
               <Download size={13} /> Exportar CSV
             </Button>
             {canWrite && (
-              <Button onClick={() => setEditing({ ...emptyForm })}>+ Nuevo contacto</Button>
+              <Button onClick={() => setEditing({ ...emptyForm, pipelineId, stage: STAGES[0].key })}>+ Nuevo contacto</Button>
             )}
           </>
         }
       />
 
       {/* Pipeline resumido */}
+      <div className="mb-3 flex flex-wrap items-center gap-2">
+        <span className="kicker">Embudo</span>
+        <Select
+          value={pipelineId}
+          onChange={(e) => { setPipelineId(e.target.value); setStage(''); }}
+          className="!w-auto !py-1.5 text-sm"
+          aria-label="Embudo"
+        >
+          {(pipelines ?? [{ id: 'default', name: 'Embudo estándar' } as Pipeline]).map((p) => (
+            <option key={p.id} value={p.id}>{p.name}</option>
+          ))}
+        </Select>
+        {canWrite && (
+          <>
+            {pipeline && !pipeline.builtIn && (
+              <Button size="sm" variant="ghost" onClick={() => setEditingPipeline(pipeline)}>Editar embudo</Button>
+            )}
+            <Button
+              size="sm" variant="ghost"
+              onClick={() => setEditingPipeline({
+                name: '', isDefault: false,
+                stages: [
+                  { key: '', label: 'Nuevo', kind: 'OPEN' }, { key: '', label: 'En proceso', kind: 'OPEN' },
+                  { key: '', label: 'Ganado', kind: 'WON' }, { key: '', label: 'Perdido', kind: 'LOST' },
+                ],
+              })}
+            >
+              + Nuevo embudo
+            </Button>
+          </>
+        )}
+      </div>
       <div className="mb-4 grid grid-cols-2 gap-2 md:grid-cols-5">
-        {counts.map(({ stage: s, count }) => (
+        {counts.map(({ stage: s, label, count }) => (
           <button
             key={s}
             onClick={() => setStage(stage === s ? '' : s)}
@@ -134,7 +199,7 @@ export default function Contacts() {
             }`}
           >
             <p className="kicker" style={stage === s ? { color: '#c3bbb2' } : undefined}>
-              {STAGE_LABELS[s]}
+              {label}
             </p>
             <p className="display text-2xl">{count}</p>
           </button>
@@ -169,12 +234,12 @@ export default function Contacts() {
       ) : view === 'tablero' ? (
         /* ─── Vista tablero: el embudo como kanban ─── */
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
-          {STAGES.map((s, stageIndex) => {
-            const items = (contacts ?? []).filter((c) => c.stage === s);
+          {STAGES.map((st, stageIndex) => {
+            const items = (contacts ?? []).filter((c) => c.stage === st.key);
             return (
-              <div key={s} className="border-2 border-ink bg-bone-2">
+              <div key={st.key} className="border-2 border-ink bg-bone-2">
                 <div className="flex items-center justify-between border-b-2 border-ink bg-paper px-3 py-2">
-                  <p className="kicker">{STAGE_LABELS[s]}</p>
+                  <p className="kicker">{st.label}</p>
                   <span className="display text-lg">{items.length}</span>
                 </div>
                 <div className="max-h-[60vh] space-y-2 overflow-y-auto p-2">
@@ -182,17 +247,9 @@ export default function Contacts() {
                     <div key={contact.id} className="border-2 border-ink bg-paper p-2.5">
                       <button
                         className="block w-full cursor-pointer text-left"
-                        onClick={() =>
-                          canWrite &&
-                          setEditing({
-                            id: contact.id, name: contact.name,
-                            phone: contact.phone ?? '', email: contact.email ?? '',
-                            stage: contact.stage, channel: contact.channel,
-                            tags: contact.tags.join(', '), notes: contact.notes ?? '',
-                          })
-                        }
+                        onClick={() => canWrite && setEditing(toForm(contact))}
                       >
-                        <p className="truncate text-sm font-semibold">{contact.name}</p>
+                        <p className="truncate text-sm font-semibold">{contact.name}{contact.optOut && <span className="ml-1.5 text-[10px] font-bold uppercase text-bad">baja</span>}</p>
                         <p className="truncate text-[11px] text-ink-3">
                           {contact.phone ?? contact.email ?? '—'} · {timeAgo(contact.lastActivityAt)}
                         </p>
@@ -208,7 +265,7 @@ export default function Contacts() {
                             className="cursor-pointer p-0.5 text-ink-3 hover:text-ink disabled:opacity-30"
                             disabled={stageIndex === 0}
                             aria-label="Mover a etapa anterior"
-                            onClick={() => changeStage.mutate({ id: contact.id, stage: STAGES[stageIndex - 1] })}
+                            onClick={() => changeStage.mutate({ id: contact.id, stage: STAGES[stageIndex - 1].key })}
                           >
                             <ChevronLeft size={14} />
                           </button>
@@ -216,7 +273,7 @@ export default function Contacts() {
                             className="cursor-pointer p-0.5 text-ink-3 hover:text-ink disabled:opacity-30"
                             disabled={stageIndex === STAGES.length - 1}
                             aria-label="Mover a etapa siguiente"
-                            onClick={() => changeStage.mutate({ id: contact.id, stage: STAGES[stageIndex + 1] })}
+                            onClick={() => changeStage.mutate({ id: contact.id, stage: STAGES[stageIndex + 1].key })}
                           >
                             <ChevronRight size={14} />
                           </button>
@@ -237,7 +294,10 @@ export default function Contacts() {
           {contacts?.map((contact) => (
             <tr key={contact.id}>
               <td className="px-4 py-3">
-                <p className="font-semibold">{contact.name}</p>
+                <p className="flex items-center gap-2 font-semibold">
+                  {contact.name}
+                  {contact.optOut && <Badge tone="bad">No escribir</Badge>}
+                </p>
                 <p className="text-xs text-ink-3">
                   {[contact.phone, contact.email].filter(Boolean).join(' · ') || '—'}
                 </p>
@@ -251,10 +311,10 @@ export default function Contacts() {
                     className="!w-auto !py-1 text-xs"
                     aria-label={`Etapa de ${contact.name}`}
                   >
-                    {STAGES.map((s) => <option key={s} value={s}>{STAGE_LABELS[s]}</option>)}
+                    {STAGES.map((s) => <option key={s.key} value={s.key}>{s.label}</option>)}
                   </Select>
                 ) : (
-                  <Badge tone={statusTone(contact.stage)}>{STAGE_LABELS[contact.stage]}</Badge>
+                  <Badge tone={stageTone(labelOf.get(contact.stage))}>{labelOf.get(contact.stage)?.label ?? contact.stage}</Badge>
                 )}
               </td>
               <td className="px-4 py-3">
@@ -267,14 +327,7 @@ export default function Contacts() {
                 {canWrite && (
                   <Button
                     size="sm" variant="ghost"
-                    onClick={() =>
-                      setEditing({
-                        id: contact.id, name: contact.name,
-                        phone: contact.phone ?? '', email: contact.email ?? '',
-                        stage: contact.stage, channel: contact.channel,
-                        tags: contact.tags.join(', '), notes: contact.notes ?? '',
-                      })
-                    }
+                    onClick={() => setEditing(toForm(contact))}
                   >
                     Editar
                   </Button>
@@ -306,9 +359,17 @@ export default function Contacts() {
               <Field label="Correo">
                 <Input type="email" value={editing.email} onChange={(e) => setEditing({ ...editing, email: e.target.value })} />
               </Field>
+              <Field label="Embudo">
+                <Select
+                  value={editing.pipelineId}
+                  onChange={(e) => setEditing({ ...editing, pipelineId: e.target.value, stage: stagesFor(e.target.value)[0].key })}
+                >
+                  {(pipelines ?? []).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                </Select>
+              </Field>
               <Field label="Etapa">
                 <Select value={editing.stage} onChange={(e) => setEditing({ ...editing, stage: e.target.value })}>
-                  {STAGES.map((s) => <option key={s} value={s}>{STAGE_LABELS[s]}</option>)}
+                  {stagesFor(editing.pipelineId).map((s) => <option key={s.key} value={s.key}>{s.label}</option>)}
                 </Select>
               </Field>
               <Field label="Canal">
@@ -325,6 +386,14 @@ export default function Contacts() {
             <Field label="Notas">
               <Textarea rows={3} value={editing.notes} onChange={(e) => setEditing({ ...editing, notes: e.target.value })} />
             </Field>
+            <div className="border-2 border-line p-3">
+              <Switch
+                checked={editing.optOut}
+                onChange={(v) => setEditing({ ...editing, optOut: v })}
+                label="No quiere recibir campañas ni seguimientos"
+              />
+              <p className="mt-1 text-[11px] text-ink-3">Se activa solo si el cliente escribe SALIR o BAJA; con ACTIVAR vuelve a recibirlos.</p>
+            </div>
             <div className="flex justify-end gap-2">
               <Button variant="outline" onClick={() => setEditing(null)}>Cancelar</Button>
               <Button disabled={!editing.name || save.isPending} onClick={() => save.mutate(editing)}>
@@ -334,6 +403,114 @@ export default function Contacts() {
           </div>
         )}
       </Modal>
+
+      {editingPipeline && (
+        <PipelineModal
+          pipeline={editingPipeline}
+          q={q}
+          onClose={() => setEditingPipeline(null)}
+          onSaved={(id) => { setPipelineId(id); setStage(''); }}
+        />
+      )}
     </>
+  );
+}
+
+/* ─── Editor de embudo ──────────────────────────────────────────────── */
+
+function PipelineModal({ pipeline, q, onClose, onSaved }: {
+  pipeline: Partial<Pipeline>;
+  q: string;
+  onClose: () => void;
+  onSaved: (id: string) => void;
+}) {
+  const queryClient = useQueryClient();
+  const [name, setName] = useState(pipeline.name ?? '');
+  const [isDefault, setIsDefault] = useState(!!pipeline.isDefault);
+  const [stages, setStages] = useState<PipelineStage[]>(pipeline.stages ?? []);
+  const save = useMutation({
+    mutationFn: () => {
+      const body = { name, isDefault, stages };
+      return pipeline.id
+        ? api.patch<Pipeline>(withScope(`/pipelines/${pipeline.id}`, q), body)
+        : api.post<Pipeline>(withScope('/pipelines', q), body);
+    },
+    onSuccess: (p) => {
+      toast.success('Embudo guardado');
+      queryClient.invalidateQueries({ queryKey: ['pipelines'] });
+      queryClient.invalidateQueries({ queryKey: ['contacts'] });
+      onSaved(p.id);
+      onClose();
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : 'Error'),
+  });
+  const remove = useMutation({
+    mutationFn: () => api.delete(withScope(`/pipelines/${pipeline.id}`, q)),
+    onSuccess: () => {
+      toast.success('Embudo eliminado: sus contactos vuelven al estándar');
+      queryClient.invalidateQueries({ queryKey: ['pipelines'] });
+      queryClient.invalidateQueries({ queryKey: ['contacts'] });
+      onSaved('default');
+      onClose();
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : 'Error'),
+  });
+  const move = (i: number, d: -1 | 1) => {
+    const next = [...stages];
+    [next[i], next[i + d]] = [next[i + d], next[i]];
+    setStages(next);
+  };
+  return (
+    <Modal open onClose={onClose} kicker="CRM" title={pipeline.id ? 'Editar embudo' : 'Nuevo embudo'}>
+      <div className="space-y-4">
+        <Field label="Nombre" required>
+          <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Ventas corporativas" />
+        </Field>
+        <div className="space-y-2">
+          <p className="kicker">Etapas (2 a 12)</p>
+          {stages.map((st, i) => (
+            <div key={i} className="flex items-center gap-2">
+              <span className="w-5 text-right text-xs tabular-nums text-ink-3">{i + 1}</span>
+              <Input value={st.label} onChange={(e) => setStages(stages.map((x, j) => (j === i ? { ...x, label: e.target.value } : x)))} />
+              <Select
+                value={st.kind}
+                className="!w-32"
+                onChange={(e) => setStages(stages.map((x, j) => (j === i ? { ...x, kind: e.target.value as PipelineStage['kind'] } : x)))}
+              >
+                <option value="OPEN">Abierta</option>
+                <option value="WON">Ganada</option>
+                <option value="LOST">Perdida</option>
+              </Select>
+              <button className="cursor-pointer p-1 text-ink-3 hover:text-ink disabled:opacity-30" disabled={i === 0} onClick={() => move(i, -1)} aria-label="Subir">
+                <ChevronLeft size={14} className="rotate-90" />
+              </button>
+              <button className="cursor-pointer p-1 text-ink-3 hover:text-ink disabled:opacity-30" disabled={i === stages.length - 1} onClick={() => move(i, 1)} aria-label="Bajar">
+                <ChevronRight size={14} className="rotate-90" />
+              </button>
+              <button className="cursor-pointer px-1 text-xs text-ink-3 hover:text-bad" onClick={() => setStages(stages.filter((_, j) => j !== i))}>
+                Quitar
+              </button>
+            </div>
+          ))}
+          {stages.length < 12 && (
+            <Button size="sm" variant="outline" onClick={() => setStages([...stages, { key: '', label: '', kind: 'OPEN' }])}>
+              + Etapa
+            </Button>
+          )}
+        </div>
+        <Switch checked={isDefault} onChange={setIsDefault} label="Embudo por defecto para contactos nuevos" />
+        {pipeline.id && (
+          <p className="text-[11px] text-ink-3">Si quitas una etapa, los contactos que estaban en ella pasan a la primera.</p>
+        )}
+        <div className="flex justify-between gap-2">
+          {pipeline.id ? (
+            <Button variant="danger" size="sm" onClick={() => window.confirm('¿Eliminar este embudo?') && remove.mutate()}>Eliminar</Button>
+          ) : <span />}
+          <Button disabled={!name.trim() || save.isPending} onClick={() => save.mutate()}>
+            {save.isPending ? 'Guardando…' : 'Guardar embudo'}
+          </Button>
+        </div>
+      </div>
+    </Modal>
   );
 }

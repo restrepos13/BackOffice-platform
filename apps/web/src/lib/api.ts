@@ -49,6 +49,21 @@ export async function openPdf(path: string): Promise<void> {
   setTimeout(() => URL.revokeObjectURL(url), 60_000);
 }
 
+/** Sube un archivo (multipart) al API con el JWT. */
+export async function uploadFile<T = unknown>(path: string, field: string, file: File, extra?: Record<string, string>): Promise<T> {
+  const form = new FormData();
+  form.append(field, file);
+  Object.entries(extra ?? {}).forEach(([k, v]) => form.append(k, v));
+  const res = await fetch(`${BASE}${path}`, {
+    method: 'POST',
+    headers: getToken() ? { Authorization: `Bearer ${getToken()}` } : {},
+    body: form,
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(Array.isArray(data?.message) ? data.message.join(', ') : data?.message ?? `Error ${res.status}`);
+  return data as T;
+}
+
 export const api = {
   get: <T>(path: string) => request<T>('GET', path),
   post: <T>(path: string, body?: unknown) => request<T>('POST', path, body),

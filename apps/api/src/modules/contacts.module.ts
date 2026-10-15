@@ -58,7 +58,10 @@ export class ContactsService {
         ...(scoped ? { companyId: scoped } : {}),
         ...(stage ? { stage } : {}),
         // Embudo: "default" = contactos sin embudo propio
-        ...(pipelineId ? (pipelineId === 'default' ? { pipelineId: null } : { pipelineId }) : {}),
+        ...(pipelineId && pipelineId !== 'default' ? { pipelineId } : {}),
+        // Mongo: null no matchea documentos sin el campo → ambos casos
+        ...(pipelineId === 'default' && !search ? { OR: [{ pipelineId: null }, { pipelineId: { isSet: false } }] } : {}),
+        ...(pipelineId === 'default' && search ? { AND: [{ OR: [{ pipelineId: null }, { pipelineId: { isSet: false } }] }] } : {}),
         ...(search
           ? {
               OR: [
@@ -83,6 +86,9 @@ export class ContactsService {
   async create(user: AuthUser, dto: any) {
     const companyId = isPlatformRole(user.role) ? dto.companyId : user.companyId;
     if (!companyId) throw new ForbiddenException('Falta companyId');
+    const pipelineId = dto.pipelineId && dto.pipelineId !== 'default' ? String(dto.pipelineId) : null;
+    const stages = await this.stagesOf(pipelineId, companyId);
+    const stage = dto.stage && stages.some((s) => s.key === dto.stage) ? dto.stage : stages[0].key;
     const contact = await this.prisma.contact.create({
       data: {
         companyId,
@@ -90,7 +96,8 @@ export class ContactsService {
         phone: dto.phone,
         email: dto.email,
         channel: dto.channel ?? 'WHATSAPP',
-        stage: dto.stage ?? 'CURIOSO',
+        stage,
+        pipelineId,
         tagsJson: JSON.stringify(dto.tags ?? []),
         notes: dto.notes,
         assignedToId: dto.assignedToId,
