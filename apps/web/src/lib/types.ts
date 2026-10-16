@@ -86,7 +86,8 @@ export interface Plan {
   /** IA de BackOffice: conversaciones incluidas al mes y precio del excedente (USD) */
   includedAiConversations?: number;
   extraAiConversationUsd?: number;
-  line?: 'PRO' | 'NEGOCIOS';
+  /** Rubro: COMIDAS | WEBCAM | SERVICIOS | VENTAS; PRO = planes viejos en USD */
+  line?: PlanLine;
   currency?: 'USD' | 'COP';
   maxLines?: number;
   maxCouriers?: number;
@@ -95,6 +96,8 @@ export interface Plan {
   sortOrder?: number;
   _count?: { companies: number };
 }
+
+export type PlanLine = 'COMIDAS' | 'WEBCAM' | 'SERVICIOS' | 'VENTAS' | 'PRO';
 
 export interface Company {
   id: string;
@@ -131,6 +134,8 @@ export interface Company {
   aiIncludedOverride?: number | null;
   logoUrl?: string | null;
   customPriceMonthly?: number | null;
+  billingCycle?: 'MONTHLY' | 'ANNUAL';
+  annualStartPeriod?: string | null;
   contractStartAt?: string | null;
   minTermMonths?: number | null;
   setupFeeValue?: number | null;
@@ -985,10 +990,15 @@ export interface BillingSummaryV2 {
   company: { id: string; name: string; status: string };
   plan: { name: string; code: string; line: string; priceMonthly: number; currency: string } | null;
   customPriceMonthly: number | null;
+  billingCycle: 'MONTHLY' | 'ANNUAL';
+  annualStartPeriod: string | null;
+  nextAnnualCharge: string | null;
   lines: InvoiceLine[];
   planAmount: number;
   consumptionAmount: number;
   total: number;
+  /** IVA incluido en el total (COP) */
+  iva: number;
   consumption: {
     aiCostUsd: number; aiTokens: number; whatsappCostUsd: number; whatsappConversations: number;
     storageCostUsd: number; storageMb: number;
@@ -1011,6 +1021,7 @@ export interface InvoiceRow {
   paidAt?: string | null;
   notes?: string | null;
   lines: InvoiceLine[];
+  iva?: number;
 }
 
 export interface AiCreditPackage {

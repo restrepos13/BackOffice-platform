@@ -13,6 +13,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { CurrentUser, Roles } from '../auth/decorators';
 import { AuthUser, ROLES, parseJson } from '../common/constants';
 import { AuditService } from './audit.module';
+import { PLAN_LINES } from '../common/billing-engine';
 
 @Injectable()
 export class PlansService {
@@ -36,7 +37,7 @@ export class PlansService {
   private commercialFields(dto: any) {
     const int = (v: unknown) => Math.max(0, Math.round(Number(v)));
     return {
-      ...(dto.line !== undefined ? { line: dto.line === 'NEGOCIOS' ? 'NEGOCIOS' : 'PRO' } : {}),
+      ...(dto.line !== undefined ? { line: (PLAN_LINES as readonly string[]).includes(dto.line) ? dto.line : 'PRO' } : {}),
       ...(dto.currency !== undefined ? { currency: dto.currency === 'COP' ? 'COP' : 'USD' } : {}),
       ...(dto.maxLines != null ? { maxLines: int(dto.maxLines) } : {}),
       ...(dto.maxCouriers != null ? { maxCouriers: int(dto.maxCouriers) } : {}),

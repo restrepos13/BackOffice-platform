@@ -4,7 +4,7 @@ import { Gift, Pencil, Plus, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 import { toast } from 'sonner';
 import { api } from '../lib/api';
-import { ADJUSTMENT_LABELS, LINE_KIND_LABELS, fmtDate, fmtMoney, fmtNum, fmtPeriod } from '../lib/format';
+import { ADJUSTMENT_LABELS, LINE_KIND_LABELS, fmtDate, fmtMoney, fmtNum, fmtPeriod, ivaIncluido } from '../lib/format';
 import type {
   AiCreditsStatus, BillingAdjustment, BillingSummaryV2, Company, InvoiceLine, InvoiceRow,
 } from '../lib/types';
@@ -181,6 +181,27 @@ export default function CompanyBilling({ company }: { company: Company }) {
         {/* ─── Contrato ─── */}
         <Card kicker="Contrato" title="Precio y permanencia">
           <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Forma de pago">
+                <Select
+                  value={company.billingCycle ?? 'MONTHLY'}
+                  onChange={(e) => updateCompany.mutate({ billingCycle: e.target.value })}
+                >
+                  <option value="MONTHLY">Mensual</option>
+                  <option value="ANNUAL">Anual (12 meses por 10)</option>
+                </Select>
+              </Field>
+              {company.billingCycle === 'ANNUAL' && (
+                <Field label="Mes del cobro anual" hint="Se repite cada 12 meses">
+                  <Input
+                    type="month"
+                    key={company.annualStartPeriod ?? ''}
+                    defaultValue={company.annualStartPeriod ?? ''}
+                    onBlur={(e) => e.target.value && e.target.value !== company.annualStartPeriod && updateCompany.mutate({ annualStartPeriod: e.target.value })}
+                  />
+                </Field>
+              )}
+            </div>
             <Field label="Precio pactado mensual" hint={`Vacío = precio del plan (${summary?.plan ? fmtMoney(summary.plan.priceMonthly, summary.plan.currency) : '—'})`}>
               <Input
                 type="number" min={0} step={1000}
@@ -273,6 +294,12 @@ export function Lines({ lines, currency }: { lines: InvoiceLine[]; currency: str
         <dt>Total</dt>
         <dd className="tabular-nums">{fmtMoney(Math.max(0, total), currency)}</dd>
       </div>
+      {ivaIncluido(total, currency) > 0 && (
+        <div className="flex justify-between text-xs text-ink-3">
+          <dt>Incluye IVA (19 %)</dt>
+          <dd className="tabular-nums">{fmtMoney(ivaIncluido(total, currency), currency)}</dd>
+        </div>
+      )}
     </dl>
   );
 }

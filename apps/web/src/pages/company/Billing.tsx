@@ -95,11 +95,18 @@ export default function Billing() {
         <div className="space-y-4">
           <section className="border-2 border-ink bg-ink text-bone">
             <header className="border-b-2 border-bone/30 px-5 py-3">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-line">Total del mes</p>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-line">
+                {summary.billingCycle === 'ANNUAL' ? 'Cobro de este mes · plan anual' : 'Total del mes'}
+              </p>
             </header>
             <div className="p-5">
               <p className="display text-5xl">{fmtMoney(summary.total, summary.currency)}</p>
-              <p className="mt-2 text-xs text-line">Un solo cobro mensual.</p>
+              <p className="mt-2 text-xs text-line">
+                {summary.iva > 0 ? `IVA incluido (${fmtMoney(summary.iva, summary.currency)}). ` : ''}
+                {summary.billingCycle === 'ANNUAL'
+                  ? `Pagas el año por adelantado con 2 meses gratis${summary.nextAnnualCharge ? `; próximo pago anual: ${fmtPeriod(summary.nextAnnualCharge)}` : ''}.`
+                  : 'Un solo cobro mensual.'}
+              </p>
             </div>
           </section>
           <Card kicker="Inteligencia artificial" title={summary.ai.mode === 'BYOK' ? 'Tu cuenta DeepInfra' : `${fmtNum(summary.ai.available)} conversaciones`}>

@@ -5,8 +5,7 @@ import { toast } from 'sonner';
 import { api } from '../../lib/api';
 import { useActiveCompanyId } from '../../lib/auth';
 import {
-  BOT_STATUS_LABELS, COMPANY_STATUS_LABELS, INTEGRATION_STATUS_LABELS,
-  AI_MODE_LABELS, MODULE_LABELS, ROLE_LABELS, fmtDate, fmtUsd, timeAgo,
+  BOT_STATUS_LABELS, COMPANY_STATUS_LABELS, INTEGRATION_STATUS_LABELS, AI_MODE_LABELS, MODULE_LABELS, ROLE_LABELS, fmtDate, fmtUsd, timeAgo, PLAN_LINE_LABELS, PLAN_LINE_ORDER, planPriceLabel,
 } from '../../lib/format';
 import type { AuditEntry, Company, Plan } from '../../lib/types';
 import CompanyBilling from '../../components/CompanyBilling';
@@ -100,7 +99,7 @@ export default function CompanyDetail() {
         </Badge>
         {company.plan && (
           <Badge tone="ink">
-            {company.plan.name} · {company.plan.isCustom ? 'a medida' : `${fmtUsd(company.plan.priceMonthly)}/mes`}
+            {company.plan.name} · {planPriceLabel(company.plan, false)}{company.billingCycle === 'ANNUAL' ? ' · anual' : ''}
           </Badge>
         )}
         {company.trialEndsAt && company.status === 'TRIAL' && (
@@ -173,11 +172,19 @@ export default function CompanyDetail() {
                   onChange={(e) => update.mutate({ planId: e.target.value || null })}
                 >
                   <option value="">Sin plan</option>
-                  {plans?.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.name} — {p.isCustom ? 'a medida' : `${fmtUsd(p.priceMonthly)}/mes`}
-                    </option>
-                  ))}
+                  {PLAN_LINE_ORDER.map((line) => {
+                    const group = (plans ?? []).filter((p) => (p.line ?? 'PRO') === line && (p.active || p.id === company.planId));
+                    if (!group.length) return null;
+                    return (
+                      <optgroup key={line} label={PLAN_LINE_LABELS[line]}>
+                        {group.map((p) => (
+                          <option key={p.id} value={p.id}>
+                            {p.name} — {planPriceLabel(p)}{p.active ? '' : ' (ya no se ofrece)'}
+                          </option>
+                        ))}
+                      </optgroup>
+                    );
+                  })}
                 </Select>
               </Field>
               <div className="mt-4 grid grid-cols-2 gap-4">

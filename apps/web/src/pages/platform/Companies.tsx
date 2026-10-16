@@ -2,7 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { api } from '../../lib/api';
-import { COMPANY_STATUS_LABELS, fmtDate, fmtUsd } from '../../lib/format';
+import { COMPANY_STATUS_LABELS, fmtDate, fmtUsd, planPriceLabel } from '../../lib/format';
 import type { Company } from '../../lib/types';
 import {
   Badge, Button, Input, Loading, PageHeader, Select, Table, statusTone,
@@ -74,7 +74,7 @@ export default function Companies() {
                 {c.plan ? (
                   <>
                     <p className="text-[13px] font-medium">{c.plan.name}</p>
-                    <p className="text-xs text-ink-3">{fmtUsd(c.plan.priceMonthly)}/mes</p>
+                    <p className="text-xs text-ink-3">{planPriceLabel(c.plan, false)}{c.billingCycle === 'ANNUAL' ? ' · anual' : ''}</p>
                   </>
                 ) : (
                   <span className="text-ink-3">—</span>

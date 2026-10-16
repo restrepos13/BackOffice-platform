@@ -211,11 +211,19 @@ la vieja `backoffice2026` ya no existe):
 
 ## Crecimiento, cobro y operación (oct 2026, rama agentes-domicilios)
 
-- **Precios** (`pnpm --filter @backoffice/api db:seed:precios`, idempotente): línea
-  Negocios en COP (Esencial 149k · Negocio 349k · Operación 890k, montaje gratis con
-  permanencia 6/6/12 meses; salida anticipada = montaje proporcional, SETUP adjustment
-  salvo `waiveSetupFee`). Planes Pro USD siguen (precio por revisar con el usuario).
-  Prueba gratis: eliminada a pedido del usuario.
+- **Precios (16 oct 2026, aprobados)** (`pnpm --filter @backoffice/api db:seed:precios`,
+  idempotente; también lo llama `db:seed`): planes por **rubro** (`Plan.line`: COMIDAS,
+  WEBCAM, SERVICIOS, VENTAS), en COP, **IVA incluido**, publicados «desde» (el precio
+  final de cada empresa se ajusta con el cobro personalizable):
+  Comidas 149k/349k/890k · Webcam 390k (5 perfiles)/890k (15)/1,79M (40)/Corporativo
+  desde 2,99M · Servicios 129k/299k/690k · Ventas 199k/449k/990k. Pago anual = 12 meses
+  por 10 (`Company.billingCycle` ANNUAL + `annualStartPeriod`: ese mes cobra 10
+  mensualidades y los 11 siguientes salen cubiertos; ajustes y consumo siguen mes a
+  mes). Montaje gratis con permanencia 6/6/12 (salida anticipada = montaje
+  proporcional). IA solo en paquetes. Sin prueba gratis (el wizard crea empresas
+  ACTIVE). Los planes viejos en USD (starter/growth/scale/enterprise) quedan
+  `line PRO`, `active false`: no se ofrecen, pero Nexus (inactiva) y la Empresa de
+  Prueba los conservan — no migrarlas sin preguntar.
 - **Cobro mes a mes** (`src/common/billing-engine.ts`, `billing.module.ts`): precio
   propio (`Company.customPriceMonthly`) + `BillingAdjustment` (PRICE/CHARGE/DISCOUNT/
   SETUP; un mes, rango o recurrente; % o valor). Facturas editables (solo plataforma),
@@ -258,7 +266,7 @@ la vieja `backoffice2026` ya no existe):
 
 ## Pendiente
 
-1. Revisar precios de los planes Pro en USD con el usuario (competencia).
+1. Actualizar la landing (proyecto 6) con los precios por rubro: hoy muestra webcam USD 299/599/999.
 2. Probar el adaptador de Alegra con una cuenta real (hoy validado en SIMULADO).
 3. Hosting 24/7 (Render/Vercel planeado): `/api` relativo en la web, Redis con
    TLS (`redisConnection` no soporta rediss:// ni usuario), `trust proxy`,

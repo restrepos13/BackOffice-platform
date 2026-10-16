@@ -18,14 +18,7 @@ import { computeAiCredits } from '../ai/ai-access';
 import { CurrentUser, Roles } from '../auth/decorators';
 import { AuthUser, ROLES, isPlatformRole, parseJson, scopeCompanyId } from '../common/constants';
 import {
-  PERIOD_RE,
-  computeCompanyInvoice,
-  earlyExitFee,
-  invoiceCurrency,
-  periodOf,
-  sanitizeLines,
-  shiftPeriod,
-  summarize,
+  PERIOD_RE, computeCompanyInvoice, earlyExitFee, invoiceCurrency, periodOf, sanitizeLines, shiftPeriod, summarize, monthsBetween, includedIva,
 } from '../common/billing-engine';
 import { AuditService } from './audit.module';
 
@@ -84,10 +77,17 @@ export class BillingService {
           }
         : null,
       customPriceMonthly: company.customPriceMonthly ?? null,
+      billingCycle: company.billingCycle ?? 'MONTHLY',
+      annualStartPeriod: company.annualStartPeriod ?? null,
+      // Próximo cobro anual (el mes de inicio de cada ciclo)
+      nextAnnualCharge: company.billingCycle === 'ANNUAL' && company.annualStartPeriod
+        ? shiftPeriod(company.annualStartPeriod, Math.max(0, Math.ceil(monthsBetween(company.annualStartPeriod, p) / 12)) * 12)
+        : null,
       lines: invoice.lines,
       planAmount: invoice.planAmount,
       consumptionAmount: invoice.consumptionAmount,
       total: invoice.total,
+      iva: invoice.iva,
       consumption: usage,
       ai: credits,
       contract: this.contractInfo(company),
@@ -134,7 +134,7 @@ export class BillingService {
       orderBy: { period: 'desc' },
       include: { company: { select: { name: true, slug: true } } },
     });
-    return rows.map((i) => ({ ...i, lines: parseJson<any[]>(i.linesJson, []) }));
+    return rows.map((i) => ({ ...i, lines: parseJson<any[]>(i.linesJson, []), iva: includedIva(i.totalAmount, i.currency) }));
   }
 
   /* ── Ajustes (solo plataforma) ───────────────────────────────────── */

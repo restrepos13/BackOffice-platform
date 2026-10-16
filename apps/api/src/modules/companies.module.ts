@@ -26,7 +26,7 @@ import { maskCompanyKey, normalizeAiMode, storeCompanyKey } from '../ai/ai-acces
 import { serializePaymentConfig } from './payments.module';
 import { serializeEinvoiceConfig } from '../common/einvoice';
 import { deleteCompanyLooseData } from '../common/company-cleanup';
-import { earlyExitFee, periodOf } from '../common/billing-engine';
+import { PERIOD_RE, earlyExitFee, periodOf } from '../common/billing-engine';
 import { AGENT_PRESETS } from '../ai/agent/tools';
 import { AuditService } from './audit.module';
 import { COMPANY_TEMPLATES, findTemplate } from './company-templates';
@@ -64,6 +64,8 @@ interface ProvisionCompanyDto {
   planId?: string;
   status?: string;
   trialDays?: number;
+  /** MONTHLY | ANNUAL (anual: 2 meses gratis) */
+  billingCycle?: string;
   limits?: { maxBots?: number; maxUsers?: number; maxWorkspaces?: number };
   // Paso 3 — módulos habilitados
   modules?: string[];
@@ -214,8 +216,9 @@ export class CompaniesService {
       throw new BadRequestException('La empresa a clonar no existe');
     }
 
-    const trialDays = dto.trialDays ?? 14;
-    const status = dto.status ?? 'TRIAL';
+    // Sin prueba gratis: las empresas nacen activas (montaje gratis con permanencia)
+    const trialDays = dto.trialDays ?? 0;
+    const status = dto.status ?? 'ACTIVE';
 
     const company = await this.prisma.company.create({
       data: {
@@ -259,8 +262,10 @@ export class CompaniesService {
             }
           : {}),
         limitsJson: JSON.stringify(dto.limits ?? {}),
+        ...(dto.billingCycle === 'ANNUAL' ? { billingCycle: 'ANNUAL', annualStartPeriod: periodOf() } : {}),
+        contractStartAt: dto.planId ? new Date() : null,
         trialEndsAt:
-          status === 'TRIAL'
+          status === 'TRIAL' && trialDays > 0
             ? new Date(Date.now() + trialDays * 24 * 3600 * 1000)
             : null,
       },
@@ -524,6 +529,7 @@ export class CompaniesService {
       'aiBillingMode', 'aiHybridPrimary', 'aiSpendCapUsd', 'aiIncludedOverride',
       // Lo que se le cobra a la empresa y su permanencia también
       'customPriceMonthly', 'contractStartAt', 'minTermMonths', 'setupFeeValue',
+      'billingCycle', 'annualStartPeriod',
     ];
     if (!isPlatformRole(actor.role)) {
       for (const key of platformOnly) {
@@ -589,6 +595,17 @@ export class CompaniesService {
         ...(dto.setupFeeValue !== undefined
           ? { setupFeeValue: dto.setupFeeValue === null || dto.setupFeeValue === '' ? null : Math.max(0, Number(dto.setupFeeValue)) }
           : {}),
+        ...(dto.billingCycle !== undefined
+          ? {
+              billingCycle: dto.billingCycle === 'ANNUAL' ? 'ANNUAL' : 'MONTHLY',
+              // El anual arranca el mes indicado (o el actual)
+              annualStartPeriod: dto.billingCycle === 'ANNUAL'
+                ? (typeof dto.annualStartPeriod === 'string' && PERIOD_RE.test(dto.annualStartPeriod) ? dto.annualStartPeriod : before.annualStartPeriod ?? periodOf())
+                : null,
+            }
+          : dto.annualStartPeriod !== undefined && before.billingCycle === 'ANNUAL' && PERIOD_RE.test(String(dto.annualStartPeriod))
+            ? { annualStartPeriod: String(dto.annualStartPeriod) }
+            : {}),
         // Al asignar plan por primera vez arranca la permanencia
         ...(dto.planId && !before.contractStartAt ? { contractStartAt: new Date() } : {}),
       },

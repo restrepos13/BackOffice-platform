@@ -5,7 +5,10 @@ import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { api } from '../../lib/api';
-import { CHANNEL_LABELS, MODULE_LABELS, fmtUsd } from '../../lib/format';
+import {
+  ANNUAL_MONTHS_CHARGED, CHANNEL_LABELS, MODULE_LABELS, PLAN_LINE_HINTS, PLAN_LINE_LABELS, PLAN_LINE_ORDER, fmtMoney,
+  lineForTemplate, planPriceLabel,
+} from '../../lib/format';
 import type { Company, PersonaTemplate, Plan } from '../../lib/types';
 import {
   Badge, Button, Card, Field, Input, Modal, PageHeader, Select, Switch, Textarea,
@@ -68,7 +71,7 @@ interface WizardState {
   country: string; city: string; website: string;
   contactEmail: string; contactPhone: string; timezone: string;
   language: string; brandColor: string; currency: string; notes: string;
-  planId: string; status: string; trialDays: number;
+  planId: string; status: string; billingCycle: 'MONTHLY' | 'ANNUAL'; planLine: string;
   maxBots: string; maxUsers: string;
   modules: string[];
   /** Agenda del vertical (editable sobre la plantilla) */
@@ -88,7 +91,7 @@ const initial: WizardState = {
   city: '', website: '', contactEmail: '', contactPhone: '',
   timezone: 'America/Bogota', language: 'es', brandColor: '#1A1A1A',
   currency: 'COP', notes: '',
-  planId: '', status: 'TRIAL', trialDays: 14, maxBots: '', maxUsers: '',
+  planId: '', status: 'ACTIVE', billingCycle: 'MONTHLY', planLine: '', maxBots: '', maxUsers: '',
   modules: [...ALL_MODULES],
   schedule: { days: [1, 2, 3, 4, 5], open: '08:00', close: '18:00' },
   orderCutoff: '14:00', minLeadHours: '18', maxPerSlot: '8',
@@ -233,7 +236,7 @@ export default function CompanyNew() {
         brandColor: s.brandColor, currency: s.currency,
         notes: s.notes || undefined,
         planId: s.planId || undefined, status: s.status,
-        trialDays: s.trialDays,
+        billingCycle: s.billingCycle,
         limits: {
           ...(s.maxBots ? { maxBots: Number(s.maxBots) } : {}),
           ...(s.maxUsers ? { maxUsers: Number(s.maxUsers) } : {}),
@@ -455,10 +458,32 @@ export default function CompanyNew() {
             </div>
           )}
 
-          {step === 'plan' && (
+          {step === 'plan' && (() => {
+            const activeLine = s.planLine || lineForTemplate(templateId) || 'COMIDAS';
+            const offered = (plans ?? []).filter((p) => p.active && (p.line ?? 'PRO') === activeLine)
+              .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
+            return (
             <div className="space-y-5">
+              <div className="flex flex-wrap gap-1.5">
+                {PLAN_LINE_ORDER.filter((l) => l !== 'PRO').map((l) => (
+                  <button
+                    key={l}
+                    type="button"
+                    onClick={() => set({ planLine: l })}
+                    className={clsx(
+                      'cursor-pointer border-2 px-3 py-1.5 text-xs font-semibold uppercase tracking-wider',
+                      activeLine === l ? 'border-ink bg-ink text-bone' : 'border-ink bg-paper hover:bg-bone-2',
+                    )}
+                  >
+                    {PLAN_LINE_LABELS[l]}
+                  </button>
+                ))}
+              </div>
+              <p className="text-xs text-ink-3">
+                {PLAN_LINE_HINTS[activeLine]} · precios «desde», IVA incluido. El valor final se ajusta luego en la pestaña Cobro.
+              </p>
               <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-                {plans?.filter((p) => p.active).map((plan) => (
+                {offered.map((plan) => (
                   <button
                     key={plan.id}
                     type="button"
@@ -474,36 +499,48 @@ export default function CompanyNew() {
                       {plan.highlight ? 'Recomendado' : plan.isCustom ? 'A medida' : 'Plan'}
                     </p>
                     <p className="display text-2xl">{plan.name}</p>
-                    <p className="mt-1 text-sm font-semibold">
-                      {plan.isCustom ? 'Cotización' : `${fmtUsd(plan.priceMonthly)}/mes`}
-                    </p>
+                    <p className="mt-1 text-sm font-semibold">{planPriceLabel(plan)}</p>
                     <p className="mt-1 text-xs opacity-80">
-                      {plan.maxBots} bots · {plan.maxUsers} usuarios
+                      {plan.maxBots >= 999 ? 'A medida' : `${plan.maxBots} ${plan.line === 'WEBCAM' ? 'perfiles' : 'asistentes'} · ${plan.maxUsers} usuarios`}
                     </p>
+                    {(plan.minTermMonths ?? 0) > 0 && (
+                      <p className="mt-1 text-[11px] opacity-70">Montaje gratis · permanencia {plan.minTermMonths} meses</p>
+                    )}
                   </button>
                 ))}
+                {offered.length === 0 && <p className="text-sm text-ink-3">No hay planes activos en este rubro.</p>}
               </div>
               <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-                <Field label="Estado inicial">
-                  <Select value={s.status} onChange={(e) => set({ status: e.target.value })}>
-                    <option value="TRIAL">Trial</option>
-                    <option value="ACTIVE">Activa</option>
+                <Field label="Forma de pago">
+                  <Select value={s.billingCycle} onChange={(e) => set({ billingCycle: e.target.value as WizardState['billingCycle'] })}>
+                    <option value="MONTHLY">Mensual</option>
+                    <option value="ANNUAL">Anual (2 meses gratis)</option>
                   </Select>
                 </Field>
-                {s.status === 'TRIAL' && (
-                  <Field label="Días de trial">
-                    <Input type="number" min={1} value={s.trialDays} onChange={(e) => set({ trialDays: Number(e.target.value) })} />
-                  </Field>
-                )}
-                <Field label="Override: máx. bots" hint="Vacío = límite del plan">
+                <Field label="Estado inicial">
+                  <Select value={s.status} onChange={(e) => set({ status: e.target.value })}>
+                    <option value="ACTIVE">Activa</option>
+                    <option value="SUSPENDED">Suspendida (se activa al pagar)</option>
+                  </Select>
+                </Field>
+                <Field label="Override: máx. asistentes" hint="Vacío = límite del plan">
                   <Input type="number" min={1} value={s.maxBots} onChange={(e) => set({ maxBots: e.target.value })} placeholder={selectedPlan ? String(selectedPlan.maxBots) : '—'} />
                 </Field>
                 <Field label="Override: máx. usuarios" hint="Vacío = límite del plan">
                   <Input type="number" min={1} value={s.maxUsers} onChange={(e) => set({ maxUsers: e.target.value })} placeholder={selectedPlan ? String(selectedPlan.maxUsers) : '—'} />
                 </Field>
               </div>
+              {selectedPlan && selectedPlan.priceMonthly > 0 && (
+                <p className="text-sm">
+                  {s.billingCycle === 'ANNUAL'
+                    ? <>Primer cobro: <strong>{fmtMoney(selectedPlan.priceMonthly * ANNUAL_MONTHS_CHARGED, selectedPlan.currency ?? 'COP')}</strong> por 12 meses.</>
+                    : <>Cobro mensual: <strong>{fmtMoney(selectedPlan.priceMonthly, selectedPlan.currency ?? 'COP')}</strong>.</>}
+                  {' '}<span className="text-ink-3">IVA incluido.</span>
+                </p>
+              )}
             </div>
-          )}
+            );
+          })()}
 
           {step === 'modulos' && (
             <div className="space-y-3">
@@ -743,8 +780,8 @@ export default function CompanyNew() {
                 />
                 <Row k="Empresa" v={`${s.name} (${slug}) · ${s.currency}`} onEdit={() => setStepIdx(stepKeys.indexOf('datos'))} />
                 <Row k="Ubicación" v={[s.city, s.country].filter(Boolean).join(', ') || '—'} onEdit={() => setStepIdx(stepKeys.indexOf('datos'))} />
-                <Row k="Plan" v={selectedPlan ? `${selectedPlan.name} · ${selectedPlan.isCustom ? 'a medida' : fmtUsd(selectedPlan.priceMonthly) + '/mes'}` : 'Sin plan'} onEdit={() => setStepIdx(stepKeys.indexOf('plan'))} />
-                <Row k="Estado" v={s.status === 'TRIAL' ? `Trial ${s.trialDays} días` : 'Activa'} onEdit={() => setStepIdx(stepKeys.indexOf('plan'))} />
+                <Row k="Plan" v={selectedPlan ? `${PLAN_LINE_LABELS[selectedPlan.line ?? 'PRO']} · ${selectedPlan.name} · ${planPriceLabel(selectedPlan)}` : 'Sin plan'} onEdit={() => setStepIdx(stepKeys.indexOf('plan'))} />
+                <Row k="Pago" v={`${s.billingCycle === 'ANNUAL' ? 'Anual (2 meses gratis)' : 'Mensual'} · ${s.status === 'ACTIVE' ? 'activa' : 'suspendida hasta pagar'}`} onEdit={() => setStepIdx(stepKeys.indexOf('plan'))} />
                 <Row k="Módulos" v={s.modules.map((m) => MODULE_LABELS[m]).join(', ')} onEdit={() => setStepIdx(stepKeys.indexOf('modulos'))} />
                 {hasVertical && (
                   <Row
@@ -788,8 +825,9 @@ export default function CompanyNew() {
               <BrandPreview name={s.name} color={s.brandColor} />
               <p>
                 <Badge tone={s.status === 'ACTIVE' ? 'ok' : 'warn'}>
-                  {s.status === 'ACTIVE' ? 'Activa' : `Trial ${s.trialDays}d`}
+                  {s.status === 'ACTIVE' ? 'Activa' : 'Suspendida'}
                 </Badge>{' '}
+                {s.billingCycle === 'ANNUAL' && <><Badge tone="info">Anual</Badge>{' '}</>}
                 <Badge tone="neutral">{s.currency}</Badge>
               </p>
               {selectedPlan && (

@@ -6,9 +6,12 @@ import {
   adjustmentApplies,
   buildInvoiceLines,
   earlyExitFee,
+  annualCyclePosition,
+  includedIva,
   sanitizeLines,
   shiftPeriod,
 } from '../src/common/billing-engine';
+import { CompaniesService } from '../src/modules/companies.module';
 import { computeAiCredits, consumeAiCredit, creditAiLot } from '../src/ai/ai-access';
 import { BillingService } from '../src/modules/billing.module';
 import { PaymentsService } from '../src/modules/payments.module';
@@ -121,6 +124,50 @@ describe('cobro personalizable: servicio (plataforma vs empresa)', () => {
     db.invoice[0].status = 'PAID';
     await expect(service.updateInvoice(PLATFORM, inv.id, { lines: [{ kind: 'PLAN', concept: 'x', amount: 1 }] })).rejects.toBeInstanceOf(BadRequestException);
     await expect(service.issueInvoice(PLATFORM, 'co1', '2026-11')).rejects.toBeInstanceOf(BadRequestException);
+  });
+});
+
+/* ═══ Pago anual (2 meses gratis) e IVA incluido ═══ */
+
+describe('pago anual e IVA incluido', () => {
+  it('el mes de inicio cobra 10 mensualidades, los 11 siguientes salen cubiertos y el ciclo se repite', () => {
+    const base = { currency: 'COP', planName: 'Negocio', planPrice: 349000, adjustments: [] as any[], billingCycle: 'ANNUAL', annualStartPeriod: '2026-11' };
+    const start = buildInvoiceLines({ ...base, period: '2026-11' });
+    expect(start.total).toBe(3490000);
+    expect(start.lines[0].concept).toContain('pago anual');
+    const covered = buildInvoiceLines({ ...base, period: '2027-04' });
+    expect(covered.total).toBe(0);
+    expect(covered.lines[0].concept).toContain('mes 6 de 12');
+    expect(buildInvoiceLines({ ...base, period: '2027-11' }).total).toBe(3490000); // renovación
+    expect(buildInvoiceLines({ ...base, period: '2026-10' }).total).toBe(349000); // antes del anual: mensual
+    expect(annualCyclePosition('MONTHLY', '2026-11', '2026-11')).toBeNull();
+    // Cargos extra y precio pactado siguen funcionando dentro del anual
+    const withCharge = buildInvoiceLines({
+      ...base, period: '2027-02', customPrice: 300000,
+      adjustments: [{ kind: 'CHARGE', concept: 'Capacitación', amount: 80000, startPeriod: '2027-02' }],
+    });
+    expect(withCharge.total).toBe(80000);
+    expect(buildInvoiceLines({ ...base, period: '2026-11', customPrice: 300000 }).total).toBe(3000000);
+  });
+
+  it('informa el IVA incluido en COP (19 %) y no lo inventa en USD', () => {
+    expect(includedIva(349000, 'COP')).toBe(55723);
+    expect(includedIva(119000, 'COP')).toBe(19000);
+    expect(includedIva(599, 'USD')).toBe(0);
+    expect(buildInvoiceLines({ period: '2026-11', currency: 'COP', planName: 'Esencial', planPrice: 149000, adjustments: [] }).iva).toBe(23790);
+  });
+
+  it('solo plataforma pasa una empresa a anual; arranca en el mes indicado o el actual', async () => {
+    const { prisma, db } = createMockPrisma();
+    const service = new CompaniesService(prisma as any, audit as any);
+    db.company.push({ id: 'co1', name: 'X', status: 'ACTIVE', billingCycle: 'MONTHLY', modulesJson: '[]', limitsJson: '{}', orderConfigJson: '{}', waTemplatesJson: '[]', paymentConfigJson: '{}', einvoiceConfigJson: '{}' });
+    await expect(service.update(ADMIN, 'co1', { billingCycle: 'ANNUAL' })).rejects.toBeInstanceOf(ForbiddenException);
+    await service.update(PLATFORM, 'co1', { billingCycle: 'ANNUAL', annualStartPeriod: '2027-01' });
+    expect(db.company[0]).toMatchObject({ billingCycle: 'ANNUAL', annualStartPeriod: '2027-01' });
+    await service.update(PLATFORM, 'co1', { billingCycle: 'MONTHLY' });
+    expect(db.company[0]).toMatchObject({ billingCycle: 'MONTHLY', annualStartPeriod: null });
+    await service.update(PLATFORM, 'co1', { billingCycle: 'ANNUAL', annualStartPeriod: 'mañana' });
+    expect(db.company[0].annualStartPeriod).toMatch(/^\d{4}-\d{2}$/);
   });
 });
 

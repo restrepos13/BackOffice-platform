@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { api } from '../../lib/api';
-import { COMPANY_STATUS_LABELS, MODULE_LABELS, fmtDate, fmtUsd } from '../../lib/format';
+import { COMPANY_STATUS_LABELS, MODULE_LABELS, fmtDate, fmtUsd, planPriceLabel } from '../../lib/format';
 import type { Company } from '../../lib/types';
 import {
   Badge, Button, Card, Field, Input, Loading, PageHeader, Select, Textarea, statusTone,
@@ -315,7 +315,7 @@ export default function CompanySettings() {
                 <p className="flex items-center justify-between">
                   <span className="kicker">Tarifa fija</span>
                   <strong>
-                    {company.plan.isCustom ? 'A medida' : `${fmtUsd(company.plan.priceMonthly)}/mes`}
+                    {planPriceLabel(company.plan, false)}{company.billingCycle === 'ANNUAL' ? ' · pago anual' : ''}
                   </strong>
                 </p>
               )}

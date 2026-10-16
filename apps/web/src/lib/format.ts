@@ -278,3 +278,46 @@ export const AI_MODE_LABELS: Record<string, string> = {
   PLATFORM: 'IA de BackOffice (revendida)',
   HYBRID: 'Híbrido: las dos, con respaldo',
 };
+
+/* ─── Planes por rubro ─── */
+
+export const PLAN_LINE_LABELS: Record<string, string> = {
+  COMIDAS: 'Comidas',
+  WEBCAM: 'Webcam y creadores',
+  SERVICIOS: 'Servicios con citas',
+  VENTAS: 'Empresas y ventas',
+  PRO: 'Planes anteriores (USD)',
+};
+
+export const PLAN_LINE_HINTS: Record<string, string> = {
+  COMIDAS: 'Restaurantes, almuerzos, domicilios y catering',
+  WEBCAM: 'Estudios webcam, agencias y creadores',
+  SERVICIOS: 'Consultorios, clínicas, salones y talleres',
+  VENTAS: 'Inmobiliarias, educación y comercio',
+  PRO: 'Ya no se ofrecen a clientes nuevos',
+};
+
+export const PLAN_LINE_ORDER = ['COMIDAS', 'WEBCAM', 'SERVICIOS', 'VENTAS', 'PRO'];
+
+/** Rubro sugerido según la plantilla de empresa. */
+export function lineForTemplate(templateId?: string | null): string | null {
+  if (!templateId) return null;
+  if (templateId === 'catering' || templateId === 'domicilios') return 'COMIDAS';
+  if (templateId === 'webcam') return 'WEBCAM';
+  if (templateId === 'servicios') return 'SERVICIOS';
+  return 'VENTAS';
+}
+
+/** Precio de un plan como se publica: "desde $349.000/mes". */
+export function planPriceLabel(plan: { priceMonthly: number; currency?: string; isCustom?: boolean }, withFrom = true): string {
+  if (plan.isCustom && !plan.priceMonthly) return 'A medida';
+  return `${withFrom ? 'desde ' : ''}${fmtMoney(plan.priceMonthly, plan.currency ?? 'USD')}/mes`;
+}
+
+export const ANNUAL_MONTHS_CHARGED = 10;
+
+/** IVA incluido en un total en COP (los precios se publican con IVA del 19 %). */
+export function ivaIncluido(total: number, currency: string): number {
+  if (currency !== 'COP' || total <= 0) return 0;
+  return Math.round(total - total / 1.19);
+}

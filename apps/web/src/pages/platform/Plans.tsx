@@ -2,10 +2,12 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { toast } from 'sonner';
 import { api } from '../../lib/api';
-import { fmtMoney } from '../../lib/format';
-import type { AiCreditPackage, Plan } from '../../lib/types';
 import {
-  Badge, Button, Card, Field, Input, Loading, Modal, PageHeader, Select, Table, Textarea,
+  ANNUAL_MONTHS_CHARGED, PLAN_LINE_HINTS, PLAN_LINE_LABELS, PLAN_LINE_ORDER, fmtMoney, planPriceLabel,
+} from '../../lib/format';
+import type { AiCreditPackage, Plan, PlanLine } from '../../lib/types';
+import {
+  Badge, Button, Card, Field, Input, Loading, Modal, PageHeader, Select, Table, Tabs, Textarea,
 } from '../../components/ui';
 
 interface PlanForm {
@@ -19,25 +21,75 @@ interface PlanForm {
   features: string;
   highlight: boolean;
   isCustom: boolean;
+  active: boolean;
   includedAiConversations: number;
-  line: 'PRO' | 'NEGOCIOS';
+  line: PlanLine;
   currency: 'USD' | 'COP';
   maxLines: number;
   maxCouriers: number;
   minTermMonths: number;
   setupFeeValue: number;
+  sortOrder: number;
 }
 
-const emptyForm: PlanForm = {
-  code: '', name: '', priceMonthly: 0, maxBots: 10, maxWorkspaces: 1,
-  maxUsers: 5, features: '', highlight: false, isCustom: false,
-  includedAiConversations: 0, line: 'NEGOCIOS', currency: 'COP',
-  maxLines: 1, maxCouriers: 0, minTermMonths: 6, setupFeeValue: 0,
-};
+const emptyForm = (line: PlanLine): PlanForm => ({
+  code: '', name: '', priceMonthly: 0, maxBots: 5, maxWorkspaces: 1,
+  maxUsers: 5, features: '', highlight: false, isCustom: false, active: true,
+  includedAiConversations: 0, line: line === 'PRO' ? 'COMIDAS' : line, currency: 'COP',
+  maxLines: 1, maxCouriers: 0, minTermMonths: 6, setupFeeValue: 0, sortOrder: 9,
+});
+
+function PlanCard({ plan, onEdit }: { plan: Plan; onEdit: () => void }) {
+  const cop = (plan.currency ?? 'USD') === 'COP';
+  return (
+    <Card className={plan.highlight ? 'shadow-[6px_6px_0_0_rgba(26,26,26,0.9)]' : ''}>
+      <div className="mb-2 flex items-start justify-between gap-2">
+        <div>
+          <p className="kicker">{plan.code}</p>
+          <h3 className="display text-2xl">{plan.name}</h3>
+        </div>
+        <span className="flex flex-col items-end gap-1">
+          {plan.highlight && <Badge tone="ink">Recomendado</Badge>}
+          {!plan.active && <Badge tone="neutral">No se ofrece</Badge>}
+        </span>
+      </div>
+      {plan.isCustom && !plan.priceMonthly ? (
+        <p className="display text-3xl">A medida</p>
+      ) : (
+        <>
+          <p className="text-xs uppercase tracking-wider text-ink-3">desde</p>
+          <p className="display text-3xl">
+            {fmtMoney(plan.priceMonthly, plan.currency ?? 'USD')}
+            <span className="text-sm text-ink-3">/mes</span>
+          </p>
+          <p className="mt-1 text-xs text-ink-3">
+            {cop ? 'IVA incluido · ' : ''}anual {fmtMoney(plan.priceMonthly * ANNUAL_MONTHS_CHARGED, plan.currency ?? 'USD')} (2 meses gratis)
+          </p>
+        </>
+      )}
+      <p className="mt-2 flex flex-wrap gap-1">
+        <Badge tone="neutral">{plan.maxBots >= 999 ? 'Perfiles a medida' : `${plan.maxBots} ${plan.line === 'WEBCAM' ? 'perfiles' : 'asistentes'}`}</Badge>
+        <Badge tone="neutral">{(plan.maxLines ?? 1) >= 999 ? 'Líneas a medida' : `${plan.maxLines ?? 1} líneas`}</Badge>
+        <Badge tone="neutral">{plan.maxUsers >= 999 ? 'Usuarios a medida' : `${plan.maxUsers} usuarios`}</Badge>
+        {(plan.minTermMonths ?? 0) > 0 && (
+          <Badge tone="info">Montaje gratis · {plan.minTermMonths} meses</Badge>
+        )}
+      </p>
+      <ul className="mt-3 space-y-1 border-t-2 border-line pt-3 text-[13px]">
+        {plan.features.map((f) => <li key={f}>— {f}</li>)}
+      </ul>
+      <div className="mt-3 flex items-center justify-between border-t-2 border-line pt-3">
+        <p className="kicker">{plan._count?.companies ?? 0} empresas{(plan.setupFeeValue ?? 0) > 0 ? ` · montaje ${fmtMoney(plan.setupFeeValue, plan.currency ?? 'USD')}` : ''}</p>
+        <Button size="sm" variant="outline" onClick={onEdit}>Editar</Button>
+      </div>
+    </Card>
+  );
+}
 
 export default function Plans() {
   const queryClient = useQueryClient();
   const [editing, setEditing] = useState<PlanForm | null>(null);
+  const [line, setLine] = useState<PlanLine>('COMIDAS');
 
   const { data: plans, isLoading } = useQuery({
     queryKey: ['plans'],
@@ -51,9 +103,9 @@ export default function Plans() {
         maxBots: Number(form.maxBots), maxWorkspaces: Number(form.maxWorkspaces),
         maxUsers: Number(form.maxUsers),
         features: form.features.split('\n').map((f) => f.trim()).filter(Boolean),
-        highlight: form.highlight, isCustom: form.isCustom,
+        highlight: form.highlight, isCustom: form.isCustom, active: form.active,
         includedAiConversations: Number(form.includedAiConversations) || 0,
-        line: form.line, currency: form.currency,
+        line: form.line, currency: form.currency, sortOrder: Number(form.sortOrder) || 0,
         maxLines: Number(form.maxLines) || 0, maxCouriers: Number(form.maxCouriers) || 0,
         minTermMonths: Number(form.minTermMonths) || 0, setupFeeValue: Number(form.setupFeeValue) || 0,
       };
@@ -70,61 +122,52 @@ export default function Plans() {
   });
 
   if (isLoading) return <Loading />;
+  const byLine = (l: string) => (plans ?? []).filter((p) => (p.line ?? 'PRO') === l).sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
+  const lines = PLAN_LINE_ORDER.filter((l) => l !== 'PRO' || byLine('PRO').length > 0);
 
   return (
     <>
       <PageHeader
         kicker="Plataforma"
         title="Planes"
-        actions={<Button onClick={() => setEditing({ ...emptyForm })}>+ Nuevo plan</Button>}
+        accent="por rubro"
+        actions={<Button onClick={() => setEditing(emptyForm(line))}>+ Nuevo plan</Button>}
       />
-
+      <p className="mb-4 max-w-3xl text-sm text-ink-2">
+        Precios en pesos, IVA incluido, publicados <strong>desde</strong>: el valor final de cada empresa se ajusta en su
+        pestaña Cobro (precio pactado, cargos y descuentos por mes). Pago anual = 12 meses por el precio de {ANNUAL_MONTHS_CHARGED}.
+        Montaje gratis con permanencia. La IA de BackOffice va aparte, en paquetes.
+      </p>
+      <Tabs
+        active={line}
+        onChange={(id) => setLine(id as PlanLine)}
+        tabs={lines.map((l) => ({ id: l, label: PLAN_LINE_LABELS[l], badge: byLine(l).length }))}
+      />
+      <p className="mb-4 mt-3 text-xs text-ink-3">{PLAN_LINE_HINTS[line]}</p>
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        {plans?.map((plan) => (
-          <Card key={plan.id} className={plan.highlight ? 'shadow-[6px_6px_0_0_rgba(26,26,26,0.9)]' : ''}>
-            <div className="mb-2 flex items-start justify-between">
-              <div>
-                <p className="kicker">{plan.code}</p>
-                <h3 className="display text-2xl">{plan.name}</h3>
-              </div>
-              {plan.highlight && <Badge tone="ink">Recomendado</Badge>}
-            </div>
-            <p className="display text-3xl">
-              {plan.isCustom ? 'A medida' : fmtMoney(plan.priceMonthly, plan.currency ?? 'USD')}
-              {!plan.isCustom && <span className="text-sm text-ink-3">/mes</span>}
-            </p>
-            <p className="mt-1 text-xs text-ink-3">+ consumo aparte, al costo</p>
-            <p className="mt-1 flex flex-wrap gap-1">
-              <Badge tone={plan.line === 'NEGOCIOS' ? 'info' : 'neutral'}>{plan.line === 'NEGOCIOS' ? 'Negocios' : 'Pro'}</Badge>
-              {(plan.minTermMonths ?? 0) > 0 && <Badge tone="neutral">Permanencia {plan.minTermMonths} meses</Badge>}
-              {(plan.includedAiConversations ?? 0) > 0 && <Badge tone="ok">{plan.includedAiConversations} conv. IA/mes</Badge>}
-            </p>
-            <ul className="mt-3 space-y-1 border-t-2 border-line pt-3 text-[13px]">
-              {plan.features.map((f) => <li key={f}>— {f}</li>)}
-            </ul>
-            <div className="mt-3 flex items-center justify-between border-t-2 border-line pt-3">
-              <p className="kicker">{plan._count?.companies ?? 0} empresas</p>
-              <Button
-                size="sm" variant="outline"
-                onClick={() =>
-                  setEditing({
-                    id: plan.id, code: plan.code, name: plan.name,
-                    priceMonthly: plan.priceMonthly, maxBots: plan.maxBots,
-                    maxWorkspaces: plan.maxWorkspaces, maxUsers: plan.maxUsers,
-                    features: plan.features.join('\n'),
-                    highlight: plan.highlight, isCustom: plan.isCustom,
-                    includedAiConversations: plan.includedAiConversations ?? 0,
-                    line: plan.line ?? 'PRO', currency: plan.currency ?? 'USD',
-                    maxLines: plan.maxLines ?? 1, maxCouriers: plan.maxCouriers ?? 0,
-                    minTermMonths: plan.minTermMonths ?? 0, setupFeeValue: plan.setupFeeValue ?? 0,
-                  })
-                }
-              >
-                Editar
-              </Button>
-            </div>
-          </Card>
+        {byLine(line).map((plan) => (
+          <PlanCard
+            key={plan.id}
+            plan={plan}
+            onEdit={() =>
+              setEditing({
+                id: plan.id, code: plan.code, name: plan.name,
+                priceMonthly: plan.priceMonthly, maxBots: plan.maxBots,
+                maxWorkspaces: plan.maxWorkspaces, maxUsers: plan.maxUsers,
+                features: plan.features.join('\n'),
+                highlight: plan.highlight, isCustom: plan.isCustom, active: plan.active,
+                includedAiConversations: plan.includedAiConversations ?? 0,
+                line: plan.line ?? 'PRO', currency: plan.currency ?? 'USD',
+                maxLines: plan.maxLines ?? 1, maxCouriers: plan.maxCouriers ?? 0,
+                minTermMonths: plan.minTermMonths ?? 0, setupFeeValue: plan.setupFeeValue ?? 0,
+                sortOrder: plan.sortOrder ?? 0,
+              })
+            }
+          />
         ))}
+        {byLine(line).length === 0 && (
+          <p className="text-sm text-ink-3">Sin planes en este rubro. Carga los precios con pnpm db:seed:precios o crea uno.</p>
+        )}
       </div>
 
       <AiPackages />
@@ -139,36 +182,17 @@ export default function Plans() {
         {editing && (
           <div className="grid gap-4 md:grid-cols-2">
             <Field label="Código" required>
-              <Input value={editing.code} disabled={!!editing.id}
+              <Input value={editing.code} disabled={!!editing.id} placeholder="servicios-centro"
                 onChange={(e) => setEditing({ ...editing, code: e.target.value })} />
             </Field>
             <Field label="Nombre" required>
               <Input value={editing.name}
                 onChange={(e) => setEditing({ ...editing, name: e.target.value })} />
             </Field>
-            <Field label="Precio mensual (USD)">
-              <Input type="number" value={editing.priceMonthly}
-                onChange={(e) => setEditing({ ...editing, priceMonthly: Number(e.target.value) })} />
-            </Field>
-            <div className="grid grid-cols-3 gap-2">
-              <Field label="Máx. bots">
-                <Input type="number" value={editing.maxBots}
-                  onChange={(e) => setEditing({ ...editing, maxBots: Number(e.target.value) })} />
-              </Field>
-              <Field label="Workspaces">
-                <Input type="number" value={editing.maxWorkspaces}
-                  onChange={(e) => setEditing({ ...editing, maxWorkspaces: Number(e.target.value) })} />
-              </Field>
-              <Field label="Máx. usuarios">
-                <Input type="number" value={editing.maxUsers}
-                  onChange={(e) => setEditing({ ...editing, maxUsers: Number(e.target.value) })} />
-              </Field>
-            </div>
             <div className="grid grid-cols-2 gap-2">
-              <Field label="Línea">
-                <Select value={editing.line} onChange={(e) => setEditing({ ...editing, line: e.target.value as PlanForm['line'] })}>
-                  <option value="NEGOCIOS">Negocios (comidas, domicilios)</option>
-                  <option value="PRO">Pro (webcam, empresas)</option>
+              <Field label="Rubro">
+                <Select value={editing.line} onChange={(e) => setEditing({ ...editing, line: e.target.value as PlanLine, currency: e.target.value === 'PRO' ? editing.currency : 'COP' })}>
+                  {PLAN_LINE_ORDER.map((l) => <option key={l} value={l}>{PLAN_LINE_LABELS[l]}</option>)}
                 </Select>
               </Field>
               <Field label="Moneda">
@@ -178,16 +202,35 @@ export default function Plans() {
                 </Select>
               </Field>
             </div>
+            <div className="grid grid-cols-2 gap-2">
+              <Field label="Precio mensual «desde»" hint={editing.currency === 'COP' ? 'IVA incluido' : undefined}>
+                <Input type="number" min={0} step={1000} value={editing.priceMonthly}
+                  onChange={(e) => setEditing({ ...editing, priceMonthly: Number(e.target.value) })} />
+              </Field>
+              <Field label="Orden">
+                <Input type="number" min={0} value={editing.sortOrder} onChange={(e) => setEditing({ ...editing, sortOrder: Number(e.target.value) })} />
+              </Field>
+            </div>
             <div className="grid grid-cols-3 gap-2">
+              <Field label={editing.line === 'WEBCAM' ? 'Perfiles' : 'Asistentes'}>
+                <Input type="number" value={editing.maxBots}
+                  onChange={(e) => setEditing({ ...editing, maxBots: Number(e.target.value) })} />
+              </Field>
+              <Field label="Espacios">
+                <Input type="number" value={editing.maxWorkspaces}
+                  onChange={(e) => setEditing({ ...editing, maxWorkspaces: Number(e.target.value) })} />
+              </Field>
+              <Field label="Usuarios">
+                <Input type="number" value={editing.maxUsers}
+                  onChange={(e) => setEditing({ ...editing, maxUsers: Number(e.target.value) })} />
+              </Field>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
               <Field label="Líneas WhatsApp">
                 <Input type="number" min={0} value={editing.maxLines} onChange={(e) => setEditing({ ...editing, maxLines: Number(e.target.value) })} />
               </Field>
               <Field label="Domiciliarios">
                 <Input type="number" min={0} value={editing.maxCouriers} onChange={(e) => setEditing({ ...editing, maxCouriers: Number(e.target.value) })} />
-              </Field>
-              <Field label="IA incluida / mes" hint="Conversaciones">
-                <Input type="number" min={0} step={50} value={editing.includedAiConversations}
-                  onChange={(e) => setEditing({ ...editing, includedAiConversations: Number(e.target.value) })} />
               </Field>
             </div>
             <div className="grid grid-cols-2 gap-2">
@@ -204,19 +247,31 @@ export default function Plans() {
                   onChange={(e) => setEditing({ ...editing, features: e.target.value })} />
               </Field>
             </div>
-            <label className="flex cursor-pointer items-center gap-2 text-sm">
-              <input type="checkbox" checked={editing.highlight}
-                onChange={(e) => setEditing({ ...editing, highlight: e.target.checked })} />
-              Marcar como recomendado
-            </label>
-            <label className="flex cursor-pointer items-center gap-2 text-sm">
-              <input type="checkbox" checked={editing.isCustom}
-                onChange={(e) => setEditing({ ...editing, isCustom: e.target.checked })} />
-              Precio a medida (Enterprise)
-            </label>
+            <div className="flex flex-wrap gap-4 md:col-span-2">
+              <label className="flex cursor-pointer items-center gap-2 text-sm">
+                <input type="checkbox" checked={editing.highlight}
+                  onChange={(e) => setEditing({ ...editing, highlight: e.target.checked })} />
+                Recomendado
+              </label>
+              <label className="flex cursor-pointer items-center gap-2 text-sm">
+                <input type="checkbox" checked={editing.active}
+                  onChange={(e) => setEditing({ ...editing, active: e.target.checked })} />
+                Se ofrece a clientes nuevos
+              </label>
+              <label className="flex cursor-pointer items-center gap-2 text-sm">
+                <input type="checkbox" checked={editing.isCustom}
+                  onChange={(e) => setEditing({ ...editing, isCustom: e.target.checked })} />
+                Cotización a medida
+              </label>
+            </div>
+            {editing.priceMonthly > 0 && (
+              <p className="text-xs text-ink-3 md:col-span-2">
+                Se publica como «{planPriceLabel(editing)}» · anual {fmtMoney(editing.priceMonthly * ANNUAL_MONTHS_CHARGED, editing.currency)}
+              </p>
+            )}
             <div className="md:col-span-2 flex justify-end gap-2">
               <Button variant="outline" onClick={() => setEditing(null)}>Cancelar</Button>
-              <Button disabled={save.isPending} onClick={() => save.mutate(editing)}>
+              <Button disabled={!editing.code || !editing.name || save.isPending} onClick={() => save.mutate(editing)}>
                 {save.isPending ? 'Guardando…' : 'Guardar plan'}
               </Button>
             </div>

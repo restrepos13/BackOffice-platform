@@ -5,6 +5,9 @@
  *  - Ajustes: cargos extra (CHARGE) y descuentos fijos o porcentuales (DISCOUNT),
  *    para un solo mes, un rango o recurrentes desde un mes en adelante.
  *  - Consumo al costo: WhatsApp (Meta) y almacenamiento.
+ *  - Ciclo anual: en el mes de inicio se cobran 10 mensualidades (2 gratis) y
+ *    los 11 meses siguientes el plan sale cubierto; ajustes y consumo siguen mes a mes.
+ *  - Precios en COP con IVA incluido (19 %): la factura informa cuánto lleva.
  * La IA de BackOffice NO va aquí: se vende en paquetes prepagos (ai-credits).
  * Funciones puras (testeables) + el armado con Prisma.
  */
@@ -31,6 +34,35 @@ export interface AdjustmentLike {
 }
 
 export const PERIOD_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
+
+/** Rubros comerciales (cada uno con sus planes "desde"). */
+export const PLAN_LINES = ['COMIDAS', 'WEBCAM', 'SERVICIOS', 'VENTAS', 'PRO'] as const;
+export const ANNUAL_MONTHS_CHARGED = 10; // pago anual: 12 meses por el precio de 10
+export const IVA_RATE = 0.19;
+
+/** IVA que va incluido en un total en COP (los precios se publican con IVA). */
+export function includedIva(total: number, currency: string): number {
+  if (currency !== 'COP' || total <= 0) return 0;
+  return Math.round(total - total / (1 + IVA_RATE));
+}
+
+/** Meses entre dos YYYY-MM (b - a). */
+export function monthsBetween(a: string, b: string): number {
+  const [ya, ma] = a.split('-').map(Number);
+  const [yb, mb] = b.split('-').map(Number);
+  return (yb - ya) * 12 + (mb - ma);
+}
+
+/**
+ * Posición del mes dentro del ciclo anual: 0 = mes de cobro, 1..11 = cubierto,
+ * null = mensual (o el anual aún no arranca).
+ */
+export function annualCyclePosition(cycle: string | null | undefined, startPeriod: string | null | undefined, period: string): number | null {
+  if (cycle !== 'ANNUAL' || !startPeriod || !PERIOD_RE.test(startPeriod)) return null;
+  const diff = monthsBetween(startPeriod, period);
+  if (diff < 0) return null;
+  return diff % 12;
+}
 
 export function periodOf(date = new Date()): string {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
@@ -64,26 +96,36 @@ export function buildInvoiceLines(input: {
   adjustments: AdjustmentLike[];
   whatsappCost?: number; // ya convertido a la moneda de la factura
   storageCost?: number;
-}): { lines: InvoiceLine[]; planAmount: number; consumptionAmount: number; total: number } {
+  billingCycle?: string | null;
+  annualStartPeriod?: string | null;
+}): { lines: InvoiceLine[]; planAmount: number; consumptionAmount: number; total: number; iva: number } {
   const { currency, period } = input;
   const applicable = input.adjustments.filter((a) => adjustmentApplies(a, period));
 
   // 1) Base: ajuste PRICE del mes (el más reciente) > precio pactado > plan
   const priceAdj = applicable.filter((a) => a.kind === 'PRICE').pop();
-  const base = priceAdj
+  const monthly = priceAdj
     ? Math.max(0, priceAdj.amount)
     : input.customPrice != null
       ? Math.max(0, input.customPrice)
       : Math.max(0, input.planPrice);
+  // Ciclo anual: el mes de inicio cobra 10 mensualidades; los otros 11, cero
+  const position = annualCyclePosition(input.billingCycle, input.annualStartPeriod, period);
+  const base = position === null ? monthly : position === 0 ? monthly * ANNUAL_MONTHS_CHARGED : 0;
   const lines: InvoiceLine[] = [];
   if (input.planName || base > 0) {
+    const name = priceAdj
+      ? `${input.planName ?? 'Plan'} · ${priceAdj.concept}`
+      : input.customPrice != null
+        ? `${input.planName ?? 'Plan'} · precio pactado`
+        : `Plan ${input.planName ?? ''}`.trim();
     lines.push({
       kind: 'PLAN',
-      concept: priceAdj
-        ? `${input.planName ?? 'Plan'} · ${priceAdj.concept}`
-        : input.customPrice != null
-          ? `${input.planName ?? 'Plan'} · precio pactado`
-          : `Plan ${input.planName ?? ''}`.trim(),
+      concept: position === null
+        ? name
+        : position === 0
+          ? `${name} · pago anual (12 meses por el precio de ${ANNUAL_MONTHS_CHARGED})`
+          : `${name} · cubierto por el pago anual (mes ${position + 1} de 12)`,
       amount: roundFor(currency, base),
       ...(priceAdj?.id ? { adjustmentId: priceAdj.id } : {}),
     });
@@ -130,7 +172,7 @@ export function summarize(lines: InvoiceLine[], currency: string) {
     lines.filter((l) => l.kind === 'WHATSAPP' || l.kind === 'STORAGE').reduce((s, l) => s + l.amount, 0),
   );
   const total = Math.max(0, roundFor(currency, planAmount + consumptionAmount));
-  return { lines, planAmount, consumptionAmount, total };
+  return { lines, planAmount, consumptionAmount, total, iva: includedIva(total, currency) };
 }
 
 /** Valida líneas editadas a mano en una factura pendiente. */
@@ -174,7 +216,7 @@ export function earlyExitFee(input: {
   };
 }
 
-/** Moneda de facturación de una empresa: la del plan (NEGOCIOS → COP). */
+/** Moneda de facturación de una empresa: la del plan (rubros → COP; PRO viejo → USD). */
 export function invoiceCurrency(company: any): string {
   return company.plan?.currency ?? 'USD';
 }
@@ -201,5 +243,7 @@ export async function computeCompanyInvoice(prisma: any, company: any, period: s
     adjustments,
     whatsappCost: toCurrency(usage.reduce((s: number, u: any) => s + (u.waCostUsd ?? 0), 0)),
     storageCost: toCurrency(usage.reduce((s: number, u: any) => s + (u.storageCostUsd ?? 0), 0)),
+    billingCycle: company.billingCycle,
+    annualStartPeriod: company.annualStartPeriod,
   });
 }

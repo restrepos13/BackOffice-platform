@@ -17,6 +17,7 @@
  *   danielloaiza609@gmail.com    → DEV         · SEED_PASSWORD_DEV_DANIEL
  *   admin@empresa-prueba.com     → COMPANY_ADMIN (Empresa de Prueba) · SEED_PASSWORD_EMPRESA_PRUEBA
  */
+import { seedPrecios } from './seed-precios';
 import { PrismaClient } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
 import { seedPassword } from './seed-passwords';
@@ -280,6 +281,11 @@ async function main() {
       { key: 'SMTP_FROM', value: 'BackOffice <hola@backoffice.dev>' },
     ],
   });
+
+  // Planes vigentes por rubro (COP, IVA incluido) + paquetes de IA; los USD quedan heredados
+  await seedPrecios(prisma);
+  const negocio = await prisma.plan.findUnique({ where: { code: 'negocios-negocio' } });
+  if (negocio) await prisma.company.updateMany({ where: { slug: 'empresa-de-prueba' }, data: { planId: negocio.id } });
 
   console.log('Seed de producción listo ✅ — plataforma vacía + Empresa de Prueba');
 }
