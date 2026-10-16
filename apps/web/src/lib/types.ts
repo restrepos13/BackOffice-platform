@@ -41,9 +41,16 @@ export interface ContentPiece {
   companyId: string;
   campaignId?: string | null;
   type: 'REEL' | 'POST' | 'STORY' | 'AD';
-  status: 'IDEA' | 'BORRADOR' | 'LISTO' | 'PROGRAMADO' | 'PUBLICADO';
+  status: 'IDEA' | 'BORRADOR' | 'LISTO' | 'PROGRAMADO' | 'PUBLICANDO' | 'PUBLICADO' | 'ERROR';
   title: string;
   brief?: string | null;
+  /** Redes sociales con IA */
+  imagePrompt?: string | null;
+  assetMime?: string | null;
+  hasAsset?: boolean;
+  targets?: string[];
+  publishResult?: Record<string, { id?: string; url?: string; sandbox?: boolean; containerId?: string }>;
+  publishError?: string | null;
   copy?: string | null;
   hashtags: string[];
   script?: string | null;
@@ -1222,4 +1229,18 @@ export interface InterviewTurn {
   question: string;
   options: string[];
   understood: string;
+}
+
+export interface SocialStatus {
+  addon: { enabled: boolean; price: number; credits: number };
+  defaults: { price: number; credits: number };
+  usage: { images: number; videos: number; credits: number; costUsd: number; left: number };
+  creditCost: { image: number; video: number };
+  imageProvider: string;
+  oauthAvailable: boolean;
+  connection: {
+    connected: boolean; pageId: string; pageName: string; igUsername: string | null; hasInstagram: boolean;
+    sandbox: boolean; method: string; pendingPages: Array<{ id: string; name: string; igUsername: string | null }> | null;
+  } | null;
+  requested: boolean;
 }

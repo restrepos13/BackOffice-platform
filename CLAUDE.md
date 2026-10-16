@@ -299,10 +299,36 @@ la vieja `backoffice2026` ya no existe):
 - `applySetupProposal` (ai-setup) es la única forma de aplicar una propuesta de IA (la
   usan el registro y "Configurar con IA"). Tests: `test/signup.spec.ts`.
 
+## Extra "Redes sociales con IA" (oct 2026, rama agentes-domicilios)
+
+- Sobrecosto mensual por empresa (desde 150.000 COP, IVA incluido) en `Company.addonsJson.social`
+  {enabled, price, credits}; solo plataforma lo cambia (Empresa → Cobro → Extras). Entra a la
+  factura como línea `ADDON` (también con plan anual) y prender el extra habilita el módulo
+  `marketing`. La empresa lo pide desde Marketing (correo al equipo).
+- Créditos del mes (`SocialUsage`, reserva atómica antes de generar, devolución si falla):
+  imagen = 1, video = 4 → 20 créditos = 20 imágenes o 5 videos. Cada generación suma su costo
+  real estimado (`PROVIDER_COST_USD`) para ver el margen (Cobro → Extras).
+- Imágenes (`src/ai/media-gen.ts`, las paga BackOffice): `MEDIA_IMAGE_PROVIDER` DEEPINFRA (FLUX,
+  ~US$0,009/imagen con FLUX-1-dev) | GEMINI (imagen; las llaves gratis NO tienen cuota de imagen)
+  | SIMULADO (tarjeta SVG, sin costo; Meta no la acepta en publicación real). Higgsfield
+  (video premium ~US$0,04-0,07/s) queda pendiente de definir cuenta. Videos: MoneyPrinterTurbo
+  (gasta 4 créditos).
+- Texto y "Plan del mes con IA" (`POST /social/plan`: días, hora, cantidad, enfoque) con IA de
+  plataforma (DeepInfra si hay llave; si no, Gemini). Fechas en hora de la empresa (`nextSlots`).
+- Meta (`src/common/meta-publish.ts`): Facebook Login (OAuth con `META_APP_ID`/`META_APP_SECRET`,
+  state firmado con JWT_SECRET, `/api/public/social/meta/callback`) o conexión manual con token de
+  página (cifrado) o modo prueba. Integración `META_SOCIAL`. Publica foto/video/texto en la página
+  y en Instagram (contenedor → publish; reels quedan PUBLICANDO hasta que Meta los procesa).
+  Meta descarga el medio de `/api/public/content/<token>` (necesita PUBLIC_WEB_URL público).
+- Cron cada minuto publica lo PROGRAMADO vencido; idempotente (lo ya publicado no se repite);
+  errores quedan en `publishError` con estado ERROR. Tests: `test/social.spec.ts`.
+
 ## Pendiente
 
 1. Actualizar la landing (proyecto 6) con los precios por rubro: hoy muestra webcam USD 299/599/999.
 2. Configurar SMTP (Dev Tools → Settings) para que los avisos de registro lleguen al correo.
+3. Redes sociales: llave DeepInfra de plataforma (imágenes reales), app de Meta con app review
+   (pages_manage_posts, instagram_content_publish) y decidir Higgsfield para video premium.
 2. Probar el adaptador de Alegra con una cuenta real (hoy validado en SIMULADO).
 3. Hosting 24/7 (Render/Vercel planeado): `/api` relativo en la web, Redis con
    TLS (`redisConnection` no soporta rediss:// ni usuario), `trust proxy`,

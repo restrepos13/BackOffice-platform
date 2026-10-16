@@ -529,7 +529,7 @@ export class CompaniesService {
       'aiBillingMode', 'aiHybridPrimary', 'aiSpendCapUsd', 'aiIncludedOverride',
       // Lo que se le cobra a la empresa y su permanencia también
       'customPriceMonthly', 'contractStartAt', 'minTermMonths', 'setupFeeValue',
-      'billingCycle', 'annualStartPeriod',
+      'billingCycle', 'annualStartPeriod', 'addons',
     ];
     if (!isPlatformRole(actor.role)) {
       for (const key of platformOnly) {
@@ -595,6 +595,7 @@ export class CompaniesService {
         ...(dto.setupFeeValue !== undefined
           ? { setupFeeValue: dto.setupFeeValue === null || dto.setupFeeValue === '' ? null : Math.max(0, Number(dto.setupFeeValue)) }
           : {}),
+        ...(dto.addons && typeof dto.addons === 'object' ? this.addonsUpdate(before, dto.addons) : {}),
         ...(dto.billingCycle !== undefined
           ? {
               billingCycle: dto.billingCycle === 'ANNUAL' ? 'ANNUAL' : 'MONTHLY',
@@ -642,6 +643,25 @@ export class CompaniesService {
       detail: company.name,
     });
     return this.serialize(company);
+  }
+
+  /** Extras por empresa (solo plataforma). Prender Redes sociales habilita el módulo marketing. */
+  private addonsUpdate(before: any, incoming: any) {
+    const current = parseJson<Record<string, any>>(before.addonsJson, {});
+    const next = { ...current };
+    if (incoming.social && typeof incoming.social === 'object') {
+      const s = incoming.social;
+      const num = (v: unknown, min: number, max: number) => (v === undefined || v === null || v === '' ? undefined : Math.min(max, Math.max(min, Number(v))));
+      next.social = {
+        ...(current.social ?? {}),
+        ...(s.enabled !== undefined ? { enabled: !!s.enabled } : {}),
+        ...(num(s.price, 0, 50_000_000) !== undefined ? { price: Math.round(num(s.price, 0, 50_000_000)!) } : {}),
+        ...(num(s.credits, 0, 10_000) !== undefined ? { credits: Math.round(num(s.credits, 0, 10_000)!) } : {}),
+      };
+    }
+    const modules = parseJson<string[]>(before.modulesJson, []);
+    const withMarketing = next.social?.enabled && !modules.includes('marketing') ? [...modules, 'marketing'] : null;
+    return { addonsJson: JSON.stringify(next), ...(withMarketing ? { modulesJson: JSON.stringify(withMarketing) } : {}) };
   }
 
   async remove(actor: AuthUser, id: string) {

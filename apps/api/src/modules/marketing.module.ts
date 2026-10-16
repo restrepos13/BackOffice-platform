@@ -29,6 +29,9 @@ import { AuditService } from './audit.module';
 import { AI_PROVIDER, AiProvider, extractJson } from '../ai/types';
 import { DeepInfraProvider } from '../ai/deepinfra.provider';
 import { AiSession, recordAiUsage, resolveAiAccess } from '../ai/ai-access';
+import {
+  CREDIT_COST, PROVIDER_COST_USD, addSocialCost, refundCredits, reserveCredits, socialAddon, socialDefaults,
+} from '../common/social-addon';
 
 /**
  * MARKETING (extra por empresa, módulo "marketing"): campañas, calendario de
@@ -44,7 +47,7 @@ import { AiSession, recordAiUsage, resolveAiAccess } from '../ai/ai-access';
  */
 
 const PIECE_TYPES = ['REEL', 'POST', 'STORY', 'AD'];
-const PIECE_STATUSES = ['IDEA', 'BORRADOR', 'LISTO', 'PROGRAMADO', 'PUBLICADO'];
+const PIECE_STATUSES = ['IDEA', 'BORRADOR', 'LISTO', 'PROGRAMADO', 'PUBLICANDO', 'PUBLICADO', 'ERROR'];
 const CAMPAIGN_STATUSES = ['BORRADOR', 'ACTIVA', 'PAUSADA', 'CERRADA'];
 const CHANNELS = ['instagram', 'tiktok', 'facebook', 'youtube'];
 
@@ -83,7 +86,14 @@ export class MarketingService {
   }
 
   private serializePiece(p: any) {
-    return { ...p, hashtags: parseJson<string[]>(p.hashtagsJson, []) };
+    const { mediaToken: _t, ...rest } = p;
+    return {
+      ...rest,
+      hashtags: parseJson<string[]>(p.hashtagsJson, []),
+      targets: parseJson<string[]>(p.targetsJson ?? '[]', []),
+      publishResult: parseJson<Record<string, any>>(p.publishResultJson ?? '{}', {}),
+      hasAsset: !!p.assetFile,
+    };
   }
 
   /* ═══ Campañas ═══ */
@@ -286,6 +296,12 @@ Brief: ${piece.brief ?? 'sin brief — proponlo tú a partir del título'}`,
         'El generador de video no está conectado todavía. El equipo BackOffice debe configurar MPT_BASE_URL (y MPT_API_KEY) en Dev Tools → Settings apuntando a MoneyPrinterTurbo.',
       );
     }
+    // Con el extra Redes sociales, el video gasta 4 créditos del mes (lo paga BackOffice)
+    const company = await this.prisma.company.findUniqueOrThrow({ where: { id: piece.companyId } });
+    const addon = socialAddon(company, await socialDefaults(this.prisma));
+    if (addon.enabled && !(await reserveCredits(this.prisma, company.id, addon.credits, 'video'))) {
+      throw new BadRequestException(`Un video usa ${CREDIT_COST.video} créditos y no te alcanzan este mes.`);
+    }
     const params = {
       video_subject: piece.title,
       ...(piece.script ? { video_script: piece.script } : {}),
@@ -326,12 +342,14 @@ Brief: ${piece.brief ?? 'sin brief — proponlo tú a partir del título'}`,
         where: { id: pieceId },
         data: { videoJobId: job.id },
       });
+      if (addon.enabled) await addSocialCost(this.prisma, company.id, PROVIDER_COST_USD['mpt:video']);
       return { jobId: job.id, externalTaskId: data.data.task_id, state: 'PROCESANDO' };
     } catch (err: any) {
       await this.prisma.videoJob.update({
         where: { id: job.id },
         data: { state: 'FALLIDO', error: err.message },
       });
+      if (addon.enabled) await refundCredits(this.prisma, company.id, 'video');
       throw new BadRequestException(`No se pudo encolar el video: ${err.message}`);
     }
   }

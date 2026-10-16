@@ -5,6 +5,7 @@ import { useState } from 'react';
 import { toast } from 'sonner';
 import { api } from '../lib/api';
 import { ADJUSTMENT_LABELS, LINE_KIND_LABELS, fmtDate, fmtMoney, fmtNum, fmtPeriod, ivaIncluido } from '../lib/format';
+import type { SocialStatus } from '../lib/types';
 import type {
   AiCreditsStatus, BillingAdjustment, BillingSummaryV2, Company, InvoiceLine, InvoiceRow,
 } from '../lib/types';
@@ -179,6 +180,8 @@ export default function CompanyBilling({ company }: { company: Company }) {
 
       <div className="space-y-6">
         {/* ─── Contrato ─── */}
+        <ExtrasCard company={company} onSaved={() => queryClient.invalidateQueries()} />
+
         <Card kicker="Contrato" title="Precio y permanencia">
           <div className="space-y-4">
             <div className="grid grid-cols-2 gap-3">
@@ -443,5 +446,57 @@ function GrantModal({ open, onClose, companyId, onSaved }: { open: boolean; onCl
         </Button>
       </div>
     </Modal>
+  );
+}
+
+/** Extras con sobrecosto mensual: hoy, Redes sociales con IA. */
+function ExtrasCard({ company, onSaved }: { company: Company; onSaved: () => void }) {
+  const { data: st } = useQuery({
+    queryKey: ['social-status', `companyId=${company.id}`],
+    queryFn: () => api.get<SocialStatus>(`/social/status?companyId=${company.id}`),
+  });
+  const [form, setForm] = useState<{ price: string; credits: string } | null>(null);
+  const save = useMutation({
+    mutationFn: (social: Record<string, unknown>) => api.patch(`/companies/${company.id}`, { addons: { social } }),
+    onSuccess: () => { toast.success('Extra actualizado'); setForm(null); onSaved(); },
+    onError: (e) => toast.error(e instanceof Error ? e.message : 'Error'),
+  });
+  if (!st) return null;
+  const rate = 3200;
+  const costCop = Math.round(st.usage.costUsd * rate);
+  const net = Math.round(st.addon.price / 1.19);
+  const f = form ?? { price: String(st.addon.price), credits: String(st.addon.credits) };
+  return (
+    <Card kicker="Extras" title="Redes sociales con IA">
+      <div className="space-y-3 text-sm">
+        <div className="flex items-center justify-between gap-2">
+          <span>{st.addon.enabled ? 'Activo' : st.requested ? 'La empresa lo pidió' : 'Inactivo'}</span>
+          <Switch
+            checked={st.addon.enabled}
+            label="Extra Redes sociales con IA"
+            onChange={(v) => save.mutate({ enabled: v, price: Number(f.price), credits: Number(f.credits) })}
+          />
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Precio mensual" hint="IVA incluido">
+            <Input type="number" min={0} step={10000} value={f.price} onChange={(e) => setForm({ ...f, price: e.target.value })} />
+          </Field>
+          <Field label="Créditos al mes" hint="Imagen 1 · video 4">
+            <Input type="number" min={0} value={f.credits} onChange={(e) => setForm({ ...f, credits: e.target.value })} />
+          </Field>
+        </div>
+        {form && (
+          <Button size="sm" disabled={save.isPending} onClick={() => save.mutate({ price: Number(f.price), credits: Number(f.credits) })}>Guardar extra</Button>
+        )}
+        {st.addon.enabled && (
+          <dl className="space-y-1 border-t border-line pt-2 text-xs">
+            <div className="flex justify-between"><dt>Usado este mes</dt><dd>{st.usage.credits} / {st.addon.credits} créditos ({st.usage.images} imágenes, {st.usage.videos} videos)</dd></div>
+            <div className="flex justify-between"><dt>Costo real de la IA</dt><dd>US${st.usage.costUsd.toFixed(3)} ≈ {fmtMoney(costCop)}</dd></div>
+            <div className="flex justify-between font-semibold"><dt>Margen (sin IVA)</dt><dd>{fmtMoney(net - costCop)}</dd></div>
+            <div className="flex justify-between text-ink-3"><dt>Imágenes con</dt><dd>{st.imageProvider === 'SIMULADO' ? 'modo prueba' : st.imageProvider}</dd></div>
+          </dl>
+        )}
+      </div>
+    </Card>
   );
 }

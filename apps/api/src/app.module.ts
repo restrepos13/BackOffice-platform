@@ -44,6 +44,7 @@ import { MenuModule } from './modules/menu.module';
 import { InboundOrdersModule } from './modules/inbound-orders.module';
 import { AiSetupModule } from './modules/ai-setup.module';
 import { SignupModule } from './modules/signup.module';
+import { SocialModule } from './modules/social.module';
 import { MarketingModule } from './modules/marketing.module';
 import { ScheduleModule } from '@nestjs/schedule';
 
@@ -93,6 +94,7 @@ import { ScheduleModule } from '@nestjs/schedule';
     InboundOrdersModule,
     AiSetupModule,
     SignupModule,
+    SocialModule,
     MarketingModule,
   ],
   providers: [

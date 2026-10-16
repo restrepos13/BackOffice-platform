@@ -15,34 +15,48 @@ import {
   Stat, Tabs, Textarea,
 } from '../../components/ui';
 import { PickCompany, useCompanyScope, withScope } from './shared';
+import { MediaImage } from '../../components/media';
+import { PieceSocialPanel, SocialHeader, useSocialStatus } from '../../components/SocialStudio';
 
 const TYPE_LABELS: Record<string, string> = {
   REEL: 'Reel', POST: 'Post', STORY: 'Historia', AD: 'Anuncio',
 };
 const STATUS_LABELS: Record<string, string> = {
   IDEA: 'Idea', BORRADOR: 'Borrador', LISTO: 'Listo',
-  PROGRAMADO: 'Programado', PUBLICADO: 'Publicado',
+  PROGRAMADO: 'Programado', PUBLICANDO: 'Publicando', PUBLICADO: 'Publicado', ERROR: 'Error al publicar',
 };
 const CHANNELS = ['instagram', 'tiktok', 'facebook', 'youtube'];
 
-function statusTone(s: string): 'ok' | 'warn' | 'info' | 'neutral' | 'ink' {
+function statusTone(s: string): 'ok' | 'warn' | 'info' | 'neutral' | 'ink' | 'bad' {
   switch (s) {
     case 'PUBLICADO': case 'ACTIVA': return 'ok';
     case 'PROGRAMADO': case 'LISTO': return 'info';
-    case 'BORRADOR': case 'PAUSADA': return 'warn';
+    case 'BORRADOR': case 'PAUSADA': case 'PUBLICANDO': return 'warn';
+    case 'ERROR': return 'bad';
     case 'CERRADA': return 'ink';
     default: return 'neutral';
   }
 }
 
+/** ISO → valor de <input type="datetime-local"> en la hora local del navegador. */
+function toLocalInput(iso?: string | null): string {
+  if (!iso) return '';
+  const d = new Date(iso);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
 /* ─── Modal de pieza ─────────────────────────────────────────────────── */
 
-function PieceModal({ piece, campaigns, companyId, onClose }: {
+function PieceModal({ piece: initial, campaigns, companyId, q, onClose }: {
   piece: ContentPiece | null;
   campaigns: MarketingCampaign[];
   companyId: string | null;
+  q: string;
   onClose: () => void;
 }) {
+  const [piece, setPiece] = useState<ContentPiece | null>(initial);
+  const { data: social } = useSocialStatus(q);
   const queryClient = useQueryClient();
   const [form, setForm] = useState({
     title: piece?.title ?? '',
@@ -54,7 +68,7 @@ function PieceModal({ piece, campaigns, companyId, onClose }: {
     script: piece?.script ?? '',
     hashtags: (piece?.hashtags ?? []).join(' '),
     status: piece?.status ?? 'IDEA',
-    scheduledAt: piece?.scheduledAt ? piece.scheduledAt.slice(0, 16) : '',
+    scheduledAt: toLocalInput(piece?.scheduledAt),
   });
   const set = (patch: Partial<typeof form>) => setForm((p) => ({ ...p, ...patch }));
 
@@ -138,7 +152,7 @@ function PieceModal({ piece, campaigns, companyId, onClose }: {
           <Textarea rows={2} value={form.brief} onChange={(e) => set({ brief: e.target.value })} />
         </Field>
 
-        {piece && (
+        {piece && !social?.addon.enabled && (
           <div className="flex flex-wrap gap-2 border-2 border-line bg-bone p-3">
             <Button size="sm" variant="outline" disabled={generate.isPending} onClick={() => generate.mutate()}>
               <Wand2 size={13} /> {generate.isPending ? 'Escribiendo…' : 'Generar copy con la IA'}
@@ -176,6 +190,20 @@ function PieceModal({ piece, campaigns, companyId, onClose }: {
             <Input type="datetime-local" value={form.scheduledAt} onChange={(e) => set({ scheduledAt: e.target.value })} />
           </Field>
         </div>
+        {piece && (
+          <PieceSocialPanel
+            piece={piece}
+            q={q}
+            onChanged={(p) => {
+              if (p) {
+                setPiece(p);
+                set({ title: p.title, copy: p.copy ?? form.copy, hashtags: p.hashtags.join(' '), status: p.status, scheduledAt: p.scheduledAt ? toLocalInput(p.scheduledAt) : form.scheduledAt });
+              }
+              invalidate();
+            }}
+          />
+        )}
+
         {piece?.assetUrl && (
           <p className="border-2 border-ok bg-ok-soft px-3 py-2 text-sm text-ok">
             Video listo: <a className="underline" href={piece.assetUrl} target="_blank" rel="noreferrer">ver/descargar</a>
@@ -337,6 +365,8 @@ export default function Marketing() {
         }
       />
 
+      <SocialHeader q={q} canWrite={canWrite} />
+
       <div className="mb-5 grid grid-cols-2 gap-3 md:grid-cols-4">
         <Stat label="Campañas activas" value={summary?.campañasActivas ?? 0} />
         <Stat label="Piezas totales" value={summary?.totalPiezas ?? 0} />
@@ -391,6 +421,9 @@ export default function Marketing() {
                     </span>
                     <Badge tone={statusTone(piece.status)}>{STATUS_LABELS[piece.status]}</Badge>
                   </div>
+                  {piece.hasAsset && (
+                    <MediaImage id={piece.id} path={`/social/pieces/${piece.id}/asset`} alt={piece.title} className="h-40 w-full border-b-2 border-ink" />
+                  )}
                   <div className="px-4 py-3">
                     <p className="font-semibold leading-snug">{piece.title}</p>
                     {piece.copy && (
@@ -403,9 +436,11 @@ export default function Marketing() {
                     )}
                     {piece.scheduledAt && (
                       <p className="mt-1.5 text-[11px] uppercase tracking-wider text-ink-3">
-                        Programada · {fmtDateTime(piece.scheduledAt)}
+                        {piece.status === 'PUBLICADO' ? 'Publicada' : 'Programada'} · {fmtDateTime(piece.publishedAt ?? piece.scheduledAt)}
+                        {piece.targets?.length ? ` · ${piece.targets.map((t) => (t === 'facebook' ? 'FB' : 'IG')).join(' + ')}` : ''}
                       </p>
                     )}
+                    {piece.publishError && <p className="mt-1 line-clamp-2 text-[11px] text-bad">{piece.publishError}</p>}
                   </div>
                 </button>
               ))}
@@ -453,6 +488,7 @@ export default function Marketing() {
           piece={editingPiece === 'new' ? null : editingPiece}
           campaigns={campaigns ?? []}
           companyId={companyId}
+          q={q}
           onClose={() => setEditingPiece(null)}
         />
       )}

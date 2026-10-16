@@ -268,7 +268,7 @@ export const ADJUSTMENT_LABELS: Record<string, string> = {
 };
 
 export const LINE_KIND_LABELS: Record<string, string> = {
-  PLAN: 'Plan', CHARGE: 'Cargo', DISCOUNT: 'Descuento', WHATSAPP: 'WhatsApp', STORAGE: 'Almacenamiento', SETUP: 'Montaje',
+  PLAN: 'Plan', ADDON: 'Extra', CHARGE: 'Cargo', DISCOUNT: 'Descuento', WHATSAPP: 'WhatsApp', STORAGE: 'Almacenamiento', SETUP: 'Montaje',
 };
 
 /** "2026-11" → "noviembre 2026" */

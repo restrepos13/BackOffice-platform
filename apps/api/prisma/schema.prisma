@@ -161,6 +161,8 @@ model Company {
   customPriceMonthly Float?
   /// Registro por la web (autoservicio): rubro, descripción, contacto, plan pedido
   onboardingJson     String?
+  /// Extras con sobrecosto mensual: {"social":{"enabled":true,"price":150000,"credits":20}}
+  addonsJson         String?
   /// MONTHLY | ANNUAL (anual = 10 mensualidades por 12 meses, se cobra en el mes de inicio)
   billingCycle       String    @default("MONTHLY")
   /// Mes (YYYY-MM) en que arranca el ciclo anual; se repite cada 12 meses
@@ -676,6 +678,15 @@ model ContentPiece {
   publishedAt  DateTime?
   videoJobId   String?
   assetUrl     String? // video/imagen final (cuando exista)
+  /// Redes sociales con IA: imagen generada, destinos y resultado de la publicación
+  imagePrompt       String?
+  assetFile         String? // archivo en uploads/<empresa>/ (imagen o video)
+  assetMime         String?
+  mediaToken        String? // token público para que Meta descargue el archivo
+  targetsJson       String  @default("[]") // ["facebook","instagram"]
+  publishResultJson String? // {facebook:{id,url}, instagram:{id,containerId}}
+  publishError      String?
+  publishAttempts   Int     @default(0)
   createdAt    DateTime           @default(now())
   updatedAt    DateTime           @updatedAt
 
@@ -1218,4 +1229,19 @@ model AiKeyUsage {
   updatedAt   DateTime  @updatedAt
 
   @@unique([provider, fingerprint, day])
+}
+
+/// Consumo mensual del extra "Redes sociales con IA" (lo paga BackOffice):
+/// créditos usados (imagen = 1, video = 4) y costo real estimado del proveedor.
+model SocialUsage {
+  id        String   @id @default(cuid()) @map("_id")
+  companyId String
+  period    String // YYYY-MM
+  images    Int      @default(0)
+  videos    Int      @default(0)
+  credits   Int      @default(0)
+  costUsd   Float    @default(0)
+  updatedAt DateTime @updatedAt
+
+  @@unique([companyId, period])
 }

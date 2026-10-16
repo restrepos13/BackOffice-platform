@@ -107,6 +107,7 @@ export function createMockPrisma() {
     apiKey: [] as Doc[],
     inboundOrderKey: [] as Doc[],
     aiKeyUsage: [] as Doc[],
+    socialUsage: [] as Doc[],
     invoice: [] as Doc[],
     usageRecord: [] as Doc[],
   };
@@ -330,6 +331,7 @@ export function createMockPrisma() {
     apiKey: model('apiKey', { scopesJson: '[]', revokedAt: null }),
     inboundOrderKey: model('inboundOrderKey'),
     aiKeyUsage: model('aiKeyUsage', { requests: 0, tokens: 0, exhaustedAt: null }),
+    socialUsage: model('socialUsage', { images: 0, videos: 0, credits: 0, costUsd: 0 }),
     invoice: model('invoice', { status: 'PENDING', currency: 'USD', linesJson: '[]' }),
     usageRecord: model('usageRecord'),
   };

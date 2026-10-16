@@ -656,6 +656,11 @@ function SettingsForm({
 }) {
   const [form, setForm] = useState({
     META_APP_ID: settings.META_APP_ID ?? '',
+    META_APP_SECRET: settings.META_APP_SECRET ?? '',
+    MEDIA_IMAGE_PROVIDER: settings.MEDIA_IMAGE_PROVIDER ?? '',
+    MEDIA_IMAGE_MODEL: settings.MEDIA_IMAGE_MODEL ?? '',
+    SOCIAL_ADDON_PRICE: settings.SOCIAL_ADDON_PRICE ?? '150000',
+    SOCIAL_ADDON_CREDITS: settings.SOCIAL_ADDON_CREDITS ?? '20',
     META_REDIRECT_URI: settings.META_REDIRECT_URI ?? '',
     META_VERIFY_TOKEN: settings.META_VERIFY_TOKEN ?? '',
     PLATFORM_NAME: settings.PLATFORM_NAME ?? 'BackOffice',
@@ -693,6 +698,9 @@ function SettingsForm({
       <Field label="Meta App ID" hint="De developers.facebook.com — pendiente de crear">
         <Input value={form.META_APP_ID} onChange={(e) => set({ META_APP_ID: e.target.value })} />
       </Field>
+      <Field label="Meta App Secret" hint="Firma de webhooks y login con Facebook para publicar en redes">
+        <Input type="password" value={form.META_APP_SECRET} onChange={(e) => set({ META_APP_SECRET: e.target.value })} />
+      </Field>
       <Field label="OAuth Redirect URI">
         <Input value={form.META_REDIRECT_URI} onChange={(e) => set({ META_REDIRECT_URI: e.target.value })} />
       </Field>
@@ -716,6 +724,33 @@ function SettingsForm({
           <Input type="password" value={form.DEEPINFRA_API_KEY}
             onChange={(e) => set({ DEEPINFRA_API_KEY: e.target.value })} />
         </Field>
+      </div>
+
+      <div className="border-t-2 border-line pt-3">
+        <p className="kicker mb-2">Extra · Redes sociales con IA (lo paga BackOffice)</p>
+        <div className="grid gap-3 md:grid-cols-2">
+          <Field label="Proveedor de imágenes" hint="Vacío = DeepInfra si hay llave de plataforma; si no, modo prueba">
+            <select
+              className="w-full border-2 border-ink bg-paper px-3 py-2 text-sm"
+              value={form.MEDIA_IMAGE_PROVIDER}
+              onChange={(e) => set({ MEDIA_IMAGE_PROVIDER: e.target.value })}
+            >
+              <option value="">Automático</option>
+              <option value="DEEPINFRA">DeepInfra (FLUX)</option>
+              <option value="GEMINI">Gemini (imagen)</option>
+              <option value="SIMULADO">Modo prueba (sin costo)</option>
+            </select>
+          </Field>
+          <Field label="Modelo de imagen" hint="black-forest-labs/FLUX-1-dev (~US$0,009) · FLUX-1-schnell (~US$0,0005)">
+            <Input value={form.MEDIA_IMAGE_MODEL} onChange={(e) => set({ MEDIA_IMAGE_MODEL: e.target.value })} placeholder="black-forest-labs/FLUX-1-dev" />
+          </Field>
+          <Field label="Precio por defecto del extra (COP, IVA incluido)">
+            <Input value={form.SOCIAL_ADDON_PRICE} onChange={(e) => set({ SOCIAL_ADDON_PRICE: e.target.value })} />
+          </Field>
+          <Field label="Créditos por defecto al mes" hint="Imagen = 1 · video = 4">
+            <Input value={form.SOCIAL_ADDON_CREDITS} onChange={(e) => set({ SOCIAL_ADDON_CREDITS: e.target.value })} />
+          </Field>
+        </div>
       </div>
 
       <div className="border-t-2 border-line pt-3">

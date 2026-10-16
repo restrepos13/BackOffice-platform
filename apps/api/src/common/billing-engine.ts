@@ -12,7 +12,7 @@
  * Funciones puras (testeables) + el armado con Prisma.
  */
 
-export type InvoiceLineKind = 'PLAN' | 'CHARGE' | 'DISCOUNT' | 'WHATSAPP' | 'STORAGE' | 'SETUP';
+export type InvoiceLineKind = 'PLAN' | 'ADDON' | 'CHARGE' | 'DISCOUNT' | 'WHATSAPP' | 'STORAGE' | 'SETUP';
 
 export interface InvoiceLine {
   kind: InvoiceLineKind;
@@ -32,6 +32,8 @@ export interface AdjustmentLike {
   recurring?: boolean;
   active?: boolean;
 }
+
+import { addonInvoiceLines } from './social-addon';
 
 export const PERIOD_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
 
@@ -98,6 +100,8 @@ export function buildInvoiceLines(input: {
   storageCost?: number;
   billingCycle?: string | null;
   annualStartPeriod?: string | null;
+  /** Extras con sobrecosto mensual (no entran en el pago anual) */
+  addons?: Array<{ concept: string; amount: number }>;
 }): { lines: InvoiceLine[]; planAmount: number; consumptionAmount: number; total: number; iva: number } {
   const { currency, period } = input;
   const applicable = input.adjustments.filter((a) => adjustmentApplies(a, period));
@@ -129,6 +133,11 @@ export function buildInvoiceLines(input: {
       amount: roundFor(currency, base),
       ...(priceAdj?.id ? { adjustmentId: priceAdj.id } : {}),
     });
+  }
+
+  // 1b) Extras del mes (p. ej. Redes sociales con IA)
+  for (const addon of input.addons ?? []) {
+    if (addon.amount > 0) lines.push({ kind: 'ADDON', concept: addon.concept, amount: roundFor(currency, addon.amount) });
   }
 
   // 2) Cargos (y montaje por salida anticipada), después los descuentos
@@ -165,7 +174,7 @@ export function buildInvoiceLines(input: {
 export function summarize(lines: InvoiceLine[], currency: string) {
   const planAmount = roundFor(
     currency,
-    lines.filter((l) => ['PLAN', 'CHARGE', 'DISCOUNT', 'SETUP'].includes(l.kind)).reduce((s, l) => s + l.amount, 0),
+    lines.filter((l) => ['PLAN', 'ADDON', 'CHARGE', 'DISCOUNT', 'SETUP'].includes(l.kind)).reduce((s, l) => s + l.amount, 0),
   );
   const consumptionAmount = roundFor(
     currency,
@@ -178,7 +187,7 @@ export function summarize(lines: InvoiceLine[], currency: string) {
 /** Valida líneas editadas a mano en una factura pendiente. */
 export function sanitizeLines(raw: unknown, currency: string): InvoiceLine[] {
   if (!Array.isArray(raw)) return [];
-  const kinds: InvoiceLineKind[] = ['PLAN', 'CHARGE', 'DISCOUNT', 'WHATSAPP', 'STORAGE', 'SETUP'];
+  const kinds: InvoiceLineKind[] = ['PLAN', 'ADDON', 'CHARGE', 'DISCOUNT', 'WHATSAPP', 'STORAGE', 'SETUP'];
   return raw
     .filter((l: any) => l && kinds.includes(l.kind) && typeof l.concept === 'string' && Number.isFinite(Number(l.amount)))
     .slice(0, 40)
@@ -245,5 +254,6 @@ export async function computeCompanyInvoice(prisma: any, company: any, period: s
     storageCost: toCurrency(usage.reduce((s: number, u: any) => s + (u.storageCostUsd ?? 0), 0)),
     billingCycle: company.billingCycle,
     annualStartPeriod: company.annualStartPeriod,
+    addons: addonInvoiceLines(company),
   });
 }
