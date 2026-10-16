@@ -12,6 +12,7 @@ import {
   Optional,
   Post,
 } from '@nestjs/common';
+import { ensureFile } from '../common/file-store';
 import { entryStageFor } from '../common/pipelines';
 import { Queue, Worker } from 'bullmq';
 import { WA_OUTBOUND_QUEUE, redisConnection } from '../queue/queue.module';
@@ -223,6 +224,7 @@ export class EngineService {
     for (const message of messages) {
       if (message.direction === 'IN' && message.type === 'AUDIO' && !message.transcription && message.fileName) {
         try {
+          await ensureFile(this.prisma, company.id, message.fileName); // disco efímero: se restaura desde la base
           const { result: { text }, billedTo } = await session.run((apiKey) =>
             this.ai.transcribe({
               apiKey,
@@ -246,6 +248,7 @@ export class EngineService {
         try {
           const ext = message.fileName.split('.').pop()?.toLowerCase();
           const mime = ext === 'png' ? 'image/png' : ext === 'webp' ? 'image/webp' : 'image/jpeg';
+          await ensureFile(this.prisma, company.id, message.fileName);
           const vision = await analyzeImage(this.ai, session, join(UPLOADS_DIR, company.id, message.fileName), mime);
           const analysisJson = JSON.stringify(vision.analysis);
           await this.prisma.message.update({ where: { id: message.id }, data: { analysisJson } });

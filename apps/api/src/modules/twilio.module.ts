@@ -14,6 +14,7 @@ import {
   Req,
   Res,
 } from '@nestjs/common';
+import { mirrorFile } from '../common/file-store';
 import { entryStageFor } from '../common/pipelines';
 import { Queue, Worker } from 'bullmq';
 import type { Request, Response } from 'express';
@@ -302,6 +303,7 @@ export class TwilioService implements OnModuleInit, OnApplicationShutdown {
             mkdirSync(dir, { recursive: true });
             fileName = `${randomBytes(16).toString('hex')}.${mapped.ext}`;
             writeFileSync(join(dir, fileName), buffer);
+            await mirrorFile(this.prisma, companyId, fileName, buffer);
           }
         } catch (err: any) {
           this.logger.warn(`descarga de media falló: ${err.message}`);

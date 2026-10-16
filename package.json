@@ -9,9 +9,12 @@
     "build": "pnpm --filter ./apps/* build",
     "db:push": "pnpm --filter @backoffice/api db:push",
     "db:seed": "pnpm --filter @backoffice/api db:seed",
-    "db:studio": "pnpm --filter @backoffice/api db:studio"
+    "db:studio": "pnpm --filter @backoffice/api db:studio",
+    "build:render": "pnpm --filter @backoffice/api exec prisma generate && pnpm --filter @backoffice/api build && pnpm --filter @backoffice/web build",
+    "start:render": "cd apps/api && node dist/main.js"
   },
   "engines": {
-    "node": ">=20"
-  }
+    "node": ">=20 <23"
+  },
+  "packageManager": "pnpm@10.17.1"
 }

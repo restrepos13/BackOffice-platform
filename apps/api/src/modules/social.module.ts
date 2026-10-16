@@ -15,6 +15,7 @@ import {
   Query,
   Res,
 } from '@nestjs/common';
+import { ensureFile, mirrorFile } from '../common/file-store';
 import { Cron } from '@nestjs/schedule';
 import { Throttle } from '@nestjs/throttler';
 import type { Response } from 'express';
@@ -238,6 +239,7 @@ Sin promesas falsas ni exceso de emojis.`,
       mkdirSync(dir, { recursive: true });
       const file = `contenido-${randomBytes(10).toString('hex')}.${img.ext}`;
       writeFileSync(join(dir, file), img.buffer);
+      await mirrorFile(this.prisma, company.id, file, img.buffer, img.mime);
       await addSocialCost(this.prisma, company.id, img.costUsd);
       const updated = await this.prisma.contentPiece.update({
         where: { id: pieceId },
@@ -260,6 +262,7 @@ Sin promesas falsas ni exceso de emojis.`,
   /** Archivo de la pieza para el panel (autenticado). */
   async assetPath(user: AuthUser, pieceId: string) {
     const piece = await this.piece(user, pieceId);
+    if (piece.assetFile) await ensureFile(this.prisma, piece.companyId, piece.assetFile);
     return this.fileOf(piece);
   }
 
@@ -276,6 +279,7 @@ Sin promesas falsas ni exceso de emojis.`,
     if (!/^[a-f0-9]{36}$/.test(token)) throw new NotFoundException();
     const piece = await this.prisma.contentPiece.findFirst({ where: { mediaToken: token } });
     if (!piece) throw new NotFoundException();
+    if (piece.assetFile) await ensureFile(this.prisma, piece.companyId, piece.assetFile);
     return this.fileOf(piece);
   }
 

@@ -17,6 +17,7 @@ import {
   UploadedFile,
   UseInterceptors,
 } from '@nestjs/common';
+import { ensureFile, mirrorFile } from '../common/file-store';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { Cron } from '@nestjs/schedule';
 import { Throttle } from '@nestjs/throttler';
@@ -411,6 +412,7 @@ export class DeliveryService {
       mkdirSync(dir, { recursive: true });
       proof = `entrega-${randomBytes(12).toString('hex')}.${ext}`;
       writeFileSync(join(dir, proof), file.buffer);
+      await mirrorFile(this.prisma, order.companyId, proof, file.buffer, file.mimetype);
     }
     await this.prisma.order.update({
       where: { id: orderId },
@@ -426,10 +428,8 @@ export class DeliveryService {
     const order = await this.prisma.order.findUnique({ where: { id: orderId } });
     if (!order?.deliveryProofFile) throw new NotFoundException('Sin foto de entrega');
     if (!isPlatformRole(user.role) && order.companyId !== user.companyId) throw new ForbiddenException();
-    const path = join(UPLOADS_DIR, order.companyId, order.deliveryProofFile);
-    if (!path.startsWith(join(UPLOADS_DIR, order.companyId)) || !existsSync(path)) {
-      throw new NotFoundException('Archivo no disponible');
-    }
+    const path = await ensureFile(this.prisma, order.companyId, order.deliveryProofFile);
+    if (!path) throw new NotFoundException('Archivo no disponible');
     return path;
   }
 

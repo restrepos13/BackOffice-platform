@@ -17,6 +17,7 @@ import {
   UploadedFile,
   UseInterceptors,
 } from '@nestjs/common';
+import { ensureFile, mirrorFile, removeFile } from '../common/file-store';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { Throttle } from '@nestjs/throttler';
 import type { Response } from 'express';
@@ -116,8 +117,8 @@ export class MenuService {
     const { company } = await this.enabledCompany(slug);
     const product = await this.prisma.product.findFirst({ where: { id: productId, companyId: company.id, active: true, ...NOT_DELETED } });
     if (!product?.imageFile) throw new NotFoundException('Sin foto');
-    const path = join(UPLOADS_DIR, company.id, product.imageFile);
-    if (!path.startsWith(join(UPLOADS_DIR, company.id)) || !existsSync(path)) throw new NotFoundException('Sin foto');
+    const path = await ensureFile(this.prisma, company.id, product.imageFile);
+    if (!path) throw new NotFoundException('Sin foto');
     return path;
   }
 
@@ -157,13 +158,8 @@ export class MenuService {
     mkdirSync(dir, { recursive: true });
     const name = `producto-${randomBytes(10).toString('hex')}.${ext}`;
     writeFileSync(join(dir, name), file.buffer);
-    if (product.imageFile) {
-      try {
-        unlinkSync(join(dir, product.imageFile));
-      } catch {
-        /* ya no existía */
-      }
-    }
+    await mirrorFile(this.prisma, product.companyId, name, file.buffer, file.mimetype);
+    await removeFile(this.prisma, product.companyId, product.imageFile);
     await this.prisma.product.update({ where: { id }, data: { imageFile: name } });
     await this.audit.log({ actor: user, companyId: product.companyId, action: 'product.image', entity: 'Product', entityId: id, detail: product.name });
     return { ok: true };
@@ -171,13 +167,7 @@ export class MenuService {
 
   async removeImage(user: AuthUser, id: string) {
     const product = await this.assertProduct(user, id);
-    if (product.imageFile) {
-      try {
-        unlinkSync(join(UPLOADS_DIR, product.companyId, product.imageFile));
-      } catch {
-        /* ya no existía */
-      }
-    }
+    await removeFile(this.prisma, product.companyId, product.imageFile);
     await this.prisma.product.update({ where: { id }, data: { imageFile: null } });
     return { ok: true };
   }
@@ -185,8 +175,8 @@ export class MenuService {
   async panelImagePath(user: AuthUser, id: string) {
     const product = await this.assertProduct(user, id);
     if (!product.imageFile) throw new NotFoundException('Sin foto');
-    const path = join(UPLOADS_DIR, product.companyId, product.imageFile);
-    if (!existsSync(path)) throw new NotFoundException('Sin foto');
+    const path = await ensureFile(this.prisma, product.companyId, product.imageFile);
+    if (!path) throw new NotFoundException('Sin foto');
     return path;
   }
 

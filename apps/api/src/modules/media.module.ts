@@ -16,6 +16,7 @@ import {
   UploadedFile,
   UseInterceptors,
 } from '@nestjs/common';
+import { ensureFile, mirrorFile, removeFile } from '../common/file-store';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { randomBytes } from 'crypto';
 import type { Response } from 'express';
@@ -94,6 +95,7 @@ export class MediaService {
     mkdirSync(dir, { recursive: true });
     const fileName = `${randomBytes(16).toString('hex')}.${ext}`;
     writeFileSync(join(dir, fileName), file.buffer);
+    await mirrorFile(this.prisma, companyId, fileName, file.buffer, file.mimetype);
 
     const asset = await this.prisma.mediaAsset.create({
       data: {
@@ -139,11 +141,8 @@ export class MediaService {
 
   async remove(user: AuthUser, id: string) {
     const asset = await this.assertAccess(user, id);
-    const path = join(UPLOADS_DIR, asset.companyId, asset.fileName);
     await this.prisma.mediaAsset.delete({ where: { id } });
-    try {
-      if (existsSync(path)) unlinkSync(path);
-    } catch {}
+    await removeFile(this.prisma, asset.companyId, asset.fileName);
     await this.audit.log({
       actor: user, companyId: asset.companyId, action: 'media.delete',
       entity: 'MediaAsset', entityId: id, detail: asset.name,
@@ -154,8 +153,8 @@ export class MediaService {
   /** Sirve el binario con control de acceso por tenant. */
   async serveFile(user: AuthUser, id: string, res: Response) {
     const asset = await this.assertAccess(user, id);
-    const path = join(UPLOADS_DIR, asset.companyId, asset.fileName);
-    if (!existsSync(path)) throw new NotFoundException('Archivo perdido en disco');
+    const path = await ensureFile(this.prisma, asset.companyId, asset.fileName);
+    if (!path) throw new NotFoundException('Archivo no disponible');
     res.setHeader('Content-Type', asset.mimeType);
     res.setHeader('Cache-Control', 'private, max-age=3600');
     res.setHeader('Content-Disposition', 'inline');

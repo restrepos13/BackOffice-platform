@@ -13,6 +13,7 @@ import {
   Query,
   Res,
 } from '@nestjs/common';
+import { ensureFile } from '../common/file-store';
 import type { Response } from 'express';
 import { createReadStream, existsSync } from 'fs';
 import { basename, join, resolve } from 'path';
@@ -272,8 +273,8 @@ export class ConversationsService {
       throw new ForbiddenException();
     }
     const safeName = basename(message.fileName); // sin traversal
-    const filePath = join(UPLOADS_DIR, companyId, safeName);
-    if (!existsSync(filePath)) throw new NotFoundException('Archivo no disponible');
+    const filePath = await ensureFile(this.prisma, companyId, safeName);
+    if (!filePath) throw new NotFoundException('Archivo no disponible');
     const ext = safeName.split('.').pop() ?? '';
     res.setHeader('Content-Type', MIME_BY_EXT[ext] ?? 'application/octet-stream');
     res.setHeader('Cache-Control', 'private, max-age=86400');

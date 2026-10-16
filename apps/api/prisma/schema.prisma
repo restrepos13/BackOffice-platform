@@ -1245,3 +1245,19 @@ model SocialUsage {
 
   @@unique([companyId, period])
 }
+
+/// Copia en la base de cada archivo subido o generado (fotos, audios, comprobantes,
+/// imágenes de IA). En hosting con disco efímero (Render) el disco es solo caché:
+/// si el archivo no está, se restaura desde aquí. Máx. 12 MB por archivo.
+model StoredFile {
+  id        String   @id @default(cuid()) @map("_id")
+  companyId String
+  name      String
+  mime      String
+  size      Int
+  data      Bytes
+  createdAt DateTime @default(now())
+
+  @@unique([companyId, name])
+  @@index([companyId])
+}

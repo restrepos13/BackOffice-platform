@@ -3,6 +3,8 @@ import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { randomBytes } from 'crypto';
+import { existsSync } from 'fs';
+import { join, resolve } from 'path';
 import helmet from 'helmet';
 import { json, urlencoded } from 'express';
 import { AppModule } from './app.module';
@@ -44,6 +46,16 @@ async function bootstrap() {
   app.useGlobalPipes(
     new ValidationPipe({ whitelist: true, transform: true }),
   );
+  // Producción (Render): el mismo servicio sirve la web compilada; todo lo que no
+  // es /api cae en index.html (rutas del panel, /t/…, /m/…, /registro).
+  const webDist = resolve(__dirname, '..', '..', 'web', 'dist');
+  if (existsSync(join(webDist, 'index.html'))) {
+    app.useStaticAssets(webDist, { index: false, maxAge: '1h' });
+    app.use((req: any, res: any, next: any) => {
+      if (req.method !== 'GET' || req.path.startsWith('/api')) return next();
+      res.sendFile(join(webDist, 'index.html'));
+    });
+  }
   const port = Number(process.env.PORT ?? 4001);
   await app.listen(port);
   console.log(`[BackOffice API] escuchando en http://localhost:${port}/api`);

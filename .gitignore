@@ -9,3 +9,7 @@ apps/api/prisma/dev.db-journal
 apps/api/uploads/
 *.log
 *.tsbuildinfo
+
+# Variables para Render (copias locales con secretos)
+.env.*
+!.env.example

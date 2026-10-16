@@ -15,12 +15,16 @@ export const WA_INBOUND_QUEUE = 'WA_INBOUND_QUEUE';
 export const WA_OUTBOUND_QUEUE = 'WA_OUTBOUND_QUEUE';
 export const ENGINE_QUEUE = 'ENGINE_QUEUE';
 
+/** REDIS_URL completo: redis:// o rediss:// (TLS), con usuario y clave (Render Key Value, Upstash…). */
 export function redisConnection() {
   const url = new URL(process.env.REDIS_URL ?? 'redis://localhost:6379');
   return {
     host: url.hostname,
     port: Number(url.port || 6379),
-    ...(url.password ? { password: url.password } : {}),
+    ...(url.username ? { username: decodeURIComponent(url.username) } : {}),
+    ...(url.password ? { password: decodeURIComponent(url.password) } : {}),
+    ...(url.protocol === 'rediss:' ? { tls: {} } : {}),
+    maxRetriesPerRequest: null as null, // requerido por BullMQ
   };
 }
 

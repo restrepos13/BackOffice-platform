@@ -17,7 +17,8 @@ import {
 import { randomBytes, createHash } from 'crypto';
 import type { Queue } from 'bullmq';
 import { PrismaService } from '../prisma/prisma.service';
-import { CurrentUser, Roles } from '../auth/decorators';
+import { CurrentUser, Public, Roles } from '../auth/decorators';
+import { SkipThrottle } from '@nestjs/throttler';
 import { AuthUser, ROLES, parseJson } from '../common/constants';
 import { getRecentLogs } from '../common/log-buffer';
 import { AuditService } from './audit.module';
@@ -333,6 +334,17 @@ export class DevToolsService {
   }
 }
 
+/** Salud pública para Render y el ping que mantiene despierto el plan gratis. */
+@Controller()
+export class PublicHealthController {
+  @Public()
+  @SkipThrottle()
+  @Get('health')
+  health() {
+    return { ok: true, at: new Date().toISOString() };
+  }
+}
+
 @Controller('dev')
 @Roles(ROLES.SUPER_ADMIN, ROLES.DEV)
 export class DevToolsController {
@@ -401,7 +413,7 @@ export class DevToolsController {
 
 @Module({
   imports: [EmailsModule, TwilioModule],
-  controllers: [DevToolsController],
+  controllers: [DevToolsController, PublicHealthController],
   providers: [
     DevToolsService,
     { provide: AI_PROVIDER, useClass: DeepInfraProvider },
