@@ -31,6 +31,7 @@ import { qrSvg } from '../common/qr';
 import { publicWebUrl } from '../common/tracking';
 import { isSoldOut } from '../ai/agent/tools';
 import { AuditService } from './audit.module';
+import { SharePreviewModule, SharePreviewService } from './share-preview.module';
 
 const UPLOADS_DIR = resolve(process.cwd(), 'uploads');
 const IMAGE_MIME: Record<string, string> = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' };
@@ -66,6 +67,7 @@ export class MenuService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly previews: SharePreviewService,
   ) {}
 
   private async enabledCompany(slug: string) {
@@ -136,7 +138,9 @@ export class MenuService {
     const lines = await this.prisma.integration.findMany({ where: { companyId: id, type: 'WHATSAPP' } });
     const url = `${await publicWebUrl(this.prisma)}/m/${company.slug}`;
     const menu = parseJson<Record<string, any>>(company.orderConfigJson, {}).menu ?? {};
-    return { url, enabled: !!menu.enabled, whatsapp: menuWhatsapp(company, lines), qrSvg: qrSvg(url) };
+    const card = await this.previews.menuCard(company.slug);
+    const preview = card && { title: card.title, description: card.description, image: card.image };
+    return { url, enabled: !!menu.enabled, whatsapp: menuWhatsapp(company, lines), qrSvg: qrSvg(url), preview };
   }
 
   /* ── Productos: foto y agotados (panel) ── */
@@ -262,6 +266,7 @@ export class MenuController {
 }
 
 @Module({
+  imports: [SharePreviewModule],
   controllers: [MenuController],
   providers: [MenuService],
 })

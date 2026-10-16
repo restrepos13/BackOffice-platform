@@ -41,6 +41,7 @@ import { PromotionsModule } from './modules/promotions.module';
 import { KnowledgeModule } from './modules/knowledge.module';
 import { PipelinesModule } from './modules/pipelines.module';
 import { MenuModule } from './modules/menu.module';
+import { SharePreviewModule } from './modules/share-preview.module';
 import { InboundOrdersModule } from './modules/inbound-orders.module';
 import { AiSetupModule } from './modules/ai-setup.module';
 import { SignupModule } from './modules/signup.module';
@@ -91,6 +92,7 @@ import { ScheduleModule } from '@nestjs/schedule';
     KnowledgeModule,
     PipelinesModule,
     MenuModule,
+    SharePreviewModule,
     InboundOrdersModule,
     AiSetupModule,
     SignupModule,

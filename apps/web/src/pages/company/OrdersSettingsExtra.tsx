@@ -196,7 +196,10 @@ export function MenuTab({ q, companyId, canWrite }: { q: string; companyId: stri
   const [draft, setDraft] = useState<{ enabled: boolean; title: string; note: string; whatsappPhone: string } | null>(null);
   const { data: info, refetch } = useQuery({
     queryKey: ['menu-info', q],
-    queryFn: () => api.get<{ url: string; enabled: boolean; whatsapp: string | null; qrSvg: string }>(withScope('/menu/info', q)),
+    queryFn: () => api.get<{
+      url: string; enabled: boolean; whatsapp: string | null; qrSvg: string;
+      preview: { title: string; description: string; image: string } | null;
+    }>(withScope('/menu/info', q)),
   });
   useEffect(() => {
     if (!isLoading && draft === null) {
@@ -269,7 +272,39 @@ export function MenuTab({ q, companyId, canWrite }: { q: string; companyId: stri
             {!info.whatsapp && <p className="text-xs text-bad">Falta un WhatsApp para recibir los pedidos.</p>}
           </>
         ) : <Loading />}
+        {info?.preview && <SharePreviewCard url={info.url} preview={info.preview} />}
       </aside>
+    </div>
+  );
+}
+
+/**
+ * Cómo se ve el link al pegarlo en WhatsApp (Open Graph). La foto sale del
+ * primer producto con foto; sin fotos, la tarjeta general de BackOffice.
+ */
+function SharePreviewCard({ url, preview }: { url: string; preview: { title: string; description: string; image: string } }) {
+  const [image, setImage] = useState(preview.image);
+  useEffect(() => setImage(preview.image), [preview.image]);
+  let host = url;
+  try { host = new URL(url).host; } catch { /* link relativo */ }
+  return (
+    <div className="space-y-2 border-t-2 border-line pt-3">
+      <p className="kicker">Así se ve al compartirlo</p>
+      <div className="rounded-lg bg-[#d9fdd3] p-1.5 shadow-sm">
+        <div className="overflow-hidden rounded-md bg-[#f0f2f5]">
+          <img src={image} alt="" className="aspect-[1.91/1] w-full bg-bone-2 object-cover" onError={() => setImage('/og.png')} />
+          <div className="space-y-0.5 px-2.5 py-2">
+            <p className="line-clamp-2 text-[13px] font-semibold leading-snug text-[#111b21]">{preview.title}</p>
+            <p className="line-clamp-2 text-xs leading-snug text-[#667781]">{preview.description}</p>
+            <p className="text-[11px] text-[#667781]">{host}</p>
+          </div>
+        </div>
+        <p className="truncate px-1 pt-1 text-xs text-[#027eb5]">{url}</p>
+      </div>
+      <p className="text-xs text-ink-3">
+        La foto sale del primer producto que tenga foto. Si ya lo compartiste y WhatsApp muestra la vista vieja,
+        agrega <b>?v=2</b> al final del link.
+      </p>
     </div>
   );
 }

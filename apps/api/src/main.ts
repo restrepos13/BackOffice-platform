@@ -3,12 +3,13 @@ import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { randomBytes } from 'crypto';
-import { existsSync } from 'fs';
+import { existsSync, readFileSync } from 'fs';
 import { join, resolve } from 'path';
 import helmet from 'helmet';
 import { json, urlencoded } from 'express';
 import { AppModule } from './app.module';
 import { BufferedLogger } from './common/log-buffer';
+import { SharePreviewService } from './modules/share-preview.module';
 
 async function bootstrap() {
   // Nunca arrancar con un secreto JWT vacío: si falta, se genera uno efímero
@@ -52,13 +53,23 @@ async function bootstrap() {
     new ValidationPipe({ whitelist: true, transform: true }),
   );
   // Producción (Render): el mismo servicio sirve la web compilada; todo lo que no
-  // es /api cae en index.html (rutas del panel, /t/…, /m/…, /registro).
+  // es /api cae en index.html (rutas del panel, /t/…, /m/…, /registro), con la
+  // vista previa para WhatsApp/redes ya escrita en el <head> según la ruta.
   const webDist = resolve(__dirname, '..', '..', 'web', 'dist');
   if (existsSync(join(webDist, 'index.html'))) {
+    const indexHtml = readFileSync(join(webDist, 'index.html'), 'utf8');
+    const previews = app.get(SharePreviewService);
     app.useStaticAssets(webDist, { index: false, maxAge: '1h' });
-    app.use((req: any, res: any, next: any) => {
+    app.use(async (req: any, res: any, next: any) => {
       if (req.method !== 'GET' || req.path.startsWith('/api')) return next();
-      res.sendFile(join(webDist, 'index.html'));
+      let html = indexHtml;
+      try {
+        html = await previews.render(indexHtml, req.path);
+      } catch {
+        /* sin vista previa: igual se sirve la página */
+      }
+      res.setHeader('Cache-Control', 'public, max-age=0, s-maxage=300');
+      res.type('html').send(html);
     });
   }
   const port = Number(process.env.PORT ?? 4001);

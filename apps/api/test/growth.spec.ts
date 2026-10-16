@@ -16,6 +16,7 @@ import { PromotionsService } from '../src/modules/promotions.module';
 import { describeForChat, normalizeAnalysis, receiptMatches } from '../src/ai/vision';
 import { AGENT_TOOLS, isSoldOut } from '../src/ai/agent/tools';
 import { MenuService, menuWhatsapp } from '../src/modules/menu.module';
+import { SharePreviewService } from '../src/modules/share-preview.module';
 import { qrMatrix, qrSvg } from '../src/common/qr';
 import { sanitizeStages } from '../src/common/pipelines';
 import { PipelinesService } from '../src/modules/pipelines.module';
@@ -321,7 +322,7 @@ describe('menú digital con QR', () => {
       { id: 'p2', companyId: 'co1', name: 'Jugo', category: 'Bebidas', price: 5000, active: true, deletedAt: null, presentationsJson: '[]', unit: 'u', soldOut: true },
       { id: 'p3', companyId: 'co1', name: 'Viejo', active: false, deletedAt: null, presentationsJson: '[]', unit: 'u' },
     );
-    return { prisma, db, service: new MenuService(prisma as any, audit as any) };
+    return { prisma, db, service: new MenuService(prisma as any, audit as any, new SharePreviewService(prisma as any)) };
   }
 
   it('sin publicar → 404; publicado → categorías, agotados marcados y WhatsApp del negocio', async () => {
