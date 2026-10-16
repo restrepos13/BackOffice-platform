@@ -1203,3 +1203,23 @@ export interface SetupProposal {
   faqs: Array<{ question: string; answer: string }>;
   assistant: { name: string; tone: string; style: string; welcome: string; instructions: string } | null;
 }
+
+/* ─── Registro web: plano a la medida ─── */
+
+export interface BusinessBlueprint {
+  businessType: string;
+  needs: Array<{ title: string; solution: string }>;
+  modules: string[];
+  pipeline: { name: string; stages: Array<{ key: string; label: string; kind: 'OPEN' | 'WON' | 'LOST' }> } | null;
+  clientData: string[];
+  assistantFlow: string[];
+  quickReplies: Array<{ shortcut: string; title: string; body: string }>;
+  followUps: Array<{ when: 'no_reply' | 'draft_open'; afterHours: number; message: string }>;
+}
+
+export interface InterviewTurn {
+  done: boolean;
+  question: string;
+  options: string[];
+  understood: string;
+}

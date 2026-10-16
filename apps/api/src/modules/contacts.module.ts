@@ -13,6 +13,7 @@ import {
   Post,
   Query,
 } from '@nestjs/common';
+import { entryStageFor } from '../common/pipelines';
 import { PrismaService } from '../prisma/prisma.service';
 import { DEFAULT_STAGES } from '../common/pipelines';
 import { CurrentUser, Roles } from '../auth/decorators';
@@ -86,7 +87,10 @@ export class ContactsService {
   async create(user: AuthUser, dto: any) {
     const companyId = isPlatformRole(user.role) ? dto.companyId : user.companyId;
     if (!companyId) throw new ForbiddenException('Falta companyId');
-    const pipelineId = dto.pipelineId && dto.pipelineId !== 'default' ? String(dto.pipelineId) : null;
+    // Sin embudo indicado entra al embudo por defecto de la empresa (si tiene uno propio)
+    const pipelineId = dto.pipelineId === undefined
+      ? (await entryStageFor(this.prisma, companyId)).pipelineId
+      : dto.pipelineId && dto.pipelineId !== 'default' ? String(dto.pipelineId) : null;
     const stages = await this.stagesOf(pipelineId, companyId);
     const stage = dto.stage && stages.some((s) => s.key === dto.stage) ? dto.stage : stages[0].key;
     const contact = await this.prisma.contact.create({

@@ -289,6 +289,13 @@ la vieja `backoffice2026` ya no existe):
   y las pestañas de Pedidos → Configuración se filtran por módulos; sin pedidos aparece
   "Mi negocio". Los devs desbloquean módulos sueltos en la ficha de la empresa.
   `prisma/migrate-modulos.ts` dejó a las empresas existentes viendo lo mismo (ya corrido).
+- **Registro a la medida (sin plantillas cerradas)**: `/registro` es una ENTREVISTA con IA
+  (`POST /api/public/signup/interview`, una pregunta a la vez con opciones, máx. 8) y luego
+  un plano editable (`src/common/blueprint.ts`): tipo de negocio, necesidades→solución,
+  herramientas elegidas una a una (`SELECTABLE_MODULES`), embudo con SUS etapas (queda
+  `isDefault` y los contactos nuevos entran ahí: `entryStageFor`; al cerrar pasan a la
+  etapa ganada: `wonStageFor`), datos que pide el asistente, su flujo paso a paso,
+  respuestas rápidas y seguimientos. El rubro solo define los precios que ve.
 - `applySetupProposal` (ai-setup) es la única forma de aplicar una propuesta de IA (la
   usan el registro y "Configurar con IA"). Tests: `test/signup.spec.ts`.
 

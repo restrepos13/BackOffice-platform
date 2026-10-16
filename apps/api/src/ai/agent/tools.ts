@@ -1,4 +1,5 @@
 import { NOT_DELETED, parseJson } from '../../common/constants';
+import { wonStageFor } from '../../common/pipelines';
 import {
   DeliveryConfig,
   LatLng,
@@ -629,9 +630,10 @@ export const AGENT_TOOLS: AgentTool[] = [
         const pipeline = await ctx.orders.runConfirmationPipeline(draft.id, { type: 'IA', name: 'Agente IA' });
         scheduled = pipeline.scheduled;
       }
-      // Embudo estándar: quien confirma pasa a CLIENTE (los embudos propios los mueve la empresa)
-      if (ctx.contact?.id && !ctx.contact.pipelineId && ctx.contact.stage !== 'CLIENTE') {
-        await ctx.prisma.contact.update({ where: { id: ctx.contact.id }, data: { stage: 'CLIENTE' } });
+      // Quien confirma pasa a la etapa "ganada" de SU embudo (CLIENTE en el estándar)
+      if (ctx.contact?.id) {
+        const won = await wonStageFor(ctx.prisma, ctx.contact.pipelineId);
+        if (ctx.contact.stage !== won) await ctx.prisma.contact.update({ where: { id: ctx.contact.id }, data: { stage: won } });
       }
       // Uso del cupón (condicional: nunca pasa de los usos máximos)
       if (draft.couponCode || draft.discount) {

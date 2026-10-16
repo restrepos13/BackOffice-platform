@@ -12,6 +12,7 @@ import {
   Optional,
   Post,
 } from '@nestjs/common';
+import { entryStageFor } from '../common/pipelines';
 import { Queue, Worker } from 'bullmq';
 import { WA_OUTBOUND_QUEUE, redisConnection } from '../queue/queue.module';
 import { OrdersModule, OrdersService } from './orders.module';
@@ -881,7 +882,7 @@ export class EngineService {
           name: dto.name ?? `Simulador ${dto.phone}`,
           phone: dto.phone,
           channel: 'SIMULATOR',
-          stage: 'CURIOSO',
+          ...(await entryStageFor(this.prisma, companyId)),
         },
       });
     }

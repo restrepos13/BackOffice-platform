@@ -201,3 +201,113 @@ describe('registro por la web', () => {
     await expect(service.status({ ...ADMIN, companyId: null })).rejects.toBeInstanceOf(ForbiddenException);
   });
 });
+
+/* ═══ Entrevista y plano a la medida ═══ */
+
+import { normalizeBlueprint, normalizeInterviewTurn, revalidateBlueprint, assistantPromptFromBlueprint, agentPresetFor } from '../src/common/blueprint';
+import { entryStageFor, wonStageFor } from '../src/common/pipelines';
+
+describe('entrevista: la IA pregunta cómo funciona el negocio', () => {
+  function setupInterview(content: string) {
+    const { prisma } = createMockPrisma();
+    const service = new SignupService(prisma as any, audit as any, {} as any, {} as any, {} as any);
+    const chat = jest.fn(async () => ({ content, model: 'm', keyLabel: 'llave 1', tokens: 5 }));
+    (service as any).pool = { chat };
+    return { service, chat };
+  }
+
+  it('hace una pregunta con opciones; sin respuesta inicial pide contar el negocio', async () => {
+    const { service, chat } = setupInterview(JSON.stringify({ listo: false, pregunta: '¿Tus clientes son personas o empresas?', opciones: ['Personas', 'Empresas', 'Ambas'], nota: 'Certificas trabajo en alturas' }));
+    await expect(service.interview({ messages: [] })).rejects.toBeInstanceOf(BadRequestException);
+    const turn = await service.interview({ messages: [{ role: 'user', content: 'Somos un centro de entrenamiento y certificación en trabajo seguro en alturas en Itagüí' }] });
+    expect(turn).toMatchObject({ done: false, question: '¿Tus clientes son personas o empresas?', options: ['Personas', 'Empresas', 'Ambas'] });
+    // El prompt se adapta al negocio y no se trae roles inventados del navegador
+    const sent = (chat.mock.calls[0] as any[])[0].messages;
+    expect(sent[0].content).toContain('A LA MEDIDA');
+    expect(sent).toHaveLength(2);
+  });
+
+  it('nunca se alarga más de 8 preguntas y respeta cuando la IA dice listo', async () => {
+    const { service, chat } = setupInterview(JSON.stringify({ listo: true }));
+    const long = Array.from({ length: 8 }, (_, i) => [{ role: 'assistant', content: `p${i}` }, { role: 'user', content: `respuesta número ${i} con detalle` }]).flat();
+    expect(await service.interview({ messages: long })).toMatchObject({ done: true });
+    expect(chat).not.toHaveBeenCalled(); // tope: ni llama a la IA
+    expect(await service.interview({ messages: [{ role: 'user', content: 'Vendemos cursos de alturas' }] })).toMatchObject({ done: true });
+    expect(normalizeInterviewTurn({ pregunta: '' }, 1, 8).done).toBe(true);
+  });
+});
+
+describe('plano a la medida (centro de certificación en alturas)', () => {
+  const RAW = {
+    rubro: 'SERVICIOS', tipo_negocio: 'Centro de entrenamiento en trabajo en alturas',
+    necesidades: [{ titulo: 'Inscribir trabajadores de empresas', como_lo_resuelve: 'El asistente toma los datos y agenda el curso' }, { titulo: '', como_lo_resuelve: 'x' }],
+    herramientas: ['agenda', 'campaigns', 'hackear', 'delivery'],
+    embudo: { nombre: 'Inscripciones', etapas: [{ nombre: 'Interesado' }, { nombre: 'Documentos enviados' }, { nombre: 'Pagó', tipo: 'abierta' }, { nombre: 'Certificado', tipo: 'ganada' }, { nombre: 'No continuó', tipo: 'perdida' }] },
+    datos_cliente: ['Nombre completo', 'Cédula', 'EPS y ARL', 'Empresa'],
+    flujo_asistente: ['Saluda y pregunta qué curso necesita', 'Explica requisitos', 'Pide datos y agenda'],
+    respuestas_rapidas: [{ atajo: '/Requisitos ', titulo: 'Requisitos', texto: 'Trae cédula y certificado de EPS' }, { atajo: 'requisitos', titulo: 'Dup', texto: 'x' }],
+    seguimientos: [{ cuando: 'no_reply', horas: 50, mensaje: '¿Te reservo el cupo?' }, { cuando: 'x', horas: 2, mensaje: '' }],
+  };
+
+  it('valida y recorta: herramientas reales, embudo propio, sin duplicados ni basura', () => {
+    const bp = normalizeBlueprint(RAW, 'VENTAS');
+    expect(bp.rubro).toBe('SERVICIOS');
+    expect(bp.modules).toEqual(['agenda', 'campaigns']); // sin "hackear"; domicilios sin pedidos no aplica
+    expect(bp.pipeline?.stages.map((s) => s.key)).toEqual(['INTERESADO', 'DOCUMENTOS_ENVIADOS', 'PAGO', 'CERTIFICADO', 'NO_CONTINUO']);
+    expect(bp.pipeline?.stages.find((s) => s.kind === 'WON')?.label).toBe('Certificado');
+    expect(bp.needs).toHaveLength(1);
+    expect(bp.quickReplies).toEqual([{ shortcut: 'requisitos', title: 'Requisitos', body: 'Trae cédula y certificado de EPS' }]);
+    expect(bp.followUps).toEqual([{ when: 'no_reply', afterHours: 23, message: '¿Te reservo el cupo?' }]);
+    const prompt = assistantPromptFromBlueprint('Atiendes el WhatsApp de Alturas Seguras.', bp);
+    expect(prompt).toContain('1. Saluda y pregunta qué curso necesita');
+    expect(prompt).toContain('Cédula, EPS y ARL');
+    expect(agentPresetFor(bp.modules)).toBe('solo_consultas');
+    expect(agentPresetFor(['orders', 'delivery'])).toBe('domicilios');
+    // Lo editado por el dueño vuelve a validarse (y puede apagar todo)
+    const edited = revalidateBlueprint({ ...bp, modules: ['agenda', 'orders', 'menu', 'nope'], pipeline: { name: 'X', stages: [{ label: 'Solo una', kind: 'OPEN' }] } }, 'SERVICIOS');
+    expect(edited.modules).toEqual(['agenda', 'orders', 'menu']);
+    expect(edited.pipeline).toBeNull(); // 1 etapa no es un embudo → estándar
+    expect(revalidateBlueprint({ ...bp, modules: [] }, 'SERVICIOS').modules).toEqual([]);
+  });
+
+  it('la cuenta nace con SU embudo, respuestas, seguimientos y herramientas; los contactos entran al embudo propio', async () => {
+    const { prisma, db } = createMockPrisma();
+    const emails = { systemSend: jest.fn(async () => ({ status: 'QUEUED' })) };
+    const auth = { login: jest.fn(async () => ({ token: 't' })) };
+    const service = new SignupService(prisma as any, audit as any, emails as any, new CompaniesService(prisma as any, audit as any), auth as any);
+    (service as any).pool = { chat: jest.fn(async () => ({ content: JSON.stringify({ ...RAW, empresa: { nombre: 'Alturas Seguras' }, productos: [{ nombre: 'Curso avanzado', precio: '380.000' }], asistente: { nombre: 'Camila', bienvenida: 'Hola, soy Camila', instrucciones: 'Atiendes inscripciones' } }), model: 'm', keyLabel: 'l', tokens: 1 })) };
+    const messages = [
+      { role: 'user', content: 'Centro de certificación en trabajo en alturas en Itagüí, cursos para trabajadores' },
+      { role: 'assistant', content: '¿Personas o empresas?' },
+      { role: 'user', content: 'Sobre todo empresas que mandan grupos, también personas' },
+    ];
+    const pv = await service.preview({ messages });
+    expect(pv.blueprint.businessType).toBe('Centro de entrenamiento en trabajo en alturas');
+    await service.register({
+      messages, rubro: pv.rubro, proposal: pv.proposal, blueprint: pv.blueprint, acceptTerms: true,
+      company: { name: 'Alturas Seguras', city: 'Itagüí' },
+      admin: { name: 'Jorge', email: 'jorge@alturas.co', phone: '3104445566', password: 'segura123' },
+    });
+    const company = db.company[0];
+    expect(company.industry).toBe('Centro de entrenamiento en trabajo en alturas');
+    const modules = JSON.parse(company.modulesJson);
+    expect(modules).toEqual(expect.arrayContaining(['inbox', 'contacts', 'bots', 'agenda', 'campaigns']));
+    expect(modules).not.toContain('orders');
+    expect(db.pipeline[0]).toMatchObject({ companyId: company.id, name: 'Inscripciones', isDefault: true });
+    expect(db.quickReply.map((r: any) => r.shortcut)).toEqual(['requisitos']);
+    expect(JSON.parse(company.orderConfigJson).followUps[0]).toMatchObject({ enabled: true, afterHours: 23 });
+    const bot = db.bot.find((b: any) => b.companyId === company.id)!;
+    expect(bot.systemPrompt).toContain('Datos que debes pedirle al cliente');
+    expect(bot.engineMode).toBe('AGENT');
+    const ob = JSON.parse(company.onboardingJson);
+    expect(ob).toMatchObject({ businessType: 'Centro de entrenamiento en trabajo en alturas', clientData: ['Nombre completo', 'Cédula', 'EPS y ARL', 'Empresa'] });
+    expect(ob.interview).toHaveLength(3);
+    const mail = (emails.systemSend as jest.Mock).mock.calls[0][0];
+    expect(mail.body).toContain('Lo que necesita');
+    expect(mail.body).toContain('Sobre todo empresas');
+    // Contactos nuevos entran a "Interesado"; al cerrar pasan a "Certificado"
+    expect(await entryStageFor(prisma, company.id)).toEqual({ pipelineId: db.pipeline[0].id, stage: 'INTERESADO' });
+    expect(await wonStageFor(prisma, db.pipeline[0].id)).toBe('CERTIFICADO');
+    expect(await wonStageFor(prisma, null)).toBe('CLIENTE');
+  });
+});

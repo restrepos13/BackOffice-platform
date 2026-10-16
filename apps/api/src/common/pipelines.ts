@@ -41,3 +41,21 @@ export function sanitizeStages(raw: unknown): PipelineStage[] {
   if (!stages.some((s) => s.kind === 'OPEN')) throw new Error('Al menos una etapa debe estar abierta');
   return stages;
 }
+
+/** Embudo y etapa con que entra un contacto nuevo (el embudo por defecto de la empresa). */
+export async function entryStageFor(prisma: any, companyId: string): Promise<{ pipelineId: string | null; stage: string }> {
+  const p = await prisma.pipeline.findFirst({ where: { companyId, isDefault: true } });
+  if (!p) return { pipelineId: null, stage: DEFAULT_STAGES[0].key };
+  let stages: PipelineStage[] = [];
+  try { stages = JSON.parse(p.stagesJson); } catch { stages = []; }
+  return stages.length ? { pipelineId: p.id, stage: stages[0].key } : { pipelineId: null, stage: DEFAULT_STAGES[0].key };
+}
+
+/** Etapa "ganada" del embudo del contacto (CLIENTE en el estándar). */
+export async function wonStageFor(prisma: any, pipelineId: string | null | undefined): Promise<string> {
+  if (!pipelineId) return 'CLIENTE';
+  const p = await prisma.pipeline.findUnique({ where: { id: pipelineId } });
+  let stages: PipelineStage[] = [];
+  try { stages = JSON.parse(p?.stagesJson ?? '[]'); } catch { stages = []; }
+  return stages.find((s) => s.kind === 'WON')?.key ?? 'CLIENTE';
+}

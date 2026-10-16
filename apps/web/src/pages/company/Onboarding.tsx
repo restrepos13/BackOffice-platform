@@ -18,7 +18,7 @@ interface OnboardingStatus {
   company: { id: string; name: string; status: string; planId: string | null };
   rubro: string;
   rubroLabel: string;
-  onboarding: { contactName?: string };
+  onboarding: { contactName?: string; businessType?: string; needs?: Array<{ title: string; solution: string }>; assistantFlow?: string[]; clientData?: string[] };
   checklist: { items: Array<{ key: string; label: string; done: boolean; link: string }>; done: number; total: number; percent: number };
   plans: Array<{ id: string; name: string; priceMonthly: number; currency: string; annualPrice: number; highlight: boolean; minTermMonths: number; features: string[] }>;
   requestedPlan: { name: string; billingCycle: string; amount: number; at: string } | null;
@@ -162,6 +162,36 @@ export default function Onboarding() {
               </p>
             )}
           </section>
+
+          {(st.onboarding.needs?.length || st.onboarding.assistantFlow?.length) ? (
+            <section className="border-2 border-ink bg-paper p-5">
+              <p className="kicker">Tu BackOffice a la medida{st.onboarding.businessType ? ` · ${st.onboarding.businessType}` : ''}</p>
+              <div className="mt-3 grid gap-5 md:grid-cols-2">
+                {!!st.onboarding.needs?.length && (
+                  <div>
+                    <p className="mb-2 text-sm font-semibold">Lo que necesitas</p>
+                    <ul className="space-y-2 text-sm">
+                      {st.onboarding.needs.map((n) => (
+                        <li key={n.title} className="border-l-2 border-ok pl-3"><b>{n.title}</b><span className="block text-xs text-ink-2">{n.solution}</span></li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                {!!st.onboarding.assistantFlow?.length && (
+                  <div>
+                    <p className="mb-2 text-sm font-semibold">Cómo atiende tu asistente</p>
+                    <ol className="list-decimal space-y-1 pl-5 text-sm text-ink-2">
+                      {st.onboarding.assistantFlow.map((f) => <li key={f}>{f.replace(/^\d+[.)]\s*/, '')}</li>)}
+                    </ol>
+                    {!!st.onboarding.clientData?.length && (
+                      <p className="mt-2 text-xs text-ink-3">Le pide al cliente: {st.onboarding.clientData.join(', ')}.</p>
+                    )}
+                    <Link to="/app/bots" className="mt-2 inline-block text-xs font-semibold uppercase tracking-wider underline">Ajustar mi asistente</Link>
+                  </div>
+                )}
+              </div>
+            </section>
+          ) : null}
 
           <section id="planes">
             <div className="mb-3 flex flex-wrap items-end justify-between gap-3">

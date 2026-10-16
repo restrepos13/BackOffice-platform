@@ -14,6 +14,7 @@ import {
   Req,
   Res,
 } from '@nestjs/common';
+import { entryStageFor } from '../common/pipelines';
 import { Queue, Worker } from 'bullmq';
 import type { Request, Response } from 'express';
 import { mkdirSync, writeFileSync } from 'fs';
@@ -253,7 +254,7 @@ export class TwilioService implements OnModuleInit, OnApplicationShutdown {
     });
     if (!contact) {
       contact = await this.prisma.contact.create({
-        data: { companyId, name: profileName, phone, channel: 'WHATSAPP', stage: 'CURIOSO' },
+        data: { companyId, name: profileName, phone, channel: 'WHATSAPP', ...(await entryStageFor(this.prisma, companyId)) },
       });
     }
 

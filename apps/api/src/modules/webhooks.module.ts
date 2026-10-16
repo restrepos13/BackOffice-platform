@@ -15,6 +15,7 @@ import {
   Res,
   UnauthorizedException,
 } from '@nestjs/common';
+import { entryStageFor } from '../common/pipelines';
 import { SkipThrottle } from '@nestjs/throttler';
 import type { Request, Response } from 'express';
 import type { Queue } from 'bullmq';
@@ -78,7 +79,7 @@ export class WebhooksService {
     if (!contact) {
       contact = await this.prisma.contact.create({
         data: {
-          companyId: input.companyId, name: input.name, channel: input.channel, stage: 'CURIOSO',
+          companyId: input.companyId, name: input.name, channel: input.channel, ...(await entryStageFor(this.prisma, input.companyId)),
           ...(input.contactKey.phone ? { phone: input.contactKey.phone } : { externalId: input.contactKey.externalId }),
         },
       });
