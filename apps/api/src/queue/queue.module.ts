@@ -17,7 +17,15 @@ export const ENGINE_QUEUE = 'ENGINE_QUEUE';
 
 /** REDIS_URL completo: redis:// o rediss:// (TLS), con usuario y clave (Render Key Value, Upstash…). */
 export function redisConnection() {
-  const url = new URL(process.env.REDIS_URL ?? 'redis://localhost:6379');
+  // Tolera comillas o espacios pegados por error en el panel del hosting
+  const raw = String(process.env.REDIS_URL ?? '').trim().replace(/^['"]|['"]$/g, '') || 'redis://localhost:6379';
+  let url: URL;
+  try {
+    url = new URL(raw);
+    if (!/^rediss?:$/.test(url.protocol)) throw new Error('protocolo');
+  } catch {
+    throw new Error(`REDIS_URL inválida: debe verse como redis://usuario:clave@host:6379 o rediss://… (llegó algo que empieza por "${raw.slice(0, 8)}…")`);
+  }
   return {
     host: url.hostname,
     port: Number(url.port || 6379),
