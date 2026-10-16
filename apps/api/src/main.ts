@@ -33,6 +33,11 @@ async function bootstrap() {
   );
   app.disable('x-powered-by');
 
+  // IP real del visitante detrás de proxies (límites por IP): Render = 1 salto,
+  // Vercel → Render = 2. Sin la variable no se confía en X-Forwarded-For.
+  const hops = Number(process.env.TRUST_PROXY_HOPS ?? 0);
+  if (hops > 0) app.set('trust proxy', hops);
+
   // Límite de payload (los uploads de galería van por multer con su propio límite)
   // El cuerpo crudo se guarda para verificar firmas de webhooks (Meta)
   app.use(json({ limit: '1mb', verify: (req: any, _res, buf) => { req.rawBody = buf; } }));
