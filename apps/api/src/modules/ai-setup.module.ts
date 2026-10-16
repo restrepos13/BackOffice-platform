@@ -161,81 +161,95 @@ export class AiSetupService {
   /** Aplica la propuesta revisada (también validada aquí: puede venir editada). */
   async apply(user: AuthUser, dto: { proposal?: any; createAssistant?: boolean }, companyId?: string) {
     const id = this.companyIdFor(user, companyId);
-    const raw = dto?.proposal ?? {};
-    // La propuesta editada en el panel llega en el formato normalizado
-    const p = normalizeProposal({
-      productos: (raw.products ?? []).map((x: any) => ({ nombre: x.name, categoria: x.category, precio: x.price, descripcion: x.description, presentaciones: x.presentations })),
-      horario: raw.schedule ? { dias: raw.schedule.days, abre: raw.schedule.open, cierra: raw.schedule.close } : null,
-      domicilios: raw.delivery ? { activo: raw.delivery.enabled, tarifa_base: raw.delivery.baseFee, por_km: raw.delivery.perKm, cobertura_km: raw.delivery.maxKm, tiempo_preparacion_min: raw.delivery.prepMinutes } : null,
-      preguntas: (raw.faqs ?? []).map((f: any) => ({ pregunta: f.question, respuesta: f.answer })),
-      asistente: raw.assistant ? { nombre: raw.assistant.name, tono: raw.assistant.tone, estilo: raw.assistant.style, bienvenida: raw.assistant.welcome, instrucciones: raw.assistant.instructions } : null,
-    });
-    const company = await this.prisma.company.findUniqueOrThrow({ where: { id } });
-    const existing = await this.prisma.product.findMany({ where: { companyId: id, ...NOT_DELETED }, select: { name: true } });
-    const names = new Set(existing.map((e) => e.name.toLowerCase()));
-    let created = 0;
-    for (const product of p.products) {
-      if (names.has(product.name.toLowerCase())) continue;
-      await this.prisma.product.create({
-        data: {
-          companyId: id, name: product.name, category: product.category, price: product.price,
-          description: product.description, presentationsJson: JSON.stringify(product.presentations),
-        },
-      });
-      created++;
-    }
-    const cfg = parseJson<Record<string, any>>(company.orderConfigJson, {});
-    const kb = Array.isArray(cfg.knowledgeBase) ? cfg.knowledgeBase : [];
-    const kbQuestions = new Set(kb.map((f: any) => String(f?.question ?? f).toLowerCase()));
-    const next = {
-      ...cfg,
-      ...(p.schedule ? { schedule: p.schedule } : {}),
-      ...(p.delivery
-        ? {
-            delivery: {
-              ...(cfg.delivery ?? {}),
-              // se activa solo cuando hay punto de despacho (no se inventa ubicación)
-              enabled: p.delivery.enabled && !!cfg.delivery?.origin,
-              ...(p.delivery.baseFee != null ? { baseFee: p.delivery.baseFee } : {}),
-              ...(p.delivery.perKm != null ? { perKm: p.delivery.perKm } : {}),
-              ...(p.delivery.maxKm != null ? { maxKm: p.delivery.maxKm } : {}),
-              ...(p.delivery.prepMinutes != null ? { prepMinutes: p.delivery.prepMinutes } : {}),
-            },
-          }
-        : {}),
-      knowledgeBase: [...kb, ...p.faqs.filter((f) => !kbQuestions.has(f.question.toLowerCase()))].slice(0, 60),
-    };
-    await this.prisma.company.update({ where: { id }, data: { orderConfigJson: JSON.stringify(next) } });
-
-    let botId: string | null = null;
-    if (p.assistant && dto?.createAssistant !== false) {
-      const preset = p.delivery?.enabled ? 'domicilios' : 'pedidos_programados';
-      const bot = await this.prisma.bot.create({
-        data: {
-          companyId: id, name: p.assistant.name, status: 'DRAFT', provider: 'deepinfra',
-          model: 'meta-llama/Llama-3.3-70B-Instruct', temperature: 0.4,
-          systemPrompt: p.assistant.instructions || `Atiendes el WhatsApp de ${company.name}.`,
-          personalityJson: JSON.stringify({ tone: p.assistant.tone, style: p.assistant.style, language: 'es-CO' }),
-          welcomeMessage: p.assistant.welcome,
-          engineMode: 'AGENT', toolsJson: JSON.stringify(AGENT_PRESETS[preset].tools),
-          replyDelayMinSec: 2, replyDelayMaxSec: 12,
-        },
-      });
-      botId = bot.id;
-    }
-    await this.audit.log({
-      actor: user, companyId: id, action: 'ai_setup.apply', entity: 'Company', entityId: id,
-      detail: `${created} productos, ${p.faqs.length} preguntas${p.schedule ? ', horario' : ''}${botId ? ', asistente' : ''}`,
-    });
-    return {
-      productsCreated: created,
-      productsSkipped: p.products.length - created,
-      faqsAdded: p.faqs.length,
-      scheduleSet: !!p.schedule,
-      deliveryNeedsOrigin: !!p.delivery?.enabled && !cfg.delivery?.origin,
-      botId,
-    };
+    return applySetupProposal(this.prisma, this.audit, user, id, dto?.proposal ?? {}, { createAssistant: dto?.createAssistant !== false });
   }
+}
+
+/** Revalida la propuesta (puede venir editada) y la aplica sin pisar lo existente. */
+export function proposalFromNormalized(raw: any): SetupProposal {
+  return normalizeProposal({
+    productos: (raw?.products ?? []).map((x: any) => ({ nombre: x.name, categoria: x.category, precio: x.price, descripcion: x.description, presentaciones: x.presentations })),
+    horario: raw?.schedule ? { dias: raw.schedule.days, abre: raw.schedule.open, cierra: raw.schedule.close } : null,
+    domicilios: raw?.delivery ? { activo: raw.delivery.enabled, tarifa_base: raw.delivery.baseFee, por_km: raw.delivery.perKm, cobertura_km: raw.delivery.maxKm, tiempo_preparacion_min: raw.delivery.prepMinutes } : null,
+    preguntas: (raw?.faqs ?? []).map((f: any) => ({ pregunta: f.question, respuesta: f.answer })),
+    asistente: raw?.assistant ? { nombre: raw.assistant.name, tono: raw.assistant.tone, estilo: raw.assistant.style, bienvenida: raw.assistant.welcome, instrucciones: raw.assistant.instructions } : null,
+  });
+}
+
+export async function applySetupProposal(
+  prisma: any,
+  audit: AuditService,
+  actor: AuthUser | null,
+  id: string,
+  raw: any,
+  opts: { createAssistant?: boolean; agentPreset?: string } = {},
+) {
+  const p = proposalFromNormalized(raw);
+  const company = await prisma.company.findUniqueOrThrow({ where: { id } });
+  const existing = await prisma.product.findMany({ where: { companyId: id, ...NOT_DELETED }, select: { name: true } });
+  const names = new Set(existing.map((e: any) => e.name.toLowerCase()));
+  let created = 0;
+  for (const product of p.products) {
+    if (names.has(product.name.toLowerCase())) continue;
+    await prisma.product.create({
+      data: {
+        companyId: id, name: product.name, category: product.category, price: product.price,
+        description: product.description, presentationsJson: JSON.stringify(product.presentations),
+      },
+    });
+    created++;
+  }
+  const cfg = parseJson<Record<string, any>>(company.orderConfigJson, {});
+  const kb = Array.isArray(cfg.knowledgeBase) ? cfg.knowledgeBase : [];
+  const kbQuestions = new Set(kb.map((f: any) => String(f?.question ?? f).toLowerCase()));
+  const next = {
+    ...cfg,
+    ...(p.schedule ? { schedule: p.schedule } : {}),
+    ...(p.delivery
+      ? {
+          delivery: {
+            ...(cfg.delivery ?? {}),
+            // se activa solo cuando hay punto de despacho (no se inventa ubicación)
+            enabled: p.delivery.enabled && !!cfg.delivery?.origin,
+            ...(p.delivery.baseFee != null ? { baseFee: p.delivery.baseFee } : {}),
+            ...(p.delivery.perKm != null ? { perKm: p.delivery.perKm } : {}),
+            ...(p.delivery.maxKm != null ? { maxKm: p.delivery.maxKm } : {}),
+            ...(p.delivery.prepMinutes != null ? { prepMinutes: p.delivery.prepMinutes } : {}),
+          },
+        }
+      : {}),
+    knowledgeBase: [...kb, ...p.faqs.filter((f) => !kbQuestions.has(f.question.toLowerCase()))].slice(0, 60),
+  };
+  await prisma.company.update({ where: { id }, data: { orderConfigJson: JSON.stringify(next) } });
+
+  let botId: string | null = null;
+  if (p.assistant && opts.createAssistant !== false) {
+    const preset = opts.agentPreset ?? (p.delivery?.enabled ? 'domicilios' : 'pedidos_programados');
+    const bot = await prisma.bot.create({
+      data: {
+        companyId: id, name: p.assistant.name, status: 'DRAFT', provider: 'deepinfra',
+        model: 'meta-llama/Llama-3.3-70B-Instruct', temperature: 0.4,
+        systemPrompt: p.assistant.instructions || `Atiendes el WhatsApp de ${company.name}.`,
+        personalityJson: JSON.stringify({ tone: p.assistant.tone, style: p.assistant.style, language: 'es-CO' }),
+        welcomeMessage: p.assistant.welcome,
+        engineMode: 'AGENT', toolsJson: JSON.stringify(AGENT_PRESETS[preset]?.tools ?? AGENT_PRESETS.solo_consultas.tools),
+        replyDelayMinSec: 2, replyDelayMaxSec: 12,
+      },
+    });
+    botId = bot.id;
+  }
+  await audit.log({
+    actor, companyId: id, action: 'ai_setup.apply', entity: 'Company', entityId: id,
+    detail: `${created} productos, ${p.faqs.length} preguntas${p.schedule ? ', horario' : ''}${botId ? ', asistente' : ''}`,
+  });
+  return {
+    productsCreated: created,
+    productsSkipped: p.products.length - created,
+    faqsAdded: p.faqs.length,
+    scheduleSet: !!p.schedule,
+    deliveryNeedsOrigin: !!p.delivery?.enabled && !cfg.delivery?.origin,
+    botId,
+  };
 }
 
 @Controller('ai-setup')

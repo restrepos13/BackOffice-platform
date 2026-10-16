@@ -24,6 +24,7 @@ import {
   FileText,
   Megaphone,
   Bike,
+  ListChecks,
   Store,
   Plug,
   ScrollText,
@@ -88,6 +89,8 @@ interface NavItem {
   to: string;
   label: string;
   icon: typeof LayoutDashboard;
+  /** Módulo que la empresa debe tener (según su rubro) para ver el ítem */
+  module?: string;
   end?: boolean;
   /** ancla para el tour de bienvenida */
   tour?: string;
@@ -110,15 +113,15 @@ const COMPANY_NAV: NavItem[] = [
   { to: '/app', label: 'Dashboard', icon: LayoutDashboard, end: true },
   { to: '/app/inbox', label: 'Conversaciones', icon: Inbox, tour: 'nav-inbox' },
   { to: '/app/contacts', label: 'Contactos', icon: Contact },
-  { to: '/app/campaigns', label: 'Campañas', icon: Send },
-  { to: '/app/agenda', label: 'Agenda', icon: CalendarDays },
+  { to: '/app/campaigns', label: 'Campañas', icon: Send, module: 'campaigns' },
+  { to: '/app/agenda', label: 'Agenda', icon: CalendarDays, module: 'agenda' },
   { to: '/app/bots', label: 'Asistentes IA', icon: Bot },
-  { to: '/app/automations', label: 'Automatizaciones', icon: Workflow },
+  { to: '/app/automations', label: 'Automatizaciones', icon: Workflow, module: 'automations' },
   { to: '/app/integrations', label: 'Integraciones', icon: Plug },
-  { to: '/app/media', label: 'Galería', icon: Images },
-  { to: '/app/analytics', label: 'Analytics', icon: BarChart3 },
+  { to: '/app/media', label: 'Galería', icon: Images, module: 'media' },
+  { to: '/app/analytics', label: 'Analytics', icon: BarChart3, module: 'analytics' },
   { to: '/app/usage', label: 'Consumo IA', icon: Activity, tour: 'nav-usage' },
-  { to: '/app/gerencia', label: 'Gerencia', icon: ClipboardCheck },
+  { to: '/app/gerencia', label: 'Gerencia', icon: ClipboardCheck, module: 'gerencia' },
   { to: '/app/billing', label: 'Facturación', icon: CreditCard },
   { to: '/app/team', label: 'Equipo', icon: UserRound },
   { to: '/app/settings', label: 'Configuración', icon: Settings, tour: 'nav-settings' },
@@ -129,7 +132,7 @@ const ORDERS_NAV: NavItem[] = [
   { to: '/app/orders', label: 'Pedidos', icon: Package, end: true, tour: 'nav-orders' },
   { to: '/app/orders/reports', label: 'Reportes', icon: FileText, tour: 'nav-reports' },
   { to: '/app/customers', label: 'Clientes', icon: Store },
-  { to: '/app/area', label: 'Vista por área', icon: Factory },
+  { to: '/app/area', label: 'Vista por área', icon: Factory, module: 'production' },
 ];
 
 /** Domicilios en vivo: con el módulo "delivery" o domicilios configurados. */
@@ -267,13 +270,20 @@ export default function AppShell() {
   const hasMarketing = activeCompany?.modules?.includes('marketing') ?? false;
   const hasDelivery =
     (activeCompany?.modules?.includes('delivery') ?? false) || !!activeCompany?.orderConfig?.delivery?.enabled;
+  // Cada rubro ve solo sus herramientas (los devs pueden prender módulos sueltos)
+  const companyModules = activeCompany?.modules ?? [];
+  const allowed = (item: NavItem) => !item.module || companyModules.includes(item.module);
+  const onboarding = activeCompany?.status === 'ONBOARDING';
   const companyNav = [
+    ...(onboarding ? [{ to: '/app/bienvenida', label: 'Primeros pasos', icon: ListChecks }] : []),
     ...COMPANY_NAV.slice(0, 2), // Dashboard, Conversaciones
     ...(hasOrders ? ORDERS_NAV : []),
     ...(hasDelivery ? DELIVERY_NAV : []),
     ...(hasMarketing ? MARKETING_NAV : []),
+    // Sin pedidos: catálogo/servicios, horario, conocimiento y pagos viven en "Mi negocio"
+    ...(!hasOrders ? [{ to: '/app/orders/settings', label: 'Mi negocio', icon: Store }] : []),
     ...COMPANY_NAV.slice(2),
-  ];
+  ].filter(allowed);
 
   // El domiciliario tiene su propia app móvil, fuera del panel
   if (isCourier) return <Navigate to="/courier" replace />;
@@ -427,6 +437,13 @@ export default function AppShell() {
           <div className="flex items-center gap-2 border-b-2 border-ink bg-info-soft px-6 py-1.5">
             <Zap size={12} className="text-info" />
             <p className="kicker !text-info">Sesión de desarrollador</p>
+          </div>
+        )}
+        {onboarding && !isPlatform && location.pathname !== '/app/bienvenida' && (
+          <div className="border-b-2 border-ink bg-ink px-4 py-2 text-xs text-bone md:px-6">
+            <span className="font-semibold uppercase tracking-[0.1em]">Tu empresa está en configuración.</span>{' '}
+            Te escribimos por WhatsApp para dejarla lista.{' '}
+            <NavLink to="/app/bienvenida" className="font-semibold underline">Ver primeros pasos</NavLink>
           </div>
         )}
         <main className="mx-auto max-w-[1400px] px-4 py-5 md:px-6 md:py-6">

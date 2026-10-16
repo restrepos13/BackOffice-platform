@@ -264,9 +264,38 @@ la vieja `backoffice2026` ya no existe):
 - UI: `Switch showLabel` muestra el texto al lado; la animación de página usa
   `backwards` (con `both` quedaba un transform que recortaba los modales).
 
+## Registro web y rubros (oct 2026, rama agentes-domicilios)
+
+- **Portada pública** `/` (visitantes) → "Crea tu cuenta" `/registro` o "Iniciar sesión".
+  Registro en 3 pasos: describe tu negocio → la IA arma la propuesta (rubro, catálogo,
+  horario, preguntas, asistente; `POST /api/public/signup/preview`, throttle 6/10 min)
+  → cuenta (`POST /api/public/signup`, 3/10 min). La empresa nace `status ONBOARDING`
+  con los módulos de SU rubro y entra a `/app/bienvenida` (avance real, guía con IA
+  `POST /onboarding/chat` con cupo de 40/día por empresa, planes del rubro y "Quiero
+  este plan" → `POST /onboarding/request-plan`). Cada registro y cada plan elegido
+  mandan correo a `SIGNUP_NOTIFY_EMAIL` (restrepos591@gmail.com) con lo que falta y el
+  link de WhatsApp; sin SMTP quedan en cola (Plataforma → Correos). Plataforma ve
+  "Empresas por configurar" en Overview (`GET /onboarding/signups`).
+- **IA genérica = Gemini con llaves rotativas** (`src/ai/gemini-pool.ts`): llaves SOLO en
+  `apps/api/.env` (`GEMINI_API_KEYS`, separadas por coma; jamás en código ni base),
+  modelos en orden `GEMINI_MODELS` (2.5-flash <1 s primero; 3.8-flash se cuelga), tope
+  propio `GEMINI_DAILY_LIMIT` por llave/día; 429/cuota → llave agotada hasta mañana,
+  401/403 → apartada 1 h, 404/400 → ese modelo no sirve para esa llave, 5xx/timeout →
+  siguiente modelo. Uso por día en `AiKeyUsage` (huella sha256, nunca la llave). Estado
+  en Dev Tools → Salud.
+- **Rubros** (`src/common/rubros.ts`): COMIDAS, WEBCAM, SERVICIOS, VENTAS (tiendas de ropa
+  y comercio). Módulos nuevos que se prenden por empresa: `production` (áreas, vista
+  por área, comandas), `menu`, `agenda`, `campaigns`, `media`, `gerencia`. El menú lateral
+  y las pestañas de Pedidos → Configuración se filtran por módulos; sin pedidos aparece
+  "Mi negocio". Los devs desbloquean módulos sueltos en la ficha de la empresa.
+  `prisma/migrate-modulos.ts` dejó a las empresas existentes viendo lo mismo (ya corrido).
+- `applySetupProposal` (ai-setup) es la única forma de aplicar una propuesta de IA (la
+  usan el registro y "Configurar con IA"). Tests: `test/signup.spec.ts`.
+
 ## Pendiente
 
 1. Actualizar la landing (proyecto 6) con los precios por rubro: hoy muestra webcam USD 299/599/999.
+2. Configurar SMTP (Dev Tools → Settings) para que los avisos de registro lleguen al correo.
 2. Probar el adaptador de Alegra con una cuenta real (hoy validado en SIMULADO).
 3. Hosting 24/7 (Render/Vercel planeado): `/api` relativo en la web, Redis con
    TLS (`redisConnection` no soporta rediss:// ni usuario), `trust proxy`,

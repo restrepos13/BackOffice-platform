@@ -159,6 +159,8 @@ model Company {
 
   // Cobro personalizado: precio pactado (pisa al plan) y permanencia
   customPriceMonthly Float?
+  /// Registro por la web (autoservicio): rubro, descripción, contacto, plan pedido
+  onboardingJson     String?
   /// MONTHLY | ANNUAL (anual = 10 mensualidades por 12 meses, se cobra en el mes de inicio)
   billingCycle       String    @default("MONTHLY")
   /// Mes (YYYY-MM) en que arranca el ciclo anual; se repite cada 12 meses
@@ -1200,4 +1202,20 @@ model InboundOrderKey {
   createdAt  DateTime @default(now())
 
   @@unique([companyId, source, externalId])
+}
+
+/// Uso diario de las llaves genéricas (Gemini) del registro y el acompañamiento:
+/// se rota a la siguiente al llegar al tope propio o cuando Google dice "agotada".
+model AiKeyUsage {
+  id          String    @id @default(cuid()) @map("_id")
+  provider    String
+  fingerprint String // sha256 corto de la llave (jamás la llave)
+  day         String // YYYY-MM-DD
+  requests    Int       @default(0)
+  tokens      Int       @default(0)
+  exhaustedAt DateTime?
+  lastError   String?
+  updatedAt   DateTime  @updatedAt
+
+  @@unique([provider, fingerprint, day])
 }

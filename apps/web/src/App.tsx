@@ -45,6 +45,9 @@ const Tracking = lazy(() => import('./pages/public/Tracking'));
 const Campaigns = lazy(() => import('./pages/company/Campaigns'));
 const PrintOrder = lazy(() => import('./pages/print/PrintOrder'));
 const PublicMenu = lazy(() => import('./pages/public/Menu'));
+const Landing = lazy(() => import('./pages/public/Landing'));
+const Signup = lazy(() => import('./pages/public/Signup'));
+const Onboarding = lazy(() => import('./pages/company/Onboarding'));
 
 function RequireAuth({ children }: { children: ReactNode }) {
   const { user, loading } = useAuth();
@@ -62,8 +65,11 @@ function RequirePlatform({ children }: { children: ReactNode }) {
 function HomeRedirect() {
   const { user, loading, isPlatform } = useAuth();
   if (loading) return <Loading label="Verificando sesión…" />;
-  if (!user) return <Navigate to="/login" replace />;
+  // Visitante: portada pública con "Crea tu cuenta" e "Iniciar sesión"
+  if (!user) return <Landing />;
   if (user.role === 'COMPANY_AREA') return <Navigate to="/app/area" replace />;
+  // Empresa registrada por la web, aún en configuración → primeros pasos
+  if (user.company?.status === 'ONBOARDING') return <Navigate to="/app/bienvenida" replace />;
   if (user.role === 'COMPANY_COURIER') return <Navigate to="/courier" replace />;
   return <Navigate to={isPlatform ? '/platform' : '/app'} replace />;
 }
@@ -92,6 +98,7 @@ export default function App() {
       {/* Público: seguimiento del pedido para el cliente final (sin login) */}
       <Route path="/t/:token" element={<Tracking />} />
       <Route path="/m/:slug" element={<PublicMenu />} />
+      <Route path="/registro" element={<Signup />} />
       <Route path="/print/order/:id" element={<RequireAuth><PrintOrder /></RequireAuth>} />
       {/* App móvil del domiciliario (fuera del panel) */}
       <Route path="/courier" element={<RequireAuth><RequireCourier><CourierApp /></RequireCourier></RequireAuth>} />
@@ -131,6 +138,7 @@ export default function App() {
         <Route path="/app/area" element={<AreaView />} />
         <Route path="/app/contacts" element={<Contacts />} />
         <Route path="/app/campaigns" element={<BlockArea><Campaigns /></BlockArea>} />
+        <Route path="/app/bienvenida" element={<BlockArea><Onboarding /></BlockArea>} />
         <Route path="/app/bots" element={<Bots />} />
         <Route path="/app/bots/:id" element={<BotDetail />} />
         <Route path="/app/automations" element={<Automations />} />

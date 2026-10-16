@@ -44,6 +44,7 @@ const SETTING_GROUPS: Array<{ group: string; keys: string[]; purpose: string }> 
   { group: 'Web pública', keys: ['PUBLIC_WEB_URL'], purpose: 'Dominio de la web: links de seguimiento de pedidos (/t/…) que recibe el cliente' },
   { group: 'IA de BackOffice', keys: ['DEEPINFRA_API_KEY'], purpose: 'Llave propia para empresas en modo IA revendida (las BYOK usan la suya)' },
   { group: 'Meta', keys: ['META_APP_ID', 'META_VERIFY_TOKEN', 'META_APP_SECRET'], purpose: 'Canales Meta (WhatsApp Cloud, Instagram, Messenger): verificación y firma de webhooks' },
+  { group: 'Registro web', keys: ['GEMINI_API_KEYS', 'SIGNUP_NOTIFY_EMAIL'], purpose: 'IA genérica (Gemini, llaves solo en el .env, rotan solas) que arma las empresas nuevas y las acompaña; correo que recibe cada registro' },
   { group: 'Correo', keys: ['SMTP_HOST', 'SMTP_PORT', 'SMTP_USER', 'SMTP_PASS', 'SMTP_FROM'], purpose: 'Envío real de correos (sin esto quedan en cola)' },
   { group: 'Wompi', keys: ['WOMPI_PUBLIC_KEY', 'WOMPI_INTEGRITY_SECRET', 'WOMPI_EVENTS_SECRET', 'USD_COP_RATE'], purpose: 'Pagos Colombia' },
   { group: 'Video (MoneyPrinterTurbo)', keys: ['MPT_BASE_URL', 'MPT_API_KEY'], purpose: 'Generación de reels del módulo de marketing' },
@@ -98,8 +99,9 @@ export class DevToolsService {
     const settingsChecklist = SETTING_GROUPS.map((g) => ({
       group: g.group,
       purpose: g.purpose,
-      keys: g.keys.map((key) => ({ key, configured: !!settings[key] })),
-      complete: g.keys.every((key) => !!settings[key]),
+      // Configurado en Dev Tools o en el .env del servidor
+      keys: g.keys.map((key) => ({ key, configured: !!settings[key] || !!process.env[key] })),
+      complete: g.keys.every((key) => !!settings[key] || !!process.env[key]),
     }));
 
     const memory = process.memoryUsage();

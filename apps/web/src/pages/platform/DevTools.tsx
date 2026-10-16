@@ -255,6 +255,7 @@ function HealthTab({ companies }: { companies: Company[] }) {
           </p>
         </Card>
       </div>
+      <GeminiStatus />
     </div>
   );
 }
@@ -817,6 +818,39 @@ function InboundOrdersDocs() {
         </ul>
         <pre className="overflow-x-auto border-2 border-ink bg-ink p-3 text-[11px] leading-relaxed text-bone">{example}</pre>
       </div>
+    </Card>
+  );
+}
+
+/** Llaves genéricas de Gemini (registro web y guía): uso de hoy y rotación. */
+function GeminiStatus() {
+  const { data, refetch, isFetching } = useQuery({
+    queryKey: ['gemini-status'],
+    queryFn: () => api.get<{ models: string[]; keys: Array<{ label: string; requestsToday: number; limit: number; exhausted: boolean; lastError: string | null }> }>('/onboarding/ai-status'),
+  });
+  return (
+    <Card
+      kicker="Registro web y guía de configuración"
+      title="IA genérica (Gemini)"
+      actions={<Button size="sm" variant="outline" disabled={isFetching} onClick={() => refetch()}>Actualizar</Button>}
+    >
+      {!data ? <Loading /> : data.keys.length === 0 ? (
+        <p className="text-sm text-warn">Sin llaves: agrega GEMINI_API_KEYS en el .env del API.</p>
+      ) : (
+        <div className="space-y-2">
+          {data.keys.map((k) => (
+            <div key={k.label} className="flex flex-wrap items-center justify-between gap-2 border-b border-line pb-2 text-sm">
+              <span className="font-mono text-xs">{k.label}</span>
+              <span className="flex items-center gap-2">
+                <span className="tabular-nums">{k.requestsToday} / {k.limit} hoy</span>
+                <Badge tone={k.exhausted ? 'bad' : 'ok'}>{k.exhausted ? 'Agotada · se usa la siguiente' : 'Disponible'}</Badge>
+              </span>
+              {k.lastError && <span className="w-full text-[11px] text-ink-3">Último error: {k.lastError}</span>}
+            </div>
+          ))}
+          <p className="text-xs text-ink-3">Modelos en orden de prueba: {data.models.join(' → ')}. El tope diario se cambia con GEMINI_DAILY_LIMIT.</p>
+        </div>
+      )}
     </Card>
   );
 }

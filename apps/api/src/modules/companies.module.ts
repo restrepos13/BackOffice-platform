@@ -717,5 +717,6 @@ export class CompaniesController {
 @Module({
   controllers: [CompaniesController],
   providers: [CompaniesService],
+  exports: [CompaniesService],
 })
 export class CompaniesModule {}

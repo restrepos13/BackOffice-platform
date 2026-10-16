@@ -110,7 +110,7 @@ export interface Company {
   website?: string | null;
   contactEmail?: string | null;
   contactPhone?: string | null;
-  status: 'TRIAL' | 'ACTIVE' | 'SUSPENDED' | 'CANCELLED';
+  status: 'TRIAL' | 'ONBOARDING' | 'ACTIVE' | 'SUSPENDED' | 'CANCELLED';
   planId?: string | null;
   plan?: Plan | null;
   timezone: string;

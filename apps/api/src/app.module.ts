@@ -43,6 +43,7 @@ import { PipelinesModule } from './modules/pipelines.module';
 import { MenuModule } from './modules/menu.module';
 import { InboundOrdersModule } from './modules/inbound-orders.module';
 import { AiSetupModule } from './modules/ai-setup.module';
+import { SignupModule } from './modules/signup.module';
 import { MarketingModule } from './modules/marketing.module';
 import { ScheduleModule } from '@nestjs/schedule';
 
@@ -91,6 +92,7 @@ import { ScheduleModule } from '@nestjs/schedule';
     MenuModule,
     InboundOrdersModule,
     AiSetupModule,
+    SignupModule,
     MarketingModule,
   ],
   providers: [

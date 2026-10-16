@@ -50,7 +50,9 @@ export default function Tour() {
     return base;
   }, [user]);
 
-  const show = !!user && !user.tourDoneAt && !dismissed && steps.length > 0;
+  // En "Primeros pasos" la guía es la IA: el tour espera a que la empresa esté lista
+  const onboarding = user?.company?.status === 'ONBOARDING';
+  const show = !!user && !user.tourDoneAt && !dismissed && !onboarding && steps.length > 0;
   const current = steps[step];
 
   // Medir el ancla del paso actual (y seguirla si la ventana cambia)

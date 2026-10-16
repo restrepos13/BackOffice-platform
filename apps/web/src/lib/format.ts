@@ -92,6 +92,7 @@ export const fmtCop = (n: number) =>
 
 export const COMPANY_STATUS_LABELS: Record<string, string> = {
   TRIAL: 'Trial',
+  ONBOARDING: 'En configuración',
   ACTIVE: 'Activa',
   SUSPENDED: 'Suspendida',
   CANCELLED: 'Cancelada',
@@ -159,8 +160,14 @@ export const INVOICE_STATUS_LABELS: Record<string, string> = {
 export const MODULE_LABELS: Record<string, string> = {
   inbox: 'Bandeja de conversaciones',
   contacts: 'CRM / Contactos',
-  orders: 'Pedidos (catering)',
+  orders: 'Pedidos, catálogo y clientes',
+  production: 'Producción: áreas, vista por área y comandas',
   delivery: 'Domicilios en vivo (GPS y seguimiento)',
+  menu: 'Menú digital con QR',
+  agenda: 'Agenda de citas y seguimientos',
+  campaigns: 'Campañas por WhatsApp',
+  media: 'Galería con precios (contenido)',
+  gerencia: 'Reporte a gerencia',
   marketing: 'Marketing (contenido y campañas)',
   bots: 'Asistentes IA',
   automations: 'Automatizaciones',

@@ -14,6 +14,8 @@ interface AuthContextValue {
   user: AuthUser | null;
   loading: boolean;
   login: (email: string, password: string) => Promise<AuthUser>;
+  /** Entra con una sesión ya emitida (registro por la web). */
+  adopt: (token: string, user: AuthUser) => void;
   logout: () => void;
   /** Rol de plataforma (SUPER_ADMIN o DEV): acceso a todas las empresas. */
   isPlatform: boolean;
@@ -47,6 +49,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return res.user;
   }, []);
 
+  const adopt = useCallback((token: string, next: AuthUser) => {
+    setToken(token);
+    setUser(next);
+  }, []);
+
   const logout = useCallback(() => {
     setToken(null);
     localStorage.removeItem('bo_company');
@@ -60,12 +67,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       user,
       loading,
       login,
+      adopt,
       logout,
       isPlatform,
       canWrite: !!user && user.role !== 'COMPANY_VIEWER',
       hasRole: (...roles: Role[]) => !!user && roles.includes(user.role),
     };
-  }, [user, loading, login, logout]);
+  }, [user, loading, login, adopt, logout]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

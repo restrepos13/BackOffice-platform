@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react';
-import { Navigate, useNavigate } from 'react-router-dom';
+import { Link, Navigate, useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { useAuth } from '../lib/auth';
 import { Button, Field, Input } from '../components/ui';
@@ -78,8 +78,12 @@ export default function Login() {
           </Button>
         </form>
 
-        <p className="kicker mt-4 text-center">
-          Acceso exclusivo para clientes y equipo de BackOffice
+        <p className="mt-4 text-center text-sm">
+          ¿Aún no tienes cuenta?{' '}
+          <Link to="/registro" className="font-semibold underline">Crea tu empresa con IA</Link>
+        </p>
+        <p className="kicker mt-2 text-center">
+          <Link to="/" className="hover:underline">← Volver al inicio</Link>
         </p>
       </div>
     </div>

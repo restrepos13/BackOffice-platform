@@ -927,19 +927,39 @@ export default function OrdersSettings() {
   const [tab, setTab] = useState(searchParams.get('tab') ?? 'productos');
   const companyId = scopedId ?? user?.companyId ?? null;
   const [wizard, setWizard] = useState(false);
+  const { company } = useOrderConfig(companyId);
+  // Pestañas según los módulos del rubro (una tienda no ve cocina ni domicilios)
+  const modules = company?.modules ?? [];
+  const has = (m: string) => modules.includes(m);
+  const hasOrders = has('orders');
+  const TABS = [
+    { id: 'productos', label: hasOrders ? 'Productos' : 'Catálogo', show: true },
+    { id: 'areas', label: 'Áreas', show: has('production') },
+    { id: 'reglas', label: 'Distribución', show: has('production') },
+    { id: 'agenda', label: 'Horario', show: true },
+    { id: 'plantillas', label: 'Recordatorios', show: hasOrders },
+    { id: 'conocimiento', label: 'Conocimiento', show: true },
+    { id: 'domicilios', label: 'Domicilios', show: has('delivery') },
+    { id: 'promociones', label: 'Promociones', show: hasOrders },
+    { id: 'menu', label: 'Menú QR', show: has('menu') },
+    { id: 'pagos', label: 'Pagos', show: true },
+  ].filter((t) => t.show);
+  const activeTab = TABS.some((t) => t.id === tab) ? tab : TABS[0].id;
 
   if (!ready) return <PickCompany />;
 
   return (
     <>
       <PageHeader
-        kicker="Módulo de pedidos"
-        title="Configuración"
+        kicker={hasOrders ? 'Módulo de pedidos' : 'Tu negocio'}
+        title={hasOrders ? 'Configuración' : 'Mi negocio'}
         actions={
           <>
-            <Button size="sm" variant="outline" onClick={() => navigate('/app/orders')}>
-              <ArrowLeft size={13} /> Pedidos
-            </Button>
+            {hasOrders && (
+              <Button size="sm" variant="outline" onClick={() => navigate('/app/orders')}>
+                <ArrowLeft size={13} /> Pedidos
+              </Button>
+            )}
             {canWrite && (
               <Button size="sm" onClick={() => setWizard(true)}>
                 <Sparkles size={13} /> Configurar con IA
@@ -950,32 +970,21 @@ export default function OrdersSettings() {
       />
       <div className="mb-5">
         <Tabs
-          active={tab}
+          active={activeTab}
           onChange={setTab}
-          tabs={[
-            { id: 'productos', label: 'Productos' },
-            { id: 'areas', label: 'Áreas' },
-            { id: 'reglas', label: 'Distribución' },
-            { id: 'agenda', label: 'Agenda' },
-            { id: 'plantillas', label: 'Recordatorios' },
-            { id: 'conocimiento', label: 'Conocimiento' },
-            { id: 'domicilios', label: 'Domicilios' },
-            { id: 'promociones', label: 'Promociones' },
-            { id: 'menu', label: 'Menú QR' },
-            { id: 'pagos', label: 'Pagos' },
-          ]}
+          tabs={TABS.map(({ id, label }) => ({ id, label }))}
         />
       </div>
-      {tab === 'productos' && <ProductsTab q={q} companyId={companyId} canWrite={canWrite} />}
-      {tab === 'areas' && <AreasTab q={q} companyId={companyId} canWrite={canWrite} />}
-      {tab === 'reglas' && <RulesTab companyId={companyId} canWrite={canWrite} q={q} />}
-      {tab === 'agenda' && <AgendaTab companyId={companyId} canWrite={canWrite} />}
-      {tab === 'plantillas' && <TemplatesTab companyId={companyId} canWrite={canWrite} />}
-      {tab === 'conocimiento' && <KnowledgeTab companyId={companyId} canWrite={canWrite} q={q} />}
-      {tab === 'domicilios' && <DeliveryTab companyId={companyId} canWrite={canWrite} q={q} />}
-      {tab === 'promociones' && <PromotionsTab q={q} canWrite={canWrite} />}
-      {tab === 'menu' && <MenuTab q={q} companyId={companyId} canWrite={canWrite} />}
-      {tab === 'pagos' && <PaymentsTab q={q} canWrite={canWrite} />}
+      {activeTab === 'productos' && <ProductsTab q={q} companyId={companyId} canWrite={canWrite} />}
+      {activeTab === 'areas' && <AreasTab q={q} companyId={companyId} canWrite={canWrite} />}
+      {activeTab === 'reglas' && <RulesTab companyId={companyId} canWrite={canWrite} q={q} />}
+      {activeTab === 'agenda' && <AgendaTab companyId={companyId} canWrite={canWrite} />}
+      {activeTab === 'plantillas' && <TemplatesTab companyId={companyId} canWrite={canWrite} />}
+      {activeTab === 'conocimiento' && <KnowledgeTab companyId={companyId} canWrite={canWrite} q={q} />}
+      {activeTab === 'domicilios' && <DeliveryTab companyId={companyId} canWrite={canWrite} q={q} />}
+      {activeTab === 'promociones' && <PromotionsTab q={q} canWrite={canWrite} />}
+      {activeTab === 'menu' && <MenuTab q={q} companyId={companyId} canWrite={canWrite} />}
+      {activeTab === 'pagos' && <PaymentsTab q={q} canWrite={canWrite} />}
       <AiSetupWizard open={wizard} onClose={() => setWizard(false)} q={q} />
     </>
   );

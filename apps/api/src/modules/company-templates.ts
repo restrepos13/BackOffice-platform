@@ -53,7 +53,7 @@ export const COMPANY_TEMPLATES: CompanyTemplate[] = [
       'Línea de WhatsApp en sandbox (jamás envía mensajes reales hasta activarla)',
       'Reporte diario, comparativos, consulta y encuesta de feedback',
     ],
-    modules: ['inbox', 'contacts', 'orders', 'bots', 'automations', 'analytics', 'billing', 'team'],
+    modules: ['inbox', 'contacts', 'orders', 'production', 'agenda', 'campaigns', 'gerencia', 'bots', 'automations', 'analytics', 'billing', 'team'],
     currency: 'COP',
     orderConfig: {
       statuses: [
@@ -121,7 +121,7 @@ export const COMPANY_TEMPLATES: CompanyTemplate[] = [
       'Línea de WhatsApp en sandbox (jamás envía mensajes reales hasta activarla)',
       'Feedback post-entrega y reporte diario',
     ],
-    modules: ['inbox', 'contacts', 'orders', 'delivery', 'bots', 'automations', 'analytics', 'billing', 'team'],
+    modules: ['inbox', 'contacts', 'orders', 'production', 'delivery', 'menu', 'campaigns', 'gerencia', 'bots', 'automations', 'analytics', 'billing', 'team'],
     currency: 'COP',
     orderConfig: {
       statuses: [
@@ -180,7 +180,7 @@ export const COMPANY_TEMPLATES: CompanyTemplate[] = [
       'Líneas de WhatsApp múltiples (una por modelo), cada una con personalidad propia',
       'CRM de contactos con etapas y analytics por línea',
     ],
-    modules: ['inbox', 'contacts', 'bots', 'automations', 'analytics', 'billing', 'team'],
+    modules: ['inbox', 'contacts', 'media', 'campaigns', 'gerencia', 'bots', 'automations', 'analytics', 'billing', 'team'],
     currency: 'USD',
     bot: {
       name: 'Chatter IA',
@@ -216,7 +216,7 @@ export const COMPANY_TEMPLATES: CompanyTemplate[] = [
       'Agenda de citas + seguimientos desde la bandeja',
       'CRM con etapas y reporte a gerencia',
     ],
-    modules: ['inbox', 'contacts', 'bots', 'automations', 'analytics', 'billing', 'team'],
+    modules: ['inbox', 'contacts', 'agenda', 'campaigns', 'bots', 'automations', 'analytics', 'billing', 'team'],
     currency: 'COP',
     bot: {
       name: 'Recepcionista IA',

@@ -94,7 +94,8 @@ export async function seedDemoCompany(prisma: PrismaClient) {
       brandColor: '#3E5C3A', // verde oliva — identidad propia en correos y PDFs
       notes: 'EMPRESA DEMO para mostrar la plataforma a prospectos. Datos 100% ficticios.',
       modulesJson: JSON.stringify([
-        'inbox', 'contacts', 'orders', 'delivery', 'bots', 'automations', 'analytics', 'billing', 'team', 'marketing',
+        'inbox', 'contacts', 'orders', 'production', 'delivery', 'menu', 'agenda', 'campaigns', 'gerencia',
+        'bots', 'automations', 'analytics', 'billing', 'team', 'marketing',
       ]),
       orderConfigJson: JSON.stringify({
         schedule: { days: [1, 2, 3, 4, 5, 6], open: '06:00', close: '17:00' },
