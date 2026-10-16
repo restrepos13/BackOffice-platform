@@ -23,6 +23,10 @@ import {
   scopeCompanyId,
 } from '../common/constants';
 import { AuditService } from './audit.module';
+import { forgetSession } from '../auth/jwt.guard';
+
+/** Claves de plataforma: más largas que las de empresa (ven todas las empresas). */
+const PLATFORM_MIN_PASSWORD = 10;
 
 class CreateUserDto {
   @IsEmail() email!: string;
@@ -75,6 +79,8 @@ export class UsersService {
       }
       dto.companyId = actor.companyId ?? undefined;
     }
+    this.assertCanManageRole(actor, dto.role);
+    if (isPlatformRole(dto.role)) this.assertPlatformPassword(dto.password);
     if (
       [...companyRoles, ROLES.COMPANY_AREA].includes(dto.role) &&
       !dto.companyId
@@ -108,6 +114,34 @@ export class UsersService {
     return this.safe(user);
   }
 
+  /**
+   * Reglas del equipo BackOffice:
+   *  - Solo un Super Admin crea, edita o borra Super Admins.
+   *  - Un Dev da de alta otros Devs (y usuarios de empresas), nunca Super Admins.
+   */
+  private assertCanManageRole(actor: AuthUser, role: string) {
+    if (role === ROLES.SUPER_ADMIN && actor.role !== ROLES.SUPER_ADMIN) {
+      throw new ForbiddenException('Solo un Super Admin puede gestionar cuentas Super Admin');
+    }
+  }
+
+  private assertPlatformPassword(password?: string) {
+    if (password && password.length < PLATFORM_MIN_PASSWORD) {
+      throw new BadRequestException(
+        `La contraseña de un usuario de plataforma necesita al menos ${PLATFORM_MIN_PASSWORD} caracteres`,
+      );
+    }
+  }
+
+  /** Nunca dejar la plataforma sin un Super Admin activo. */
+  private async assertNotLastSuperAdmin(target: { id: string; role: string; active: boolean }) {
+    if (target.role !== ROLES.SUPER_ADMIN || !target.active) return;
+    const others = await this.prisma.user.count({
+      where: { role: ROLES.SUPER_ADMIN, active: true, id: { not: target.id } },
+    });
+    if (others === 0) throw new BadRequestException('Debe quedar al menos un Super Admin activo');
+  }
+
   async update(actor: AuthUser, id: string, dto: UpdateUserDto) {
     const target = await this.prisma.user.findUniqueOrThrow({ where: { id } });
     if (!isPlatformRole(actor.role) && target.companyId !== actor.companyId) {
@@ -116,6 +150,19 @@ export class UsersService {
     if (!isPlatformRole(actor.role) && dto.role && isPlatformRole(dto.role)) {
       throw new ForbiddenException('No puedes asignar roles de plataforma');
     }
+    this.assertCanManageRole(actor, target.role);
+    if (dto.role) this.assertCanManageRole(actor, dto.role);
+    // Pasar de plataforma a empresa (o al revés) cambia a quién ve: se hace creando otro usuario
+    if (dto.role && isPlatformRole(dto.role) !== isPlatformRole(target.role)) {
+      throw new BadRequestException('No se puede pasar un usuario entre plataforma y empresa; crea uno nuevo');
+    }
+    if (target.id === actor.id && (dto.active === false || (dto.role && dto.role !== target.role))) {
+      throw new BadRequestException('No puedes desactivarte ni cambiarte el rol a ti mismo');
+    }
+    if (dto.active === false || (dto.role && dto.role !== target.role)) {
+      await this.assertNotLastSuperAdmin(target);
+    }
+    if (isPlatformRole(dto.role ?? target.role)) this.assertPlatformPassword(dto.password);
     const user = await this.prisma.user.update({
       where: { id },
       data: {
@@ -125,10 +172,11 @@ export class UsersService {
         phone: dto.phone,
         active: dto.active,
         ...(dto.password
-          ? { passwordHash: AuthService.hashPassword(dto.password) }
+          ? { passwordHash: AuthService.hashPassword(dto.password), failedLogins: 0, lockedUntil: null }
           : {}),
       },
     });
+    forgetSession(id); // rol o estado nuevos rigen desde la próxima petición
     await this.audit.log({
       actor,
       companyId: user.companyId,
@@ -148,7 +196,10 @@ export class UsersService {
     if (target.id === actor.id) {
       throw new BadRequestException('No puedes eliminar tu propio usuario');
     }
+    this.assertCanManageRole(actor, target.role);
+    await this.assertNotLastSuperAdmin(target);
     await this.prisma.user.delete({ where: { id } });
+    forgetSession(id);
     await this.audit.log({
       actor,
       companyId: target.companyId,

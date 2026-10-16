@@ -5,6 +5,7 @@ import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { api } from '../../lib/api';
+import { strongPassword } from '../../lib/password';
 import {
   ANNUAL_MONTHS_CHARGED, CHANNEL_LABELS, MODULE_LABELS, PLAN_LINE_HINTS, PLAN_LINE_LABELS, PLAN_LINE_ORDER, fmtMoney,
   lineForTemplate, planPriceLabel,
@@ -109,12 +110,6 @@ function slugify(input: string): string {
     .replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
 }
 
-function strongPassword(): string {
-  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
-  const pick = (n: number) =>
-    Array.from(crypto.getRandomValues(new Uint32Array(n)), (v) => chars[v % chars.length]).join('');
-  return `BO-${pick(12)}`;
-}
 
 /* ─── Vista previa de la marca (correo con la identidad) ─────────────── */
 

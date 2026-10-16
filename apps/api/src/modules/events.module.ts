@@ -11,6 +11,7 @@ import {
   Res,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
+import { PrismaService } from '../prisma/prisma.service';
 import { SkipThrottle } from '@nestjs/throttler';
 import { EventEmitter } from 'events';
 import type { Request, Response } from 'express';
@@ -60,6 +61,7 @@ export class EventsController {
   constructor(
     private readonly events: EventsService,
     private readonly jwt: JwtService,
+    private readonly prisma: PrismaService,
   ) {}
 
   /**
@@ -80,9 +82,13 @@ export class EventsController {
       const payload = await this.jwt.verifyAsync(token ?? '', {
         secret: process.env.JWT_SECRET,
       });
+      const row = await this.prisma.user.findUnique({
+        where: { id: payload.sub }, select: { active: true, role: true, companyId: true },
+      });
+      if (!row?.active) throw new Error('inactivo');
       user = {
         id: payload.sub, email: payload.email, name: payload.name,
-        role: payload.role, companyId: payload.companyId ?? null,
+        role: row.role as AuthUser["role"], companyId: row.companyId ?? null,
       };
     } catch {
       res.status(401).end();
