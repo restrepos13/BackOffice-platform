@@ -189,6 +189,15 @@ export function minutesUntil(d: string | Date | null | undefined): number | null
   return diff >= 0 ? diff : 0;
 }
 
+/** Texto de llegada para el equipo: "llega en 8 min", "llegando" o "retrasado 12 min". */
+export function etaLabel(d: string | Date | null | undefined): string | null {
+  if (!d) return null;
+  const diff = Math.round((new Date(d).getTime() - Date.now()) / 60000);
+  if (diff >= 2) return `llega en ${diff} min`;
+  if (diff >= -2) return 'llegando';
+  return `retrasado ${-diff} min`;
+}
+
 /* ─── Agente con herramientas ─── */
 
 export const AGENT_TOOL_LABELS: Record<string, string> = {

@@ -227,3 +227,24 @@ describe('log buffer', () => {
     jest.restoreAllMocks();
   });
 });
+
+describe('API keys: permisos y secreto', () => {
+  it('solo acepta permisos conocidos y el hash nunca sale del API', async () => {
+    const { service, db } = setup();
+    const created = await service.createApiKey({ id: 'dev', role: 'DEV', name: 'Dev' } as any, { name: 'Rappi', companyId: 'co1', scopes: ['orders', 'admin', '*', 'read'] });
+    expect(created.secret).toMatch(/^bo_live_/);
+    expect(created).not.toHaveProperty('hash');
+    expect(created.scopes).toEqual(['orders', 'read']);
+    expect(JSON.parse(db.apiKey[0].scopesJson)).toEqual(['orders', 'read']);
+    const list = await service.listApiKeys();
+    expect(list[0]).not.toHaveProperty('hash');
+    expect(list[0]).not.toHaveProperty('secret');
+    expect(list[0].scopes).toEqual(['orders', 'read']);
+  });
+
+  it('sin permisos explícitos la key queda de solo lectura', async () => {
+    const { service } = setup();
+    const created = await service.createApiKey({ id: 'dev', role: 'DEV', name: 'Dev' } as any, { name: 'Reportes' });
+    expect(created.scopes).toEqual(['read']);
+  });
+});

@@ -209,17 +209,62 @@ la vieja `backoffice2026` ya no existe):
 - Tests: `test/agent.spec.ts` (29). Rutas web con `lazy()` (el link público no
   baja el panel: index 314 KB vs 1,2 MB antes).
 
+## Crecimiento, cobro y operación (oct 2026, rama agentes-domicilios)
+
+- **Precios** (`pnpm --filter @backoffice/api db:seed:precios`, idempotente): línea
+  Negocios en COP (Esencial 149k · Negocio 349k · Operación 890k, montaje gratis con
+  permanencia 6/6/12 meses; salida anticipada = montaje proporcional, SETUP adjustment
+  salvo `waiveSetupFee`). Planes Pro USD siguen (precio por revisar con el usuario).
+  Prueba gratis: eliminada a pedido del usuario.
+- **Cobro mes a mes** (`src/common/billing-engine.ts`, `billing.module.ts`): precio
+  propio (`Company.customPriceMonthly`) + `BillingAdjustment` (PRICE/CHARGE/DISCOUNT/
+  SETUP; un mes, rango o recurrente; % o valor). Facturas editables (solo plataforma),
+  proyección `GET /billing/forecast`. UI: Empresa → pestaña Cobro (`CompanyBilling.tsx`).
+- **IA prepaga**: `AiCreditPackage` (500/2k/5k/15k), lotes FIFO `AiCreditLot` con
+  vencimiento de 12 meses, 1 crédito por conversación cada 24 h; primero las incluidas
+  del plan; alertas 80 %/100 % (`ai.credits` por SSE). Compra con Wompi, regalo desde
+  plataforma (`POST /ai-credits/grant`).
+- **Campañas** (`campaigns.module.ts`, `/app/campaigns`): segmento → vista previa con
+  costo Meta → envío escalonado con claim atómico; fuera de 24 h solo con plantilla.
+  Bajas SALIR/ACTIVAR (`Contact.optOut`). Seguimiento automático en
+  `orderConfig.followUps`. Reseña de Google tras calificación ≥4.
+- **Pedidos**: cobro en el chat (Wompi de la empresa, secretos cifrados, webhook
+  `/payments/wompi/:slug/events`), comprobante leído por IA (`src/ai/vision.ts`) →
+  REPORTED, nunca PAID solo. Comanda `/print/order/:id` (80/58 mm). Cupones y promos
+  (`promotions.ts`), agotados (`Product.soldOut[Until]`), fotos de producto, menú
+  público `/m/:slug` + QR (`src/common/qr.ts`, encoder propio). Factura DIAN
+  (`einvoice.ts`: ALEGRA o SIMULADO). Pedidos externos `POST /api/inbound/orders`
+  con API key de scope `orders`; idempotencia con candado único `InboundOrderKey`
+  (reintentos simultáneos → un solo pedido).
+- **Domicilios 2.0**: zonas por barrio (`pricingMode: ZONES`), sucursales (`Branch`,
+  sale de la más cercana), asignación automática al quedar listo, alertas de retraso
+  y sin domiciliario (cron 2 min), ruta sugerida con orden y link de Google Maps.
+- **CRM**: embudos configurables (`Pipeline`; contactos sin el campo = embudo
+  estándar: Mongo exige `OR [null, isSet:false]`), respuestas rápidas ("/" en la
+  bandeja), base de conocimiento por texto/URL/PDF (BM25, SSRF bloqueado; PDF necesita
+  `pdftotext`, no existe en Render), configuración del negocio con IA (`/ai-setup`).
+- **Instagram/Messenger** por Graph API: Integraciones → Conectar (pageId, igUserId,
+  token cifrado, sandbox). Webhook `/api/webhooks/<slug>/meta`, firma con
+  `META_APP_SECRET` (Dev Tools → Settings).
+- Modelos SIN relación a Company (promos, respuestas, conocimiento, embudos, campañas,
+  ajustes, saldo IA, pings, candados): al borrar una empresa los limpia
+  `src/common/company-cleanup.ts` (panel y demo lo usan).
+- API keys: el listado nunca devuelve `hash`; scopes permitidos read/write/orders.
+- Tests: billing/growth/operations/agent/devtools specs (275 en total) +
+  `node test/e2e-growth.mjs` (API viva: empresa y devs en paralelo sobre una empresa
+  de prueba que el script crea y borra con el super admin; 52 checks).
+- UI: `Switch showLabel` muestra el texto al lado; la animación de página usa
+  `backwards` (con `both` quedaba un transform que recortaba los modales).
+
 ## Pendiente
 
-1. Precios definitivos de los planes (línea Negocios en COP + Pro) — se definen
-   con el usuario; los campos de IA incluida/excedente ya existen en Plan.
-2. Callback OAuth de Meta y motor para el webhook Cloud API (hoy solo Twilio
-   llega al motor).
+1. Revisar precios de los planes Pro en USD con el usuario (competencia).
+2. Probar el adaptador de Alegra con una cuenta real (hoy validado en SIMULADO).
 3. Hosting 24/7 (Render/Vercel planeado): `/api` relativo en la web, Redis con
    TLS (`redisConnection` no soporta rediss:// ni usuario), `trust proxy`,
-   `uploads/` a almacenamiento externo.
-4. Llaves reales de Wompi + SMTP; pasarela internacional (Stripe).
-5. Suscripciones semanales de almuerzos (pedidos recurrentes) y ruteo de entregas.
+   `uploads/` a almacenamiento externo, `pdftotext` no existe en Render.
+4. Llaves reales de Wompi + SMTP + Meta (app review para Instagram/Messenger).
+5. Suscripciones semanales de almuerzos (pedidos recurrentes).
 
 ## Seguridad (ya endurecida — no aflojar)
 

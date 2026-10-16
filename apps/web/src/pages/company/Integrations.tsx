@@ -46,6 +46,7 @@ export default function Integrations() {
   const [newType, setNewType] = useState('WHATSAPP');
   const [newName, setNewName] = useState('');
   const [assigning, setAssigning] = useState<Integration | null>(null);
+  const [connectingMeta, setConnectingMeta] = useState<Integration | null>(null);
 
   const { data: integrations, isLoading } = useQuery({
     queryKey: ['integrations', q],
@@ -209,7 +210,10 @@ export default function Integrations() {
                   Bot: {integration.bot?.name ?? 'Sin asignar'}
                   {integration.lastSyncAt && ` · sync ${timeAgo(integration.lastSyncAt)}`}
                 </p>
-                {integration.webhookUrl && (
+                {['INSTAGRAM', 'MESSENGER'].includes(integration.type) && integration.config.sandbox && (
+                  <p className="font-semibold text-warn">Modo prueba: no se envían mensajes reales</p>
+                )}
+                {integration.webhookUrl && !['INSTAGRAM', 'MESSENGER'].includes(integration.type) && (
                   <p className="truncate font-mono text-[10px] text-ink-3" title={integration.webhookUrl}>
                     {integration.webhookUrl}
                   </p>
@@ -218,7 +222,12 @@ export default function Integrations() {
 
               {canWrite && (
                 <div className="mt-3 flex flex-wrap gap-2">
-                  {!connected && integration.connectUrl && (
+                  {['INSTAGRAM', 'MESSENGER'].includes(integration.type) && (
+                    <Button size="sm" className="flex-1" variant={connected ? 'outline' : 'primary'} onClick={() => setConnectingMeta(integration)}>
+                      {connected ? 'Configurar' : 'Conectar →'}
+                    </Button>
+                  )}
+                  {!connected && integration.connectUrl && !['INSTAGRAM', 'MESSENGER'].includes(integration.type) && (
                     <a href={integration.connectUrl} target="_blank" rel="noreferrer" className="flex-1">
                       <Button className="w-full" size="sm">Conectar →</Button>
                     </a>
@@ -237,6 +246,8 @@ export default function Integrations() {
           );
         })}
       </div>
+
+      {connectingMeta && <MetaConnectModal integration={connectingMeta} onClose={() => setConnectingMeta(null)} />}
 
       {/* Agregar canal / línea */}
       <Modal
@@ -296,5 +307,58 @@ export default function Integrations() {
         </div>
       </Modal>
     </>
+  );
+}
+
+/** Instagram / Messenger por la API oficial de Meta (token de página). */
+function MetaConnectModal({ integration, onClose }: { integration: Integration; onClose: () => void }) {
+  const queryClient = useQueryClient();
+  const isIg = integration.type === 'INSTAGRAM';
+  const cfg = integration.config as Record<string, any>;
+  const [pageId, setPageId] = useState<string>(cfg.pageId ?? '');
+  const [igUserId, setIgUserId] = useState<string>(cfg.igUserId ?? '');
+  const [token, setToken] = useState('');
+  const [sandbox, setSandbox] = useState<boolean>(cfg.sandbox ?? !cfg.metaConfigured);
+  const slug = integration.company?.slug ?? '';
+  const webhook = `${window.location.origin}/api/webhooks/${slug}/meta`;
+  const save = useMutation({
+    mutationFn: () => api.patch(`/integrations/${integration.id}`, {
+      status: 'CONNECTED',
+      config: { provider: 'META', pageId: pageId.trim(), igUserId: igUserId.trim() || undefined, sandbox, ...(token.trim() ? { accessToken: token.trim() } : {}) },
+    }),
+    onSuccess: () => {
+      toast.success(sandbox ? 'Conectado en modo prueba' : 'Canal conectado');
+      queryClient.invalidateQueries({ queryKey: ['integrations'] });
+      onClose();
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : 'Error'),
+  });
+  return (
+    <Modal open onClose={onClose} kicker="Meta" title={`Conectar ${isIg ? 'Instagram' : 'Messenger'}`}>
+      <div className="space-y-4">
+        <ol className="list-decimal space-y-1 pl-4 text-xs text-ink-2">
+          <li>En developers.facebook.com, en tu app, agrega el producto {isIg ? 'Instagram' : 'Messenger'} y vincula tu página.</li>
+          <li>Pega esta URL de webhook y el token de verificación configurado en Dev Tools. Suscríbete a <span className="font-mono">messages</span>.</li>
+          <li>Genera un token de página permanente y pégalo aquí.</li>
+        </ol>
+        <Field label="URL del webhook">
+          <div className="flex items-center gap-2 border-2 border-line bg-bone-2 px-2 py-1.5 text-xs">
+            <span className="truncate font-mono">{webhook}</span>
+            <button type="button" className="cursor-pointer text-ink-3 hover:text-ink" onClick={() => navigator.clipboard?.writeText(webhook).then(() => toast.success('Copiado'))}>Copiar</button>
+          </div>
+        </Field>
+        <Field label="ID de la página de Facebook" required><Input value={pageId} onChange={(e) => setPageId(e.target.value)} placeholder="1234567890" /></Field>
+        {isIg && <Field label="ID de la cuenta de Instagram" hint="Instagram profesional vinculada a la página"><Input value={igUserId} onChange={(e) => setIgUserId(e.target.value)} placeholder="17841400000000000" /></Field>}
+        <Field label="Token de acceso de la página" hint={cfg.metaConfigured ? 'Guardado (cifrado). Escribe uno nuevo para reemplazarlo.' : 'Se guarda cifrado; nunca se vuelve a mostrar'}>
+          <Input type="password" autoComplete="off" value={token} onChange={(e) => setToken(e.target.value)} />
+        </Field>
+        <label className="flex items-center gap-2 text-sm">
+          <input type="checkbox" checked={sandbox} onChange={(e) => setSandbox(e.target.checked)} /> Modo prueba (no envía respuestas reales)
+        </label>
+        <Button className="w-full" disabled={!pageId.trim() || save.isPending} onClick={() => save.mutate()}>
+          {save.isPending ? 'Guardando…' : 'Guardar conexión'}
+        </Button>
+      </div>
+    </Modal>
   );
 }

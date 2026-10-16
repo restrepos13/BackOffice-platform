@@ -1184,3 +1184,15 @@ model Pipeline {
 
   @@index([companyId])
 }
+
+/// Candado de idempotencia de pedidos externos: (empresa, origen, id externo)
+/// es único, así N reintentos simultáneos del integrador crean UN solo pedido.
+model InboundOrderKey {
+  id         String   @id @default(cuid()) @map("_id")
+  companyId  String
+  source     String
+  externalId String
+  createdAt  DateTime @default(now())
+
+  @@unique([companyId, source, externalId])
+}

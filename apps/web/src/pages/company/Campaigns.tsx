@@ -87,7 +87,7 @@ function SegmentBuilder({ value, onChange, q }: {
           </Select>
         </Field>
       </div>
-      <Switch
+      <Switch showLabel
         checked={!!value.customersOnly}
         onChange={(v) => onChange({ ...value, customersOnly: v || undefined })}
         label="Solo quienes ya compraron alguna vez"
@@ -323,7 +323,7 @@ function FollowUps({ companyId, canWrite }: { companyId: string | null; canWrite
       {rules.map((r, i) => (
         <div key={r.id} className="space-y-3 border-2 border-ink bg-paper p-4">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <Switch checked={r.enabled} onChange={(v) => update(i, { enabled: v })} label={r.enabled ? 'Activa' : 'Pausada'} disabled={!canWrite} />
+            <Switch showLabel checked={r.enabled} onChange={(v) => update(i, { enabled: v })} label={r.enabled ? 'Activa' : 'Pausada'} disabled={!canWrite} />
             {canWrite && <Button size="sm" variant="ghost" onClick={() => setRules(rules.filter((_, j) => j !== i))}>Quitar</Button>}
           </div>
           <div className="grid gap-3 sm:grid-cols-2">

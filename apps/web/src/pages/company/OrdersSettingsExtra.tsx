@@ -178,7 +178,7 @@ export function PromotionsTab({ q, canWrite }: { q: string; canWrite: boolean })
               </div>
             </Field>
             <Field label="Descripción para el cliente"><Textarea rows={2} value={editing.description ?? ''} onChange={(e) => setEditing({ ...editing, description: e.target.value })} /></Field>
-            <Switch checked={!!editing.public} onChange={(v) => setEditing({ ...editing, public: v })} label="Se anuncia en el menú y el asistente la ofrece" />
+            <Switch showLabel checked={!!editing.public} onChange={(v) => setEditing({ ...editing, public: v })} label="Se anuncia en el menú y el asistente la ofrece" />
             <Button className="w-full" disabled={!editing.name || save.isPending} onClick={() => save.mutate(editing)}>
               {save.isPending ? 'Guardando…' : 'Guardar promoción'}
             </Button>
@@ -252,7 +252,7 @@ export function MenuTab({ q, companyId, canWrite }: { q: string; companyId: stri
         <p className="kicker">QR para mesas y redes</p>
         {info ? (
           <>
-            <div className="mx-auto w-48 border-2 border-ink bg-white p-2" dangerouslySetInnerHTML={{ __html: info.qrSvg }} />
+            <div className="mx-auto aspect-square w-48 border-2 border-ink bg-white p-2 [&>svg]:block [&>svg]:h-full [&>svg]:w-full" dangerouslySetInnerHTML={{ __html: info.qrSvg }} />
             <div className="flex items-center gap-2 border-2 border-line bg-bone-2 px-2 py-1.5 text-xs">
               <span className="truncate">{info.url}</span>
               <button className="cursor-pointer text-ink-3 hover:text-ink" aria-label="Copiar link" onClick={() => navigator.clipboard?.writeText(info.url).then(() => toast.success('Link copiado'))}>
@@ -344,7 +344,7 @@ export function PaymentsTab({ q, canWrite }: { q: string; canWrite: boolean }) {
           <Field label="Instrucciones" hint="El asistente las envía cuando el cliente paga por transferencia. Si manda la foto del comprobante, la IA la lee.">
             <Textarea rows={4} value={form.manualInstructions} placeholder="Nequi 300 123 4567 a nombre de Delicias Andinas SAS. Envía la foto del comprobante por aquí." onChange={(e) => setForm({ ...form, manualInstructions: e.target.value })} />
           </Field>
-          <Switch checked={form.acceptCash} onChange={(v) => setForm({ ...form, acceptCash: v })} label="Acepto efectivo contra entrega" />
+          <Switch showLabel checked={form.acceptCash} onChange={(v) => setForm({ ...form, acceptCash: v })} label="Acepto efectivo contra entrega" />
         </div>
         {canWrite && (
           <Button disabled={save.isPending} onClick={() => save.mutate()}>{save.isPending ? 'Guardando…' : 'Guardar pagos'}</Button>
@@ -534,7 +534,7 @@ export function BranchesPanel({ q, canWrite }: { q: string; canWrite: boolean })
               ? <p className="text-xs text-ok">Ubicada en {editing.lat.toFixed(5)}, {editing.lng.toFixed(5)}</p>
               : <p className="text-xs text-warn">Ubícala para poder despachar desde aquí.</p>}
             <Field label="Teléfono"><Input value={editing.phone ?? ''} onChange={(e) => setEditing({ ...editing, phone: e.target.value })} /></Field>
-            <Switch checked={editing.active ?? true} onChange={(v) => setEditing({ ...editing, active: v })} label="Activa" />
+            <Switch showLabel checked={editing.active ?? true} onChange={(v) => setEditing({ ...editing, active: v })} label="Activa" />
             <Button className="w-full" disabled={!editing.name || editing.lat == null || save.isPending} onClick={() => save.mutate(editing)}>
               {save.isPending ? 'Guardando…' : 'Guardar sucursal'}
             </Button>
@@ -651,7 +651,7 @@ export function AiSetupWizard({ open, onClose, q }: { open: boolean; onClose: ()
           </div>
           {proposal.assistant && (
             <section className="border-2 border-line p-3 text-sm">
-              <Switch checked={createAssistant} onChange={setCreateAssistant} label={`Crear el asistente «${proposal.assistant.name}» (tono ${proposal.assistant.tone})`} />
+              <Switch showLabel checked={createAssistant} onChange={setCreateAssistant} label={`Crear el asistente «${proposal.assistant.name}» (tono ${proposal.assistant.tone})`} />
               <p className="mt-2 text-xs italic text-ink-3">"{proposal.assistant.welcome}"</p>
             </section>
           )}

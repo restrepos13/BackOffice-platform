@@ -225,6 +225,32 @@ describe('pedidos externos (Rappi, web) con llave de API', () => {
     await expect(service.createExternal('co1', { ...dto, source: 'HACK' })).rejects.toBeInstanceOf(BadRequestException);
     await expect(service.createExternal('co1', { ...dto, externalId: 'x2', items: [] })).rejects.toBeInstanceOf(BadRequestException);
   });
+
+  it('reintentos simultáneos: el candado único deja crear UN pedido y los demás reciben el mismo', async () => {
+    const { db, service } = setup();
+    const dto = { source: 'POS', externalId: 'M4', customer: { name: 'Mesa 4' }, items: [{ name: 'Almuerzo', quantity: 1 }] };
+    // Simula el índice único de Mongo: el segundo create del mismo candado falla con P2002
+    const realCreate = (service as any).prisma.inboundOrderKey.create;
+    (service as any).prisma.inboundOrderKey.create = jest.fn(async (args: any) => {
+      if (db.inboundOrderKey.some((k: any) => k.externalId === args.data.externalId && k.source === args.data.source)) {
+        throw Object.assign(new Error('Unique constraint failed'), { code: 'P2002' });
+      }
+      return realCreate(args);
+    });
+    const results = await Promise.all([1, 2, 3, 4].map(() => service.createExternal('co1', dto)));
+    expect(new Set(results.map((r: any) => r.id)).size).toBe(1);
+    expect(db.order.filter((o: any) => o.externalId === 'M4')).toHaveLength(1);
+    expect(results.filter((r: any) => r.duplicate)).toHaveLength(3);
+  });
+
+  it('si crear el pedido falla, el candado se libera para que el reintento funcione', async () => {
+    const { db, service } = setup();
+    const dto = { source: 'WEB', externalId: 'W1', customer: { name: 'Ana' }, items: [{ name: 'Almuerzo', quantity: 1 }], deliveryAt: 'no-es-fecha' };
+    await expect(service.createExternal('co1', dto)).rejects.toBeInstanceOf(BadRequestException);
+    expect(db.inboundOrderKey).toHaveLength(0);
+    const ok = await service.createExternal('co1', { ...dto, deliveryAt: undefined });
+    expect(ok).toMatchObject({ duplicate: false });
+  });
 });
 
 /* ═══ Factura electrónica ═══ */
@@ -402,6 +428,50 @@ describe('comprobante por WhatsApp → pedido "por verificar"', () => {
   });
 });
 
+describe('comprobante: casos que NO marcan el pedido', () => {
+  it('una foto que no es comprobante no toca el cobro; un monto menor queda reportado sin cubrir el total', async () => {
+    const { normalizeAnalysis, receiptMatches } = require('../src/ai/vision');
+    expect(normalizeAnalysis({ es_comprobante: false, monto: '41000' })).toMatchObject({ kind: 'OTHER', amount: null });
+    expect(receiptMatches(30000, 41000)).toBe(false);
+    expect(receiptMatches(40950, 41000)).toBe(true); // redondeos de la app del banco
+    expect(receiptMatches(null, 41000)).toBe(false);
+  });
+});
+
+/* ═══ Limpieza al borrar una empresa ═══ */
+
+describe('borrar empresa: sin datos huérfanos', () => {
+  it('borra promos, respuestas, conocimiento, campañas, ajustes y saldo IA de esa empresa', async () => {
+    const { deleteCompanyLooseData } = require('../src/common/company-cleanup');
+    const { prisma, db } = createMockPrisma();
+    for (const co of ['co1', 'co2']) {
+      db.promotion.push({ id: `p-${co}`, companyId: co });
+      db.quickReply.push({ id: `q-${co}`, companyId: co });
+      db.knowledgeDoc.push({ id: `k-${co}`, companyId: co });
+      db.knowledgeChunk.push({ id: `kc-${co}`, companyId: co, docId: `k-${co}` });
+      db.broadcast.push({ id: `b-${co}`, companyId: co });
+      db.broadcastRecipient.push({ id: `br-${co}`, companyId: co, broadcastId: `b-${co}` });
+      db.billingAdjustment.push({ id: `a-${co}`, companyId: co });
+      db.aiCreditLot.push({ id: `l-${co}`, companyId: co });
+      db.courierPing.push({ id: `g-${co}`, companyId: co });
+    }
+    await deleteCompanyLooseData(prisma, 'co1');
+    for (const m of ['promotion', 'quickReply', 'knowledgeDoc', 'knowledgeChunk', 'broadcast', 'broadcastRecipient', 'billingAdjustment', 'aiCreditLot', 'courierPing']) {
+      expect((db as any)[m].map((d: any) => d.companyId)).toEqual(['co2']);
+    }
+  });
+
+  it('el borrado desde el panel usa la limpieza y protege la empresa demo', async () => {
+    const { prisma, db } = createMockPrisma();
+    const service = new CompaniesService(prisma as any, audit as any);
+    db.company.push({ id: 'co1', name: 'X', slug: 'x' }, { id: 'demo', name: 'Demo', slug: 'delicias-demo' });
+    db.promotion.push({ id: 'p1', companyId: 'co1' });
+    await service.remove(PLATFORM, 'co1');
+    expect(db.promotion).toHaveLength(0);
+    await expect(service.remove(PLATFORM, 'demo')).rejects.toBeInstanceOf(BadRequestException);
+  });
+});
+
 /* ═══ Permanencia ═══ */
 
 describe('permanencia: salida anticipada', () => {
@@ -420,5 +490,14 @@ describe('permanencia: salida anticipada', () => {
     db.company[0].status = 'ACTIVE';
     await service.update(PLATFORM, 'co1', { status: 'CANCELLED', waiveSetupFee: true });
     expect(db.billingAdjustment).toHaveLength(1);
+  });
+
+  it('el cobro es proporcional a los meses que faltan y es cero al cumplir la permanencia', () => {
+    const { earlyExitFee } = require('../src/common/billing-engine');
+    const start = new Date('2026-01-15T12:00:00Z');
+    expect(earlyExitFee({ contractStartAt: start, minTermMonths: 12, setupFeeValue: 3000000, exitAt: new Date('2026-04-20T12:00:00Z') }))
+      .toEqual({ remainingMonths: 9, amount: 2250000 });
+    expect(earlyExitFee({ contractStartAt: start, minTermMonths: 6, setupFeeValue: 400000, exitAt: new Date('2026-09-01T12:00:00Z') }).amount).toBe(0);
+    expect(earlyExitFee({ contractStartAt: null, minTermMonths: 6, setupFeeValue: 400000 }).amount).toBe(0);
   });
 });

@@ -7,7 +7,7 @@ import LiveMap, { type MapPoint } from '../../components/LiveMap';
 import { Button, Loading } from '../../components/ui';
 import { api, getToken } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
-import { fmtMoney, fmtTime, minutesUntil } from '../../lib/format';
+import { etaLabel, fmtMoney, fmtTime } from '../../lib/format';
 import type { CourierRoute } from '../../lib/types';
 
 /**
@@ -141,7 +141,7 @@ export default function CourierApp() {
       if (stop.destination.lat == null || stop.destination.lng == null) continue;
       out.push({
         id: stop.id, kind: 'destination', lat: stop.destination.lat, lng: stop.destination.lng,
-        tag: stop.code.slice(-3), label: `#${stop.code} · ${stop.customer}`,
+        tag: stop.sequence ? String(stop.sequence) : stop.code.slice(-3), label: `${stop.sequence ? `${stop.sequence}. ` : ''}#${stop.code} · ${stop.customer}`,
         active: stop.id === selected || stop.status === 'despachado',
       });
     }
@@ -190,7 +190,22 @@ export default function CourierApp() {
           </div>
         )}
 
-        <p className="kicker mb-2 mt-5">Por entregar · {active.length}</p>
+        <div className="mb-2 mt-5 flex items-center justify-between gap-2">
+          <p className="kicker">Por entregar · {active.length}</p>
+          {data.routeUrl && active.length > 1 && (
+            <a
+              href={data.routeUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-1.5 border-2 border-ink bg-paper px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.08em] hover:bg-ink hover:text-bone"
+            >
+              <Navigation size={12} /> Ruta completa
+            </a>
+          )}
+        </div>
+        {active.length > 1 && (
+          <p className="mb-2 text-[11px] text-ink-3">Orden sugerido: del más cercano en adelante.</p>
+        )}
         {active.length === 0 && (
           <div className="border-2 border-dashed border-line bg-paper px-6 py-10 text-center">
             <p className="display text-xl text-ink-2">Sin pedidos asignados</p>
@@ -266,7 +281,7 @@ function StopCard({
   const hasCoords = d.lat != null && d.lng != null;
   const inRoute = stop.status === 'despachado';
   const ready = stop.status === 'listo' || stop.status === 'empacado';
-  const eta = minutesUntil(stop.etaAt);
+  const eta = etaLabel(stop.etaAt);
   const mapsUrl = hasCoords
     ? `https://www.google.com/maps/dir/?api=1&destination=${d.lat},${d.lng}`
     : `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(d.address ?? '')}`;
@@ -280,11 +295,23 @@ function StopCard({
       <div className="flex items-start justify-between gap-3 border-b-2 border-ink px-4 py-3">
         <div className="min-w-0">
           <p className="kicker">#{stop.code} · {inRoute ? 'En camino' : ready ? 'Listo para recoger' : 'En preparación'}</p>
-          <p className="truncate text-base font-semibold">{stop.customer}</p>
+          <p className="flex items-center gap-2 truncate text-base font-semibold">
+            {stop.sequence != null && (
+              <span className="flex h-6 w-6 shrink-0 items-center justify-center text-xs font-bold text-bone" style={{ background: accent }} aria-label={`Parada ${stop.sequence}`}>
+                {stop.sequence}
+              </span>
+            )}
+            <span className="truncate">{stop.customer}</span>
+          </p>
         </div>
         <div className="shrink-0 text-right">
           {stop.total != null && <p className="text-sm font-semibold">{fmtMoney(stop.total, currency)}</p>}
-          <p className="text-xs text-ink-3">{inRoute && eta != null ? `llega en ${eta} min` : fmtTime(stop.deliveryAt)}</p>
+          {stop.total != null && (
+            <p className={clsx('text-[10px] font-bold uppercase tracking-wider', stop.paymentStatus === 'PAID' ? 'text-ok' : 'text-warn')}>
+              {stop.paymentStatus === 'PAID' ? 'Ya pagó' : stop.paymentStatus === 'REPORTED' ? 'Pago por verificar' : 'Cobrar al entregar'}
+            </p>
+          )}
+          <p className="text-xs text-ink-3">{inRoute && eta ? eta : fmtTime(stop.deliveryAt)}</p>
         </div>
       </div>
       <div className="space-y-2 px-4 py-3 text-sm">

@@ -114,7 +114,7 @@ export default function PublicMenuPage() {
 
       {data.categories.length > 1 && (
         <nav className="sticky top-0 z-10 mt-4 border-y-2 border-ink bg-bone">
-          <div className="mx-auto flex max-w-2xl gap-1 overflow-x-auto px-4 py-2">
+          <div className="mx-auto flex max-w-2xl gap-1 overflow-x-auto px-4 py-2 [scrollbar-width:none]">
             {[null, ...data.categories.map((c) => c.name)].map((name) => (
               <button
                 key={name ?? 'todo'}

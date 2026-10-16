@@ -105,6 +105,7 @@ export function createMockPrisma() {
     pipeline: [] as Doc[],
     payment: [] as Doc[],
     apiKey: [] as Doc[],
+    inboundOrderKey: [] as Doc[],
     invoice: [] as Doc[],
     usageRecord: [] as Doc[],
   };
@@ -326,6 +327,7 @@ export function createMockPrisma() {
     pipeline: model('pipeline', { isDefault: false }),
     payment: model('payment', { status: 'PENDING', eventsLog: '[]', purpose: 'INVOICE', metaJson: '{}' }),
     apiKey: model('apiKey', { scopesJson: '[]', revokedAt: null }),
+    inboundOrderKey: model('inboundOrderKey'),
     invoice: model('invoice', { status: 'PENDING', currency: 'USD', linesJson: '[]' }),
     usageRecord: model('usageRecord'),
   };

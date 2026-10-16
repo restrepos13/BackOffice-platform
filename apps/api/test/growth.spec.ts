@@ -378,6 +378,48 @@ describe('embudos configurables', () => {
     await pipelines.remove(ADMIN, p.id);
     expect(db.contact[0]).toMatchObject({ pipelineId: null, stage: 'CURIOSO' });
   });
+
+  it('el embudo estándar incluye contactos viejos sin el campo; crear en un embudo valida la etapa', async () => {
+    const { prisma, db } = createMockPrisma();
+    const pipelines = new PipelinesService(prisma as any, audit as any);
+    const contacts = new ContactsService(prisma as any, audit as any);
+    // Contacto creado antes de existir los embudos: el campo ni siquiera existe
+    db.contact.push({ id: 'viejo', companyId: 'co1', name: 'Viejo', stage: 'CURIOSO', tagsJson: '[]', createdAt: new Date(), lastActivityAt: new Date() });
+    const p = await pipelines.save(ADMIN, { name: 'Eventos', stages: [{ label: 'Solicitud' }, { label: 'Contratado', kind: 'WON' }] });
+    const nuevo = await contacts.create(ADMIN, { name: 'Nuevo', pipelineId: p.id, stage: 'CALIENTE' });
+    expect(nuevo).toMatchObject({ pipelineId: p.id, stage: 'SOLICITUD' }); // etapa ajena → primera del embudo
+    const std = await contacts.list(ADMIN, undefined, undefined, undefined, 'default');
+    expect(std.map((c: any) => c.id)).toEqual(['viejo']);
+    const own = await contacts.list(ADMIN, undefined, undefined, undefined, p.id);
+    expect(own.map((c: any) => c.name)).toEqual(['Nuevo']);
+    await expect(contacts.create(ADMIN, { name: 'X', pipelineId: 'no-existe' })).rejects.toBeInstanceOf(BadRequestException);
+  });
+});
+
+/* ═══ Respuestas rápidas ═══ */
+
+describe('respuestas rápidas', () => {
+  it('normaliza el atajo y no permite duplicados en la misma empresa', async () => {
+    const { prisma } = createMockPrisma();
+    const promos = new PromotionsService(prisma as any, audit as any);
+    const r = await promos.saveQuickReply(ADMIN, { shortcut: '/Horario ', title: 'Horario', body: 'Lun a sáb 11 a 3' });
+    expect(r).toMatchObject({ companyId: 'co1', shortcut: 'horario' });
+    await expect(promos.saveQuickReply(ADMIN, { shortcut: 'horario', title: 'Otro', body: 'x' })).rejects.toBeInstanceOf(BadRequestException);
+    await expect(promos.saveQuickReply(ADMIN, { shortcut: 'vacia', title: '', body: '' })).rejects.toBeInstanceOf(BadRequestException);
+    // Editar la misma no choca consigo misma
+    await promos.saveQuickReply(ADMIN, { shortcut: 'horario', title: 'Horario nuevo', body: 'Lun a vie' }, r.id);
+    expect((await promos.listQuickReplies(ADMIN))[0]).toMatchObject({ title: 'Horario nuevo' });
+  });
+
+  it('una empresa no ve ni edita las respuestas de otra', async () => {
+    const { prisma, db } = createMockPrisma();
+    const promos = new PromotionsService(prisma as any, audit as any);
+    db.quickReply.push({ id: 'ajena', companyId: 'co2', shortcut: 'pago', title: 'Pago', body: 'Nequi' });
+    expect(await promos.listQuickReplies(ADMIN)).toEqual([]);
+    await expect(promos.saveQuickReply(ADMIN, { shortcut: 'pago', title: 'x', body: 'y' }, 'ajena')).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(promos.removeQuickReply(ADMIN, 'ajena')).rejects.toBeInstanceOf(ForbiddenException);
+    expect(db.quickReply).toHaveLength(1);
+  });
 });
 
 /* ═══ Base de conocimiento ═══ */

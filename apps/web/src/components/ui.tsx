@@ -231,12 +231,25 @@ export function Switch({
   onChange,
   label,
   disabled,
+  showLabel,
 }: {
   checked: boolean;
   onChange: (v: boolean) => void;
   label?: string;
   disabled?: boolean;
+  /** Muestra el label como texto al lado (si no, solo es aria-label) */
+  showLabel?: boolean;
 }) {
+  if (showLabel && label) {
+    return (
+      <span className="inline-flex items-start gap-2.5 text-sm">
+        <Switch checked={checked} onChange={onChange} label={label} disabled={disabled} />
+        <span className={clsx('pt-0.5 leading-snug', disabled && 'opacity-60')} onClick={() => !disabled && onChange(!checked)}>
+          {label}
+        </span>
+      </span>
+    );
+  }
   return (
     <button
       type="button"

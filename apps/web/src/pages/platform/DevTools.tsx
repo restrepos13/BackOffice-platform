@@ -409,7 +409,7 @@ function LogsTab() {
 export default function DevTools() {
   const queryClient = useQueryClient();
   const [tab, setTab] = useState('salud');
-  const [newKey, setNewKey] = useState<{ name: string; companyId: string } | null>(null);
+  const [newKey, setNewKey] = useState<{ name: string; companyId: string; scopes: string[] } | null>(null);
   const [createdSecret, setCreatedSecret] = useState<string | null>(null);
 
   const { data: apiKeys, isLoading } = useQuery({
@@ -428,10 +428,11 @@ export default function DevTools() {
   });
 
   const createKey = useMutation({
-    mutationFn: (form: { name: string; companyId: string }) =>
+    mutationFn: (form: { name: string; companyId: string; scopes: string[] }) =>
       api.post<ApiKeyRow>('/dev/apikeys', {
         name: form.name,
         companyId: form.companyId || undefined,
+        scopes: form.scopes,
       }),
     onSuccess: (key) => {
       queryClient.invalidateQueries({ queryKey: ['apikeys'] });
@@ -536,7 +537,7 @@ export default function DevTools() {
         <Card
           kicker="Acceso programático"
           title="API keys"
-          actions={<Button size="sm" onClick={() => setNewKey({ name: '', companyId: '' })}>+ Nueva</Button>}
+          actions={<Button size="sm" onClick={() => setNewKey({ name: '', companyId: '', scopes: ['read'] })}>+ Nueva</Button>}
         >
           {isLoading ? (
             <Loading />
@@ -548,6 +549,10 @@ export default function DevTools() {
                     <p className="truncate text-sm font-semibold">{key.name}</p>
                     <p className="font-mono text-xs text-ink-3">
                       {key.prefix}···{key.company ? ` · ${key.company.name}` : ' · global'}
+                    </p>
+                    <p className="mt-0.5 flex flex-wrap gap-1">
+                      {(key.scopes ?? []).map((sc) => <Badge key={sc} tone={sc === 'orders' ? 'info' : 'neutral'}>{SCOPE_LABELS[sc] ?? sc}</Badge>)}
+                      {key.lastUsedAt && <span className="text-[11px] text-ink-3">usada {new Date(key.lastUsedAt).toLocaleString('es-CO')}</span>}
                     </p>
                   </div>
                   {key.revokedAt ? (
@@ -566,6 +571,7 @@ export default function DevTools() {
           )}
         </Card>
       )}
+      {tab === 'apikeys' && <InboundOrdersDocs />}
 
       {/* Modal nueva key */}
       <Modal open={!!newKey} onClose={() => setNewKey(null)} kicker="API keys" title="Nueva API key">
@@ -582,9 +588,26 @@ export default function DevTools() {
                 {companies?.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
               </Select>
             </Field>
+            <Field label="Permisos">
+              <div className="flex flex-wrap gap-3 text-sm">
+                {Object.entries(SCOPE_LABELS).map(([sc, label]) => (
+                  <label key={sc} className="flex items-center gap-1.5">
+                    <input
+                      type="checkbox"
+                      checked={newKey.scopes.includes(sc)}
+                      onChange={(e) => setNewKey({ ...newKey, scopes: e.target.checked ? [...newKey.scopes, sc] : newKey.scopes.filter((x) => x !== sc) })}
+                    />
+                    {label}
+                  </label>
+                ))}
+              </div>
+            </Field>
+            {newKey.scopes.includes('orders') && !newKey.companyId && (
+              <p className="text-xs text-warn">Para recibir pedidos externos la key debe pertenecer a una empresa.</p>
+            )}
             <Button
               className="w-full"
-              disabled={!newKey.name || createKey.isPending}
+              disabled={!newKey.name || !newKey.scopes.length || (newKey.scopes.includes('orders') && !newKey.companyId) || createKey.isPending}
               onClick={() => createKey.mutate(newKey)}
             >
               {createKey.isPending ? 'Generando…' : 'Generar key'}
@@ -762,5 +785,38 @@ function SettingsForm({
         </Button>
       </div>
     </div>
+  );
+}
+
+const SCOPE_LABELS: Record<string, string> = { read: 'Lectura', write: 'Escritura', orders: 'Pedidos externos' };
+
+/** Cómo conectar Rappi, un POS o la tienda web: POST /api/inbound/orders. */
+function InboundOrdersDocs() {
+  const example = `curl -X POST ${window.location.origin}/api/inbound/orders \\
+  -H "x-api-key: bo_live_…" -H "Content-Type: application/json" \\
+  -d '{
+    "source": "RAPPI",
+    "externalId": "RP-99812",
+    "customer": { "name": "Laura Gómez", "phone": "+573001112233",
+                  "address": "Cra 70 #44-10, Laureles", "notes": "Torre 2" },
+    "items": [ { "name": "Bandeja paisa", "quantity": 2, "unitPrice": 18000 } ],
+    "deliveryFee": 0,
+    "paid": true
+  }'`;
+  return (
+    <Card kicker="Rappi, Uber Eats, DiDi, POS, tienda web" title="Pedidos externos">
+      <div className="space-y-3 text-sm">
+        <p className="text-ink-2">
+          Rappi no tiene API pública para restaurantes pequeños: se conecta con un integrador (o Zapier/n8n leyendo el
+          correo del pedido) que llama a este endpoint. El pedido entra al mismo flujo: cocina, comanda, domicilios y reportes.
+        </p>
+        <ul className="list-disc space-y-1 pl-5 text-xs text-ink-2">
+          <li>Usa una API key de la empresa con permiso <b>Pedidos externos</b>.</li>
+          <li><span className="font-mono">source</span>: RAPPI, UBER_EATS, DIDI, IFOOD, WEB, POS u OTRO. <span className="font-mono">externalId</span> evita duplicados: reenviar el mismo pedido devuelve el existente.</li>
+          <li>Los productos se emparejan por nombre con el catálogo; si no existen entran como texto libre.</li>
+        </ul>
+        <pre className="overflow-x-auto border-2 border-ink bg-ink p-3 text-[11px] leading-relaxed text-bone">{example}</pre>
+      </div>
+    </Card>
   );
 }

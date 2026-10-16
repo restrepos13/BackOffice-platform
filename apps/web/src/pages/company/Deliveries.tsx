@@ -8,7 +8,7 @@ import LiveMap, { type MapPoint } from '../../components/LiveMap';
 import { Badge, Card, EmptyState, Loading, PageHeader, Select, Stat, Tabs } from '../../components/ui';
 import { api } from '../../lib/api';
 import { useLiveEvents } from '../../lib/events';
-import { ORDER_STATUS_LABELS, fmtMoney, fmtTime, minutesUntil, orderStatusTone, timeAgo } from '../../lib/format';
+import { ORDER_STATUS_LABELS, PAYMENT_STATUS_LABELS, etaLabel, fmtMoney, fmtTime, orderStatusTone, paymentTone, timeAgo } from '../../lib/format';
 import type { Company, DeliveryBoard } from '../../lib/types';
 import { PickCompany, useCompanyScope, withScope } from './shared';
 
@@ -66,7 +66,7 @@ export default function Deliveries() {
             : prev,
         );
       }
-      if (['delivery.updated', 'order.status', 'courier.shift'].includes(event.type)) scheduleRefetch();
+      if (['delivery.updated', 'order.status', 'courier.shift', 'delivery.delay', 'delivery.unassigned', 'order.payment'].includes(event.type)) scheduleRefetch();
     },
     ready,
   );
@@ -74,9 +74,9 @@ export default function Deliveries() {
   const assign = useMutation({
     mutationFn: ({ orderId, courierId }: { orderId: string; courierId: string | null }) =>
       api.post(withScope(`/delivery/orders/${orderId}/assign`, q), { courierId }),
-    onSuccess: () => {
+    onSuccess: (_d, vars) => {
       queryClient.invalidateQueries({ queryKey: boardKey });
-      toast.success('Domiciliario asignado');
+      toast.success(vars.courierId ? 'Domiciliario asignado' : 'Domiciliario quitado');
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : 'Error'),
   });
@@ -88,11 +88,16 @@ export default function Deliveries() {
   const delivered = orders.filter((o) => o.status === 'entregado');
   const couriersOnShift = (board?.couriers ?? []).filter((c) => c.onShift);
   const courierName = (id: string | null) => board?.couriers.find((c) => c.id === id)?.name ?? null;
+  const branchName = (id?: string | null) => (id ? board?.branches?.find((b) => b.id === id)?.name ?? null : null);
+  const delayedCount = orders.filter((o) => o.delayed && o.status !== 'entregado').length;
 
   const points = useMemo<MapPoint[]>(() => {
     if (!board) return [];
     const out: MapPoint[] = [];
     if (board.origin) out.push({ id: 'origin', kind: 'origin', lat: board.origin.lat, lng: board.origin.lng, label: company?.name ?? 'Punto de despacho' });
+    for (const b of board.branches ?? []) {
+      if (b.active) out.push({ id: `branch-${b.id}`, kind: 'origin', lat: b.lat, lng: b.lng, label: `Sucursal ${b.name}` });
+    }
     for (const o of [...pending, ...inRoute]) {
       if (o.destination.lat == null || o.destination.lng == null) continue;
       out.push({
@@ -120,7 +125,19 @@ export default function Deliveries() {
 
   return (
     <>
-      <PageHeader kicker="Operación" title="Domicilios" accent="en vivo" />
+      <PageHeader
+        kicker="Operación"
+        title="Domicilios"
+        accent="en vivo"
+        actions={
+          <span className="flex items-center gap-2">
+            <Badge tone={board?.autoAssign ? 'ok' : 'neutral'}>{board?.autoAssign ? 'Asignación automática' : 'Asignación manual'}</Badge>
+            {canWrite && (
+              <Link to="/app/orders/settings?tab=domicilios" className="text-xs font-semibold uppercase tracking-wider underline">Ajustes</Link>
+            )}
+          </span>
+        }
+      />
 
       {!board.deliveryEnabled && (
         <div className="mb-4 border-2 border-warn bg-warn-soft px-4 py-3 text-sm text-warn">
@@ -131,7 +148,7 @@ export default function Deliveries() {
 
       <div className="mb-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
         <Stat label="Por despachar" value={pending.length} tone={pending.some((o) => !o.courierId && ['listo', 'empacado'].includes(o.status)) ? 'warn' : undefined} hint="Programados o en cocina" />
-        <Stat label="En ruta" value={inRoute.length} />
+        <Stat label="En ruta" value={inRoute.length} tone={delayedCount ? 'bad' : undefined} hint={delayedCount ? `${delayedCount} con retraso` : undefined} />
         <Stat label="Entregados hoy" value={delivered.length} tone="ok" />
         <Stat label="Domiciliarios en turno" value={`${couriersOnShift.length}/${board.couriers.length}`} />
       </div>
@@ -166,7 +183,7 @@ export default function Deliveries() {
               />
             )}
             {list.map((o) => {
-              const eta = minutesUntil(o.etaAt);
+              const eta = etaLabel(o.etaAt);
               return (
                 <article
                   key={o.id}
@@ -186,17 +203,24 @@ export default function Deliveries() {
                         <span className="truncate">{o.destination.address ?? 'Sin dirección'}</span>
                       </p>
                     </div>
-                    <Badge tone={orderStatusTone(o.status)}>{ORDER_STATUS_LABELS[o.status] ?? o.status}</Badge>
+                    <span className="flex shrink-0 flex-col items-end gap-1">
+                      <Badge tone={orderStatusTone(o.status)}>{ORDER_STATUS_LABELS[o.status] ?? o.status}</Badge>
+                      {o.delayed && o.status !== 'entregado' && <Badge tone="bad">Retrasado</Badge>}
+                      {o.paymentStatus && o.paymentStatus !== 'NONE' && (
+                        <Badge tone={paymentTone(o.paymentStatus)}>{PAYMENT_STATUS_LABELS[o.paymentStatus] ?? o.paymentStatus}</Badge>
+                      )}
+                    </span>
                   </div>
                   <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs">
                     <span className="text-ink-2">
                       {o.items} ítem{o.items === 1 ? '' : 's'}
                       {o.total != null && ` · ${fmtMoney(o.total, company?.currency ?? 'COP')}`}
                       {o.distanceKm != null && ` · ${o.distanceKm} km`}
+                      {branchName(o.branchId) && ` · sale de ${branchName(o.branchId)}`}
                     </span>
                     <span className="font-semibold">
-                      {o.status === 'despachado' && eta != null
-                        ? `llega en ${eta} min`
+                      {o.status === 'despachado' && eta
+                        ? eta
                         : o.status === 'entregado' && o.deliveredAt
                           ? `entregado ${fmtTime(o.deliveredAt)}`
                           : `para las ${fmtTime(o.deliveryAt)}`}

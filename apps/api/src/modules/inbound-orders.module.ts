@@ -11,8 +11,7 @@ import {
   Post,
   Param,
   Query,
-  UnauthorizedException,
-} from '@nestjs/common';
+  UnauthorizedException, ConflictException } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { createHash } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
@@ -79,6 +78,43 @@ export class InboundOrdersService {
     const { source, externalId, name } = this.validate(dto);
     const existing = await this.prisma.order.findFirst({ where: { companyId, source, externalId } });
     if (existing) return { id: existing.id, code: orderCode(existing.id), status: existing.status, duplicate: true };
+
+    // Candado único: si el integrador reintenta en paralelo, solo uno crea el pedido
+    const claim = await this.claimExternal(companyId, source, externalId);
+    if ('duplicate' in claim) return claim.duplicate;
+    try {
+      return await this.createClaimed(companyId, dto, source, externalId, name);
+    } catch (err) {
+      await this.prisma.inboundOrderKey.delete({ where: { id: claim.id } }).catch(() => undefined);
+      throw err;
+    }
+  }
+
+  private async claimExternal(companyId: string, source: string, externalId: string): Promise<{ id: string } | { duplicate: any }> {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        return await this.prisma.inboundOrderKey.create({ data: { companyId, source, externalId } });
+      } catch (err: any) {
+        if (err?.code !== 'P2002') throw err;
+      }
+      // Otro request tiene el candado: esperar a que termine su pedido
+      for (let i = 0; i < 40; i++) {
+        const order = await this.prisma.order.findFirst({ where: { companyId, source, externalId } });
+        if (order) return { duplicate: { id: order.id, code: orderCode(order.id), status: order.status, duplicate: true } };
+        await new Promise((r) => setTimeout(r, 150));
+      }
+      // Candado huérfano (el proceso murió a mitad): se libera y se reintenta una vez
+      const stale = await this.prisma.inboundOrderKey.findFirst({ where: { companyId, source, externalId } });
+      if (stale && Date.now() - new Date(stale.createdAt).getTime() > 30_000) {
+        await this.prisma.inboundOrderKey.delete({ where: { id: stale.id } }).catch(() => undefined);
+        continue;
+      }
+      break;
+    }
+    throw new ConflictException('Ese pedido se está procesando: reintenta en unos segundos');
+  }
+
+  private async createClaimed(companyId: string, dto: any, source: string, externalId: string, name: string) {
 
     const company = await this.prisma.company.findUniqueOrThrow({ where: { id: companyId } });
     const currency = company.currency ?? 'COP';

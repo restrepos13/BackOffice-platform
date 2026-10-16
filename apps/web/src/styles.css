@@ -106,7 +106,9 @@ body {
   }
 }
 main > * {
-  animation: page-enter 180ms ease-out both;
+  /* backwards (no both): al terminar no queda transform, que volvería la página
+     el bloque contenedor de los modales fixed y los recortaría */
+  animation: page-enter 180ms ease-out backwards;
 }
 
 /* Modales y tarjetas del tour entran con el mismo lenguaje */

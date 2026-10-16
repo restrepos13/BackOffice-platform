@@ -833,6 +833,7 @@ export interface ApiKeyRow {
   lastUsedAt?: string | null;
   revokedAt?: string | null;
   createdAt: string;
+  scopes?: string[];
   secret?: string;
 }
 
@@ -863,6 +864,8 @@ export interface DeliveryDestination {
 export interface DeliveryBoard {
   origin: { lat: number; lng: number; address?: string } | null;
   deliveryEnabled: boolean;
+  autoAssign?: boolean;
+  branches?: Branch[];
   couriers: Array<{
     id: string; name: string; phone?: string | null; onShift: boolean;
     lastLat: number | null; lastLng: number | null; lastLocAt: string | null;
@@ -873,6 +876,7 @@ export interface DeliveryBoard {
     dispatchedAt: string | null; deliveredAt: string | null; courierId: string | null;
     customer: string; phone: string | null; total: number | null; distanceKm: number | null;
     items: number; destination: DeliveryDestination;
+    branchId?: string | null; delayed?: boolean; paymentStatus?: string | null;
   }>;
 }
 
@@ -880,9 +884,11 @@ export interface CourierRoute {
   company: { name: string; brandColor?: string | null; logoUrl?: string | null; currency?: string };
   courier: { name: string; onShift: boolean; lastLocAt: string | null };
   origin: { lat: number; lng: number; address?: string } | null;
+  routeUrl?: string | null;
   stops: Array<{
     id: string; code: string; status: string; deliveryAt: string; etaAt: string | null;
     customer: string; phone: string | null; total: number | null; observations?: string | null;
+    sequence?: number | null; paymentStatus?: string | null; paymentMethod?: string | null;
     items: Array<{ productName: string; quantity: number; presentation?: string | null }>;
     destination: DeliveryDestination;
   }>;

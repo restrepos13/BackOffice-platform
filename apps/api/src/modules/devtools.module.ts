@@ -35,12 +35,15 @@ import {
 
 const startedAt = Date.now();
 
+/** Permisos de una API key: read (consultas), write, orders (pedidos externos: Rappi, POS…) */
+export const API_KEY_SCOPES = ['read', 'write', 'orders'];
+
 /** Checklist de settings de plataforma: qué está configurado y qué falta. */
 const SETTING_GROUPS: Array<{ group: string; keys: string[]; purpose: string }> = [
   { group: 'Webhooks', keys: ['WEBHOOK_BASE_URL'], purpose: 'URL pública para Twilio/Meta (firma de webhooks)' },
   { group: 'Web pública', keys: ['PUBLIC_WEB_URL'], purpose: 'Dominio de la web: links de seguimiento de pedidos (/t/…) que recibe el cliente' },
   { group: 'IA de BackOffice', keys: ['DEEPINFRA_API_KEY'], purpose: 'Llave propia para empresas en modo IA revendida (las BYOK usan la suya)' },
-  { group: 'Meta', keys: ['META_APP_ID', 'META_VERIFY_TOKEN'], purpose: 'Conexión de canales y verificación del webhook Cloud API' },
+  { group: 'Meta', keys: ['META_APP_ID', 'META_VERIFY_TOKEN', 'META_APP_SECRET'], purpose: 'Canales Meta (WhatsApp Cloud, Instagram, Messenger): verificación y firma de webhooks' },
   { group: 'Correo', keys: ['SMTP_HOST', 'SMTP_PORT', 'SMTP_USER', 'SMTP_PASS', 'SMTP_FROM'], purpose: 'Envío real de correos (sin esto quedan en cola)' },
   { group: 'Wompi', keys: ['WOMPI_PUBLIC_KEY', 'WOMPI_INTEGRITY_SECRET', 'WOMPI_EVENTS_SECRET', 'USD_COP_RATE'], purpose: 'Pagos Colombia' },
   { group: 'Video (MoneyPrinterTurbo)', keys: ['MPT_BASE_URL', 'MPT_API_KEY'], purpose: 'Generación de reels del módulo de marketing' },
@@ -265,10 +268,12 @@ export class DevToolsService {
   }
 
   async listApiKeys() {
-    return this.prisma.apiKey.findMany({
+    const keys = await this.prisma.apiKey.findMany({
       orderBy: { createdAt: 'desc' },
       include: { company: { select: { name: true, slug: true } } },
     });
+    // El hash nunca sale del API
+    return keys.map(({ hash: _hash, scopesJson, ...k }) => ({ ...k, scopes: parseJson<string[]>(scopesJson, []) }));
   }
 
   async createApiKey(actor: AuthUser, dto: { name: string; companyId?: string; scopes?: string[] }) {
@@ -279,15 +284,18 @@ export class DevToolsService {
         companyId: dto.companyId ?? null,
         prefix: secret.slice(0, 16),
         hash: createHash('sha256').update(secret).digest('hex'),
-        scopesJson: JSON.stringify(dto.scopes ?? ['read']),
+        scopesJson: JSON.stringify(
+          (Array.isArray(dto.scopes) ? dto.scopes : ['read']).filter((sc) => API_KEY_SCOPES.includes(String(sc))).slice(0, 5),
+        ),
       },
     });
     await this.audit.log({
       actor, companyId: dto.companyId, action: 'apikey.create',
       entity: 'ApiKey', entityId: key.id, detail: dto.name,
     });
-    // El secreto solo se devuelve una vez
-    return { ...key, secret };
+    // El secreto solo se devuelve una vez (el hash jamás)
+    const { hash: _hash, scopesJson, ...rest } = key;
+    return { ...rest, scopes: parseJson<string[]>(scopesJson, []), secret };
   }
 
   async revokeApiKey(actor: AuthUser, id: string) {

@@ -387,7 +387,7 @@ export default function Contacts() {
               <Textarea rows={3} value={editing.notes} onChange={(e) => setEditing({ ...editing, notes: e.target.value })} />
             </Field>
             <div className="border-2 border-line p-3">
-              <Switch
+              <Switch showLabel
                 checked={editing.optOut}
                 onChange={(v) => setEditing({ ...editing, optOut: v })}
                 label="No quiere recibir campañas ni seguimientos"
@@ -498,7 +498,7 @@ function PipelineModal({ pipeline, q, onClose, onSaved }: {
             </Button>
           )}
         </div>
-        <Switch checked={isDefault} onChange={setIsDefault} label="Embudo por defecto para contactos nuevos" />
+        <Switch showLabel checked={isDefault} onChange={setIsDefault} label="Embudo por defecto para contactos nuevos" />
         {pipeline.id && (
           <p className="text-[11px] text-ink-3">Si quitas una etapa, los contactos que estaban en ella pasan a la primera.</p>
         )}

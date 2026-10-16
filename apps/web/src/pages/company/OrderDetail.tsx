@@ -9,7 +9,7 @@ import { toast } from 'sonner';
 import { api, getToken, openPdf } from '../../lib/api';
 import {
   ORDER_SOURCE_LABELS, ORDER_STATUS_LABELS, PAYMENT_STATUS_LABELS, REMINDER_STATUS_LABELS, fmtDateTime, fmtMoney, fmtTime,
-  minutesUntil, orderStatusTone, paymentTone,
+  etaLabel, orderStatusTone, paymentTone,
 } from '../../lib/format';
 import type { Order, Product, UserRow } from '../../lib/types';
 import {
@@ -201,7 +201,7 @@ function DeliveryCard({ order, q, canWrite }: { order: Order; q: string; canWrit
     window.open(url, '_blank', 'noopener');
     setTimeout(() => URL.revokeObjectURL(url), 60_000);
   };
-  const eta = minutesUntil(order.etaAt);
+  const eta = etaLabel(order.etaAt);
   const closed = ['entregado', 'cancelado'].includes(order.status);
   const hasMoney = order.total != null || order.subtotal != null;
   if (!order.trackingUrl && !order.courierId && !hasMoney && couriers.length === 0) return null;
@@ -238,7 +238,7 @@ function DeliveryCard({ order, q, canWrite }: { order: Order; q: string; canWrit
       {order.status === 'despachado' && (
         <p className="mt-1 text-sm">
           Salió {order.dispatchedAt ? `a las ${fmtTime(order.dispatchedAt)}` : ''}
-          {eta != null && <> · <strong>llega en ~{eta} min</strong></>}
+          {eta && <> · <strong>{eta}</strong></>}
         </p>
       )}
       {order.deliveredAt && <p className="mt-1 text-sm text-ok">Entregado a las {fmtTime(order.deliveredAt)}</p>}
@@ -296,10 +296,10 @@ function PaymentCard({ order, canWrite }: { order: Order; canWrite: boolean }) {
     onError: (e) => toast.error(e instanceof Error ? e.message : 'Error'),
   });
   const einvoice = useMutation({
-    mutationFn: () => api.post<{ einvoiceStatus: string; einvoiceNumber?: string; einvoiceError?: string }>(`/orders/${order.id}/einvoice`),
+    mutationFn: () => api.post<{ ok: boolean; number?: string; error?: string }>(`/orders/${order.id}/einvoice`),
     onSuccess: (r) => {
-      if (r.einvoiceStatus === 'EMITIDA') toast.success(`Factura ${r.einvoiceNumber} emitida`);
-      else toast.error(r.einvoiceError ?? 'No se pudo emitir');
+      if (r.ok) toast.success(`Factura ${r.number ?? ''} emitida`);
+      else toast.error(r.error ?? 'No se pudo emitir');
       refresh();
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : 'Error'),

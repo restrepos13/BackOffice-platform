@@ -25,6 +25,7 @@ import {
 import { maskCompanyKey, normalizeAiMode, storeCompanyKey } from '../ai/ai-access';
 import { serializePaymentConfig } from './payments.module';
 import { serializeEinvoiceConfig } from '../common/einvoice';
+import { deleteCompanyLooseData } from '../common/company-cleanup';
 import { earlyExitFee, periodOf } from '../common/billing-engine';
 import { AGENT_PRESETS } from '../ai/agent/tools';
 import { AuditService } from './audit.module';
@@ -634,7 +635,7 @@ export class CompaniesService {
         'Esta es la empresa DEMO de ventas y está protegida. Para regenerarla con datos frescos usa Dev Tools → Operación → "Restaurar empresa demo".',
       );
     }
-    await this.prisma.courierPing.deleteMany({ where: { companyId: id } }); // sin relación: aparte
+    await deleteCompanyLooseData(this.prisma, id); // modelos sin relación: aparte
     await this.prisma.company.delete({ where: { id } });
     await this.audit.log({
       actor,

@@ -833,7 +833,7 @@ function DeliveryTab({ companyId, canWrite, q }: { companyId: string | null; can
             <div className="space-y-2">
               <p className="text-xs text-ink-3">Tarifa fija por zona: el agente reconoce el barrio en la dirección del cliente.</p>
               <ZonesEditor zones={zones} onChange={setZones} disabled={!canWrite} />
-              <Switch checked={!!draft.zonesFallbackKm} onChange={(v) => set({ zonesFallbackKm: v })} label="Si el barrio no está en ninguna zona, cobrar por distancia" />
+              <Switch showLabel checked={!!draft.zonesFallbackKm} onChange={(v) => set({ zonesFallbackKm: v })} label="Si el barrio no está en ninguna zona, cobrar por distancia" />
             </div>
           )}
           <div className="grid gap-4 md:grid-cols-3">
@@ -848,12 +848,12 @@ function DeliveryTab({ companyId, canWrite, q }: { companyId: string | null; can
 
           <p className="kicker pt-2">Operación</p>
           <div className="space-y-3">
-            <Switch checked={!!draft.autoAssign} onChange={(v) => set({ autoAssign: v })} label="Asignar solo al domiciliario libre más cercano cuando el pedido queda listo" />
+            <Switch showLabel checked={!!draft.autoAssign} onChange={(v) => set({ autoAssign: v })} label="Asignar solo al domiciliario libre más cercano cuando el pedido queda listo" />
             <div className="grid gap-4 md:grid-cols-2">
               <Field label="Alerta de retraso (min)" hint="Pasada la hora estimada">{num('delayAlertMinutes')}</Field>
               <Field label="Alerta sin domiciliario (min)" hint="Pedido listo esperando">{num('unassignedAlertMinutes')}</Field>
             </div>
-            <Switch checked={!!draft.notifyDelayToCustomer} onChange={(v) => set({ notifyDelayToCustomer: v })} label="Avisarle al cliente por WhatsApp si su pedido viene retrasado" />
+            <Switch showLabel checked={!!draft.notifyDelayToCustomer} onChange={(v) => set({ notifyDelayToCustomer: v })} label="Avisarle al cliente por WhatsApp si su pedido viene retrasado" />
           </div>
 
           <Field

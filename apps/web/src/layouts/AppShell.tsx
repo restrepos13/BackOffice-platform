@@ -224,6 +224,35 @@ export default function AppShell() {
           },
         });
       }
+      const e = event as typeof event & { level?: string; status?: string; minutes?: number; code?: string; matches?: boolean };
+      if (e.type === 'ai.credits') {
+        if (e.level === 'TOPUP') toast.success('Paquete de IA acreditado', { id: 'ai-credits' });
+        else toast.warning(e.level === 'EMPTY' ? 'Se acabaron las conversaciones de IA: compra un paquete para seguir' : 'Te queda poco saldo de IA (menos del 20%)', {
+          id: 'ai-credits',
+          action: { label: 'Recargar', onClick: () => navigate('/app/usage') },
+        });
+      }
+      if (e.type === 'delivery.delay') {
+        toast.error(`Pedido #${e.code} va ${e.minutes} min tarde`, {
+          id: `delay-${e.orderId}`,
+          action: { label: 'Ver', onClick: () => navigate('/app/deliveries') },
+        });
+      }
+      if (e.type === 'delivery.unassigned') {
+        toast.warning(`Pedido #${e.code} listo hace ${e.minutes} min sin domiciliario`, {
+          id: `unassigned-${e.orderId}`,
+          action: { label: 'Asignar', onClick: () => navigate('/app/deliveries') },
+        });
+      }
+      if (e.type === 'order.payment' && e.status) {
+        const text = e.status === 'PAID' ? 'Pago confirmado' : e.status === 'REPORTED'
+          ? (e.matches === false ? 'Comprobante recibido: el monto NO coincide' : 'Comprobante recibido: verifica el pago')
+          : 'Pago fallido';
+        toast[e.status === 'PAID' ? 'success' : e.status === 'FAILED' || e.matches === false ? 'error' : 'info'](text, {
+          id: `pay-${e.orderId}-${e.status}`,
+          action: { label: 'Ver pedido', onClick: () => navigate(`/app/orders/${e.orderId}`) },
+        });
+      }
       if (event.type === 'report.daily') {
         toast.info('El reporte diario está listo', {
           id: `rep-${event.at}`,

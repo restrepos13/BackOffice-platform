@@ -18,6 +18,7 @@ import type { PrismaClient } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
 import { quoteDelivery } from '../common/geo';
 import { newTrackingToken } from '../common/tracking';
+import { deleteCompanyLooseData } from '../common/company-cleanup';
 import { AGENT_PRESETS } from '../ai/agent/tools';
 
 /** Slug reservado de la empresa demo (protegido contra borrado). */
@@ -40,6 +41,10 @@ const DELIVERY_CONFIG = {
   freeFromSubtotal: 500000,
   prepMinutes: 30,
   avgSpeedKmh: 22,
+  autoAssign: true,
+  delayAlertMinutes: 10,
+  unassignedAlertMinutes: 15,
+  notifyDelayToCustomer: true,
 };
 
 function at(daysFromNow: number, hour: number, minute = 0): Date {
@@ -60,13 +65,15 @@ export async function seedDemoCompany(prisma: PrismaClient) {
   console.log('Recreando tenant delicias-demo…');
   const existing = await prisma.company.findUnique({ where: { slug: DEMO_COMPANY_SLUG } });
   if (existing) {
-    // El rastro GPS no cuelga de la empresa por relación: se limpia aparte
-    await prisma.courierPing.deleteMany({ where: { companyId: existing.id } });
+    // Lo que no cuelga de la empresa por relación (GPS, promos…) se limpia aparte
+    await deleteCompanyLooseData(prisma, existing.id);
     await prisma.company.delete({ where: { id: existing.id } }); // cascada
   }
   await prisma.user.deleteMany({ where: { email: { contains: '@deliciasandinas.co' } } });
 
-  const growth = await prisma.plan.findUnique({ where: { code: 'growth' } });
+  // Línea Negocios (COP); si los precios aún no se sembraron, cae al plan Pro
+  const growth = (await prisma.plan.findUnique({ where: { code: 'negocios-negocio' } }))
+    ?? (await prisma.plan.findUnique({ where: { code: 'growth' } }));
 
   /* ─── Empresa ─── */
   const co = await prisma.company.create({
@@ -109,7 +116,18 @@ export async function seedDemoCompany(prisma: PrismaClient) {
         ],
         dailyReport: { hour: 6, channel: 'PANEL' },
         delivery: DELIVERY_CONFIG,
+        menu: { enabled: true, title: 'Menú corporativo', note: 'Pedidos con 16 horas de anticipación · Lun a sáb · Valle de Aburrá', whatsappPhone: '573001112233' },
+        reviewMessage: '¡Gracias por elegirnos! Si te gustó, una reseña en Google nos ayuda muchísimo: {{link}}',
+        followUps: [
+          { id: 'borrador', enabled: true, when: 'draft_open', afterHours: 2, message: '¿Seguimos con tu pedido? Si quieres te lo dejo confirmado en un minuto.' },
+        ],
       }),
+      googleReviewUrl: 'https://g.page/r/delicias-andinas-demo/review',
+      paymentConfigJson: JSON.stringify({
+        provider: 'WOMPI', env: 'test', acceptCash: true,
+        manualInstructions: 'Nequi 300 111 2233 o Bancolombia ahorros 000-000000-00 a nombre de Delicias Andinas SAS (DEMO). Envía la foto del comprobante por aquí.',
+      }),
+      einvoiceConfigJson: JSON.stringify({ provider: 'SIMULADO', taxRate: 0.08 }),
       savingsSalaryUsd: 400,
       agentCapacityPerMonth: 300,
     },
@@ -789,6 +807,35 @@ export async function seedDemoCompany(prisma: PrismaClient) {
     ],
   });
 
+  /* ─── Crecimiento: promociones, respuestas rápidas, sucursal ─── */
+  await prisma.promotion.createMany({
+    data: [
+      {
+        companyId: co.id, name: 'Primer pedido -10%', code: 'BIENVENIDO10', kind: 'PERCENT', value: 10,
+        description: '10% en tu primer pedido corporativo', minSubtotal: 150000, productIdsJson: '[]', public: true, active: true,
+      },
+      {
+        companyId: co.id, name: 'Domicilio gratis en coffee breaks', code: null, kind: 'FREE_DELIVERY', value: 0,
+        description: 'Coffee breaks desde $400.000 llevan el domicilio gratis',
+        minSubtotal: 400000, productIdsJson: JSON.stringify([products['Coffee break completo'].id]), public: true, active: true,
+      },
+    ],
+  });
+  await prisma.quickReply.createMany({
+    data: [
+      { companyId: co.id, shortcut: 'horario', title: 'Horario', body: 'Hola {nombre}, atendemos de lunes a sábado de 6 a. m. a 5 p. m. Pedidos con 16 horas de anticipación.' },
+      { companyId: co.id, shortcut: 'pago', title: 'Medios de pago', body: 'Puedes pagar por Nequi 300 111 2233 o Bancolombia (DEMO). Envíanos la foto del comprobante por aquí.' },
+      { companyId: co.id, shortcut: 'minimo', title: 'Pedido mínimo', body: 'El pedido mínimo es de 10 unidades por producto en el Valle de Aburrá.' },
+    ],
+  });
+  await prisma.branch.create({
+    data: { companyId: co.id, name: 'Sede El Poblado', address: 'Cl 10 # 43D-30, El Poblado, Medellín', lat: 6.2087, lng: -75.5678, phone: '+57 300 111 2234', active: true },
+  });
+  await prisma.product.update({
+    where: { id: products['Cena de gala'].id },
+    data: { soldOut: true, soldOutUntil: at(0, 23, 59) },
+  });
+
   /* ─── Reporte diario de ayer (guardado en el panel) ─── */
   await prisma.dailyReport.create({
     data: {
@@ -808,6 +855,7 @@ export async function seedDemoCompany(prisma: PrismaClient) {
   andres@deliciasandinas.co  · Demo-Delicias-2026  (domiciliario)
   Datos: 11 pedidos (todos los estados), domicilios en vivo, 4 conversaciones,
   5 clientes, feedback con testimonios, 30 días de consumo,
-  marketing, agenda y reporte diario. Todo ficticio.
+  marketing, agenda, reporte diario, promos, menú QR (/m/delicias-demo),
+  respuestas rápidas, sucursal y factura simulada. Todo ficticio.
 ════════════════════════════════════════════════════════`);
 }
