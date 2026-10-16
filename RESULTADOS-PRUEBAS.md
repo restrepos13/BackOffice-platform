@@ -1,3 +1,21 @@
+# Resultados de pruebas
+
+## Actualización 16 oct 2026 (rama `agentes-domicilios`, integrada a `main`)
+
+| Suite | Resultado |
+|---|---|
+| Jest (unitarias + integración + seguridad) | **304/304 en verde** |
+| E2E en simultáneo empresa + devs contra el API vivo (`test/e2e-growth.mjs`) | **52/52**, dos corridas seguidas |
+| E2E de seguridad (`test/e2e-security.mjs`) | **42/42** |
+| Typecheck + build producción (api y web) | Limpios |
+
+Bugs reales que encontraron las pruebas y quedaron corregidos: pedidos externos
+duplicados con reintentos simultáneos (candado único), hash de API keys expuesto en
+el listado, datos huérfanos al borrar una empresa, modales recortados por la
+animación de página, hora de programación mostrada en UTC.
+
+---
+
 # Resultados de pruebas — sesión nocturna (23–24 sep 2026)
 
 Todo lo de esta sesión quedó **integrado en `main`** (commit de integración

@@ -18,9 +18,22 @@ hueso `#E6E1DD` / tinta `#1A1A1A`, Anton + Playfair Display + Geist.
 
 ```bash
 pnpm install
-pnpm db:push      # sincroniza índices en MongoDB Atlas
-pnpm db:seed      # datos demo
-pnpm dev          # api en :4001 + web en :5173
+cp apps/api/.env.example apps/api/.env   # y completar (Atlas, JWT, SEED_PASSWORD_*, Gemini…)
+pnpm db:push                              # sincroniza índices en MongoDB Atlas
+pnpm --filter @backoffice/api db:seed:precios       # planes por rubro + paquetes de IA (idempotente)
+pnpm --filter @backoffice/api db:seed:demo-empresa  # empresa demo Delicias Andinas
+pnpm dev                                  # api en :4001 + web en :5173
+```
+
+⚠️ `pnpm db:seed` es el seed de **producción**: borra todo y deja la plataforma
+vacía + "Empresa de Prueba". No correrlo con datos reales de clientes.
+
+Pruebas:
+
+```bash
+pnpm --filter @backoffice/api test        # Jest (304)
+node apps/api/test/e2e-growth.mjs         # empresa y devs en simultáneo (API viva)
+node apps/api/test/e2e-security.mjs       # ataques multi-tenant (API viva)
 ```
 
 ## Roles
@@ -32,14 +45,40 @@ pnpm dev          # api en :4001 + web en :5173
 | `COMPANY_ADMIN` | El dueño de la empresa cliente: métricas, bots, integraciones, equipo, facturación, configuración. |
 | `COMPANY_VIEWER` | Solo visualización: ve todo el panel de su empresa, sin poder editar nada. |
 
-## Usuarios demo (contraseña: `backoffice2026`)
+## Cuentas
 
-- `santiago@backoffice.dev` / `daniel@backoffice.dev` — SUPER_ADMIN
-- `dev@backoffice.dev` — DEV
-- `admin@massaludlatam.com` · `vista@massaludlatam.com` — Mas Salud Latam (Growth, activa, 2 líneas WA)
-- `admin@hmmotors.net` · `vista@hmmotors.net` — HM Motors (Starter, activa)
-- `admin@lotesancestral.com` — Lotes Ancestral (trial)
-- `admin@novastudio.co` · `monitor@novastudio.co` — Nova Studio (agencia webcam, 4 líneas con personalidad propia)
+Las contraseñas de las cuentas reales viven en `apps/api/.env` como
+`SEED_PASSWORD_*` (nunca en el código). La empresa demo para prospectos es
+**Delicias Andinas** (`demo@deliciasandinas.co`, domiciliario
+`andres@deliciasandinas.co`), regenerable con `db:seed:demo-empresa`.
+
+## Novedades (octubre 2026)
+
+- **Portada pública y registro con IA** (`/`, `/registro`): la IA entrevista al
+  dueño (una pregunta a la vez) y arma su BackOffice a la medida —herramientas,
+  embudo propio, catálogo, asistente, respuestas rápidas y seguimientos—, todo
+  editable antes de crear la cuenta. La empresa nace "en configuración" con
+  "Primeros pasos" (guía con IA y planes de su rubro) y el equipo recibe un correo
+  con lo que falta y su WhatsApp. IA genérica = Gemini con llaves rotativas.
+- **Cada rubro ve lo suyo**: módulos por empresa (pedidos, producción, domicilios,
+  menú QR, agenda, campañas, galería, gerencia…); los devs desbloquean módulos.
+- **Precios por rubro en COP, IVA incluido, "desde"**: Comidas, Webcam, Servicios
+  y Ventas; pago anual = 12 meses por 10; montaje gratis con permanencia.
+- **Cobro personalizable mes a mes**: precio pactado, cargos y descuentos por mes,
+  rango o recurrentes, facturas editables, proyección y extras.
+- **IA prepaga e híbrida**: llave propia, la de BackOffice o ambas con respaldo;
+  paquetes de conversaciones con vencimiento.
+- **Agente con herramientas y domicilios en vivo**: pedidos, cotización por
+  distancia o barrio, sucursales, domiciliarios con GPS, seguimiento público con la
+  marca, cobro en el chat (Wompi) y comprobantes leídos por IA, comandas, menú QR,
+  promociones, factura DIAN, pedidos externos por API.
+- **Crecimiento**: campañas por WhatsApp, embudos configurables, respuestas rápidas,
+  base de conocimiento (texto/URL/PDF), Instagram y Messenger, reseñas en Google.
+- **Extra "Redes sociales con IA"** (desde 150.000/mes): imágenes con IA pagadas
+  por BackOffice (20 créditos: imagen 1, video 4), plan del mes con IA y
+  publicación programada en la página de Facebook e Instagram de la empresa.
+
+Detalle técnico de cada módulo: ver `CLAUDE.md`.
 
 ## Qué incluye
 
@@ -154,9 +193,12 @@ control de tenant. En la bandeja hay botón de "enviar foto" con picker.
 - Suite de verificación: `python3 scratchpad/test_full.py` (42 checks E2E +
   seguridad; requiere API corriendo y seed fresco).
 
-## Pendiente (fase 2)
+## Pendiente
 
-- Webhooks reales de WhatsApp/Meta y motor de respuesta IA.
-- Callback OAuth de Meta (`/integrations/meta/callback`).
-- Pasarela internacional (Stripe) — el esquema ya lo contempla.
-- Llaves reales de Wompi y cuenta SMTP (se cargan en Dev Tools, sin tocar código).
+- Hosting 24/7 (Render → Vercel): Redis con TLS, archivos subidos en almacenamiento
+  externo, `pdftotext`, `PUBLIC_WEB_URL` con dominio real.
+- SMTP para que los avisos de registro lleguen al correo.
+- Llave DeepInfra de plataforma (imágenes reales) y app de Meta con app review
+  (publicar en redes, login con Facebook); Higgsfield para video premium.
+- Cuenta real de Alegra (factura DIAN, hoy validada en modo simulado).
+- Actualizar la landing pública con los precios por rubro.
