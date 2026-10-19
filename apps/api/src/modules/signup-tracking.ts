@@ -47,7 +47,7 @@ export class SignupTracker {
     patch: {
       step?: SignupStep; answers?: number; description?: string; businessName?: string; businessType?: string;
       rubro?: string; mode?: string; ai?: { calls: number; tokens: number }; companyId?: string;
-      referrer?: string; userAgent?: string;
+      referrer?: string; userAgent?: string; utmSource?: string; utmCampaign?: string; dailyChats?: number;
     } = {},
   ) {
     if (!isSessionToken(token)) return null;
@@ -65,6 +65,9 @@ export class SignupTracker {
         ...(clip(patch.businessType, 80) ? { businessType: clip(patch.businessType, 80) } : {}),
         ...(clip(patch.rubro, 20) ? { rubro: clip(patch.rubro, 20) } : {}),
         ...(patch.mode ? { mode: patch.mode } : {}),
+        ...(patch.dailyChats ? { dailyChats: Math.round(patch.dailyChats) } : {}),
+        ...(clip(patch.utmSource, 60) && !current?.utmSource ? { utmSource: clip(patch.utmSource, 60)!.toLowerCase() } : {}),
+        ...(clip(patch.utmCampaign, 120) && !current?.utmCampaign ? { utmCampaign: clip(patch.utmCampaign, 120) } : {}),
         ...(patch.companyId ? { companyId: patch.companyId } : {}),
         ...(patch.ai ? { aiCalls: (current?.aiCalls ?? 0) + patch.ai.calls, aiTokens: (current?.aiTokens ?? 0) + patch.ai.tokens } : {}),
       };
@@ -142,6 +145,9 @@ export class SignupTracker {
       errors,
       companyId: s.companyId ?? null,
       referrer: s.referrer ?? null,
+      utmSource: s.utmSource ?? null,
+      utmCampaign: s.utmCampaign ?? null,
+      dailyChats: s.dailyChats ?? null,
       followStatus: s.followStatus,
       meetingAt: s.meetingAt ?? null,
       followNotes: s.followNotes ?? null,

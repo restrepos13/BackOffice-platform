@@ -4,6 +4,7 @@ import { clsx } from 'clsx';
 import {
   Activity,
   BarChart3,
+  Calculator,
   CalendarDays,
   ClipboardCheck,
   Mail,
@@ -35,6 +36,8 @@ import {
   UserPlus,
   UserRound,
   Users,
+  Wallet,
+  FileSignature,
   Workflow,
   X,
   Zap,
@@ -42,6 +45,7 @@ import {
 import { Suspense, useEffect, useRef, useState } from 'react';
 import { Navigate, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { api } from '../lib/api';
+import { TermsGate } from '../components/Terms';
 import { useActiveCompanyId, useAuth } from '../lib/auth';
 import { useLiveEvents } from '../lib/events';
 import { ROLE_LABELS } from '../lib/format';
@@ -103,12 +107,15 @@ const PLATFORM_NAV: NavItem[] = [
   { to: '/platform', label: 'Resumen', icon: LayoutDashboard, end: true },
   { to: '/platform/companies', label: 'Empresas', icon: Building2 },
   { to: '/platform/registros', label: 'Registros', icon: UserPlus },
+  { to: '/platform/ventas', label: 'Ventas', icon: Wallet },
+  { to: '/platform/publicidad', label: 'Publicidad', icon: Megaphone },
   { to: '/platform/plans', label: 'Planes', icon: CircleDollarSign },
   { to: '/platform/personas', label: 'Personalidades', icon: Sparkles },
   { to: '/platform/models', label: 'Modelos IA', icon: Cpu },
   { to: '/platform/usage', label: 'Consumo IA', icon: Activity },
   { to: '/platform/users', label: 'Usuarios', icon: Users },
   { to: '/platform/emails', label: 'Correos', icon: Mail },
+  { to: '/platform/terminos', label: 'Términos', icon: FileSignature },
   { to: '/platform/audit', label: 'Auditoría', icon: ScrollText },
   { to: '/platform/dev', label: 'Dev Tools', icon: Terminal },
 ];
@@ -125,6 +132,7 @@ const COMPANY_NAV: NavItem[] = [
   { to: '/app/media', label: 'Galería', icon: Images, module: 'media' },
   { to: '/app/analytics', label: 'Analytics', icon: BarChart3, module: 'analytics' },
   { to: '/app/usage', label: 'Consumo IA', icon: Activity, tour: 'nav-usage' },
+  { to: '/app/costos-ia', label: 'Costos de IA', icon: Calculator },
   { to: '/app/gerencia', label: 'Gerencia', icon: ClipboardCheck, module: 'gerencia' },
   { to: '/app/billing', label: 'Facturación', icon: CreditCard },
   { to: '/app/team', label: 'Equipo', icon: UserRound },
@@ -480,6 +488,7 @@ export default function AppShell() {
           {/* El menú queda quieto mientras carga la pantalla siguiente */}
           <Suspense fallback={<Loading />}>
             <Outlet />
+            <TermsGate />
           </Suspense>
         </main>
       </div>

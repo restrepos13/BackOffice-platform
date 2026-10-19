@@ -11,6 +11,11 @@ const CompanyDetail = lazy(() => import('./pages/platform/CompanyDetail'));
 const Plans = lazy(() => import('./pages/platform/Plans'));
 const PlatformUsers = lazy(() => import('./pages/platform/Users'));
 const Registros = lazy(() => import('./pages/platform/Registros'));
+const AiCosts = lazy(() => import('./pages/company/AiCosts'));
+const PublicTerms = lazy(() => import('./components/Terms').then((m) => ({ default: m.PublicTerms })));
+const TermsAdmin = lazy(() => import('./pages/platform/TermsAdmin'));
+const Ventas = lazy(() => import('./pages/platform/Ventas'));
+const Publicidad = lazy(() => import('./pages/platform/Publicidad'));
 const Audit = lazy(() => import('./pages/platform/Audit'));
 const DevTools = lazy(() => import('./pages/platform/DevTools'));
 const Personas = lazy(() => import('./pages/platform/Personas'));
@@ -100,6 +105,7 @@ export default function App() {
       <Route path="/t/:token" element={<Tracking />} />
       <Route path="/m/:slug" element={<PublicMenu />} />
       <Route path="/registro" element={<Signup />} />
+      <Route path="/terminos" element={<PublicTerms />} />
       <Route path="/print/order/:id" element={<RequireAuth><PrintOrder /></RequireAuth>} />
       {/* App móvil del domiciliario (fuera del panel) */}
       <Route path="/courier" element={<RequireAuth><RequireCourier><CourierApp /></RequireCourier></RequireAuth>} />
@@ -123,6 +129,9 @@ export default function App() {
         <Route path="/platform/usage" element={<RequirePlatform><PlatformUsage /></RequirePlatform>} />
         <Route path="/platform/users" element={<RequirePlatform><PlatformUsers /></RequirePlatform>} />
         <Route path="/platform/registros" element={<RequirePlatform><Registros /></RequirePlatform>} />
+        <Route path="/platform/ventas" element={<RequirePlatform><Ventas /></RequirePlatform>} />
+        <Route path="/platform/publicidad" element={<RequirePlatform><Publicidad /></RequirePlatform>} />
+        <Route path="/platform/terminos" element={<RequirePlatform><TermsAdmin /></RequirePlatform>} />
         <Route path="/platform/audit" element={<RequirePlatform><Audit /></RequirePlatform>} />
         <Route path="/platform/dev" element={<RequirePlatform><DevTools /></RequirePlatform>} />
 
@@ -148,6 +157,7 @@ export default function App() {
         <Route path="/app/lines/:id" element={<LineDetail />} />
         <Route path="/app/media" element={<Media />} />
         <Route path="/app/usage" element={<Usage />} />
+        <Route path="/app/costos-ia" element={<AiCosts />} />
         <Route path="/app/agenda" element={<Agenda />} />
         <Route path="/app/gerencia" element={<Gerencia />} />
         <Route path="/app/analytics" element={<Analytics />} />

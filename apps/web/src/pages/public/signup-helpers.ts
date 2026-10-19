@@ -159,13 +159,25 @@ export function sessionToken(): string {
   }
 }
 
+/** Campaña de origen (?utm_source=facebook&utm_campaign=…), recordada mientras dura el registro. */
+function utm(): { utmSource?: string; utmCampaign?: string } {
+  try {
+    const qs = new URLSearchParams(window.location.search);
+    const fresh = { utmSource: qs.get('utm_source') ?? undefined, utmCampaign: qs.get('utm_campaign') ?? undefined };
+    if (fresh.utmSource || fresh.utmCampaign) sessionStorage.setItem('bo_utm', JSON.stringify(fresh));
+    return JSON.parse(sessionStorage.getItem('bo_utm') ?? '{}');
+  } catch {
+    return {};
+  }
+}
+
 /** Aviso de paso / contacto / error al equipo. Nunca bloquea ni muestra errores. */
 export function track(event: 'view' | 'contact' | 'error', extra: Record<string, unknown> = {}) {
   try {
     void fetch('/api/public/signup/track', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ session: sessionToken(), event, referrer: document.referrer || undefined, ...extra }),
+      body: JSON.stringify({ session: sessionToken(), event, referrer: document.referrer || undefined, ...utm(), ...extra }),
       keepalive: true,
     }).catch(() => undefined);
   } catch {

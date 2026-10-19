@@ -992,7 +992,11 @@ export default function Signup() {
                       if (e.target.checked) setErrors((x) => ({ ...x, accept: undefined }));
                     }}
                   />
-                  <span>Acepto los términos del servicio y autorizo el tratamiento de mis datos para crear y operar mi cuenta.</span>
+                  <span>
+                    Acepto los{' '}
+                    <Link to="/terminos" target="_blank" className="font-semibold underline" onClick={(e) => e.stopPropagation()}>términos y condiciones</Link>{' '}
+                    y autorizo el tratamiento de mis datos para crear y operar mi cuenta.
+                  </span>
                 </label>
                 {errors.accept && <p role="alert" className="mt-1 text-xs font-semibold text-bad">{errors.accept}</p>}
               </div>

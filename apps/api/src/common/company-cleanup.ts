@@ -21,4 +21,5 @@ export async function deleteCompanyLooseData(prisma: PrismaClient | any, company
   await prisma.aiCreditUse.deleteMany({ where });
   await prisma.aiCreditLot.deleteMany({ where });
   await prisma.inboundOrderKey.deleteMany({ where });
+  await prisma.planOrder.deleteMany({ where });
 }

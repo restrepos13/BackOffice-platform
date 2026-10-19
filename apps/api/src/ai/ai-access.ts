@@ -1,4 +1,6 @@
 import { decryptSecret, encryptSecret, isEncrypted } from '../common/crypto';
+import { REFERENCE_MODELS } from '../common/ai-cost';
+import { PLATFORM_OPENROUTER_KEY, openRouterKey } from './model-routing';
 
 /**
  * Acceso a la IA por empresa — un solo lugar decide con qué llave se llama y
@@ -165,12 +167,31 @@ async function chargedRecently(prisma: any, companyId: string, conversationId: s
 export async function consumeAiCredit(
   prisma: any,
   company: any,
-  opts: { conversationId?: string | null; purpose?: string; now?: Date } = {},
+  opts: { conversationId?: string | null; purpose?: string; now?: Date; weight?: number } = {},
 ): Promise<{ charged: boolean; source: 'INCLUDED' | 'PREPAID' | 'NONE'; alert: 'LOW' | 'EMPTY' | null }> {
   const now = opts.now ?? new Date();
   if (await chargedRecently(prisma, company.id, opts.conversationId, now)) {
     return { charged: false, source: 'NONE', alert: null };
   }
+  // Modelos premium gastan varias conversaciones del paquete por cada una
+  const weight = Math.max(1, Math.min(10, Math.round(opts.weight ?? 1)));
+  let first: { charged: boolean; source: 'INCLUDED' | 'PREPAID' | 'NONE'; alert: 'LOW' | 'EMPTY' | null } | null = null;
+  let alert: 'LOW' | 'EMPTY' | null = null;
+  for (let i = 0; i < weight; i++) {
+    const r = await consumeOneCredit(prisma, company, opts, now);
+    first ??= r;
+    alert = r.alert ?? alert;
+    if (!r.charged) break;
+  }
+  return { charged: !!first?.charged, source: first?.source ?? 'NONE', alert };
+}
+
+async function consumeOneCredit(
+  prisma: any,
+  company: any,
+  opts: { conversationId?: string | null; purpose?: string },
+  now: Date,
+): Promise<{ charged: boolean; source: 'INCLUDED' | 'PREPAID' | 'NONE'; alert: 'LOW' | 'EMPTY' | null }> {
   const credits = await computeAiCredits(prisma, company, now);
   const purpose = opts.purpose ?? (opts.conversationId ? 'CHAT' : 'CONSULTA');
   if (credits.includedLeft > 0) {
@@ -239,7 +260,8 @@ async function platformCandidate(
   company: any,
   conversationId?: string | null,
 ): Promise<AiKey | AiDenied> {
-  const key = await platformAiKey(prisma);
+  // Sin DeepInfra de plataforma pero con OpenRouter: sirve para los modelos premium
+  const key = (await platformAiKey(prisma)) ?? (openRouterKey() ? PLATFORM_OPENROUTER_KEY : null);
   if (!key) {
     return {
       ok: false,
@@ -376,7 +398,8 @@ export async function recordAiUsage(
     purpose?: string;
   },
 ): Promise<{ alert: 'LOW' | 'EMPTY' | null }> {
-  const catalogEntry = await prisma.aiModel.findUnique({ where: { modelId: entry.model } });
+  const catalogEntry = (await prisma.aiModel.findUnique({ where: { modelId: entry.model } }))
+    ?? REFERENCE_MODELS.find((m) => m.modelId === entry.model) ?? null;
   const costUsd = catalogEntry
     ? (entry.inputTokens * catalogEntry.inputCostPerMTok +
         entry.outputTokens * catalogEntry.outputCostPerMTok) / 1_000_000
@@ -397,8 +420,11 @@ export async function recordAiUsage(
   if (entry.billedTo !== 'PLATFORM') return { alert: null };
   const company = await prisma.company.findUnique({ where: { id: entry.companyId } });
   if (!company) return { alert: null };
+  const weight = catalogEntry?.creditsPerConversation
+    ?? REFERENCE_MODELS.find((m) => m.modelId === entry.model)?.creditsPerConversation
+    ?? 1;
   const result = await consumeAiCredit(prisma, company, {
-    conversationId: entry.conversationId, purpose: entry.purpose,
+    conversationId: entry.conversationId, purpose: entry.purpose, weight,
   });
   if (result.alert) {
     // Queda registrado (y el panel muestra el aviso con el saldo actual)

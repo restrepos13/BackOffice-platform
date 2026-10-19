@@ -209,6 +209,23 @@ const PACKAGES = [
   { name: 'Paquete 15.000', conversations: 15000, price: 1490000, sortOrder: 4 },
 ];
 
+/**
+ * Modelos premium por OpenRouter (solo con la IA de BackOffice). Gastan más
+ * conversaciones del paquete según su costo, para no vender a pérdida.
+ */
+const PREMIUM_MODELS = [
+  {
+    modelId: 'anthropic/claude-haiku-5.5', name: 'Claude Haiku 5.5', provider: 'OPENROUTER',
+    inputCostPerMTok: 0.1, outputCostPerMTok: 0.5, contextK: 1000, creditsPerConversation: 1,
+    notes: 'Anthropic, generación nueva: calidad premium a precio de modelo económico. Solo con IA de BackOffice.',
+  },
+  {
+    modelId: 'anthropic/claude-haiku-4.5', name: 'Claude Haiku 4.5', provider: 'OPENROUTER',
+    inputCostPerMTok: 1, outputCostPerMTok: 5, contextK: 200, creditsPerConversation: 3,
+    notes: 'Anthropic: muy natural siguiendo instrucciones. Caro: cada conversación gasta 3 del paquete. Solo con IA de BackOffice.',
+  },
+];
+
 /** Siembra/actualiza planes por rubro y paquetes (la usa también el seed de producción). */
 export async function seedPrecios(prisma: PrismaClient) {
   for (const [line, plans] of Object.entries(RUBROS)) {
@@ -230,6 +247,10 @@ export async function seedPrecios(prisma: PrismaClient) {
       await prisma.aiCreditPackage.create({ data: { ...pkg, currency: 'COP', validityMonths: 12 } });
     }
     console.log(`${pkg.name}: COP ${pkg.price.toLocaleString('es-CO')}`);
+  }
+  for (const m of PREMIUM_MODELS) {
+    await prisma.aiModel.upsert({ where: { modelId: m.modelId }, create: m, update: m });
+    console.log(`Modelo premium: ${m.name} (${m.creditsPerConversation} conversación(es) del paquete)`);
   }
   // Planes viejos en USD: no se ofrecen a clientes nuevos (quien los tiene, los conserva)
   const legacy = await prisma.plan.updateMany({

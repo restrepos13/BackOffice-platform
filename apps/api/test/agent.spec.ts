@@ -354,8 +354,18 @@ describe('IA: BYOK cifrada, IA de BackOffice y tope de gasto', () => {
 
   it('BYOK sin llave → NO_KEY; PLATFORM sin llave del servidor → NO_PLATFORM_KEY', async () => {
     const { prisma } = createMockPrisma();
+    // Sin DeepInfra ni OpenRouter de plataforma (otras suites pueden cargar el .env real)
+    const savedOr = process.env.OPENROUTER_API_KEY;
+    delete process.env.OPENROUTER_API_KEY;
     expect(await resolveAiAccess(prisma, { aiBillingMode: 'BYOK', deepinfraApiKey: null })).toMatchObject({ ok: false, code: 'NO_KEY' });
     expect(await resolveAiAccess(prisma, { aiBillingMode: 'PLATFORM' })).toMatchObject({ ok: false, code: 'NO_PLATFORM_KEY' });
+    process.env.OPENROUTER_API_KEY = 'sk-or-prueba';
+    // Solo con OpenRouter la IA de BackOffice sirve para los modelos premium
+    const credited = { aiBillingMode: 'PLATFORM', id: 'cx' };
+    const res: any = await resolveAiAccess(prisma, credited);
+    expect(res.code === 'NO_PLATFORM_KEY').toBe(false);
+    if (savedOr) process.env.OPENROUTER_API_KEY = savedOr;
+    else delete process.env.OPENROUTER_API_KEY;
   });
 
   it('PLATFORM: sin saldo prepago ni incluidas → NO_CREDITS; con paquete → disponible', async () => {

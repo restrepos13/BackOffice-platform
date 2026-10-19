@@ -24,6 +24,7 @@ import { AuthService } from '../auth/auth.service';
 import { AuthUser, NOT_DELETED, ROLES, isPlatformRole, parseJson } from '../common/constants';
 import { ChainEntry, GeminiPool, chainId, isAiUnavailable } from '../ai/gemini-pool';
 import { benchMany } from '../ai/setup-ai-bench';
+import { parseDailyChats } from '../common/ai-cost';
 import { SignupStep, SignupTracker } from './signup-tracking';
 import { guidedBlueprint, guidedTurn } from '../common/signup-guided';
 import { blueprintSystemPrompt, interviewSystemPrompt } from '../common/signup-prompts';
@@ -54,9 +55,19 @@ const SIGNUP_ACTOR: AuthUser = {
   id: 'registro-web', role: ROLES.DEV, companyId: null, name: 'Registro web', email: 'registro@backoffice.dev',
 } as AuthUser;
 const CHAT_DAILY_CAP = 40;
-const MAX_QUESTIONS = 7; // la entrevista nunca se alarga más de esto
+const MAX_QUESTIONS = 8; // la entrevista nunca se alarga más de esto
 /** Primera pregunta fija (sin gastar IA): el nombre del negocio y la ciudad. */
 const NAME_QUESTION = '¡Qué bien! ¿Cómo se llama tu negocio y en qué ciudad está?';
+/** Segunda pregunta fija: cuántos clientes escriben al día (base del cálculo de costos de IA). */
+const VOLUME_QUESTION = '¿Más o menos cuántos clientes te escriben al día?';
+const VOLUME_OPTIONS = ['1 a 10', '10 a 30', '30 a 100', 'Más de 100'];
+
+/** La respuesta a la pregunta de volumen, convertida a número. */
+export function dailyChatsFrom(msgs: Array<{ role: string; content: string }>): number | null {
+  const i = msgs.findIndex((m) => m.role === 'assistant' && m.content === VOLUME_QUESTION);
+  const answer = i >= 0 ? msgs.slice(i + 1).find((m) => m.role === 'user') : null;
+  return answer ? parseDailyChats(answer.content) : null;
+}
 /** Plano ya armado para la misma conversación (volver atrás o reintentar no gasta IA). */
 const PREVIEW_CACHE_MS = 60 * 60e3;
 const DEFAULT_NOTIFY = 'restrepos591@gmail.com';
@@ -122,7 +133,7 @@ export class SignupService {
    * Si ninguna IA responde (o responde algo que no se entiende), siguen las
    * preguntas fijas del plan B: la persona nunca se queda trabada.
    */
-  async interview(dto: { messages?: unknown; session?: unknown }, meta: { referrer?: string; userAgent?: string } = {}) {
+  async interview(dto: { messages?: unknown; session?: unknown }, meta: { referrer?: string; userAgent?: string; utmSource?: string; utmCampaign?: string } = {}) {
     const { msgs, answers } = this.cleanConversation(dto?.messages);
     if (!answers.length) throw fieldError('message', 'Cuéntanos primero qué hace tu negocio');
     if (answers[0].content.length < 10) {
@@ -134,6 +145,11 @@ export class SignupService {
     if (answers.length === 1) {
       return { done: false, question: NAME_QUESTION, options: [], understood: '', mode: 'ai' as const };
     }
+    if (answers.length === 2) {
+      return { done: false, question: VOLUME_QUESTION, options: VOLUME_OPTIONS, understood: '', mode: 'ai' as const };
+    }
+    const daily = dailyChatsFrom(msgs);
+    if (daily) await this.tracker.touch(dto?.session, { dailyChats: daily });
     try {
       // El tope de tokens no cuesta (se paga lo usado); el ahorro está en el historial compacto
       const { raw, tokens, calls } = await this.pool.chatJson(
@@ -157,7 +173,8 @@ export class SignupService {
     }
     // Plan B: si ya contó bastante, se arma con eso; si no, preguntas fijas
     await this.tracker.touch(dto?.session, { mode: 'guided' });
-    const turn = answers.length >= 5 ? { listo: true } : guidedTurn(answers[0].content, answers.length);
+    // Las preguntas fijas de volumen ya se hicieron: el plan B arranca una más atrás
+    const turn = answers.length >= 6 ? { listo: true } : guidedTurn(answers[0].content, answers.length - 1);
     return { ...normalizeInterviewTurn(turn, answers.length, MAX_QUESTIONS), mode: 'guided' as const };
   }
 
@@ -242,7 +259,7 @@ export class SignupService {
   }
 
   /** Eventos sueltos del navegador: vio un paso, escribió su contacto, vio un error. */
-  async track(dto: any, meta: { referrer?: string; userAgent?: string } = {}) {
+  async track(dto: any, meta: { referrer?: string; userAgent?: string; utmSource?: string; utmCampaign?: string } = {}) {
     const session = dto?.session;
     const step = ['STARTED', 'INTERVIEW', 'PREVIEW', 'ACCOUNT'].includes(dto?.step) ? (dto.step as SignupStep) : undefined;
     if (dto?.event === 'contact') await this.tracker.contact(session, dto?.data ?? {});
@@ -325,6 +342,7 @@ export class SignupService {
       data: {
         onboardingJson: JSON.stringify({
           source: 'SIGNUP', rubro, description, contactName: adminName, phone, createdAt: new Date().toISOString(),
+          ...(dailyChatsFrom(msgs) ? { dailyChats: dailyChatsFrom(msgs) } : {}),
           ...(bp ? { businessType: bp.businessType, needs: bp.needs, clientData: bp.clientData, assistantFlow: bp.assistantFlow, modules: bp.modules } : {}),
           ...(msgs.length ? { interview: msgs.slice(0, 18).map((m) => ({ role: m.role, content: m.content.slice(0, 600) })) } : {}),
         }),
@@ -665,6 +683,9 @@ function requestMeta(req: any) {
   return {
     referrer: String(req?.body?.referrer ?? req?.headers?.referer ?? '').slice(0, 200) || undefined,
     userAgent: String(req?.headers?.['user-agent'] ?? '').slice(0, 200) || undefined,
+    // Campaña (ej. Meta Ads con ?utm_source=facebook&utm_campaign=…)
+    utmSource: typeof req?.body?.utmSource === 'string' ? req.body.utmSource : undefined,
+    utmCampaign: typeof req?.body?.utmCampaign === 'string' ? req.body.utmCampaign : undefined,
   };
 }
 

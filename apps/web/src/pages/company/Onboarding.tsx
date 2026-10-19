@@ -5,9 +5,10 @@ import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { toast } from 'sonner';
 import { api } from '../../lib/api';
-import { fmtMoney } from '../../lib/format';
-import { Badge, Button, Loading, PageHeader, Select } from '../../components/ui';
+import { Button, Loading, PageHeader } from '../../components/ui';
 import { PickCompany, useCompanyScope, withScope } from './shared';
+import CheckoutSection from '../../components/CheckoutSection';
+import { AiCostSummary } from './AiCosts';
 
 /**
  * Primeros pasos: avance real de la configuración, una guía con IA que
@@ -105,21 +106,12 @@ function GuideChat({ q, name, chatLeft }: { q: string; name: string; chatLeft: n
 
 export default function Onboarding() {
   const { ready, q, canWrite } = useCompanyScope();
-  const queryClient = useQueryClient();
-  const [cycle, setCycle] = useState<'MONTHLY' | 'ANNUAL'>('MONTHLY');
   const { data: st, isLoading } = useQuery({
     queryKey: ['onboarding', q],
     queryFn: () => api.get<OnboardingStatus>(withScope('/onboarding', q)),
     enabled: ready,
   });
-  const choose = useMutation({
-    mutationFn: (planId: string) => api.post(withScope('/onboarding/request-plan', q), { planId, billingCycle: cycle }),
-    onSuccess: () => {
-      toast.success('¡Listo! Te escribimos por WhatsApp para activarlo.');
-      queryClient.invalidateQueries({ queryKey: ['onboarding'] });
-    },
-    onError: (e) => toast.error(e instanceof Error ? e.message : 'Error'),
-  });
+
   if (!ready) return <PickCompany />;
   if (isLoading || !st) return <Loading label="Cargando tus primeros pasos…" />;
   const { checklist } = st;
@@ -193,56 +185,9 @@ export default function Onboarding() {
             </section>
           ) : null}
 
-          <section id="planes">
-            <div className="mb-3 flex flex-wrap items-end justify-between gap-3">
-              <div>
-                <p className="kicker">Planes para {st.rubroLabel.toLowerCase()}</p>
-                <h2 className="display text-3xl">Elige tu plan</h2>
-              </div>
-              <Select value={cycle} onChange={(e) => setCycle(e.target.value as 'MONTHLY' | 'ANNUAL')} className="!w-auto" aria-label="Forma de pago">
-                <option value="MONTHLY">Pago mensual</option>
-                <option value="ANNUAL">Pago anual (2 meses gratis)</option>
-              </Select>
-            </div>
-            {st.requestedPlan && (
-              <p className="mb-3 border-2 border-ok bg-ok-soft px-3 py-2 text-sm">
-                Elegiste <b>{st.requestedPlan.name}</b> ({st.requestedPlan.billingCycle === 'ANNUAL' ? 'anual' : 'mensual'}, {fmtMoney(st.requestedPlan.amount)}). Te contactamos para activarlo.
-              </p>
-            )}
-            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-              {st.plans.map((plan) => {
-                const chosen = st.requestedPlan?.name === plan.name;
-                return (
-                  <article key={plan.id} className={clsx('flex flex-col border-2 border-ink bg-paper p-4', plan.highlight && 'shadow-[6px_6px_0_0_rgba(26,26,26,0.9)]')}>
-                    <div className="flex items-start justify-between gap-2">
-                      <h3 className="display text-2xl">{plan.name}</h3>
-                      {plan.highlight && <Badge tone="ink">Recomendado</Badge>}
-                    </div>
-                    <p className="mt-1 text-xs uppercase tracking-wider text-ink-3">desde</p>
-                    <p className="display text-3xl">
-                      {fmtMoney(cycle === 'ANNUAL' ? plan.annualPrice : plan.priceMonthly, plan.currency)}
-                      <span className="text-sm text-ink-3">{cycle === 'ANNUAL' ? '/año' : '/mes'}</span>
-                    </p>
-                    <p className="text-[11px] text-ink-3">IVA incluido{plan.minTermMonths ? ` · montaje gratis con permanencia de ${plan.minTermMonths} meses` : ''}</p>
-                    <ul className="mt-3 flex-1 space-y-1 border-t border-line pt-3 text-[13px]">
-                      {plan.features.slice(0, 6).map((f) => <li key={f}>— {f}</li>)}
-                    </ul>
-                    <Button
-                      className="mt-4 w-full"
-                      variant={chosen ? 'outline' : 'primary'}
-                      disabled={!canWrite || choose.isPending}
-                      onClick={() => choose.mutate(plan.id)}
-                    >
-                      {chosen ? 'Elegido' : 'Quiero este plan'}
-                    </Button>
-                  </article>
-                );
-              })}
-            </div>
-            <p className="mt-3 text-xs text-ink-3">
-              La IA de BackOffice va aparte en paquetes prepagos (desde 500 conversaciones por $99.000), o puedes usar tu propia cuenta.
-            </p>
-          </section>
+          <AiCostSummary q={q} />
+
+          <CheckoutSection q={q} canWrite={canWrite} />
         </div>
 
         <div className="lg:sticky lg:top-6 lg:self-start">

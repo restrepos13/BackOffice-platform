@@ -1,7 +1,10 @@
+import { isOpenRouterModel } from '../ai/model-routing';
+import { effectiveAiMode } from '../ai/ai-access';
 import {
   Body,
   Controller,
   Delete,
+  BadRequestException,
   ForbiddenException,
   Get,
   Injectable,
@@ -100,11 +103,22 @@ export class BotsService {
     return this.serialize(bot);
   }
 
+  /** Claude Haiku (OpenRouter) solo con la IA de BackOffice: la llave del cliente es de DeepInfra. */
+  private async assertModelAllowed(companyId: string, model: unknown, aiSource: unknown) {
+    if (!isOpenRouterModel(String(model ?? ''))) return;
+    const company = await this.prisma.company.findUnique({ where: { id: companyId } });
+    const mode = effectiveAiMode(company ?? {}, { aiSource: aiSource ?? 'INHERIT' });
+    if (mode === 'BYOK') {
+      throw new BadRequestException('Claude Haiku funciona con la IA de BackOffice (paquetes). Cambia cómo se paga la IA o elige otro modelo.');
+    }
+  }
+
   async create(user: AuthUser, dto: any) {
     const companyId = isPlatformRole(user.role)
       ? dto.companyId
       : user.companyId;
     if (!companyId) throw new ForbiddenException('Falta companyId');
+    await this.assertModelAllowed(companyId, dto.model, dto.aiSource);
     const bot = await this.prisma.bot.create({
       data: {
         companyId,
@@ -142,6 +156,9 @@ export class BotsService {
 
   async update(user: AuthUser, id: string, dto: any) {
     const existing = await this.assertAccess(user, id);
+    if (dto.model !== undefined || dto.aiSource !== undefined) {
+      await this.assertModelAllowed(existing.companyId, dto.model ?? existing.model, dto.aiSource ?? existing.aiSource);
+    }
     const bot = await this.prisma.bot.update({
       where: { id },
       data: {

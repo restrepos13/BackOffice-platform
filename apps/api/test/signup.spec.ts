@@ -231,26 +231,29 @@ describe('entrevista: la IA pregunta cómo funciona el negocio', () => {
   }
 
   const START = [{ role: 'user', content: 'Somos un centro de entrenamiento y certificación en trabajo seguro en alturas en Itagüí' }];
-  const NAMED = [...START, { role: 'assistant', content: '¿Cómo se llama tu negocio?' }, { role: 'user', content: 'Alturas Seguras, en Itagüí' }];
+  const NAMED_ONLY = [...START, { role: 'assistant', content: '¿Cómo se llama tu negocio?' }, { role: 'user', content: 'Alturas Seguras, en Itagüí' }];
+  const NAMED = [...NAMED_ONLY, { role: 'assistant', content: '¿Más o menos cuántos clientes te escriben al día?' }, { role: 'user', content: '10 a 30' }];
 
   it('la primera pregunta (nombre y ciudad) es fija y no gasta IA; después pregunta la IA con opciones', async () => {
     const { service, chat } = setupInterview(JSON.stringify({ listo: false, pregunta: '¿Tus clientes son personas o empresas?', opciones: ['Personas', 'Empresas', 'Ambas'], nota: 'Certificas trabajo en alturas' }));
     await expect(service.interview({ messages: [] })).rejects.toBeInstanceOf(BadRequestException);
     const first = await service.interview({ messages: START });
     expect(first).toMatchObject({ done: false, question: expect.stringContaining('Cómo se llama') });
+    const second = await service.interview({ messages: NAMED_ONLY });
+    expect(second).toMatchObject({ done: false, question: expect.stringContaining('cuántos clientes'), options: expect.arrayContaining(['10 a 30']) });
     expect(chat).not.toHaveBeenCalled();
     const turn = await service.interview({ messages: NAMED });
     expect(turn).toMatchObject({ done: false, question: '¿Tus clientes son personas o empresas?', options: ['Personas', 'Empresas', 'Ambas'], mode: 'ai' });
     // El prompt se adapta al negocio y no se trae roles inventados del navegador
     const sent = (chat.mock.calls[0] as any[])[0].messages;
     expect(sent[0].content).toContain('A LA MEDIDA');
-    expect(sent).toHaveLength(4);
+    expect(sent).toHaveLength(6);
     
   });
 
-  it('nunca se alarga más de 7 respuestas y respeta cuando la IA dice listo', async () => {
+  it('nunca se alarga más de 8 respuestas y respeta cuando la IA dice listo', async () => {
     const { service, chat } = setupInterview(JSON.stringify({ listo: true }));
-    const long = Array.from({ length: 7 }, (_, i) => [{ role: 'assistant', content: `p${i}` }, { role: 'user', content: `respuesta número ${i} con detalle` }]).flat();
+    const long = Array.from({ length: 8 }, (_, i) => [{ role: 'assistant', content: `p${i}` }, { role: 'user', content: `respuesta número ${i} con detalle` }]).flat();
     expect(await service.interview({ messages: long })).toMatchObject({ done: true });
     expect(chat).not.toHaveBeenCalled(); // tope: ni llama a la IA
     expect(await service.interview({ messages: NAMED })).toMatchObject({ done: true });
@@ -305,13 +308,13 @@ describe('plan B del plano y seguimiento del registro', () => {
     const service = new SignupService(prisma as any, audit as any, {} as any, {} as any, {} as any);
     (service as any).pool = fakePool(jest.fn(async () => ({ content: '{"listo":false,"pregunta":"¿A quién le vendes?","opciones":["A","B"]}', model: 'm', keyLabel: 'k', tokens: 120 })));
     const session = 'sesion-de-prueba-1234567890';
-    await service.track({ session, event: 'view', step: 'STARTED' });
-    await service.interview({ session, messages: MSGS });
+    await service.track({ session, event: 'view', step: 'STARTED', utmSource: 'Facebook', utmCampaign: 'lanzamiento-oct' }, { utmSource: 'Facebook', utmCampaign: 'lanzamiento-oct' } as any);
+    await service.interview({ session, messages: [...MSGS, { role: 'assistant', content: '¿Más o menos cuántos clientes te escriben al día?' }, { role: 'user', content: '30 a 100' }] });
     await service.track({ session, event: 'contact', data: { name: 'Rosa', email: 'rosa@panaderia.co', phone: '300 123 4567' } });
     await service.track({ session, event: 'error', step: 'ACCOUNT', message: 'Ese correo ya tiene una cuenta' });
     await service.track({ session, event: 'view', step: 'INTERVIEW' }); // volver atrás
     const row = db.signupSession[0];
-    expect(row).toMatchObject({ step: 'ACCOUNT', answers: 2, aiCalls: 1, aiTokens: 120, email: 'rosa@panaderia.co', contactName: 'Rosa' });
+    expect(row).toMatchObject({ step: 'ACCOUNT', answers: 3, aiCalls: 1, aiTokens: 120, email: 'rosa@panaderia.co', contactName: 'Rosa', dailyChats: 65, utmSource: 'facebook', utmCampaign: 'lanzamiento-oct' });
     expect(JSON.parse(row.errorsJson)[0].message).toContain('correo');
     // Tokens inválidos se ignoran sin romper nada
     expect(await service.track({ session: 'x', event: 'view' })).toEqual({ ok: true });
