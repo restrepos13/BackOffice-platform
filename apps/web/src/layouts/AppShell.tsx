@@ -32,13 +32,14 @@ import {
   Send,
   Settings,
   Terminal,
+  UserPlus,
   UserRound,
   Users,
   Workflow,
   X,
   Zap,
 } from 'lucide-react';
-import { Suspense, useEffect, useState } from 'react';
+import { Suspense, useEffect, useRef, useState } from 'react';
 import { Navigate, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { api } from '../lib/api';
 import { useActiveCompanyId, useAuth } from '../lib/auth';
@@ -94,11 +95,14 @@ interface NavItem {
   end?: boolean;
   /** ancla para el tour de bienvenida */
   tour?: string;
+  /** Número de pendientes (se pinta al lado) */
+  badge?: number;
 }
 
 const PLATFORM_NAV: NavItem[] = [
   { to: '/platform', label: 'Resumen', icon: LayoutDashboard, end: true },
   { to: '/platform/companies', label: 'Empresas', icon: Building2 },
+  { to: '/platform/registros', label: 'Registros', icon: UserPlus },
   { to: '/platform/plans', label: 'Planes', icon: CircleDollarSign },
   { to: '/platform/personas', label: 'Personalidades', icon: Sparkles },
   { to: '/platform/models', label: 'Modelos IA', icon: Cpu },
@@ -172,6 +176,11 @@ function NavSection({ title, items, tour }: { title: string; items: NavItem[]; t
           >
             <item.icon size={15} strokeWidth={2} />
             {item.label}
+            {!!item.badge && (
+              <span className="ml-auto min-w-5 bg-bad px-1.5 py-0.5 text-center text-[10px] font-bold leading-none text-white" aria-label={`${item.badge} pendientes`}>
+                {item.badge > 99 ? '99+' : item.badge}
+              </span>
+            )}
           </NavLink>
         ))}
       </nav>
@@ -194,6 +203,27 @@ export default function AppShell() {
 
   const isArea = user?.role === 'COMPANY_AREA';
   const isCourier = user?.role === 'COMPANY_COURIER';
+  // Registros por la web: pendientes de contactar y aviso cuando entra uno nuevo
+  const { data: signupSummary } = useQuery({
+    queryKey: ['registros-summary'],
+    queryFn: () => api.get<{ pendingFollow: number; latestDone: { id: string; name: string; at: string } | null }>('/onboarding/registros/summary'),
+    enabled: !!isPlatform,
+    refetchInterval: 60_000,
+  });
+  const lastSeenSignup = useRef<string | null>(null);
+  useEffect(() => {
+    const latest = signupSummary?.latestDone;
+    if (!latest) return;
+    if (lastSeenSignup.current && lastSeenSignup.current !== latest.id) {
+      toast.success(`Nueva empresa registrada: ${latest.name}`, {
+        description: 'Escríbele para mostrarle cómo funciona y agendar una reunión.',
+        action: { label: 'Ver', onClick: () => navigate('/platform/registros') },
+        duration: 15_000,
+      });
+    }
+    lastSeenSignup.current = latest.id;
+  }, [signupSummary?.latestDone, navigate]);
+  const platformNav = PLATFORM_NAV.map((item) => (item.to === '/platform/registros' ? { ...item, badge: signupSummary?.pendingFollow } : item));
   const { data: companies } = useQuery({
     queryKey: ['companies'],
     queryFn: () => api.get<Company[]>('/companies'),
@@ -330,7 +360,7 @@ export default function AppShell() {
             />
           ) : (
             <>
-          {isPlatform && <NavSection title="Plataforma" items={PLATFORM_NAV} tour="nav-platform" />}
+          {isPlatform && <NavSection title="Plataforma" items={platformNav} tour="nav-platform" />}
 
           {isPlatform && (
             <div className="mb-4 px-3" data-tour="company-picker">

@@ -45,6 +45,16 @@ export interface Blueprint {
 }
 
 const str = (v: unknown, max: number) => (typeof v === 'string' && v.trim() ? v.trim().slice(0, max) : '');
+
+/** Nombres que entiende el dueño para las claves internas que a veces cuela la IA. */
+const FRIENDLY_TOOL: Record<string, string> = {
+  orders: 'pedidos', production: 'producción', delivery: 'domicilios', menu: 'menú con QR', agenda: 'agenda',
+  campaigns: 'mensajes a clientes', media: 'galería', gerencia: 'resumen para el dueño', automations: 'conexiones',
+  analytics: 'números', marketing: 'contenido para redes',
+};
+export function plainWords(text: string): string {
+  return text.replace(/\b(orders|production|delivery|campaigns|media|gerencia|automations|analytics|marketing)\b/g, (k) => FRIENDLY_TOOL[k] ?? k);
+}
 const list = (v: unknown, max: number, len: number) =>
   (Array.isArray(v) ? v : []).map((x) => str(x, len)).filter(Boolean).slice(0, max);
 
@@ -100,7 +110,7 @@ export function normalizeBlueprint(raw: unknown, fallbackRubro: Rubro): Blueprin
     rubro,
     businessType: str(o.tipo_negocio, 80),
     needs: (Array.isArray(o.necesidades) ? o.necesidades : [])
-      .map((n: any) => ({ title: str(n?.titulo, 80), solution: str(n?.como_lo_resuelve ?? n?.solucion, 240) }))
+      .map((n: any) => ({ title: plainWords(str(n?.titulo, 80)), solution: plainWords(str(n?.como_lo_resuelve ?? n?.solucion, 240)) }))
       .filter((n: any) => n.title && n.solution)
       .slice(0, 8),
     modules,

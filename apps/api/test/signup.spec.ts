@@ -4,12 +4,26 @@
  */
 import { BadRequestException, ForbiddenException, ServiceUnavailableException } from '@nestjs/common';
 import { GeminiPool, fingerprint } from '../src/ai/gemini-pool';
+import { extractJson } from '../src/ai/types';
 import { RUBRO_CONFIG, guessRubro, modulesForRubro, onboardingChecklist } from '../src/common/rubros';
 import { SignupService, slugBase, whatsappDigits } from '../src/modules/signup.module';
 import { CompaniesService } from '../src/modules/companies.module';
 import { createMockPrisma } from './helpers/mock-prisma';
 
 const audit = { log: jest.fn(async () => undefined) };
+/** Pool falso: chatJson sobre un chat simulado (igual que el real: JSON útil o AI_UNAVAILABLE). */
+function fakePool(chat: jest.Mock) {
+  return {
+    chat,
+    chatJson: async (opts: any, accept: (raw: any) => boolean) => {
+      const r = await chat(opts);
+      const raw = extractJson(r.content);
+      if (raw && accept(raw)) return { raw, result: r, tokens: r.tokens ?? 0, calls: 1 };
+      throw new ServiceUnavailableException({ code: 'AI_UNAVAILABLE', message: 'x', tokens: r.tokens ?? 0, calls: 1 });
+    },
+  };
+}
+
 const ADMIN = { id: 'adm1', role: 'COMPANY_ADMIN', companyId: 'co1', name: 'Ana', email: 'ana@x.co' } as any;
 
 function reply(status: number, body: any) {
@@ -104,7 +118,7 @@ describe('registro por la web', () => {
     const auth = { login: jest.fn(async (email: string) => ({ token: 't', user: { email } })) };
     const companies = new CompaniesService(prisma as any, audit as any);
     const service = new SignupService(prisma as any, audit as any, emails as any, companies, auth as any);
-    (service as any).pool = { chat: jest.fn(async () => ({ content: aiContent, model: 'm', keyLabel: 'llave 1', tokens: 10 })) };
+    (service as any).pool = fakePool(jest.fn(async () => ({ content: aiContent, model: 'm', keyLabel: 'llave 1', tokens: 10 })));
     return { db, service, emails, auth };
   }
   const AI = JSON.stringify({
@@ -212,28 +226,117 @@ describe('entrevista: la IA pregunta cómo funciona el negocio', () => {
     const { prisma } = createMockPrisma();
     const service = new SignupService(prisma as any, audit as any, {} as any, {} as any, {} as any);
     const chat = jest.fn(async () => ({ content, model: 'm', keyLabel: 'llave 1', tokens: 5 }));
-    (service as any).pool = { chat };
+    (service as any).pool = fakePool(chat);
     return { service, chat };
   }
 
-  it('hace una pregunta con opciones; sin respuesta inicial pide contar el negocio', async () => {
+  const START = [{ role: 'user', content: 'Somos un centro de entrenamiento y certificación en trabajo seguro en alturas en Itagüí' }];
+  const NAMED = [...START, { role: 'assistant', content: '¿Cómo se llama tu negocio?' }, { role: 'user', content: 'Alturas Seguras, en Itagüí' }];
+
+  it('la primera pregunta (nombre y ciudad) es fija y no gasta IA; después pregunta la IA con opciones', async () => {
     const { service, chat } = setupInterview(JSON.stringify({ listo: false, pregunta: '¿Tus clientes son personas o empresas?', opciones: ['Personas', 'Empresas', 'Ambas'], nota: 'Certificas trabajo en alturas' }));
     await expect(service.interview({ messages: [] })).rejects.toBeInstanceOf(BadRequestException);
-    const turn = await service.interview({ messages: [{ role: 'user', content: 'Somos un centro de entrenamiento y certificación en trabajo seguro en alturas en Itagüí' }] });
-    expect(turn).toMatchObject({ done: false, question: '¿Tus clientes son personas o empresas?', options: ['Personas', 'Empresas', 'Ambas'] });
+    const first = await service.interview({ messages: START });
+    expect(first).toMatchObject({ done: false, question: expect.stringContaining('Cómo se llama') });
+    expect(chat).not.toHaveBeenCalled();
+    const turn = await service.interview({ messages: NAMED });
+    expect(turn).toMatchObject({ done: false, question: '¿Tus clientes son personas o empresas?', options: ['Personas', 'Empresas', 'Ambas'], mode: 'ai' });
     // El prompt se adapta al negocio y no se trae roles inventados del navegador
     const sent = (chat.mock.calls[0] as any[])[0].messages;
     expect(sent[0].content).toContain('A LA MEDIDA');
-    expect(sent).toHaveLength(2);
+    expect(sent).toHaveLength(4);
+    
   });
 
-  it('nunca se alarga más de 8 preguntas y respeta cuando la IA dice listo', async () => {
+  it('nunca se alarga más de 7 respuestas y respeta cuando la IA dice listo', async () => {
     const { service, chat } = setupInterview(JSON.stringify({ listo: true }));
-    const long = Array.from({ length: 8 }, (_, i) => [{ role: 'assistant', content: `p${i}` }, { role: 'user', content: `respuesta número ${i} con detalle` }]).flat();
+    const long = Array.from({ length: 7 }, (_, i) => [{ role: 'assistant', content: `p${i}` }, { role: 'user', content: `respuesta número ${i} con detalle` }]).flat();
     expect(await service.interview({ messages: long })).toMatchObject({ done: true });
     expect(chat).not.toHaveBeenCalled(); // tope: ni llama a la IA
-    expect(await service.interview({ messages: [{ role: 'user', content: 'Vendemos cursos de alturas' }] })).toMatchObject({ done: true });
+    expect(await service.interview({ messages: NAMED })).toMatchObject({ done: true });
     expect(normalizeInterviewTurn({ pregunta: '' }, 1, 8).done).toBe(true);
+  });
+
+  it('si ninguna IA responde (o responde basura) sigue con preguntas fijas: nadie se queda trabado', async () => {
+    const { service } = setupInterview('');
+    (service as any).pool = fakePool(jest.fn(async () => { throw new ServiceUnavailableException({ code: 'AI_UNAVAILABLE', message: 'ocupada' }); }));
+    const turn = await service.interview({ messages: NAMED });
+    expect(turn).toMatchObject({ done: false, mode: 'guided' });
+    expect(turn.question.length).toBeGreaterThan(5);
+    expect(turn.options.length).toBeGreaterThan(1);
+    (service as any).pool = fakePool(jest.fn(async () => ({ content: 'no sé', model: 'm', keyLabel: 'k', tokens: 1 })));
+    expect(await service.interview({ messages: NAMED })).toMatchObject({ done: false, mode: 'guided' });
+  });
+});
+
+describe('plan B del plano y seguimiento del registro', () => {
+  const MSGS = [
+    { role: 'user', content: 'Tengo una panadería, vendo pan y tortas por encargo a domicilio' },
+    { role: 'assistant', content: '¿Cómo se llama tu negocio?' },
+    { role: 'user', content: 'Panadería Doña Rosa en Envigado' },
+  ];
+
+  it('sin IA arma un plano básico con el nombre, el tipo de negocio y un asistente', async () => {
+    const { prisma } = createMockPrisma();
+    const service = new SignupService(prisma as any, audit as any, {} as any, {} as any, {} as any);
+    (service as any).pool = fakePool(jest.fn(async () => { throw new ServiceUnavailableException({ code: 'AI_UNAVAILABLE', message: 'x' }); }));
+    const r: any = await service.preview({ messages: MSGS });
+    expect(r.mode).toBe('guided');
+    expect(r.rubro).toBe('COMIDAS');
+    expect(r.company.name).toBe('Panadería Doña Rosa');
+    expect(r.company.city).toBe('Envigado');
+    expect(r.proposal.assistant.welcome).toContain('Doña Rosa');
+    expect(r.blueprint.modules).toEqual(expect.arrayContaining(['orders', 'menu']));
+  });
+
+  it('el mismo plano no se vuelve a pedir a la IA (volver atrás no gasta)', async () => {
+    const { prisma } = createMockPrisma();
+    const service = new SignupService(prisma as any, audit as any, {} as any, {} as any, {} as any);
+    const chat = jest.fn(async () => ({ content: JSON.stringify({ rubro: 'COMIDAS', empresa: { nombre: 'Doña Rosa' }, asistente: { nombre: 'Rosa', bienvenida: 'Hola' } }), model: 'm', keyLabel: 'k', tokens: 900 }));
+    (service as any).pool = fakePool(chat);
+    await service.preview({ messages: MSGS });
+    await service.preview({ messages: MSGS });
+    expect(chat).toHaveBeenCalledTimes(1);
+    
+  });
+
+  it('cada intento queda registrado: paso, respuestas, consumo de IA, contacto y errores; el paso nunca retrocede', async () => {
+    const { prisma, db } = createMockPrisma();
+    const service = new SignupService(prisma as any, audit as any, {} as any, {} as any, {} as any);
+    (service as any).pool = fakePool(jest.fn(async () => ({ content: '{"listo":false,"pregunta":"¿A quién le vendes?","opciones":["A","B"]}', model: 'm', keyLabel: 'k', tokens: 120 })));
+    const session = 'sesion-de-prueba-1234567890';
+    await service.track({ session, event: 'view', step: 'STARTED' });
+    await service.interview({ session, messages: MSGS });
+    await service.track({ session, event: 'contact', data: { name: 'Rosa', email: 'rosa@panaderia.co', phone: '300 123 4567' } });
+    await service.track({ session, event: 'error', step: 'ACCOUNT', message: 'Ese correo ya tiene una cuenta' });
+    await service.track({ session, event: 'view', step: 'INTERVIEW' }); // volver atrás
+    const row = db.signupSession[0];
+    expect(row).toMatchObject({ step: 'ACCOUNT', answers: 2, aiCalls: 1, aiTokens: 120, email: 'rosa@panaderia.co', contactName: 'Rosa' });
+    expect(JSON.parse(row.errorsJson)[0].message).toContain('correo');
+    // Tokens inválidos se ignoran sin romper nada
+    expect(await service.track({ session: 'x', event: 'view' })).toEqual({ ok: true });
+    expect(db.signupSession).toHaveLength(1);
+  });
+
+  it('el equipo ve el embudo, quién abandonó, y agenda la reunión', async () => {
+    const { prisma, db } = createMockPrisma();
+    const service = new SignupService(prisma as any, audit as any, {} as any, {} as any, {} as any);
+    const old = new Date(Date.now() - 2 * 3600e3);
+    db.signupSession.push(
+      { id: 's1', token: 't1', step: 'DONE', answers: 5, aiCalls: 3, aiTokens: 3000, followStatus: 'NEW', createdAt: new Date(), lastSeenAt: new Date(), companyId: 'c1', phone: '3001234567' },
+      { id: 's2', token: 't2', step: 'PREVIEW', answers: 4, aiCalls: 2, aiTokens: 2000, followStatus: 'NEW', createdAt: old, lastSeenAt: old, email: 'a@b.co' },
+      { id: 's3', token: 't3', step: 'STARTED', answers: 0, aiCalls: 0, aiTokens: 0, followStatus: 'NEW', createdAt: old, lastSeenAt: old },
+    );
+    const r = await service.tracker.list({});
+    expect(r.funnel.map((f: any) => f.count)).toEqual([3, 2, 2, 1, 1]);
+    expect(r.totals).toMatchObject({ done: 1, abandoned: 2, pendingFollow: 2, avgTokens: 2500 });
+    expect(r.sessions.find((x: any) => x.id === 's1').whatsapp).toBe('573001234567');
+    const v = await service.tracker.follow({ name: 'Santi' } as any, 's2', { meetingAt: '2026-10-21T15:00:00.000Z', followNotes: 'Llamar martes' });
+    expect(v).toMatchObject({ followStatus: 'MEETING', followBy: 'Santi', followNotes: 'Llamar martes' });
+    await expect(service.tracker.follow({ name: 'S' } as any, 's2', { followStatus: 'HACKEADO' })).rejects.toBeInstanceOf(BadRequestException);
+    // Solo se avisa del abandono si dejó cómo contactarlo
+    const pending = await service.tracker.pendingNotifications();
+    expect(pending.map((p: any) => p.id)).toEqual(['s2']);
   });
 });
 
@@ -275,7 +378,7 @@ describe('plano a la medida (centro de certificación en alturas)', () => {
     const emails = { systemSend: jest.fn(async () => ({ status: 'QUEUED' })) };
     const auth = { login: jest.fn(async () => ({ token: 't' })) };
     const service = new SignupService(prisma as any, audit as any, emails as any, new CompaniesService(prisma as any, audit as any), auth as any);
-    (service as any).pool = { chat: jest.fn(async () => ({ content: JSON.stringify({ ...RAW, empresa: { nombre: 'Alturas Seguras' }, productos: [{ nombre: 'Curso avanzado', precio: '380.000' }], asistente: { nombre: 'Camila', bienvenida: 'Hola, soy Camila', instrucciones: 'Atiendes inscripciones' } }), model: 'm', keyLabel: 'l', tokens: 1 })) };
+    (service as any).pool = fakePool(jest.fn(async () => ({ content: JSON.stringify({ ...RAW, empresa: { nombre: 'Alturas Seguras' }, productos: [{ nombre: 'Curso avanzado', precio: '380.000' }], asistente: { nombre: 'Camila', bienvenida: 'Hola, soy Camila', instrucciones: 'Atiendes inscripciones' } }), model: 'm', keyLabel: 'l', tokens: 1 })));
     const messages = [
       { role: 'user', content: 'Centro de certificación en trabajo en alturas en Itagüí, cursos para trabajadores' },
       { role: 'assistant', content: '¿Personas o empresas?' },

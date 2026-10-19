@@ -6,6 +6,7 @@ import {
   type ReactNode,
   type SelectHTMLAttributes,
   type TextareaHTMLAttributes,
+  forwardRef,
   useEffect,
 } from 'react';
 
@@ -183,11 +184,14 @@ export function Field({
   children,
   hint,
   required,
+  error,
 }: {
   label: string;
   children: ReactNode;
   hint?: string;
   required?: boolean;
+  /** Mensaje en rojo debajo del campo (reemplaza la pista mientras exista). */
+  error?: ReactNode;
 }) {
   return (
     <label className="block">
@@ -196,27 +200,32 @@ export function Field({
         {required && <span className="text-bad"> *</span>}
       </span>
       {children}
-      {hint && <span className="mt-1 block text-xs text-ink-3">{hint}</span>}
+      {error ? (
+        <span role="alert" className="mt-1 block text-xs font-semibold text-bad">{error}</span>
+      ) : (
+        hint && <span className="mt-1 block text-xs text-ink-3">{hint}</span>
+      )}
     </label>
   );
 }
 
 const inputBase =
-  'w-full border-2 border-ink bg-bone px-3 py-2 text-sm text-ink placeholder:text-ink-3 focus:bg-paper';
+  'w-full border-2 border-ink bg-bone px-3 py-2 text-sm text-ink placeholder:text-ink-3 focus:bg-paper aria-[invalid=true]:border-bad aria-[invalid=true]:bg-bad-soft';
 
-export function Input(props: InputHTMLAttributes<HTMLInputElement>) {
-  return <input {...props} className={clsx(inputBase, props.className)} />;
-}
+export const Input = forwardRef<HTMLInputElement, InputHTMLAttributes<HTMLInputElement>>(function Input(props, ref) {
+  return <input ref={ref} {...props} className={clsx(inputBase, props.className)} />;
+});
 
-export function Textarea(props: TextareaHTMLAttributes<HTMLTextAreaElement>) {
+export const Textarea = forwardRef<HTMLTextAreaElement, TextareaHTMLAttributes<HTMLTextAreaElement>>(function Textarea(props, ref) {
   return (
     <textarea
+      ref={ref}
       rows={4}
       {...props}
       className={clsx(inputBase, 'resize-y', props.className)}
     />
   );
-}
+});
 
 export function Select(props: SelectHTMLAttributes<HTMLSelectElement>) {
   return (

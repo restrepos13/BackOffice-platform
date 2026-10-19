@@ -10,6 +10,7 @@ const CompanyNew = lazy(() => import('./pages/platform/CompanyNew'));
 const CompanyDetail = lazy(() => import('./pages/platform/CompanyDetail'));
 const Plans = lazy(() => import('./pages/platform/Plans'));
 const PlatformUsers = lazy(() => import('./pages/platform/Users'));
+const Registros = lazy(() => import('./pages/platform/Registros'));
 const Audit = lazy(() => import('./pages/platform/Audit'));
 const DevTools = lazy(() => import('./pages/platform/DevTools'));
 const Personas = lazy(() => import('./pages/platform/Personas'));
@@ -121,6 +122,7 @@ export default function App() {
         <Route path="/platform/models" element={<RequirePlatform><AiModels /></RequirePlatform>} />
         <Route path="/platform/usage" element={<RequirePlatform><PlatformUsage /></RequirePlatform>} />
         <Route path="/platform/users" element={<RequirePlatform><PlatformUsers /></RequirePlatform>} />
+        <Route path="/platform/registros" element={<RequirePlatform><Registros /></RequirePlatform>} />
         <Route path="/platform/audit" element={<RequirePlatform><Audit /></RequirePlatform>} />
         <Route path="/platform/dev" element={<RequirePlatform><DevTools /></RequirePlatform>} />
 

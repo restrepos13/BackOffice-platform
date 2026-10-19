@@ -1231,6 +1231,45 @@ model AiKeyUsage {
   @@unique([provider, fingerprint, day])
 }
 
+/// Cada intento de registro por la web, termine o no: en qué paso va, dónde se
+/// quedó, qué consumió de IA y el seguimiento comercial del equipo (contacto,
+/// reunión, demo). El navegador guarda solo el token de su sesión.
+model SignupSession {
+  id            String    @id @default(cuid()) @map("_id")
+  token         String    @unique
+  /// STARTED → INTERVIEW → PREVIEW → ACCOUNT → DONE
+  step          String    @default("STARTED")
+  answers       Int       @default(0)
+  description   String?
+  businessName  String?
+  businessType  String?
+  rubro         String?
+  contactName   String?
+  email         String?
+  phone         String?
+  /// ai | guided (sin IA disponible)
+  mode          String?
+  aiCalls       Int       @default(0)
+  aiTokens      Int       @default(0)
+  /// Últimos errores que vio la persona [{at, step, message}]
+  errorsJson    String?
+  companyId     String?
+  referrer      String?
+  userAgent     String?
+  /// Seguimiento del equipo: NEW | CONTACTED | MEETING | DEMO_DONE | WON | LOST
+  followStatus  String    @default("NEW")
+  meetingAt     DateTime?
+  followNotes   String?
+  followBy      String?
+  notifiedAt    DateTime?
+  lastSeenAt    DateTime  @default(now())
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([lastSeenAt])
+  @@index([followStatus])
+}
+
 /// Consumo mensual del extra "Redes sociales con IA" (lo paga BackOffice):
 /// créditos usados (imagen = 1, video = 4) y costo real estimado del proveedor.
 model SocialUsage {
