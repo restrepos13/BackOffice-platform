@@ -27,6 +27,7 @@ import { VISION_MODEL, analyzeImage, messageForModel, receiptMatches } from '../
 export { validateDelivery };
 import { join, resolve } from 'path';
 import { PrismaService } from '../prisma/prisma.service';
+import { reportIncident } from '../common/incidents';
 import { CurrentUser, Roles } from '../auth/decorators';
 import {
   AuthUser,
@@ -292,6 +293,7 @@ export class EngineService {
       } catch (err: any) {
         // Proveedor caído (o ambas llaves rechazadas): la conversación NUNCA se pierde
         this.logger.error(`agente sin proveedor [co=${company.id} conv=${conversationId}]: ${err.message}`);
+        await reportIncident(this.prisma, { companyId: company.id, kind: 'AI_DOWN', detail: `Modo agente: ${err.message}` });
         run = {
           reply: ['Dame un momento, ya reviso con el equipo y te confirmo.'],
           state: 'escalado', escalate: true, toolTrace: [],
@@ -414,6 +416,7 @@ export class EngineService {
       await this.auditFallback(session, company.id, conversationId);
     } catch (err: any) {
       this.logger.error(`proveedor de IA caído [co=${company.id} conv=${conversationId}]: ${err.message}`);
+      await reportIncident(this.prisma, { companyId: company.id, kind: 'AI_DOWN', detail: err.message });
       output = { ok: false, reason: `Proveedor de IA no disponible: ${err.message}` };
     }
     if (!output.ok) {

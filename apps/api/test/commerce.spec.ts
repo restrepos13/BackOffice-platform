@@ -91,51 +91,195 @@ describe('recomendación de plan (código)', () => {
   });
 });
 
-describe('compra del plan: pedido → pago confirmado → activación', () => {
+describe('compra del plan: modalidad, complementos, pago confirmado y activación', () => {
   function setup() {
     const { prisma, db } = createMockPrisma();
-    db.company.push({ id: 'c1', name: 'Doña Rosa', status: 'ONBOARDING', aiBillingMode: 'PLATFORM', contactPhone: '3001234567', onboardingJson: JSON.stringify({ rubro: 'COMIDAS', dailyChats: 25, modules: ['orders', 'menu'], contactName: 'Rosa', phone: '3001234567' }), modulesJson: '[]' });
+    db.company.push({ id: 'c1', name: 'Doña Rosa', status: 'ONBOARDING', aiBillingMode: 'BYOK', contactPhone: '3001234567', onboardingJson: JSON.stringify({ rubro: 'COMIDAS', dailyChats: 25, modules: ['orders', 'menu'], contactName: 'Rosa', phone: '3001234567' }), modulesJson: '[]' });
     db.plan.push(
-      { id: 'p1', code: 'negocios-1', name: 'Emprende', priceMonthly: 149000, maxUsers: 2, maxLines: 1, maxCouriers: 0, sortOrder: 1, line: 'COMIDAS', active: true, featuresJson: '[]', minTermMonths: 0 },
-      { id: 'p2', code: 'negocios-2', name: 'Crece', priceMonthly: 349000, maxUsers: 5, maxLines: 2, maxCouriers: 3, sortOrder: 2, line: 'COMIDAS', active: true, featuresJson: '[]', minTermMonths: 12 },
+      { id: 'p1', code: 'wpp-basico', name: 'Básico', tier: 'BASICO', priceMonthly: 149000, priceManaged: 279000, includedMetaUsd: 10, maxUsers: 2, maxLines: 1, maxCouriers: 0, sortOrder: 1, line: 'WPP', active: true, featuresJson: '[]', minTermMonths: 6 },
+      { id: 'p2', code: 'wpp-intermedio', name: 'Intermedio', tier: 'INTERMEDIO', priceMonthly: 349000, priceManaged: 529000, includedMetaUsd: 10, maxUsers: 5, maxLines: 2, maxCouriers: 5, sortOrder: 2, line: 'WPP', active: true, featuresJson: '[]', minTermMonths: 6 },
+      { id: 'old', code: 'negocios-1', name: 'Viejo', priceMonthly: 99000, line: 'COMIDAS', active: false, featuresJson: '[]' },
     );
-    PACKAGES.forEach((p) => db.aiCreditPackage.push({ ...p, active: true, currency: 'COP' }));
+    db.aiModel.push({ modelId: 'meta-llama/Llama-3.3-70B-Instruct', name: 'Llama 3.3 70B', provider: 'DEEPINFRA', inputCostPerMTok: 0.23, outputCostPerMTok: 0.4, recommended: true, active: true });
     db.user.push({ id: 'u1', companyId: 'c1', active: true, role: 'COMPANY_ADMIN' });
     return { db, service: new CheckoutService(prisma as any, audit as any, emails as any) };
   }
 
-  it('la empresa ve la recomendación sin datos bancarios y Wompi como "próximamente"', async () => {
+  it('ofrece los 3 planes WPP con sus dos precios, sin datos bancarios, con avisos claros y Wompi "próximamente"', async () => {
     const { service } = setup();
     const v: any = await service.checkout(ADMIN);
-    expect(v.recommendation.plan.planId).toBe('p1');
-    expect(v.recommendation.aiPackage.name).toBe('Paquete 2.000'); // 25 al día ≈ 750 al mes
+    expect(v.plans.map((p: any) => [p.name, p.priceSelf, p.priceManaged])).toEqual([['Básico', 149000, 279000], ['Intermedio', 349000, 529000]]);
+    expect(v.recommendation.serviceMode).toBe('MANAGED'); // sin llave propia → Todo incluido
+    expect(v.recommendation.aiEstimate.monthly).toBeGreaterThan(0);
+    expect(v.notices.humanOversight).toContain('100 %');
+    expect(v.notices.numbers).toContain('hasta 5');
+    expect(v.landingGift).toBe(true);
+    expect(v.addons.find((a: any) => a.key === 'voiceCalls').status).toBe('SOON');
     expect(v.paymentOptions.find((o: any) => o.id === 'WOMPI')).toMatchObject({ comingSoon: true, available: false });
-    expect(JSON.stringify(v)).not.toMatch(/\d{9,}/); // ningún número de cuenta
+    expect(JSON.stringify(v)).not.toMatch(/\d{9,}/);
   });
 
-  it('comprar crea un pedido (reemplaza el anterior), avisa al equipo y al activar deja todo listo', async () => {
+  it('pedido Todo incluido + complementos; al activar: modalidad, IA de BackOffice, complementos y landing de regalo', async () => {
     const { db, service } = setup();
-    await service.createOrder(ADMIN, { planId: 'p1', billingCycle: 'MONTHLY' });
-    const { order } = await service.createOrder(ADMIN, { planId: 'p2', billingCycle: 'ANNUAL', aiPackageId: 'k2' });
-    expect(order).toMatchObject({ planName: 'Crece', planAmount: 3490000, aiPackageAmount: 299000, total: 3789000, status: 'REQUESTED' });
+    await service.createOrder(ADMIN, { planId: 'p1', billingCycle: 'MONTHLY', serviceMode: 'SELF' });
+    const { order } = await service.createOrder(ADMIN, {
+      planId: 'p2', billingCycle: 'MONTHLY', serviceMode: 'MANAGED',
+      addons: [{ key: 'reactivation' }, { key: 'extraChannels', qty: 2 }, { key: 'voiceCalls' }, { key: 'hackeo' } as any],
+    });
+    expect(order).toMatchObject({ planName: 'Intermedio', serviceMode: 'MANAGED', planAmount: 529000, total: 529000 + 89000 + 59000 * 2 });
+    expect(order.addons.map((a: any) => a.key)).toEqual(['reactivation', 'extraChannels']); // "próximamente" y basura fuera
     expect(db.planOrder.filter((o: any) => o.status === 'CANCELLED')).toHaveLength(1);
-    expect(emails.systemSend).toHaveBeenCalled();
     await expect(service.createOrder({ ...ADMIN, role: 'COMPANY_VIEWER' }, { planId: 'p1' })).rejects.toBeTruthy();
 
     await service.saveMethods(DEV, { accounts: [{ bank: 'Bancolombia', type: 'Ahorros', number: '123-456789-01', holder: 'Santiago R.', document: '1020304050', owner: 'Santiago' }] });
     const msg = await service.paymentMessage(order.id, 'TRANSFER');
     expect(msg.text).toContain('123-456789-01');
-    expect(msg.text).toContain('$3.789.000');
+    expect(msg.text).toContain('Todo incluido');
+    expect(msg.text).toContain('US$10');
     await expect(service.saveMethods(DEV, { accounts: [{ bank: 'X', number: '12' }] })).rejects.toBeInstanceOf(BadRequestException);
-    await expect(service.saveMethods(DEV, { qr: { enabled: true } })).rejects.toThrow(/QR/);
 
-    const done = await service.activate(DEV, order.id);
-    expect(done.status).toBe('ACTIVE');
-    expect(db.company[0]).toMatchObject({ planId: 'p2', status: 'ACTIVE', billingCycle: 'ANNUAL' });
-    expect(db.aiCreditLot[0]).toMatchObject({ companyId: 'c1', total: 2000, source: 'PURCHASE' });
-    // Activar dos veces no duplica el saldo
     await service.activate(DEV, order.id);
-    expect(db.aiCreditLot).toHaveLength(1);
+    const c = db.company[0];
+    expect(c).toMatchObject({ planId: 'p2', status: 'ACTIVE', serviceMode: 'MANAGED', aiBillingMode: 'PLATFORM' });
+    const addons = JSON.parse(c.addonsJson);
+    expect(addons.reactivation.enabled).toBe(true);
+    expect(addons.extraChannels.qty).toBe(2);
+    expect(JSON.parse(c.landingJson).status).toBe('PENDING');
+  });
+});
+
+describe('cobro mensual por modalidad (mes vencido)', () => {
+  const { buildInvoiceLines } = require('../src/common/billing-engine');
+  const base = { period: '2026-11', currency: 'COP', planName: 'Intermedio', planPrice: 529000, adjustments: [], whatsappCost: 18 * 4000, storageCost: 0 };
+
+  it('Todo incluido: plan + IA consumida + solo el excedente de Meta sobre US$10', () => {
+    const r = buildInvoiceLines({ ...base, serviceMode: 'MANAGED', aiCost: 30000, metaIncluded: 40000, metaUsedUsd: 18, metaIncludedUsd: 10, addons: [{ concept: 'Complemento · Cobranza', amount: 89000 }] });
+    expect(r.lines.map((l: any) => [l.kind, l.amount])).toEqual([['PLAN', 529000], ['ADDON', 89000], ['AI', 30000], ['WHATSAPP', 32000]]);
+    expect(r.lines.find((l: any) => l.kind === 'AI').concept).not.toMatch(/%|margen/);
+    expect(r.total).toBe(529000 + 89000 + 30000 + 32000);
+  });
+
+  it('Todo incluido bajo los US$10: no hay línea de Meta; Tu IA: ni IA ni Meta en la factura', () => {
+    const managed = buildInvoiceLines({ ...base, whatsappCost: 20000, serviceMode: 'MANAGED', aiCost: 0, metaIncluded: 40000 });
+    expect(managed.lines.map((l: any) => l.kind)).toEqual(['PLAN']);
+    const self = buildInvoiceLines({ ...base, planPrice: 349000, serviceMode: 'SELF', aiCost: 99999 });
+    expect(self.lines.map((l: any) => l.kind)).toEqual(['PLAN']);
+    expect(self.total).toBe(349000);
+  });
+
+  it('la IA de Todo incluido se cobra al costo real + 5 % (sin desglose) y sin descontar créditos', async () => {
+    const { computeCompanyInvoice } = require('../src/common/billing-engine');
+    const { prisma, db } = createMockPrisma();
+    db.platformSetting.push({ id: 'r', key: 'USD_COP_RATE', value: '4000' });
+    const company = { id: 'c9', serviceMode: 'MANAGED', plan: { name: 'Básico', line: 'WPP', priceMonthly: 149000, priceManaged: 279000, includedMetaUsd: 10, currency: 'COP' }, addonsJson: null };
+    db.aiUsageEvent.push({ companyId: 'c9', billedTo: 'PLATFORM', costUsd: 10, createdAt: new Date(2026, 10, 5) }, { companyId: 'c9', billedTo: 'BYOK', costUsd: 50, createdAt: new Date(2026, 10, 5) });
+    const inv = await computeCompanyInvoice(prisma, company, '2026-11');
+    expect(inv.lines.find((l: any) => l.kind === 'PLAN').amount).toBe(279000);
+    expect(inv.lines.find((l: any) => l.kind === 'AI').amount).toBe(42000); // 10 USD × 1.05 × 4000
+    const { recordAiUsage } = require('../src/ai/ai-access');
+    db.company.push({ id: 'c9', serviceMode: 'MANAGED' });
+    db.aiCreditLot.push({ id: 'l', companyId: 'c9', total: 5, remaining: 5, expiresAt: new Date(Date.now() + 86400e3), createdAt: new Date() });
+    await recordAiUsage(prisma, { companyId: 'c9', model: 'x', inputTokens: 10, outputTokens: 10, billedTo: 'PLATFORM', conversationId: 'k' });
+    expect(db.aiCreditLot[0].remaining).toBe(5);
+  });
+});
+
+describe('complementos: se piden, los activa el equipo y se apagan hasta un día antes del pago', () => {
+  const { activeDuring, addonLinesFor, cancelDeadline } = require('../src/common/addons');
+  const { ADDONS } = require('../src/common/offer');
+
+  it('se cobra cada mes en que estuvo activo al menos un día', () => {
+    expect(activeDuring({ enabled: true, since: '2026-10-10T00:00:00' }, '2026-10')).toBe(true);
+    expect(activeDuring({ enabled: true, since: '2026-11-02T00:00:00' }, '2026-10')).toBe(false);
+    // Apagado el 31 de octubre (un día antes del pago): noviembre ya no se cobra
+    const off = { enabled: false, since: '2026-09-01T00:00:00', until: new Date(2026, 9, 31, 22).toISOString() };
+    expect(activeDuring(off, '2026-10')).toBe(true);
+    expect(activeDuring(off, '2026-11')).toBe(false);
+    // Apagado el 1 de noviembre (el día de pago): noviembre sí se cobra
+    expect(activeDuring({ enabled: false, until: new Date(2026, 10, 1, 9).toISOString() }, '2026-11')).toBe(true);
+    const lines = addonLinesFor({ addonsJson: JSON.stringify({ extraChannels: { enabled: true, qty: 3 }, social: { enabled: true, price: 150000, credits: 20 } }) }, ADDONS, '2026-10');
+    expect(lines.map((l: any) => l.amount)).toEqual([59000 * 3, 150000]);
+    const d = cancelDeadline(new Date(2026, 9, 15));
+    expect(d.getDate()).toBe(31);
+  });
+
+  it('el cliente pide (no puede activar lo "próximamente"), el equipo activa, el cliente apaga', async () => {
+    const { CommerceService } = require('../src/modules/commerce.module');
+    const { prisma, db } = createMockPrisma();
+    db.company.push({ id: 'c1', name: 'Doña Rosa', addonsJson: null, modulesJson: '[]' });
+    const svc = new CommerceService(prisma as any, audit as any, emails as any);
+    await expect(svc.request(ADMIN, 'voiceCalls', {})).rejects.toThrow(/próximamente/);
+    await svc.request(ADMIN, 'collections', {});
+    expect((await svc.requests())[0]).toMatchObject({ key: 'collections', companyName: 'Doña Rosa' });
+    await svc.setAddon(DEV, 'c1', 'collections', { enabled: true });
+    let view = await svc.addons(ADMIN);
+    expect(view.addons.find((a: any) => a.key === 'collections')).toMatchObject({ active: true, monthly: 89000 });
+    await svc.cancel(ADMIN, 'collections', {});
+    view = await svc.addons(ADMIN);
+    expect(view.addons.find((a: any) => a.key === 'collections')).toMatchObject({ active: false });
+    expect(JSON.parse(db.company[0].addonsJson).collections.until).toBeTruthy();
+    await svc.setAddon(DEV, 'c1', 'social', { enabled: true });
+    expect(JSON.parse(db.company[0].modulesJson)).toContain('marketing');
+  });
+});
+
+describe('referidos y landing de regalo', () => {
+  it('quien trae una empresa que paga 2 meses recibe 20 % x 2 meses (una sola vez)', async () => {
+    const { CommerceService, linkReferral } = require('../src/modules/commerce.module');
+    const { prisma, db } = createMockPrisma();
+    db.company.push({ id: 'a', name: 'Invita' }, { id: 'b', name: 'Nueva' });
+    const svc = new CommerceService(prisma as any, audit as any, emails as any);
+    const { code } = await svc.referrals({ ...ADMIN, companyId: 'a' });
+    expect(code).toMatch(/^[A-Z0-9]{6}$/);
+    expect(await linkReferral(prisma, 'a', code)).toBe(false); // no se refiere a sí misma
+    expect(await linkReferral(prisma, 'b', code.toLowerCase())).toBe(true);
+    db.invoice.push({ id: 'i1', companyId: 'b', status: 'PAID' });
+    await svc.rewardReferrals();
+    expect(db.billingAdjustment).toHaveLength(0); // aún 1 mes
+    db.invoice.push({ id: 'i2', companyId: 'b', status: 'PAID' });
+    await svc.rewardReferrals();
+    await svc.rewardReferrals();
+    expect(db.billingAdjustment).toHaveLength(1);
+    expect(db.billingAdjustment[0]).toMatchObject({ companyId: 'a', kind: 'DISCOUNT', percent: 20 });
+    const ref = await svc.referrals({ ...ADMIN, companyId: 'a' });
+    expect(ref.referred[0]).toMatchObject({ name: 'Nueva', status: 'REWARDED', paidMonths: 2 });
+  });
+
+  it('la landing se marca entregada solo con un enlace https', async () => {
+    const { CommerceService } = require('../src/modules/commerce.module');
+    const { prisma, db } = createMockPrisma();
+    db.company.push({ id: 'c1', name: 'Doña Rosa', landingJson: JSON.stringify({ status: 'PENDING' }) });
+    const svc = new CommerceService(prisma as any, audit as any, emails as any);
+    await expect(svc.setLanding(DEV, 'c1', { status: 'DELIVERED' })).rejects.toThrow(/enlace/);
+    await expect(svc.setLanding(DEV, 'c1', { status: 'DELIVERED', url: 'javascript:alert(1)' })).rejects.toThrow(/https/);
+    await svc.setLanding(DEV, 'c1', { status: 'DELIVERED', url: 'https://donarosa.vercel.app' });
+    expect(await svc.landing(ADMIN)).toMatchObject({ status: 'DELIVERED', url: 'https://donarosa.vercel.app' });
+  });
+});
+
+describe('vigilante 24/7', () => {
+  it('agrupa repeticiones, avisa al equipo una vez, recuerda a la hora y cierra tras 30 min de silencio', async () => {
+    const { reportIncident } = require('../src/common/incidents');
+    const { IncidentsService } = require('../src/modules/incidents.module');
+    const { prisma, db } = createMockPrisma();
+    db.company.push({ id: 'c1', name: 'Doña Rosa' });
+    const mails = { systemSend: jest.fn(async () => ({})) };
+    await reportIncident(prisma, { companyId: 'c1', kind: 'AI_DOWN', detail: 'DeepInfra 503' });
+    await reportIncident(prisma, { companyId: 'c1', kind: 'AI_DOWN', detail: 'DeepInfra 503' });
+    await reportIncident(prisma, { companyId: 'c1', kind: 'WA_SEND_FAILED', detail: 'Twilio 400' });
+    expect(db.incident).toHaveLength(2);
+    expect(db.incident[0].count).toBe(2);
+    const svc = new IncidentsService(prisma as any, mails as any);
+    await svc.watch();
+    expect(mails.systemSend).toHaveBeenCalledTimes(2);
+    await svc.watch();
+    expect(mails.systemSend).toHaveBeenCalledTimes(2); // no repite antes de 1 hora
+    db.incident[0].lastAt = new Date(Date.now() - 31 * 60e3);
+    await svc.watch();
+    expect(db.incident[0].resolvedAt).toBeTruthy();
+    const list = await svc.list();
+    expect(list.open).toHaveLength(1);
+    expect(list.recent[0].companyName).toBe('Doña Rosa');
   });
 });
 

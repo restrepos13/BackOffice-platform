@@ -171,6 +171,17 @@ function utm(): { utmSource?: string; utmCampaign?: string } {
   }
 }
 
+/** Código de quien lo invitó (?ref=ABC123), recordado durante el registro. */
+export function referralCode(): string | undefined {
+  try {
+    const fresh = new URLSearchParams(window.location.search).get('ref');
+    if (fresh && /^[A-Za-z0-9]{6}$/.test(fresh)) sessionStorage.setItem('bo_ref', fresh.toUpperCase());
+    return sessionStorage.getItem('bo_ref') ?? undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 /** Aviso de paso / contacto / error al equipo. Nunca bloquea ni muestra errores. */
 export function track(event: 'view' | 'contact' | 'error', extra: Record<string, unknown> = {}) {
   try {

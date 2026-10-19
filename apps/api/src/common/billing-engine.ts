@@ -8,11 +8,15 @@
  *  - Ciclo anual: en el mes de inicio se cobran 10 mensualidades (2 gratis) y
  *    los 11 meses siguientes el plan sale cubierto; ajustes y consumo siguen mes a mes.
  *  - Precios en COP con IVA incluido (19 %): la factura informa cuánto lleva.
- * La IA de BackOffice NO va aquí: se vende en paquetes prepagos (ai-credits).
+ * Modalidades (offer.ts):
+ *  - "Tu IA" (SELF): solo plan + complementos; la IA y Meta los paga el cliente directo.
+ *  - "Todo incluido" (MANAGED, mes vencido): plan (precio Todo incluido) +
+ *    complementos + IA consumida (costo real + margen, en una sola línea) +
+ *    excedente de Meta sobre lo incluido (US$10).
  * Funciones puras (testeables) + el armado con Prisma.
  */
 
-export type InvoiceLineKind = 'PLAN' | 'ADDON' | 'CHARGE' | 'DISCOUNT' | 'WHATSAPP' | 'STORAGE' | 'SETUP';
+export type InvoiceLineKind = 'PLAN' | 'ADDON' | 'CHARGE' | 'DISCOUNT' | 'WHATSAPP' | 'STORAGE' | 'SETUP' | 'AI';
 
 export interface InvoiceLine {
   kind: InvoiceLineKind;
@@ -33,12 +37,13 @@ export interface AdjustmentLike {
   active?: boolean;
 }
 
-import { addonInvoiceLines } from './social-addon';
+import { addonCatalog, addonLinesFor } from './addons';
+import { AI_RESALE_MARKUP, DEFAULT_INCLUDED_META_USD, type ServiceMode, planPriceFor, serviceModeOf } from './offer';
 
 export const PERIOD_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
 
 /** Rubros comerciales (cada uno con sus planes "desde"). */
-export const PLAN_LINES = ['COMIDAS', 'WEBCAM', 'SERVICIOS', 'VENTAS', 'PRO'] as const;
+export const PLAN_LINES = ['WPP', 'COMIDAS', 'WEBCAM', 'SERVICIOS', 'VENTAS', 'PRO'] as const;
 export const ANNUAL_MONTHS_CHARGED = 10; // pago anual: 12 meses por el precio de 10
 export const IVA_RATE = 0.19;
 
@@ -102,6 +107,15 @@ export function buildInvoiceLines(input: {
   annualStartPeriod?: string | null;
   /** Extras con sobrecosto mensual (no entran en el pago anual) */
   addons?: Array<{ concept: string; amount: number }>;
+  /** Modalidad: en "Tu IA" la IA y Meta van por cuenta del cliente */
+  serviceMode?: ServiceMode;
+  /** "Todo incluido": IA consumida en el mes, ya con margen y en la moneda de la factura */
+  aiCost?: number;
+  /** "Todo incluido": valor de los mensajes de Meta incluidos en la mensualidad (moneda de la factura) */
+  metaIncluded?: number;
+  /** Para el texto de la línea de Meta */
+  metaUsedUsd?: number;
+  metaIncludedUsd?: number;
 }): { lines: InvoiceLine[]; planAmount: number; consumptionAmount: number; total: number; iva: number } {
   const { currency, period } = input;
   const applicable = input.adjustments.filter((a) => adjustmentApplies(a, period));
@@ -159,8 +173,19 @@ export function buildInvoiceLines(input: {
     });
   }
 
-  // 3) Consumo al costo
-  if ((input.whatsappCost ?? 0) > 0) {
+  // 3) Consumo
+  if (input.serviceMode === 'MANAGED') {
+    if ((input.aiCost ?? 0) > 0) {
+      lines.push({ kind: 'AI', concept: 'Inteligencia artificial (consumo del mes)', amount: roundFor(currency, input.aiCost!) });
+    }
+    const excess = Math.max(0, (input.whatsappCost ?? 0) - (input.metaIncluded ?? 0));
+    if (excess > 0) {
+      const used = input.metaUsedUsd != null ? `US$${input.metaUsedUsd.toFixed(2)} usados` : 'consumo';
+      const incl = input.metaIncludedUsd != null ? `US$${input.metaIncludedUsd} incluidos` : 'lo incluido';
+      lines.push({ kind: 'WHATSAPP', concept: `Mensajes de WhatsApp cobrados por Meta: excedente (${used}, ${incl})`, amount: roundFor(currency, excess) });
+    }
+  } else if (input.serviceMode === undefined && (input.whatsappCost ?? 0) > 0) {
+    // Planes anteriores sin modalidad: WhatsApp al costo (compatibilidad)
     lines.push({ kind: 'WHATSAPP', concept: 'Mensajes de WhatsApp (Meta, al costo)', amount: roundFor(currency, input.whatsappCost!) });
   }
   if ((input.storageCost ?? 0) > 0) {
@@ -178,7 +203,7 @@ export function summarize(lines: InvoiceLine[], currency: string) {
   );
   const consumptionAmount = roundFor(
     currency,
-    lines.filter((l) => l.kind === 'WHATSAPP' || l.kind === 'STORAGE').reduce((s, l) => s + l.amount, 0),
+    lines.filter((l) => l.kind === 'WHATSAPP' || l.kind === 'STORAGE' || l.kind === 'AI').reduce((s, l) => s + l.amount, 0),
   );
   const total = Math.max(0, roundFor(currency, planAmount + consumptionAmount));
   return { lines, planAmount, consumptionAmount, total, iva: includedIva(total, currency) };
@@ -187,7 +212,7 @@ export function summarize(lines: InvoiceLine[], currency: string) {
 /** Valida líneas editadas a mano en una factura pendiente. */
 export function sanitizeLines(raw: unknown, currency: string): InvoiceLine[] {
   if (!Array.isArray(raw)) return [];
-  const kinds: InvoiceLineKind[] = ['PLAN', 'ADDON', 'CHARGE', 'DISCOUNT', 'WHATSAPP', 'STORAGE', 'SETUP'];
+  const kinds: InvoiceLineKind[] = ['PLAN', 'ADDON', 'CHARGE', 'DISCOUNT', 'WHATSAPP', 'STORAGE', 'SETUP', 'AI'];
   return raw
     .filter((l: any) => l && kinds.includes(l.kind) && typeof l.concept === 'string' && Number.isFinite(Number(l.amount)))
     .slice(0, 40)
@@ -236,24 +261,38 @@ export async function computeCompanyInvoice(prisma: any, company: any, period: s
   const from = new Date(y, m - 1, 1);
   const to = new Date(y, m, 1);
   const currency = invoiceCurrency(company);
-  const [adjustments, usage, rateRow] = await Promise.all([
+  // Planes nuevos (línea WPP) cobran por modalidad; los anteriores siguen como antes
+  const mode: ServiceMode | undefined = company.plan?.line === 'WPP' || company.serviceMode === 'MANAGED' ? serviceModeOf(company) : undefined;
+  const [adjustments, usage, rateRow, catalog, aiEvents] = await Promise.all([
     prisma.billingAdjustment.findMany({ where: { companyId: company.id, active: true }, orderBy: { createdAt: 'asc' } }),
     prisma.usageRecord.findMany({ where: { companyId: company.id, date: { gte: from, lt: to } } }),
     prisma.platformSetting.findUnique({ where: { key: 'USD_COP_RATE' } }),
+    addonCatalog(prisma),
+    mode === 'MANAGED'
+      ? prisma.aiUsageEvent.findMany({ where: { companyId: company.id, billedTo: 'PLATFORM', createdAt: { gte: from, lt: to } }, select: { costUsd: true } })
+      : Promise.resolve([]),
   ]);
   const rate = Number(rateRow?.value || 4000);
   const toCurrency = (usd: number) => (currency === 'COP' ? usd * rate : usd);
+  const metaUsedUsd = usage.reduce((s: number, u: any) => s + (u.waCostUsd ?? 0), 0);
+  const metaIncludedUsd = company.plan?.includedMetaUsd ?? DEFAULT_INCLUDED_META_USD;
+  const aiUsd = aiEvents.reduce((s: number, e: any) => s + (e.costUsd ?? 0), 0) * (1 + AI_RESALE_MARKUP);
   return buildInvoiceLines({
     period,
     currency,
-    planName: company.plan?.name ?? null,
-    planPrice: company.plan?.priceMonthly ?? 0,
+    planName: company.plan?.name ? `${company.plan.name}${mode ? ` · ${mode === 'MANAGED' ? 'Todo incluido' : 'Tu IA'}` : ''}` : null,
+    planPrice: mode ? planPriceFor(company.plan, mode) : company.plan?.priceMonthly ?? 0,
     customPrice: company.customPriceMonthly,
     adjustments,
-    whatsappCost: toCurrency(usage.reduce((s: number, u: any) => s + (u.waCostUsd ?? 0), 0)),
+    whatsappCost: toCurrency(metaUsedUsd),
     storageCost: toCurrency(usage.reduce((s: number, u: any) => s + (u.storageCostUsd ?? 0), 0)),
     billingCycle: company.billingCycle,
     annualStartPeriod: company.annualStartPeriod,
-    addons: addonInvoiceLines(company),
+    addons: addonLinesFor(company, catalog, period),
+    serviceMode: mode,
+    aiCost: toCurrency(aiUsd),
+    metaIncluded: toCurrency(metaIncludedUsd),
+    metaUsedUsd,
+    metaIncludedUsd,
   });
 }

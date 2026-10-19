@@ -33,7 +33,7 @@ export interface AiCostEstimate {
     withPackage: { name: string; conversations: number; price: number; perConversation: number; monthsItLasts: number | null; monthlyCost: number } | null;
     report: { perQuery: { usd: number; cop: number }; perMonth: { usd: number; cop: number } };
   }>;
-  company: { name: string; aiBillingMode: string };
+  company: { name: string; aiBillingMode: string; serviceMode: 'SELF' | 'MANAGED' };
   bot: { name: string; model: string } | null;
   dailyChatsSource: 'manual' | 'registro' | 'estimado';
 }
@@ -86,7 +86,7 @@ export default function AiCosts() {
   if (!ready) return <PickCompany />;
   if (isLoading || !data) return <Loading label="Calculando con tus datos…" />;
 
-  const packages = data.company.aiBillingMode !== 'BYOK';
+  const managed = data.company.serviceMode === 'MANAGED';
   const current = data.models.find((m) => m.current);
   const cheapest = data.models[0];
   const words = Math.round((data.tokens.fixedPerMessage * data.assumptions.charsPerToken) / 6);
@@ -141,7 +141,7 @@ export default function AiCosts() {
         <div className="border-2 border-ink bg-paper p-4">
           <p className="kicker">Al mes, con tu volumen</p>
           <p className="display mt-1 text-3xl">{fmtMoney((current ?? cheapest).perMonth.cop)}</p>
-          <p className="text-xs text-ink-3">{usd((current ?? cheapest).perMonth.usd)} si pagas con tu propia cuenta</p>
+          <p className="text-xs text-ink-3">{usd((current ?? cheapest).perMonth.usd)}{managed ? ' · se suma a tu factura a fin de mes' : ' · lo pagas directo a tu proveedor'}</p>
         </div>
         <div className="border-2 border-ink bg-paper p-4">
           <p className="kicker">Preguntas a tus reportes</p>
@@ -157,8 +157,7 @@ export default function AiCosts() {
               <tr className="border-b-2 border-ink text-left text-[11px] uppercase tracking-[0.08em] text-ink-3">
                 <th className="py-2">Modelo</th>
                 <th className="py-2 text-right">Por conversación</th>
-                <th className="py-2 text-right">Al mes (tu cuenta)</th>
-                <th className="py-2 text-right">{packages ? 'Con paquete de BackOffice' : 'Con paquetes (si cambias)'}</th>
+                <th className="py-2 text-right">Al mes</th>
                 <th className="py-2 text-right">Pregunta al reporte</th>
               </tr>
             </thead>
@@ -185,19 +184,6 @@ export default function AiCosts() {
                     {fmtMoney(m.perMonth.cop)}
                     <span className="block text-[11px] text-ink-3">{usd(m.perMonth.usd)}</span>
                   </td>
-                  <td className="py-3 text-right">
-                    {m.withPackage ? (
-                      <>
-                        <span className="tabular-nums">{fmtMoney(m.withPackage.monthlyCost)}/mes</span>
-                        <span className="block text-[11px] text-ink-3">
-                          {m.withPackage.name}{m.withPackage.monthsItLasts ? ` · te dura ~${m.withPackage.monthsItLasts} ${m.withPackage.monthsItLasts === 1 ? 'mes' : 'meses'}` : ''}
-                        </span>
-                        {m.creditsPerConversation > 1 && (
-                          <span className="block text-[11px] font-semibold text-warn">Cada conversación gasta {m.creditsPerConversation} del paquete</span>
-                        )}
-                      </>
-                    ) : '—'}
-                  </td>
                   <td className="py-3 text-right tabular-nums">
                     {cop(m.report.perQuery.cop)}
                     <span className="block text-[11px] text-ink-3">{usd(m.report.perQuery.usd)}</span>
@@ -212,18 +198,18 @@ export default function AiCosts() {
       <div className="grid gap-6 lg:grid-cols-2">
         <Card kicker="Dos formas de pagar la IA" title="¿Cuál te conviene?">
           <div className="space-y-4 text-sm">
-            <div className={clsx('border-2 p-3', packages ? 'border-ink bg-ok-soft' : 'border-line')}>
-              <p className="font-semibold">Paquetes de BackOffice {packages && <Badge tone="ok">La que usas</Badge>}</p>
+            <div className={clsx('border-2 p-3', managed ? 'border-ink bg-ok-soft' : 'border-line')}>
+              <p className="font-semibold">Todo incluido {managed && <Badge tone="ok">La que usas</Badge>}</p>
               <p className="mt-1 text-ink-2">
-                Compras conversaciones por adelantado (desde 500). Nosotros pagamos la IA y tú sabes exactamente cuánto gastas, sin sorpresas en dólares.
-                Los modelos premium (Claude Haiku 4.5) gastan más de una conversación del paquete porque cuestan más.
+                Nosotros gestionamos la IA y los mensajes. A fin de mes pagas tu mensualidad más la IA que usaste, en pesos y en la misma factura.
+                Tu mensualidad ya trae US$10 de mensajes de Meta; si usas más, el excedente sale en la factura. Incluye mantenimiento 24/7.
               </p>
             </div>
-            <div className={clsx('border-2 p-3', !packages ? 'border-ink bg-ok-soft' : 'border-line')}>
-              <p className="font-semibold">Tu propia cuenta {!packages && <Badge tone="ok">La que usas</Badge>}</p>
+            <div className={clsx('border-2 p-3', !managed ? 'border-ink bg-ok-soft' : 'border-line')}>
+              <p className="font-semibold">Tu IA {!managed && <Badge tone="ok">La que usas</Badge>}</p>
               <p className="mt-1 text-ink-2">
-                Conectas tu cuenta del proveedor de IA y le pagas directo, en dólares, lo que consumas. Es lo más barato cuando tienes mucho
-                volumen, pero el cobro llega a tu tarjeta en dólares. Los modelos premium de Anthropic solo están con paquetes.
+                Pagas la IA directo al proveedor (DeepInfra u OpenRouter) con tu tarjeta, en dólares, y los mensajes de WhatsApp directo a Meta vía Twilio.
+                La mensualidad es más baja. Los modelos premium de Anthropic solo están en Todo incluido.
               </p>
             </div>
           </div>

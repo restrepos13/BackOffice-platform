@@ -26,6 +26,7 @@ import { isLatLng } from '../common/geo';
 import { applyConsent, queueBotText } from '../common/customer-notify';
 import { MetaLineConfig, metaLineConfig, sendMetaText } from '../common/meta';
 import { PrismaService } from '../prisma/prisma.service';
+import { reportIncident } from '../common/incidents';
 import { Public } from '../auth/decorators';
 import { SkipThrottle } from '@nestjs/throttler';
 import { parseJson } from '../common/constants';
@@ -209,9 +210,10 @@ export class TwilioService implements OnModuleInit, OnApplicationShutdown {
       async (job) => this.processInbound(job.data),
       { connection },
     );
-    inboundWorker.on('failed', (job, err) =>
-      this.logger.error(`wa-inbound job ${job?.id}: ${err.message}`),
-    );
+    inboundWorker.on('failed', (job, err) => {
+      this.logger.error(`wa-inbound job ${job?.id}: ${err.message}`);
+      void reportIncident(this.prisma, { companyId: (job?.data as any)?.companyId ?? null, kind: 'INBOUND_FAILED', detail: err.message });
+    });
     this.workers.push(
       inboundWorker,
       new Worker(
@@ -618,6 +620,7 @@ export class TwilioService implements OnModuleInit, OnApplicationShutdown {
       detail: `${retryable ? 'Reintentos agotados' : 'Rechazado'}: ${reason}`,
     });
     this.logger.error(`Envío fallido (${messageId}): ${reason}`);
+    await reportIncident(this.prisma, { companyId: (message.conversation as any).companyId, kind: 'WA_SEND_FAILED', detail: reason });
     this.events?.emit((message.conversation as any).companyId, {
       type: 'conversation.updated',
       conversationId: message.conversationId,

@@ -12,6 +12,8 @@ const Plans = lazy(() => import('./pages/platform/Plans'));
 const PlatformUsers = lazy(() => import('./pages/platform/Users'));
 const Registros = lazy(() => import('./pages/platform/Registros'));
 const AiCosts = lazy(() => import('./pages/company/AiCosts'));
+const MyPlan = lazy(() => import('./pages/company/MyPlan'));
+const Incidents = lazy(() => import('./pages/platform/Incidents'));
 const PublicTerms = lazy(() => import('./components/Terms').then((m) => ({ default: m.PublicTerms })));
 const TermsAdmin = lazy(() => import('./pages/platform/TermsAdmin'));
 const Ventas = lazy(() => import('./pages/platform/Ventas'));
@@ -132,6 +134,7 @@ export default function App() {
         <Route path="/platform/ventas" element={<RequirePlatform><Ventas /></RequirePlatform>} />
         <Route path="/platform/publicidad" element={<RequirePlatform><Publicidad /></RequirePlatform>} />
         <Route path="/platform/terminos" element={<RequirePlatform><TermsAdmin /></RequirePlatform>} />
+        <Route path="/platform/incidentes" element={<RequirePlatform><Incidents /></RequirePlatform>} />
         <Route path="/platform/audit" element={<RequirePlatform><Audit /></RequirePlatform>} />
         <Route path="/platform/dev" element={<RequirePlatform><DevTools /></RequirePlatform>} />
 
@@ -158,6 +161,7 @@ export default function App() {
         <Route path="/app/media" element={<Media />} />
         <Route path="/app/usage" element={<Usage />} />
         <Route path="/app/costos-ia" element={<AiCosts />} />
+        <Route path="/app/mi-plan" element={<MyPlan />} />
         <Route path="/app/agenda" element={<Agenda />} />
         <Route path="/app/gerencia" element={<Gerencia />} />
         <Route path="/app/analytics" element={<Analytics />} />

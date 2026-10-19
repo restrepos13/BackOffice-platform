@@ -26,6 +26,7 @@ import { ChainEntry, GeminiPool, chainId, isAiUnavailable } from '../ai/gemini-p
 import { benchMany } from '../ai/setup-ai-bench';
 import { parseDailyChats } from '../common/ai-cost';
 import { SignupStep, SignupTracker } from './signup-tracking';
+import { linkReferral } from './commerce.module';
 import { guidedBlueprint, guidedTurn } from '../common/signup-guided';
 import { blueprintSystemPrompt, interviewSystemPrompt } from '../common/signup-prompts';
 import { RUBRO_CONFIG, Rubro, guessRubro, isRubro, onboardingChecklist } from '../common/rubros';
@@ -353,6 +354,7 @@ export class SignupService {
       detail: `${name} · ${bp?.businessType || cfg.label} · ${email}`,
     });
 
+    if (dto?.referralCode) await linkReferral(this.prisma, companyId, dto.referralCode).catch(() => false);
     const session = await this.tracker.touch(dto?.session, { step: 'DONE', companyId, rubro, businessName: name, businessType: bp?.businessType });
     // Aviso al equipo (si el correo falla, el registro igual queda hecho)
     try {

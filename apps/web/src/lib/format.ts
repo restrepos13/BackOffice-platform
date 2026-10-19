@@ -289,6 +289,7 @@ export const AI_MODE_LABELS: Record<string, string> = {
 /* ─── Planes por rubro ─── */
 
 export const PLAN_LINE_LABELS: Record<string, string> = {
+  WPP: 'Automatización WhatsApp',
   COMIDAS: 'Comidas',
   WEBCAM: 'Webcam y creadores',
   SERVICIOS: 'Servicios con citas',
@@ -297,6 +298,7 @@ export const PLAN_LINE_LABELS: Record<string, string> = {
 };
 
 export const PLAN_LINE_HINTS: Record<string, string> = {
+  WPP: 'La oferta vigente para todos los negocios: Básico, Intermedio y Max',
   COMIDAS: 'Restaurantes, almuerzos, domicilios y catering',
   WEBCAM: 'Estudios webcam, agencias y creadores',
   SERVICIOS: 'Consultorios, clínicas, salones y talleres',
@@ -304,7 +306,7 @@ export const PLAN_LINE_HINTS: Record<string, string> = {
   PRO: 'Ya no se ofrecen a clientes nuevos',
 };
 
-export const PLAN_LINE_ORDER = ['COMIDAS', 'WEBCAM', 'SERVICIOS', 'VENTAS', 'PRO'];
+export const PLAN_LINE_ORDER = ['WPP', 'COMIDAS', 'WEBCAM', 'SERVICIOS', 'VENTAS', 'PRO'];
 
 /** Rubro sugerido según la plantilla de empresa. */
 export function lineForTemplate(templateId?: string | null): string | null {

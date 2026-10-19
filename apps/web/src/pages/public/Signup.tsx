@@ -13,7 +13,7 @@ import type { AuthUser, BusinessBlueprint, InterviewTurn, SetupProposal } from '
 import { Button, Field, Input, Select, Textarea } from '../../components/ui';
 import {
   ACCOUNT_FIELDS, type AccountForm, type FieldErrors, type Msg, type Preview, clearDraft, emailSuggestion, formatPhone,
-  loadDraft, passwordStrength, saveDraft, sessionToken, speechSupported, startDictation, track, validateAll, validateField,
+  loadDraft, passwordStrength, referralCode, saveDraft, sessionToken, speechSupported, startDictation, track, validateAll, validateField,
 } from './signup-helpers';
 
 /**
@@ -198,6 +198,7 @@ export default function Signup() {
   useEffect(() => {
     document.title = 'Crea tu empresa · BackOffice';
     track('view', { step: 'STARTED' });
+    referralCode(); // guarda el ?ref= antes de que la URL cambie
     return () => stopDictation.current?.();
   }, []);
   useEffect(() => {
@@ -400,6 +401,7 @@ export default function Signup() {
           company: { name: form.companyName, city: form.city },
           admin: { name: form.name, email: form.email.trim(), phone: form.phone, password: form.password },
           acceptTerms: form.accept,
+          referralCode: referralCode(),
         },
         { tries: 2, onRetry: () => setWaking(true) },
       );

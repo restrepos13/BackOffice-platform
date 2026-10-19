@@ -102,9 +102,13 @@ export interface Plan {
   setupFeeValue?: number;
   sortOrder?: number;
   _count?: { companies: number };
+  /** Línea WPP: precio «Todo incluido» y US$ de Meta incluidos */
+  priceManaged?: number;
+  includedMetaUsd?: number;
+  tier?: string | null;
 }
 
-export type PlanLine = 'COMIDAS' | 'WEBCAM' | 'SERVICIOS' | 'VENTAS' | 'PRO';
+export type PlanLine = 'WPP' | 'COMIDAS' | 'WEBCAM' | 'SERVICIOS' | 'VENTAS' | 'PRO';
 
 export interface Company {
   id: string;

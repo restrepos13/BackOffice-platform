@@ -3,6 +3,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { CurrentUser } from '../auth/decorators';
 import { AuthUser, NOT_DELETED, isPlatformRole, parseJson } from '../common/constants';
 import { CostModel, REFERENCE_MODELS, estimateAiCosts } from '../common/ai-cost';
+import { AI_RESALE_MARKUP } from '../common/offer';
 
 /**
  * "¿Cuánto me cuesta la IA?" para cada empresa, con SUS números: tamaño de las
@@ -67,9 +68,20 @@ export class AiCostService {
       models,
       packages.map((p: any) => ({ id: p.id, name: p.name, conversations: p.conversations, price: p.price, validityMonths: p.validityMonths })),
     );
+    // "Todo incluido": lo que ve el cliente es lo que se le cobra (con la gestión incluida)
+    if (company.serviceMode === 'MANAGED') {
+      const k = 1 + AI_RESALE_MARKUP;
+      const scale = (v: { usd: number; cop: number }) => ({ usd: Math.round(v.usd * k * 1e5) / 1e5, cop: Math.round(v.cop * k * 10) / 10 });
+      for (const m of result.models) {
+        m.perConversation = scale(m.perConversation);
+        m.perMonth = scale(m.perMonth);
+        m.report.perQuery = scale(m.report.perQuery);
+        m.report.perMonth = scale(m.report.perMonth);
+      }
+    }
     return {
       ...result,
-      company: { name: company.name, aiBillingMode: company.aiBillingMode ?? 'BYOK' },
+      company: { name: company.name, aiBillingMode: company.aiBillingMode ?? 'BYOK', serviceMode: company.serviceMode === 'MANAGED' ? 'MANAGED' : 'SELF' },
       bot: bot ? { name: bot.name, model: bot.model } : null,
       dailyChatsSource: Number.isFinite(asked) && asked > 0 ? 'manual' : Number(ob.dailyChats) > 0 ? 'registro' : 'estimado',
     };

@@ -37,6 +37,8 @@ import {
   UserRound,
   Users,
   Wallet,
+  Gem,
+  Siren,
   FileSignature,
   Workflow,
   X,
@@ -46,6 +48,7 @@ import { Suspense, useEffect, useRef, useState } from 'react';
 import { Navigate, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { api } from '../lib/api';
 import { TermsGate } from '../components/Terms';
+import { useIncidents } from '../pages/platform/Incidents';
 import { useActiveCompanyId, useAuth } from '../lib/auth';
 import { useLiveEvents } from '../lib/events';
 import { ROLE_LABELS } from '../lib/format';
@@ -105,6 +108,7 @@ interface NavItem {
 
 const PLATFORM_NAV: NavItem[] = [
   { to: '/platform', label: 'Resumen', icon: LayoutDashboard, end: true },
+  { to: '/platform/incidentes', label: 'Incidentes 24/7', icon: Siren },
   { to: '/platform/companies', label: 'Empresas', icon: Building2 },
   { to: '/platform/registros', label: 'Registros', icon: UserPlus },
   { to: '/platform/ventas', label: 'Ventas', icon: Wallet },
@@ -134,6 +138,7 @@ const COMPANY_NAV: NavItem[] = [
   { to: '/app/usage', label: 'Consumo IA', icon: Activity, tour: 'nav-usage' },
   { to: '/app/costos-ia', label: 'Costos de IA', icon: Calculator },
   { to: '/app/gerencia', label: 'Gerencia', icon: ClipboardCheck, module: 'gerencia' },
+  { to: '/app/mi-plan', label: 'Mi plan', icon: Gem },
   { to: '/app/billing', label: 'Facturación', icon: CreditCard },
   { to: '/app/team', label: 'Equipo', icon: UserRound },
   { to: '/app/settings', label: 'Configuración', icon: Settings, tour: 'nav-settings' },
@@ -218,6 +223,7 @@ export default function AppShell() {
     enabled: !!isPlatform,
     refetchInterval: 60_000,
   });
+  const { data: openIncidents } = useIncidents(!!isPlatform);
   const lastSeenSignup = useRef<string | null>(null);
   useEffect(() => {
     const latest = signupSummary?.latestDone;
@@ -476,6 +482,13 @@ export default function AppShell() {
             <Zap size={12} className="text-info" />
             <p className="kicker !text-info">Sesión de desarrollador</p>
           </div>
+        )}
+        {isPlatform && !!openIncidents?.open.length && location.pathname !== '/platform/incidentes' && (
+          <NavLink to="/platform/incidentes" className="flex items-center gap-2 border-b-2 border-ink bg-bad px-4 py-2 text-xs font-semibold text-white md:px-6">
+            <Siren size={13} />
+            {openIncidents.open.length === 1 ? 'Hay 1 incidente abierto' : `Hay ${openIncidents.open.length} incidentes abiertos`}: {openIncidents.open[0].label}
+            {openIncidents.open[0].companyId ? ` · ${openIncidents.open[0].companyName}` : ''}. Ver detalle
+          </NavLink>
         )}
         {onboarding && !isPlatform && location.pathname !== '/app/bienvenida' && (
           <div className="border-b-2 border-ink bg-ink px-4 py-2 text-xs text-bone md:px-6">

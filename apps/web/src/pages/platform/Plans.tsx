@@ -29,6 +29,8 @@ interface PlanForm {
   maxCouriers: number;
   minTermMonths: number;
   setupFeeValue: number;
+  priceManaged?: number;
+  includedMetaUsd?: number;
   sortOrder: number;
 }
 
@@ -65,6 +67,9 @@ function PlanCard({ plan, onEdit }: { plan: Plan; onEdit: () => void }) {
           <p className="mt-1 text-xs text-ink-3">
             {cop ? 'IVA incluido · ' : ''}anual {fmtMoney(plan.priceMonthly * ANNUAL_MONTHS_CHARGED, plan.currency ?? 'USD')} (2 meses gratis)
           </p>
+          {plan.line === 'WPP' && (plan.priceManaged ?? 0) > 0 && (
+            <p className="mt-1 text-xs"><b>Tu IA</b> {fmtMoney(plan.priceMonthly, 'COP')} · <b>Todo incluido</b> {fmtMoney(plan.priceManaged!, 'COP')} (+ IA consumida, US${plan.includedMetaUsd ?? 10} de Meta incluidos)</p>
+          )}
         </>
       )}
       <p className="mt-2 flex flex-wrap gap-1">
@@ -108,6 +113,7 @@ export default function Plans() {
         line: form.line, currency: form.currency, sortOrder: Number(form.sortOrder) || 0,
         maxLines: Number(form.maxLines) || 0, maxCouriers: Number(form.maxCouriers) || 0,
         minTermMonths: Number(form.minTermMonths) || 0, setupFeeValue: Number(form.setupFeeValue) || 0,
+        priceManaged: Number(form.priceManaged) || 0, includedMetaUsd: Number(form.includedMetaUsd ?? 10),
       };
       return form.id
         ? api.patch(`/plans/${form.id}`, payload)
@@ -160,6 +166,7 @@ export default function Plans() {
                 line: plan.line ?? 'PRO', currency: plan.currency ?? 'USD',
                 maxLines: plan.maxLines ?? 1, maxCouriers: plan.maxCouriers ?? 0,
                 minTermMonths: plan.minTermMonths ?? 0, setupFeeValue: plan.setupFeeValue ?? 0,
+                priceManaged: plan.priceManaged ?? 0, includedMetaUsd: plan.includedMetaUsd ?? 10,
                 sortOrder: plan.sortOrder ?? 0,
               })
             }
@@ -211,6 +218,18 @@ export default function Plans() {
                 <Input type="number" min={0} value={editing.sortOrder} onChange={(e) => setEditing({ ...editing, sortOrder: Number(e.target.value) })} />
               </Field>
             </div>
+            {editing.line === 'WPP' && (
+              <div className="grid grid-cols-2 gap-2">
+                <Field label="Precio «Todo incluido»" hint="Mensualidad cuando gestionamos IA y Meta (el de arriba es «Tu IA»)">
+                  <Input type="number" min={0} step={1000} value={editing.priceManaged ?? 0}
+                    onChange={(e) => setEditing({ ...editing, priceManaged: Number(e.target.value) })} />
+                </Field>
+                <Field label="US$ de Meta incluidos" hint="Al mes, en «Todo incluido»">
+                  <Input type="number" min={0} step={1} value={editing.includedMetaUsd ?? 10}
+                    onChange={(e) => setEditing({ ...editing, includedMetaUsd: Number(e.target.value) })} />
+                </Field>
+              </div>
+            )}
             <div className="grid grid-cols-3 gap-2">
               <Field label={editing.line === 'WEBCAM' ? 'Perfiles' : 'Asistentes'}>
                 <Input type="number" value={editing.maxBots}

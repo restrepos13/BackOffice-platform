@@ -8,8 +8,13 @@ import { PrismaService } from '../prisma/prisma.service';
 import { CurrentUser, Roles } from '../auth/decorators';
 import { AuthUser, ROLES, isPlatformRole, parseJson } from '../common/constants';
 import { ANNUAL_MONTHS_CHARGED, periodOf } from '../common/billing-engine';
-import { recommendCheckout } from '../common/plan-recommend';
-import { creditAiLot } from '../ai/ai-access';
+import { recommendPlan } from '../common/plan-recommend';
+import { estimateAiCosts } from '../common/ai-cost';
+import { addonCatalog, isAddonKey, readAddonStates } from '../common/addons';
+import {
+  AI_RESALE_MARKUP, HUMAN_OVERSIGHT_NOTICE, LANDING_NOTICE, MAX_IMPLEMENTATION_DAYS, META_NOTICE, NUMBERS_NOTICE,
+  SERVICE_MODES, type ServiceMode, planPriceFor,
+} from '../common/offer';
 import { ensureFile, removeFile, saveFile } from '../common/file-store';
 import { AuditModule, AuditService } from './audit.module';
 import { EmailsModule, EmailsService } from './emails.module';
@@ -164,30 +169,72 @@ export class CheckoutService {
     };
   }
 
+  /** Costo estimado de la IA al mes con el modelo recomendado (para "Todo incluido"). */
+  private async aiMonthlyEstimate(company: any, dailyChats: number) {
+    const [models, bot, products, rate] = await Promise.all([
+      this.prisma.aiModel.findMany({ where: { active: true } }),
+      this.prisma.bot.findFirst({ where: { companyId: company.id } }),
+      this.prisma.product.count({ where: { companyId: company.id, active: true } }),
+      this.prisma.platformSetting.findUnique({ where: { key: 'USD_COP_RATE' } }),
+    ]);
+    const model = models.find((m: any) => m.modelId === bot?.model) ?? models.find((m: any) => m.recommended) ?? models[0];
+    if (!model) return null;
+    const trm = Number(rate?.value) > 1000 ? Number(rate!.value) : 4000;
+    const est = estimateAiCosts(
+      {
+        promptChars: String(bot?.systemPrompt ?? '').length + String(bot?.personalityJson ?? '').length || 1500,
+        knowledgeChars: 0, products, dailyChats, agentMode: bot?.engineMode === 'AGENT', trm,
+      },
+      [{ ...model, creditsPerConversation: 1 }],
+      [],
+    );
+    const m = est.models[0];
+    // El margen va adentro del estimado (no se desglosa)
+    return { model: model.name, monthly: Math.round(m.perMonth.cop * (1 + AI_RESALE_MARKUP)) };
+  }
+
   async checkout(user: AuthUser, companyId?: string) {
     const id = this.companyIdOf(user, companyId);
     const company = await this.prisma.company.findUniqueOrThrow({ where: { id } });
-    const ob = parseJson<Record<string, any>>(company.onboardingJson, {});
-    const rubro = ob.rubro ?? 'SERVICIOS';
-    const [plansRaw, packagesRaw, methods, lastOrder] = await Promise.all([
-      this.prisma.plan.findMany({ where: { active: true, line: rubro }, orderBy: { sortOrder: 'asc' } }),
-      this.prisma.aiCreditPackage.findMany({ where: { active: true }, orderBy: { conversations: 'asc' } }),
+    const [plansRaw, methods, lastOrder, catalog, firstPaid] = await Promise.all([
+      this.prisma.plan.findMany({ where: { active: true, line: 'WPP' }, orderBy: { sortOrder: 'asc' } }),
       this.methods(),
       this.prisma.planOrder.findFirst({ where: { companyId: id, status: { not: 'CANCELLED' } }, orderBy: { createdAt: 'desc' } }),
+      addonCatalog(this.prisma),
+      this.prisma.planOrder.count({ where: { companyId: id, status: 'ACTIVE' } }),
     ]);
     const plans = plansRaw.map((p: any) => ({
-      id: p.id, name: p.name, priceMonthly: p.priceMonthly, annualPrice: p.priceMonthly * ANNUAL_MONTHS_CHARGED,
+      id: p.id, name: p.name, tier: p.tier, priceSelf: p.priceMonthly, priceManaged: planPriceFor(p, 'MANAGED'),
+      annualSelf: p.priceMonthly * ANNUAL_MONTHS_CHARGED, annualManaged: planPriceFor(p, 'MANAGED') * ANNUAL_MONTHS_CHARGED,
       maxUsers: p.maxUsers, maxLines: p.maxLines, maxCouriers: p.maxCouriers, sortOrder: p.sortOrder, highlight: p.highlight,
-      minTermMonths: p.minTermMonths, features: parseJson<string[]>(p.featuresJson, []),
+      minTermMonths: p.minTermMonths, includedMetaUsd: p.includedMetaUsd ?? 10, features: parseJson<string[]>(p.featuresJson, []),
     }));
-    const packages = packagesRaw.map((p: any) => ({ id: p.id, name: p.name, conversations: p.conversations, price: p.price, validityMonths: p.validityMonths }));
     const needs = await this.needsOf(company);
+    const plan = recommendPlan(plans.map((p) => ({ ...p, priceMonthly: p.priceSelf })), needs);
+    const hasOwnKey = !!company.deepinfraApiKey;
+    const states = readAddonStates(company);
     return {
       plans,
-      packages,
+      modes: SERVICE_MODES,
       needs,
-      // "Cuenta propia" sin llave cargada = en la práctica necesita paquete
-      recommendation: recommendCheckout(plans, packages, needs, company.aiBillingMode === 'BYOK' && company.deepinfraApiKey ? 'BYOK' : 'PLATFORM'),
+      recommendation: {
+        plan,
+        serviceMode: (hasOwnKey ? 'SELF' : 'MANAGED') as ServiceMode,
+        modeReason: hasOwnKey
+          ? 'Ya tienes tu propia cuenta de IA conectada: con "Tu IA" pagas menos de mensualidad.'
+          : 'No tienes que crear cuentas ni poner tarjetas en otros sitios: nosotros gestionamos la IA y los mensajes, y pagas a fin de mes.',
+        aiEstimate: await this.aiMonthlyEstimate(company, needs.dailyChats),
+      },
+      addons: catalog.map((a) => ({ ...a, active: !!states[a.key]?.enabled, requested: !!states[a.key]?.requestedAt && !states[a.key]?.enabled })),
+      landingGift: firstPaid === 0,
+      notices: {
+        humanOversight: HUMAN_OVERSIGHT_NOTICE,
+        numbers: NUMBERS_NOTICE,
+        meta: META_NOTICE,
+        landing: LANDING_NOTICE,
+        implementation: `Tu automatización sale en vivo en máximo ${MAX_IMPLEMENTATION_DAYS} días.`,
+        metaFree: 'Responder a quien te escribe no tiene costo de Meta. Meta cobra por los mensajes que tú inicias (campañas, recordatorios).',
+      },
       // A la empresa solo le decimos QUÉ medios hay; los datos los envía el equipo
       paymentOptions: [
         { id: 'TRANSFER', label: 'Transferencia a cuenta de ahorros', available: methods.accounts.length > 0 },
@@ -198,17 +245,27 @@ export class CheckoutService {
     };
   }
 
-  async createOrder(user: AuthUser, dto: { planId?: string; billingCycle?: string; aiPackageId?: string | null }) {
+  async createOrder(user: AuthUser, dto: { planId?: string; billingCycle?: string; serviceMode?: string; addons?: Array<{ key: string; qty?: number }> }) {
     if (user.role !== ROLES.COMPANY_ADMIN && !isPlatformRole(user.role)) throw new ForbiddenException('Solo el administrador de la empresa puede comprar');
     const companyId = this.companyIdOf(user, (dto as any)?.companyId);
     const company = await this.prisma.company.findUniqueOrThrow({ where: { id: companyId } });
     const plan = await this.prisma.plan.findUnique({ where: { id: String(dto?.planId ?? '') } });
     if (!plan || !plan.active) throw new BadRequestException('Ese plan ya no está disponible. Elige otro.');
     const cycle = dto?.billingCycle === 'ANNUAL' ? 'ANNUAL' : 'MONTHLY';
-    const pkg = dto?.aiPackageId ? await this.prisma.aiCreditPackage.findUnique({ where: { id: String(dto.aiPackageId) } }) : null;
-    if (dto?.aiPackageId && (!pkg || !pkg.active)) throw new BadRequestException('Ese paquete de IA ya no está disponible.');
-    const planAmount = cycle === 'ANNUAL' ? plan.priceMonthly * ANNUAL_MONTHS_CHARGED : plan.priceMonthly;
-    const total = planAmount + (pkg?.price ?? 0);
+    const mode: ServiceMode = dto?.serviceMode === 'MANAGED' ? 'MANAGED' : 'SELF';
+    const catalog = await addonCatalog(this.prisma);
+    const addons = (Array.isArray(dto?.addons) ? dto.addons : [])
+      .filter((a) => isAddonKey(a?.key))
+      .map((a) => {
+        const def = catalog.find((c) => c.key === a.key)!;
+        const qty = def.perUnit ? Math.min(10, Math.max(1, Math.round(Number(a.qty) || 1))) : 1;
+        return { key: def.key, name: def.name, qty, price: def.price * qty, status: def.status };
+      })
+      .filter((a) => a.status === 'AVAILABLE');
+    const monthly = planPriceFor(plan, mode);
+    const planAmount = cycle === 'ANNUAL' ? monthly * ANNUAL_MONTHS_CHARGED : monthly;
+    const addonsTotal = addons.reduce((s, a) => s + a.price, 0);
+    const total = planAmount + addonsTotal;
     const view = await this.checkout(user, companyId);
     // Un solo pedido abierto por empresa: el nuevo reemplaza al anterior sin pagar
     await this.prisma.planOrder.updateMany({
@@ -217,23 +274,25 @@ export class CheckoutService {
     });
     const order = await this.prisma.planOrder.create({
       data: {
-        companyId, planId: plan.id, planName: plan.name, billingCycle: cycle, planAmount,
-        aiPackageId: pkg?.id ?? null, aiPackageName: pkg?.name ?? null, aiPackageAmount: pkg?.price ?? 0,
+        companyId, planId: plan.id, planName: plan.name, billingCycle: cycle, planAmount, serviceMode: mode,
+        addonsJson: JSON.stringify(addons.map(({ status: _s, ...a }) => a)),
+        aiPackageAmount: addonsTotal,
         total, currency: 'COP', status: 'REQUESTED', requestedBy: user.name,
         recommendationJson: JSON.stringify({
           plan: view.recommendation.plan?.planName ?? null,
           followed: view.recommendation.plan?.planId === plan.id,
-          aiPackage: view.recommendation.aiPackage?.name ?? null,
+          serviceMode: view.recommendation.serviceMode,
+          followedMode: view.recommendation.serviceMode === mode,
+          aiEstimate: view.recommendation.aiEstimate?.monthly ?? null,
         }),
       },
     });
-    // Compatibilidad con "Primeros pasos" (paso "Elegir tu plan")
     const ob = parseJson<Record<string, any>>(company.onboardingJson, {});
     await this.prisma.company.update({
       where: { id: companyId },
-      data: { onboardingJson: JSON.stringify({ ...ob, requestedPlan: { planId: plan.id, name: plan.name, priceMonthly: plan.priceMonthly, billingCycle: cycle, amount: total, at: new Date().toISOString(), by: user.name, orderId: order.id } }) },
+      data: { onboardingJson: JSON.stringify({ ...ob, requestedPlan: { planId: plan.id, name: plan.name, priceMonthly: monthly, billingCycle: cycle, serviceMode: mode, amount: total, at: new Date().toISOString(), by: user.name, orderId: order.id } }) },
     });
-    await this.audit.log({ actor: user, companyId, action: 'checkout.order', entity: 'PlanOrder', entityId: order.id, detail: `${plan.name} ${cycle === 'ANNUAL' ? 'anual' : 'mensual'}${pkg ? ` + ${pkg.name}` : ''} · ${money(total)}` });
+    await this.audit.log({ actor: user, companyId, action: 'checkout.order', entity: 'PlanOrder', entityId: order.id, detail: `${plan.name} · ${SERVICE_MODES[mode].name} · ${cycle === 'ANNUAL' ? 'anual' : 'mensual'}${addons.length ? ` + ${addons.map((a) => a.name).join(', ')}` : ''} · ${money(total)}` });
     try {
       await this.notifyTeam(company, order, ob);
     } catch (err: any) {
@@ -250,10 +309,10 @@ export class CheckoutService {
     for (const toEmail of raw.split(',').map((e: string) => e.trim()).filter(Boolean).slice(0, 10)) {
       await this.emails.systemSend({
         toEmail,
-        subject: `Compra: ${company.name} quiere ${order.planName}${order.aiPackageName ? ` + ${order.aiPackageName}` : ''} (${money(order.total)})`,
+        subject: `Compra: ${company.name} quiere ${order.planName} · ${SERVICE_MODES[(order.serviceMode as ServiceMode) ?? 'SELF'].name} (${money(order.total)})`,
         body: `<p><b>${esc(company.name)}</b> quiere comprar:</p>
-          <ul><li>Plan ${esc(order.planName)} · ${order.billingCycle === 'ANNUAL' ? 'anual' : 'mensual'}: ${money(order.planAmount)}</li>
-          ${order.aiPackageName ? `<li>${esc(order.aiPackageName)}: ${money(order.aiPackageAmount)}</li>` : ''}</ul>
+          <ul><li>Plan ${esc(order.planName)} · ${SERVICE_MODES[(order.serviceMode as ServiceMode) ?? 'SELF'].name} · ${order.billingCycle === 'ANNUAL' ? 'anual' : 'mensual'}: ${money(order.planAmount)}</li>
+          ${parseJson<any[]>(order.addonsJson, []).map((a) => `<li>Complemento ${esc(a.name)}${a.qty > 1 ? ` x${a.qty}` : ''}: ${money(a.price)}</li>`).join('')}</ul>
           <p><b>Total: ${money(order.total)}</b> (IVA incluido)</p>
           <p>Contacto: ${esc(ob.contactName ?? '')} · ${esc(company.contactEmail ?? '')}${wa ? ` · <a href="https://wa.me/${wa}">WhatsApp</a>` : ''}</p>
           <p>Escríbele con los datos de pago desde Plataforma → Ventas y activa la cuenta cuando pague.</p>`,
@@ -268,6 +327,7 @@ export class CheckoutService {
       id: o.id, companyId: o.companyId, planId: o.planId, planName: o.planName, billingCycle: o.billingCycle,
       planAmount: o.planAmount, aiPackageId: o.aiPackageId, aiPackageName: o.aiPackageName, aiPackageAmount: o.aiPackageAmount,
       total: o.total, currency: o.currency, status: o.status, method: o.method ?? null, notes: o.notes ?? null,
+      serviceMode: o.serviceMode ?? 'SELF', addons: parseJson<Array<{ key: string; name: string; qty: number; price: number }>>(o.addonsJson, []),
       recommendation: parseJson<Record<string, any>>(o.recommendationJson, {}), requestedBy: o.requestedBy ?? null,
       handledBy: o.handledBy ?? null, paidAt: o.paidAt ?? null, activatedAt: o.activatedAt ?? null,
       createdAt: o.createdAt, updatedAt: o.updatedAt,
@@ -311,8 +371,9 @@ export class CheckoutService {
     const lines = [
       `¡Hola${first ? ` ${first}` : ''}! Gracias por elegir BackOffice para ${company?.name ?? 'tu empresa'}.`,
       '',
-      `Tu pedido: plan ${order.planName} (${order.billingCycle === 'ANNUAL' ? 'anual, 12 meses por el precio de 10' : 'mensual'})${order.aiPackageName ? ` + ${order.aiPackageName}` : ''}.`,
+      `Tu pedido: plan ${order.planName} · ${SERVICE_MODES[(order.serviceMode as ServiceMode) ?? 'SELF'].name} (${order.billingCycle === 'ANNUAL' ? 'anual, 12 meses por el precio de 10' : 'mensual'})${parseJson<any[]>(order.addonsJson, []).length ? ` + ${parseJson<any[]>(order.addonsJson, []).map((a) => a.name).join(', ')}` : ''}.`,
       `Total a pagar: ${money(order.total)} (IVA incluido).`,
+      ...(order.serviceMode === 'MANAGED' ? ['A fin de cada mes se suma la IA que uses y, si pasa de los US$10 incluidos, el excedente de mensajes de Meta.'] : []),
       '',
     ];
     if (method === 'QR') {
@@ -352,6 +413,17 @@ export class CheckoutService {
     if (!order) throw new NotFoundException('Pedido no encontrado');
     if (order.status === 'ACTIVE') return this.serialize(order);
     if (order.status === 'CANCELLED') throw new BadRequestException('Este pedido está cancelado');
+    const company = await this.prisma.company.findUniqueOrThrow({ where: { id: order.companyId } });
+    const mode: ServiceMode = order.serviceMode === 'MANAGED' ? 'MANAGED' : 'SELF';
+    const now = new Date().toISOString();
+    const states = readAddonStates(company);
+    for (const a of parseJson<Array<{ key: string; qty: number; price: number }>>(order.addonsJson, [])) {
+      if (!isAddonKey(a.key)) continue;
+      states[a.key] = { ...(states[a.key] ?? {}), enabled: true, qty: a.qty, since: now, until: null, requestedAt: null };
+    }
+    // Primera suscripción → landing de regalo (la arma el equipo)
+    const firstTime = (await this.prisma.planOrder.count({ where: { companyId: order.companyId, status: 'ACTIVE' } })) === 0;
+    const landing = parseJson<Record<string, any>>(company.landingJson, {});
     await this.prisma.company.update({
       where: { id: order.companyId },
       data: {
@@ -360,22 +432,18 @@ export class CheckoutService {
         billingCycle: order.billingCycle,
         ...(order.billingCycle === 'ANNUAL' ? { annualStartPeriod: periodOf() } : {}),
         contractStartAt: new Date(),
+        serviceMode: mode,
+        // "Todo incluido" usa la IA de BackOffice; "Tu IA", la llave del cliente
+        aiBillingMode: mode === 'MANAGED' ? 'PLATFORM' : 'BYOK',
+        addonsJson: JSON.stringify(states),
+        ...(firstTime && !landing.status ? { landingJson: JSON.stringify({ status: 'PENDING', createdAt: now }) } : {}),
       },
     });
-    if (order.aiPackageId) {
-      const pkg = await this.prisma.aiCreditPackage.findUnique({ where: { id: order.aiPackageId } });
-      if (pkg) {
-        await creditAiLot(this.prisma, {
-          companyId: order.companyId, conversations: pkg.conversations, source: 'PURCHASE', validityMonths: pkg.validityMonths,
-          packageId: pkg.id, paymentRef: `plan-order:${order.id}`, note: `Pedido ${order.planName}`, createdBy: actor.name,
-        });
-      }
-    }
     const row = await this.prisma.planOrder.update({
       where: { id },
       data: { status: 'ACTIVE', activatedAt: new Date(), paidAt: order.paidAt ?? new Date(), handledBy: actor.name },
     });
-    await this.audit.log({ actor, companyId: order.companyId, action: 'checkout.activate', entity: 'PlanOrder', entityId: id, detail: `${order.planName} activado · ${money(order.total)}` });
+    await this.audit.log({ actor, companyId: order.companyId, action: 'checkout.activate', entity: 'PlanOrder', entityId: id, detail: `${order.planName} · ${SERVICE_MODES[mode].name} activado · ${money(order.total)}${firstTime ? ' · landing de regalo pendiente' : ''}` });
     return this.serialize(row);
   }
 }

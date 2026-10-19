@@ -13,35 +13,39 @@ Estos términos regulan el uso de BackOffice, la plataforma que permite a negoci
 BackOffice es un servicio de software prestado desde Colombia por [RAZÓN SOCIAL], identificada con NIT [NIT], con domicilio en [CIUDAD] ("BackOffice", "nosotros"). Puedes escribirnos a [CORREO DE CONTACTO] o por WhatsApp al [NÚMERO].
 
 ## 2. El servicio
-- Un panel para tu empresa con conversaciones, contactos, asistente de IA y las herramientas que actives (pedidos, agenda, domicilios, campañas, reportes, entre otras).
-- La configuración inicial puede hacerse con ayuda de inteligencia artificial y de nuestro equipo.
+- Automatización humanizada de WhatsApp para atender y vender 24/7: un asistente de IA que conversa como una persona, más un panel con las herramientas que activas (pedidos, agenda, domicilios, campañas, reportes, entre otras).
+- El número (o los números) de WhatsApp los pone tu empresa. Plan Básico: 1 número. Plan Intermedio: 2 números. Plan Max: hasta 5 números. Más números u otros canales tienen un precio a medida que se acuerda con un asesor.
+- Implementamos tu automatización en un máximo de 14 días calendario desde que tengamos lo necesario de tu parte (número, información del negocio y accesos).
 - Podemos mejorar, cambiar o retirar funciones. Si un cambio afecta algo esencial de tu plan, te avisaremos con anticipación razonable.
 
-## 3. Tu cuenta
-- Debes dar datos reales y mantenerlos actualizados.
-- Eres responsable de las personas a las que das acceso y de cuidar las contraseñas. Avísanos de inmediato si sospechas un uso no autorizado.
+## 3. Tu cuenta y supervisión humana
+- Debes dar datos reales y mantenerlos actualizados, y cuidar las contraseñas de las personas a las que das acceso.
+- Aunque todo quede automatizado, es indispensable que una persona de tu equipo esté pendiente de la plataforma: ningún modelo de inteligencia artificial es 100 % preciso.
 - La persona que acepta estos términos declara tener facultad para obligar a la empresa.
 
 ## 4. WhatsApp, Meta y otros canales
 - El uso de WhatsApp, Instagram y Messenger está sujeto también a las políticas de Meta. Tu empresa es responsable de cumplirlas.
-- Solo puedes escribir a personas que te dieron su número y aceptaron recibir mensajes. Está prohibido el spam, las cadenas y el contenido ilegal, engañoso u ofensivo.
-- Meta puede cobrar por conversaciones o plantillas. Esos cargos son aparte del plan, salvo que se acuerde otra cosa por escrito.
+- Solo puedes escribir a personas que te dieron su número y aceptaron recibir mensajes. Está prohibido el spam y el contenido ilegal, engañoso u ofensivo.
+- Meta cobra por los mensajes de WhatsApp (se facturan a través de Twilio). Ese cobro es de Meta, no de BackOffice. Responder a quien te escribe normalmente no tiene costo; Meta cobra los mensajes que tú inicias (campañas, recordatorios).
 - Si Meta u otro proveedor suspende tu número o cuenta por incumplir sus políticas, BackOffice no responde por esa suspensión.
 
-## 5. Inteligencia artificial
-- El asistente de IA responde con base en la información que tú cargas (instrucciones, catálogo, precios, base de conocimiento). Revisa que esa información sea correcta y esté al día.
-- La IA puede equivocarse. Supervisa las conversaciones, en especial las que impliquen dinero, salud, asuntos legales o decisiones importantes. Puedes pasar cualquier conversación a una persona en cualquier momento.
-- La IA se paga de una de dos formas: con paquetes prepagos de BackOffice (se descuenta por conversación atendida; los modelos premium descuentan más de una) o con tu propia cuenta del proveedor de IA (le pagas directo al proveedor).
-- Los cálculos de costo que te mostramos son estimaciones hechas con tus datos. El costo real depende de cuánto conversen tus clientes y del modelo que elijas.
+## 5. Modalidades del plan e inteligencia artificial
+- **Tu IA:** automatizamos todos los procesos de tu negocio. La inteligencia artificial la pagas tú con tu tarjeta directamente al proveedor (DeepInfra u OpenRouter), y los mensajes de WhatsApp directamente a Meta (vía Twilio).
+- **Todo incluido (mes vencido):** gestionamos la IA y los mensajes por ti. Al final de cada mes pagas la mensualidad de tu plan, más la IA usada en el mes y, si se usan más de los US$10 de mensajes de Meta incluidos en la mensualidad, el excedente. El valor de la IA se calcula sobre el consumo real e incluye la gestión de BackOffice. Esta modalidad incluye mantenimiento 24/7, acompañamiento remoto y mantenimiento de tu landing.
+- En Todo incluido no hay topes: se paga lo que se consuma. Puedes ver tu consumo en el panel en cualquier momento.
+- El asistente responde con base en la información que tú cargas (instrucciones, catálogo, precios). Revisa que sea correcta. La IA puede equivocarse; puedes pasar cualquier conversación a una persona cuando quieras.
+- Los cálculos de costo que te mostramos son estimaciones con tus datos; el costo real depende de cuánto conversen tus clientes y del modelo de IA.
 - No usamos las conversaciones de tu empresa para entrenar modelos de IA propios ni de terceros.
 
-## 6. Planes, precios y pagos
-- Los precios están en pesos colombianos, incluyen IVA y pueden ser "desde"; el valor final de tu plan se confirma con nuestro equipo antes del pago.
+## 6. Precios, pagos y complementos
+- Los precios están en pesos colombianos e incluyen IVA. El valor final de tu plan se confirma con nuestro equipo antes del pago.
 - Puedes pagar mensual o anual (el anual cobra 10 meses y te regala 2).
 - Mientras habilitamos el pago en línea, el pago se hace por transferencia o código QR a las cuentas que te indique nuestro equipo por un canal oficial. Nunca te pediremos datos de tarjeta por WhatsApp.
 - Si un pago no llega en la fecha acordada, podemos suspender el servicio después de avisarte. Al ponerte al día lo reactivamos.
 - Algunos planes incluyen el montaje gratis a cambio de una permanencia mínima. Si cancelas antes, se cobra el valor de referencia del montaje indicado en tu plan.
-- Los paquetes de IA vencen a los 12 meses de comprados y no son reembolsables una vez usados.
+- Los complementos (por ejemplo reactivación de clientes, cobranza, auditor de ventas o canales extra) se cobran cada mes en que estén activos al menos un día. Puedes apagarlos cuando quieras desde tu panel; si lo haces antes del día de pago, el mes siguiente ya no se cobran.
+- Con tu primera suscripción te regalamos una landing básica (solo de vista, con botón a tu WhatsApp) sin dominio. Es tuya aunque dejes el servicio. El dominio, si lo quieres, lo pagas tú.
+- Programa de referidos: si una empresa que invitaste se suscribe y paga al menos 2 meses, recibes 20 % de descuento en tu mensualidad durante 2 meses.
 
 ## 7. Cancelación
 - Puedes cancelar cuando quieras escribiéndonos. El servicio sigue activo hasta el final del periodo pagado.
@@ -60,7 +64,7 @@ BackOffice es un servicio de software prestado desde Colombia por [RAZÓN SOCIAL
 
 ## 10. Disponibilidad y soporte
 - Trabajamos para que el servicio esté disponible siempre, pero puede haber interrupciones por mantenimiento o por fallas de proveedores (Meta, proveedores de IA, nube, internet).
-- El soporte se presta por WhatsApp y correo en horario hábil de Colombia.
+- En "Tu IA" el soporte se presta por WhatsApp y correo en horario hábil de Colombia. En "Todo incluido" vigilamos la plataforma 24/7: si el asistente no puede responder, avisa a tu cliente que una persona lo atenderá y nuestro equipo recibe una alerta inmediata.
 
 ## 11. Responsabilidad
 - El servicio se presta "tal como está". En la medida en que la ley lo permita, BackOffice no responde por lucro cesante, pérdida de ventas ni daños indirectos.

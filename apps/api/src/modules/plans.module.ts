@@ -44,6 +44,10 @@ export class PlansService {
       ...(dto.minTermMonths != null ? { minTermMonths: int(dto.minTermMonths) } : {}),
       ...(dto.setupFeeValue != null ? { setupFeeValue: Math.max(0, Number(dto.setupFeeValue)) } : {}),
       ...(dto.sortOrder != null ? { sortOrder: int(dto.sortOrder) } : {}),
+      // Modalidad "Todo incluido" (línea WPP)
+      ...(dto.priceManaged != null ? { priceManaged: Math.max(0, Number(dto.priceManaged)) } : {}),
+      ...(dto.includedMetaUsd != null ? { includedMetaUsd: Math.max(0, Number(dto.includedMetaUsd)) } : {}),
+      ...(dto.tier !== undefined ? { tier: ['BASICO', 'INTERMEDIO', 'MAX'].includes(dto.tier) ? dto.tier : null } : {}),
     };
   }
 

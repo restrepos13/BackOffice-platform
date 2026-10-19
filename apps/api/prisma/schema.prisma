@@ -78,6 +78,13 @@ model Plan {
   minTermMonths Int    @default(0) // permanencia mínima (montaje gratis)
   setupFeeValue Float  @default(0) // valor de referencia del montaje (salida anticipada)
   sortOrder     Int    @default(0)
+  /// BASICO | INTERMEDIO | MAX (línea WPP: automatización humanizada de WhatsApp)
+  tier          String?
+  /// Precio mensual en modalidad "Todo incluido" (nosotros gestionamos la IA y Meta).
+  /// priceMonthly es la modalidad "Tu IA" (el cliente paga su IA y Meta directo).
+  priceManaged  Float  @default(0)
+  /// US$ de mensajes de Meta (vía Twilio) incluidos al mes en "Todo incluido"
+  includedMetaUsd Float @default(10)
 }
 
 // ─── Empresas (tenants) ──────────────────────────────────────────────
@@ -180,6 +187,15 @@ model Company {
   // Facturación electrónica DIAN (proveedor ALEGRA o SIMULADO), token cifrado
   einvoiceConfigJson String    @default("{}")
   branches           Branch[]
+  /// SELF = "Tu IA" (paga su IA y Meta directo) | MANAGED = "Todo incluido" (mes vencido)
+  serviceMode   String    @default("SELF")
+  /// Código para invitar a otras empresas (programa de referidos)
+  referralCode  String?
+  /// Empresa que la refirió y estado del premio {status, rewardedAt, adjustmentId}
+  referredById  String?
+  referralJson  String?
+  /// Landing de regalo de la primera suscripción {status, url, notes, deliveredAt}
+  landingJson   String?
 }
 
 // ─── Bots / Asistentes IA ────────────────────────────────────────────
@@ -1237,6 +1253,26 @@ model AiKeyUsage {
   @@unique([provider, fingerprint, day])
 }
 
+/// Incidentes 24/7: el bot no pudo responder (IA caída), un mensaje no salió,
+/// un trabajo de la cola falló… Se agrupan por empresa y tipo, se avisa al
+/// equipo de inmediato y se cierran solos tras 30 min sin repetirse.
+model Incident {
+  id         String    @id @default(cuid()) @map("_id")
+  companyId  String?
+  /// AI_DOWN | WA_SEND_FAILED | INBOUND_FAILED
+  kind       String
+  detail     String
+  count      Int       @default(1)
+  firstAt    DateTime  @default(now())
+  lastAt     DateTime  @default(now())
+  notifiedAt DateTime?
+  resolvedAt DateTime?
+  resolvedBy String?
+
+  @@index([kind])
+  @@index([lastAt])
+}
+
 /// Compra de un plan desde el panel de la empresa. Por ahora el pago se hace
 /// por QR de Bancolombia o transferencia (el equipo contacta y confirma);
 /// Wompi queda como "próximamente".
@@ -1256,6 +1292,10 @@ model PlanOrder {
   status           String    @default("REQUESTED")
   /// QR | TRANSFER | WOMPI (el que acuerde el equipo)
   method           String?
+  /// SELF ("Tu IA") | MANAGED ("Todo incluido")
+  serviceMode      String    @default("SELF")
+  /// Complementos pedidos [{key, qty, price}]
+  addonsJson       String?
   /// Lo que recomendó el sistema y por qué (JSON)
   recommendationJson String?
   notes            String?

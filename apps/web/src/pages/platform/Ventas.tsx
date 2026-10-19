@@ -26,7 +26,9 @@ interface Order {
   status: string;
   method: string | null;
   notes: string | null;
-  recommendation: { plan?: string | null; followed?: boolean; aiPackage?: string | null };
+  recommendation: { plan?: string | null; followed?: boolean; aiPackage?: string | null; followedMode?: boolean };
+  serviceMode: 'SELF' | 'MANAGED';
+  addons: Array<{ key: string; name: string; qty: number; price: number }>;
   requestedBy: string | null;
   handledBy: string | null;
   createdAt: string;
@@ -247,9 +249,12 @@ function OrdersTab() {
                     {o.recommendation.followed === false && <Badge tone="neutral">Eligió distinto a lo recomendado</Badge>}
                   </div>
                   <p className="mt-1 text-sm">
-                    Plan <b>{o.planName}</b> · {o.billingCycle === 'ANNUAL' ? 'anual' : 'mensual'} ({fmtMoney(o.planAmount)})
+                    Plan <b>{o.planName}</b> · <Badge tone={o.serviceMode === 'MANAGED' ? 'ink' : 'neutral'}>{o.serviceMode === 'MANAGED' ? 'Todo incluido' : 'Tu IA'}</Badge> · {o.billingCycle === 'ANNUAL' ? 'anual' : 'mensual'} ({fmtMoney(o.planAmount)})
                     {o.aiPackageName ? <> + {o.aiPackageName} ({fmtMoney(o.aiPackageAmount)})</> : null}
                   </p>
+                  {o.addons.length > 0 && (
+                    <p className="text-sm text-ink-2">Complementos: {o.addons.map((a) => `${a.name}${a.qty > 1 ? ` x${a.qty}` : ''} (${fmtMoney(a.price)})`).join(' · ')}</p>
+                  )}
                   <p className="display mt-1 text-2xl">{fmtMoney(o.total)}</p>
                   <p className="text-xs text-ink-3">
                     {o.company?.contactName ?? o.requestedBy ?? ''}{o.company?.email ? ` · ${o.company.email}` : ''} · pidió {timeAgo(o.createdAt)}
@@ -284,8 +289,10 @@ function OrdersTab() {
           <div className="space-y-4 text-sm">
             <p>Al activar:</p>
             <ul className="list-disc space-y-1 pl-5">
-              <li>La empresa queda <b>activa</b> con el plan <b>{activating.planName}</b> ({activating.billingCycle === 'ANNUAL' ? 'anual' : 'mensual'}).</li>
-              {activating.aiPackageName && <li>Se le acredita el <b>{activating.aiPackageName}</b> de IA.</li>}
+              <li>La empresa queda <b>activa</b> con el plan <b>{activating.planName}</b> en modalidad <b>{activating.serviceMode === 'MANAGED' ? 'Todo incluido' : 'Tu IA'}</b> ({activating.billingCycle === 'ANNUAL' ? 'anual' : 'mensual'}).</li>
+              {activating.serviceMode === 'MANAGED' && <li>Usa la IA de BackOffice y se le cobra lo consumido a fin de mes (con US$10 de Meta incluidos).</li>}
+              {activating.addons.length > 0 && <li>Se activan sus complementos: {activating.addons.map((a) => a.name).join(', ')}.</li>}
+              <li>Si es su primera suscripción, queda pendiente su landing de regalo (pestaña Landings).</li>
               <li>El pedido queda como pagado por {fmtMoney(activating.total)}.</li>
             </ul>
             <p className="text-ink-3">Hazlo solo cuando el pago esté confirmado en la cuenta.</p>
@@ -312,15 +319,153 @@ function OrdersTab() {
   );
 }
 
+interface CatalogAddon { key: string; name: string; description: string; price: number; perUnit?: string; status: 'AVAILABLE' | 'SOON' }
+
+function AddonsTab() {
+  const queryClient = useQueryClient();
+  const { data: requests } = useQuery({
+    queryKey: ['addon-requests'],
+    queryFn: () => api.get<Array<{ companyId: string; companyName: string; key: string; name: string; qty: number; monthly: number; requestedAt: string }>>('/platform/addon-requests'),
+  });
+  const { data: catalog } = useQuery({ queryKey: ['addon-catalog'], queryFn: () => api.get<CatalogAddon[]>('/platform/addon-catalog') });
+  const [edit, setEdit] = useState<Record<string, { price: number; status: string }> | null>(null);
+  useEffect(() => {
+    if (catalog && !edit) setEdit(Object.fromEntries(catalog.map((a) => [a.key, { price: a.price, status: a.status }])));
+  }, [catalog, edit]);
+  const activate = useMutation({
+    mutationFn: (r: { companyId: string; key: string }) => api.patch(`/platform/companies/${r.companyId}/addons/${r.key}`, { enabled: true }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['addon-requests'] });
+      toast.success('Complemento activado: se cobra desde este mes');
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : 'Error'),
+  });
+  const save = useMutation({
+    mutationFn: () => api.put<CatalogAddon[]>('/platform/addon-catalog', { overrides: edit }),
+    onSuccess: (r) => {
+      queryClient.setQueryData(['addon-catalog'], r);
+      toast.success('Precios de complementos guardados');
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : 'Error'),
+  });
+  if (!requests || !catalog || !edit) return <Loading />;
+  return (
+    <div className="space-y-6">
+      <Card kicker="Los pidió el cliente desde su panel" title={`Por activar (${requests.length})`}>
+        {requests.length === 0 ? <p className="text-sm text-ink-3">No hay complementos pedidos.</p> : (
+          <ul className="divide-y divide-line">
+            {requests.map((r) => (
+              <li key={r.companyId + r.key} className="flex flex-wrap items-center justify-between gap-3 py-3 text-sm">
+                <span><b>{r.companyName}</b> quiere <b>{r.name}</b>{r.qty > 1 ? ` x${r.qty}` : ''} · {fmtMoney(r.monthly)}/mes · {timeAgo(r.requestedAt)}</span>
+                <span className="flex gap-2">
+                  <Link to={`/platform/companies/${r.companyId}`} className="text-xs underline">Ver empresa</Link>
+                  <Button size="sm" disabled={activate.isPending} onClick={() => activate.mutate(r)}>Ya lo configuré: activar</Button>
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </Card>
+      <Card kicker="Precio mensual (COP, IVA incluido)" title="Catálogo de complementos" actions={<Button size="sm" disabled={save.isPending} onClick={() => save.mutate()}>Guardar precios</Button>}>
+        <div className="grid gap-3 md:grid-cols-2">
+          {catalog.map((a) => (
+            <div key={a.key} className="grid grid-cols-[minmax(0,1fr)_130px_150px] items-center gap-2 border-2 border-line p-3">
+              <div className="min-w-0">
+                <p className="text-sm font-semibold">{a.name}</p>
+                <p className="truncate text-xs text-ink-3" title={a.description}>{a.description}</p>
+              </div>
+              <Input inputMode="numeric" aria-label={`Precio ${a.name}`} value={edit[a.key]?.price ?? 0}
+                onChange={(e) => setEdit({ ...edit, [a.key]: { ...edit[a.key], price: Number(e.target.value.replace(/\D/g, '')) || 0 } })} />
+              <Select aria-label={`Estado ${a.name}`} value={edit[a.key]?.status ?? a.status} onChange={(e) => setEdit({ ...edit, [a.key]: { ...edit[a.key], status: e.target.value } })}>
+                <option value="AVAILABLE">Disponible</option>
+                <option value="SOON">Próximamente</option>
+              </Select>
+            </div>
+          ))}
+        </div>
+      </Card>
+    </div>
+  );
+}
+
+function LandingsTab() {
+  const queryClient = useQueryClient();
+  const { data } = useQuery({
+    queryKey: ['landings'],
+    queryFn: () => api.get<Array<{ companyId: string; companyName: string; status: string; url?: string; notes?: string; deliveredAt?: string }>>('/platform/landings'),
+  });
+  const [editing, setEditing] = useState<{ companyId: string; companyName: string; status: string; url: string; notes: string } | null>(null);
+  const save = useMutation({
+    mutationFn: () => api.patch(`/platform/companies/${editing!.companyId}/landing`, { status: editing!.status, url: editing!.url, notes: editing!.notes }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['landings'] });
+      toast.success('Landing actualizada');
+      setEditing(null);
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : 'Error'),
+  });
+  if (!data) return <Loading />;
+  const LABEL: Record<string, { label: string; tone: 'bad' | 'warn' | 'ok' }> = { PENDING: { label: 'Por hacer', tone: 'bad' }, BUILDING: { label: 'En construcción', tone: 'warn' }, DELIVERED: { label: 'Entregada', tone: 'ok' } };
+  return (
+    <div className="space-y-4">
+      <p className="border-2 border-line bg-bone px-4 py-3 text-sm text-ink-2">
+        Regalo de la primera suscripción: landing básica (solo de vista, botón a WhatsApp), sin dominio, alojada gratis en Vercel. El cliente la conserva aunque se vaya.
+      </p>
+      {data.length === 0 ? <EmptyState title="Sin landings pendientes" hint="Aparecen aquí cuando se activa la primera suscripción de una empresa." /> : (
+        <ul className="space-y-2">
+          {data.map((l) => (
+            <li key={l.companyId} className="flex flex-wrap items-center justify-between gap-3 border-2 border-ink bg-paper p-3 text-sm">
+              <span className="flex flex-wrap items-center gap-2">
+                <b>{l.companyName}</b>
+                <Badge tone={LABEL[l.status]?.tone ?? 'warn'}>{LABEL[l.status]?.label ?? l.status}</Badge>
+                {l.url && <a href={l.url} target="_blank" rel="noopener noreferrer" className="underline">{l.url.replace(/^https:\/\//, '')}</a>}
+              </span>
+              <Button size="sm" variant="outline" onClick={() => setEditing({ companyId: l.companyId, companyName: l.companyName, status: l.status, url: l.url ?? '', notes: l.notes ?? '' })}>Actualizar</Button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <Modal open={!!editing} onClose={() => setEditing(null)} kicker="Landing de regalo" title={editing?.companyName ?? ''}>
+        {editing && (
+          <div className="space-y-4">
+            <Field label="Estado">
+              <Select value={editing.status} onChange={(e) => setEditing({ ...editing, status: e.target.value })}>
+                <option value="PENDING">Por hacer</option>
+                <option value="BUILDING">En construcción</option>
+                <option value="DELIVERED">Entregada</option>
+              </Select>
+            </Field>
+            <Field label="Enlace" hint="Ej.: https://donarosa.vercel.app — obligatorio para marcarla entregada">
+              <Input value={editing.url} placeholder="https://" onChange={(e) => setEditing({ ...editing, url: e.target.value.trim() })} />
+            </Field>
+            <Field label="Notas internas"><Textarea rows={3} value={editing.notes} onChange={(e) => setEditing({ ...editing, notes: e.target.value })} /></Field>
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setEditing(null)}>Cancelar</Button>
+              <Button disabled={save.isPending} onClick={() => save.mutate()}>Guardar</Button>
+            </div>
+          </div>
+        )}
+      </Modal>
+    </div>
+  );
+}
+
 export default function Ventas() {
   const [tab, setTab] = useState('orders');
   return (
     <>
       <PageHeader kicker="Compras desde el panel" title="Ventas" />
       <div className="mb-5">
-        <Tabs active={tab} onChange={setTab} tabs={[{ id: 'orders', label: 'Pedidos' }, { id: 'methods', label: 'Métodos de pago' }]} />
+        <Tabs
+          active={tab}
+          onChange={setTab}
+          tabs={[{ id: 'orders', label: 'Pedidos' }, { id: 'addons', label: 'Complementos' }, { id: 'landings', label: 'Landings' }, { id: 'methods', label: 'Métodos de pago' }]}
+        />
       </div>
-      {tab === 'orders' ? <OrdersTab /> : <MethodsTab />}
+      {tab === 'orders' && <OrdersTab />}
+      {tab === 'addons' && <AddonsTab />}
+      {tab === 'landings' && <LandingsTab />}
+      {tab === 'methods' && <MethodsTab />}
     </>
   );
 }

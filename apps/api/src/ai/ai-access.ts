@@ -269,6 +269,8 @@ async function platformCandidate(
       reason: 'La IA de BackOffice no está configurada (DEEPINFRA_API_KEY en .env o Dev Tools → Settings)',
     };
   }
+  // "Todo incluido": mes vencido, se paga lo consumido (sin créditos ni topes)
+  if (company?.serviceMode === 'MANAGED') return { apiKey: key, billedTo: 'PLATFORM' };
   const credits = await computeAiCredits(prisma, company);
   if (credits.capReached) {
     return { ok: false, code: 'CAP_REACHED', reason: `Se alcanzó el tope mensual de IA (USD ${credits.capUsd})` };
@@ -420,6 +422,8 @@ export async function recordAiUsage(
   if (entry.billedTo !== 'PLATFORM') return { alert: null };
   const company = await prisma.company.findUnique({ where: { id: entry.companyId } });
   if (!company) return { alert: null };
+  // "Todo incluido" se factura por costo real a fin de mes: no descuenta créditos
+  if (company.serviceMode === 'MANAGED') return { alert: null };
   const weight = catalogEntry?.creditsPerConversation
     ?? REFERENCE_MODELS.find((m) => m.modelId === entry.model)?.creditsPerConversation
     ?? 1;

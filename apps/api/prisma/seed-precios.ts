@@ -10,6 +10,7 @@
  * Correr: pnpm --filter @backoffice/api db:seed:precios
  */
 import { PrismaClient } from '@prisma/client';
+import { WPP_PLANS } from '../src/common/offer';
 
 
 type PlanSeed = {
@@ -228,15 +229,25 @@ const PREMIUM_MODELS = [
 
 /** Siembra/actualiza planes por rubro y paquetes (la usa también el seed de producción). */
 export async function seedPrecios(prisma: PrismaClient) {
+  // Oferta vigente: "Automatización humanizada de WhatsApp" (línea WPP), igual para todos los rubros
+  for (const p of WPP_PLANS) {
+    const { features, ...data } = p;
+    await prisma.plan.upsert({
+      where: { code: p.code },
+      create: { ...data, line: 'WPP', currency: 'COP', active: true, maxWorkspaces: 1, featuresJson: JSON.stringify(features), includedAiConversations: 0, includedMetaUsd: 10 },
+      update: { ...data, line: 'WPP', currency: 'COP', active: true, featuresJson: JSON.stringify(features), includedMetaUsd: 10 },
+    });
+    console.log(`WPP · ${p.name}: Tu IA $${p.priceMonthly.toLocaleString('es-CO')} · Todo incluido $${p.priceManaged.toLocaleString('es-CO')}`);
+  }
+  // Planes por rubro (oct 2026): quedan para quien ya los tiene, no se ofrecen a nuevos
   for (const [line, plans] of Object.entries(RUBROS)) {
     for (const p of plans) {
       const { features, ...data } = p;
       await prisma.plan.upsert({
         where: { code: p.code },
-        create: { ...data, line, currency: 'COP', active: true, featuresJson: JSON.stringify(features), includedAiConversations: 0 },
-        update: { ...data, line, currency: 'COP', active: true, featuresJson: JSON.stringify(features) },
+        create: { ...data, line, currency: 'COP', active: false, featuresJson: JSON.stringify(features), includedAiConversations: 0 },
+        update: { ...data, line, currency: 'COP', active: false, featuresJson: JSON.stringify(features) },
       });
-      console.log(`${line} · ${p.name}: desde COP ${p.priceMonthly.toLocaleString('es-CO')} (anual ${(p.priceMonthly * 10).toLocaleString('es-CO')})`);
     }
   }
   for (const pkg of PACKAGES) {
