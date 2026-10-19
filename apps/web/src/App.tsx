@@ -13,6 +13,9 @@ const PlatformUsers = lazy(() => import('./pages/platform/Users'));
 const Registros = lazy(() => import('./pages/platform/Registros'));
 const AiCosts = lazy(() => import('./pages/company/AiCosts'));
 const MyPlan = lazy(() => import('./pages/company/MyPlan'));
+const Reactivation = lazy(() => import('./pages/company/Reactivation'));
+const Collections = lazy(() => import('./pages/company/Collections'));
+const SalesAudit = lazy(() => import('./pages/company/SalesAudit'));
 const Incidents = lazy(() => import('./pages/platform/Incidents'));
 const PublicTerms = lazy(() => import('./components/Terms').then((m) => ({ default: m.PublicTerms })));
 const TermsAdmin = lazy(() => import('./pages/platform/TermsAdmin'));
@@ -162,6 +165,9 @@ export default function App() {
         <Route path="/app/usage" element={<Usage />} />
         <Route path="/app/costos-ia" element={<AiCosts />} />
         <Route path="/app/mi-plan" element={<MyPlan />} />
+        <Route path="/app/reactivacion" element={<Reactivation />} />
+        <Route path="/app/cobranza" element={<Collections />} />
+        <Route path="/app/auditor" element={<SalesAudit />} />
         <Route path="/app/agenda" element={<Agenda />} />
         <Route path="/app/gerencia" element={<Gerencia />} />
         <Route path="/app/analytics" element={<Analytics />} />

@@ -18,6 +18,8 @@ export interface AddonState {
   until?: string | null;
   requestedAt?: string | null;
   credits?: number;
+  /** Ajustes del motor del complemento (addon-config.ts) */
+  config?: Record<string, any>;
 }
 
 const CATALOG_KEY = 'ADDON_CATALOG';
@@ -111,4 +113,15 @@ export function cancelDeadline(now = new Date()): Date {
 
 export function isAddonKey(v: unknown): v is AddonKey {
   return typeof v === 'string' && ADDONS.some((a) => a.key === v);
+}
+
+/** Complementos con sección propia en el panel de la empresa (Company.modulesJson). */
+export const ADDON_MODULES: Record<string, string> = { reactivation: 'reactivation', collections: 'collections', salesAudit: 'salesAudit' };
+
+/** Módulos de la empresa con las secciones de complementos al día según su estado. */
+export function modulesWithAddons(modules: string[], states: Record<string, AddonState>): string[] {
+  const managed = new Set(Object.values(ADDON_MODULES));
+  const out = modules.filter((m) => !managed.has(m));
+  for (const [key, mod] of Object.entries(ADDON_MODULES)) if (states[key]?.enabled) out.push(mod);
+  return out;
 }

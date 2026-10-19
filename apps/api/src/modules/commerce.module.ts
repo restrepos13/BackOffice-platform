@@ -6,7 +6,7 @@ import { randomBytes } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { CurrentUser, Public, Roles } from '../auth/decorators';
 import { AuthUser, ROLES, isPlatformRole, parseJson } from '../common/constants';
-import { addonCatalog, cancelDeadline, isAddonKey, readAddonStates, saveAddonCatalog } from '../common/addons';
+import { addonCatalog, cancelDeadline, isAddonKey, modulesWithAddons, readAddonStates, saveAddonCatalog } from '../common/addons';
 import { periodOf, shiftPeriod } from '../common/billing-engine';
 import { HUMAN_OVERSIGHT_NOTICE, LANDING_NOTICE, META_NOTICE, NUMBERS_NOTICE, REFERRAL, SERVICE_MODES, planPriceFor, serviceModeOf } from '../common/offer';
 import { AuditModule, AuditService } from './audit.module';
@@ -113,7 +113,10 @@ export class CommerceService {
     const st = states[key];
     if (!st?.enabled && !st?.requestedAt) throw new BadRequestException('Ese complemento no está activo');
     states[key] = { ...st, enabled: false, requestedAt: null, ...(st?.enabled ? { until: new Date().toISOString() } : {}) };
-    await this.prisma.company.update({ where: { id }, data: { addonsJson: JSON.stringify(states) } });
+    await this.prisma.company.update({
+      where: { id },
+      data: { addonsJson: JSON.stringify(states), modulesJson: JSON.stringify(modulesWithAddons(parseJson<string[]>(company.modulesJson, []), states)) },
+    });
     await this.audit.log({ actor: user, companyId: id, action: 'addon.cancel', entity: 'Company', entityId: id, detail: key });
     return this.addons(user, id);
   }
@@ -136,10 +139,10 @@ export class CommerceService {
       ...(enabled && !prev.enabled ? { since: now, until: null, requestedAt: null } : {}),
       ...(!enabled && prev.enabled ? { until: now } : {}),
     };
-    // El extra de redes sociales usa su propia sección del panel
-    const modules = parseJson<string[]>(company.modulesJson, []);
-    const data: Record<string, any> = { addonsJson: JSON.stringify(states) };
-    if (key === 'social' && enabled && !modules.includes('marketing')) data.modulesJson = JSON.stringify([...modules, 'marketing']);
+    // Cada complemento con sección propia aparece (o se oculta) en el menú de la empresa
+    let modules = modulesWithAddons(parseJson<string[]>(company.modulesJson, []), states);
+    if (key === 'social' && enabled && !modules.includes('marketing')) modules = [...modules, 'marketing'];
+    const data: Record<string, any> = { addonsJson: JSON.stringify(states), modulesJson: JSON.stringify(modules) };
     await this.prisma.company.update({ where: { id: companyId }, data });
     await this.audit.log({ actor, companyId, action: enabled ? 'addon.activate' : 'addon.deactivate', entity: 'Company', entityId: companyId, detail: def.name });
     return this.addons(actor, companyId);

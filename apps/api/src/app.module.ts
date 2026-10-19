@@ -48,6 +48,7 @@ import { CheckoutModule } from './modules/checkout.module';
 import { MetaAdsModule } from './modules/meta-ads.module';
 import { IncidentsModule } from './modules/incidents.module';
 import { CommerceModule } from './modules/commerce.module';
+import { AddonEnginesModule } from './modules/addons/addon-engines.module';
 import { InboundOrdersModule } from './modules/inbound-orders.module';
 import { AiSetupModule } from './modules/ai-setup.module';
 import { SignupModule } from './modules/signup.module';
@@ -105,6 +106,7 @@ import { ScheduleModule } from '@nestjs/schedule';
     MetaAdsModule,
     IncidentsModule,
     CommerceModule,
+    AddonEnginesModule,
     InboundOrdersModule,
     AiSetupModule,
     SignupModule,

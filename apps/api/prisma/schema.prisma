@@ -1253,6 +1253,74 @@ model AiKeyUsage {
   @@unique([provider, fingerprint, day])
 }
 
+/// Cada mensaje que mandan los complementos automáticos (reactivación y
+/// cobranza) y su resultado: respondió, volvió a comprar, pagó.
+model AddonTouch {
+  id             String    @id @default(cuid()) @map("_id")
+  companyId      String
+  /// REACTIVATION | COLLECTIONS
+  addon          String
+  contactId      String?
+  conversationId String?
+  receivableId   String?
+  /// Escalón: días sin comprar (30/60/90) o número de recordatorio (1, 2, 3)
+  step           Int       @default(1)
+  messageId      String?
+  /// SENT | SKIPPED | REPLIED | RECOVERED | PAID
+  status         String    @default("SENT")
+  skipReason     String?
+  /// Venta recuperada o pago recibido después del mensaje
+  amount         Float?
+  resultAt       DateTime?
+  createdAt      DateTime  @default(now())
+
+  @@index([companyId, addon, createdAt])
+  @@index([contactId])
+}
+
+/// Cuentas por cobrar de la empresa (cobranza humanizada): salen solas de los
+/// pedidos sin pagar o se crean a mano (servicios, cuotas, cartera).
+model Receivable {
+  id             String    @id @default(cuid()) @map("_id")
+  companyId      String
+  contactId      String
+  orderId        String?
+  concept        String
+  amount         Float
+  dueDate        DateTime
+  /// PENDING | PAID | CANCELLED
+  status         String    @default("PENDING")
+  remindersSent  Int       @default(0)
+  lastReminderAt DateTime?
+  paidAt         DateTime?
+  notes          String?
+  createdBy      String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@index([companyId, status])
+  @@index([orderId])
+}
+
+/// Informe semanal del auditor de ventas: por qué se perdieron ventas.
+model SalesAudit {
+  id                  String   @id @default(cuid()) @map("_id")
+  companyId           String
+  periodStart         DateTime
+  periodEnd           DateTime
+  statsJson           String
+  reasonsJson         String
+  recommendationsJson String
+  examplesJson        String   @default("[]")
+  /// IA | REGLAS (si no hubo IA disponible)
+  source              String   @default("REGLAS")
+  model               String?
+  tokens              Int      @default(0)
+  createdAt           DateTime @default(now())
+
+  @@index([companyId, createdAt])
+}
+
 /// Incidentes 24/7: el bot no pudo responder (IA caída), un mensaje no salió,
 /// un trabajo de la cola falló… Se agrupan por empresa y tipo, se avisa al
 /// equipo de inmediato y se cierran solos tras 30 min sin repetirse.

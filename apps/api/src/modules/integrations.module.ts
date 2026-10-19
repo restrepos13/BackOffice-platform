@@ -13,6 +13,7 @@ import {
   Query,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { assertChannelAllowed } from '../common/channel-limits';
 import { CurrentUser, Roles } from '../auth/decorators';
 import {
   AuthUser,
@@ -117,6 +118,7 @@ export class IntegrationsService {
     const company = await this.prisma.company.findUniqueOrThrow({
       where: { id: companyId },
     });
+    await assertChannelAllowed(this.prisma, companyId, dto.type);
     const integration = await this.prisma.integration.create({
       data: {
         companyId,
@@ -190,6 +192,7 @@ export class IntegrationsService {
     const company = await this.prisma.company.findUniqueOrThrow({
       where: { id: source.companyId },
     });
+    await assertChannelAllowed(this.prisma, source.companyId, source.type);
     const copy = await this.prisma.integration.create({
       data: {
         companyId: source.companyId,

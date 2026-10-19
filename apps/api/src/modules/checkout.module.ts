@@ -10,7 +10,7 @@ import { AuthUser, ROLES, isPlatformRole, parseJson } from '../common/constants'
 import { ANNUAL_MONTHS_CHARGED, periodOf } from '../common/billing-engine';
 import { recommendPlan } from '../common/plan-recommend';
 import { estimateAiCosts } from '../common/ai-cost';
-import { addonCatalog, isAddonKey, readAddonStates } from '../common/addons';
+import { addonCatalog, isAddonKey, modulesWithAddons, readAddonStates } from '../common/addons';
 import {
   AI_RESALE_MARKUP, HUMAN_OVERSIGHT_NOTICE, LANDING_NOTICE, MAX_IMPLEMENTATION_DAYS, META_NOTICE, NUMBERS_NOTICE,
   SERVICE_MODES, type ServiceMode, planPriceFor,
@@ -436,6 +436,7 @@ export class CheckoutService {
         // "Todo incluido" usa la IA de BackOffice; "Tu IA", la llave del cliente
         aiBillingMode: mode === 'MANAGED' ? 'PLATFORM' : 'BYOK',
         addonsJson: JSON.stringify(states),
+        modulesJson: JSON.stringify(modulesWithAddons(parseJson<string[]>(company.modulesJson, []), states)),
         ...(firstTime && !landing.status ? { landingJson: JSON.stringify({ status: 'PENDING', createdAt: now }) } : {}),
       },
     });
