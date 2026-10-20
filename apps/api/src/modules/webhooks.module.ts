@@ -1,3 +1,4 @@
+import { ChatOrigin, originFromMeta, originUpdates } from '../common/chat-origin';
 import {
   Body,
   Controller,
@@ -69,6 +70,7 @@ export class WebhooksService {
   private async store(input: {
     companyId: string; line: any; channel: 'WHATSAPP' | 'INSTAGRAM' | 'MESSENGER';
     providerId: string; contactKey: { phone?: string; externalId?: string }; name: string; text: string; type: string;
+    origin?: ChatOrigin | null;
   }) {
     // Idempotencia: los reintentos de Meta no duplican nada
     const dup = await this.prisma.message.findFirst({ where: { providerId: input.providerId } });
@@ -92,6 +94,7 @@ export class WebhooksService {
       },
       orderBy: { lastMessageAt: 'desc' },
     });
+    const isNewConversation = !conversation;
     if (!conversation) {
       conversation = await this.prisma.conversation.create({
         data: {
@@ -100,6 +103,10 @@ export class WebhooksService {
         },
       });
     }
+    // De dónde llegó (anuncio de Meta, publicación o directo)
+    const origin = originUpdates(input.origin ?? null, conversation, contact, isNewConversation);
+    if (origin.conversation) conversation = await this.prisma.conversation.update({ where: { id: conversation.id }, data: origin.conversation });
+    if (origin.contact) contact = await this.prisma.contact.update({ where: { id: contact.id }, data: origin.contact });
     const message = await this.prisma.message.create({
       data: {
         conversationId: conversation.id, direction: 'IN', author: 'CONTACT',
@@ -152,6 +159,7 @@ export class WebhooksService {
           if (await this.store({
             companyId: company.id, line, channel: 'WHATSAPP', providerId: String(message.id ?? `wa_${Date.now()}`),
             contactKey: { phone }, name, text, type: message.type === 'image' ? 'IMAGE' : 'TEXT',
+            origin: originFromMeta(message),
           })) stored++;
         }
       }

@@ -5,7 +5,8 @@ import { Link } from 'react-router-dom';
 import { toast } from 'sonner';
 import { api } from '../../lib/api';
 import { fmtMoney, timeAgo } from '../../lib/format';
-import { Badge, Button, Card, Field, Input, Loading, Modal, PageHeader, Select, Stat, Textarea } from '../../components/ui';
+import { Badge, Button, Card, Field, Input, Loading, Modal, PageHeader, Select, Stat, Switch, Textarea } from '../../components/ui';
+import ScheduleCall from '../../components/ScheduleCall';
 import { PickCompany, useCompanyScope, withScope } from './shared';
 
 /**
@@ -15,6 +16,7 @@ import { PickCompany, useCompanyScope, withScope } from './shared';
 
 interface Config { thresholds: number[]; templateKey: string | null; message: string; offer: string; maxPerDay: number; sendHour: number; cooldownDays: number }
 interface Summary {
+  auto: boolean;
   config: Config;
   templates: Array<{ key: string; name: string; body: string }>;
   dormant: { total: number; byStep: Array<{ step: number; count: number }>; sample: Array<{ name: string; dormantDays: number; lastProduct: string | null; basis: string }> };
@@ -64,6 +66,12 @@ export default function Reactivation() {
     onError: (e) => toast.error(e instanceof Error ? e.message : 'Error'),
   });
 
+  const auto = useMutation({
+    mutationFn: (on: boolean) => api.put<{ auto: boolean }>(withScope('/addons/reactivation/auto', q), { auto: on }),
+    onSuccess: (r) => { queryClient.invalidateQueries({ queryKey: ['reactivation'] }); toast.success(r.auto ? 'Listo: desde ahora le escribe a tus clientes dormidos solo, todos los días' : 'Envíos automáticos apagados'); },
+    onError: (e) => toast.error(e instanceof Error ? e.message : 'Error'),
+  });
+
   if (!ready) return <PickCompany />;
   if (error) return <Card title="Reactivación de clientes"><p className="text-sm">{error instanceof Error ? error.message : 'No disponible'} <Link to="/app/mi-plan" className="font-semibold underline">Ir a Mi plan</Link></p></Card>;
   if (isLoading || !data || !form) return <Loading />;
@@ -72,7 +80,15 @@ export default function Reactivation() {
 
   return (
     <>
-      <PageHeader kicker="Complemento" title="Reactivación" accent="de clientes" actions={canWrite && <Button disabled={!data.dormant.total} onClick={() => setConfirm(true)}><Play size={14} /> Enviar ahora</Button>} />
+      <PageHeader kicker="Incluido en tu plan" title="Reactivación" accent="de clientes" actions={canWrite && <Button disabled={!data.dormant.total} onClick={() => setConfirm(true)}><Play size={14} /> Enviar ahora</Button>} />
+
+      <div className={`mb-6 flex flex-wrap items-center justify-between gap-3 border-2 p-4 ${data.auto ? 'border-ink bg-ok-soft' : 'border-line bg-paper'}`}>
+        <div className="text-sm">
+          <p className="font-semibold">{data.auto ? 'Envíos automáticos encendidos' : 'Envíos automáticos apagados'}</p>
+          <p className="text-ink-2">{data.auto ? `Cada día a las ${form.sendHour}:00 le escribe a tus clientes dormidos solo, respetando tus límites.` : 'Incluido en tu plan. Revisa los ajustes y enciéndelo cuando quieras; mientras tanto puedes enviar a mano.'}</p>
+        </div>
+        {canWrite && <Switch checked={data.auto} disabled={auto.isPending} onChange={(v) => auto.mutate(v)} label="Envíos automáticos" showLabel />}
+      </div>
 
       <div className="mb-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-5">
         <Stat label="Dormidos hoy" value={data.dormant.total} hint={data.dormant.byStep.map((s) => `${s.count} de ${s.step}+ días`).join(' · ')} />
@@ -83,10 +99,11 @@ export default function Reactivation() {
       </div>
 
       {!template && (
-        <p className="mb-6 border-2 border-warn bg-warn-soft px-4 py-3 text-sm">
+        <div className="mb-6 border-2 border-warn bg-warn-soft px-4 py-3 text-sm">
           Para escribirle a quien no te ha escrito en las últimas 24 horas, Meta exige una <b>plantilla aprobada</b> (categoría marketing).
-          Sin ella solo se envía a quien te escribió hace poco. Pide a tu asesor que la registre y elígela abajo.
-        </p>
+          Sin ella solo se envía a quien te escribió hace poco. La registramos nosotros contigo ante Meta.
+          <span className="mt-2 block"><ScheduleCall q={q} topic="TEMPLATES" size="sm" label="Agéndame para crear la plantilla" /></span>
+        </div>
       )}
 
       <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_380px]">
@@ -134,7 +151,7 @@ export default function Reactivation() {
               ))}
             </ul>
           )}
-          <p className="mt-3 text-xs text-ink-3">Nunca le escribe a quien pidió no recibir mensajes. Se envía solo a la hora elegida, todos los días.</p>
+          <p className="mt-3 text-xs text-ink-3">Nunca le escribe a quien pidió no recibir mensajes. Con los envíos automáticos encendidos, sale solo a la hora elegida.</p>
         </Card>
       </div>
 

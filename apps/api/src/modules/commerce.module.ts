@@ -6,9 +6,9 @@ import { randomBytes } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { CurrentUser, Public, Roles } from '../auth/decorators';
 import { AuthUser, ROLES, isPlatformRole, parseJson } from '../common/constants';
-import { addonCatalog, cancelDeadline, isAddonKey, modulesWithAddons, readAddonStates, saveAddonCatalog } from '../common/addons';
+import { addonCatalog, cancelDeadline, hasPlan, isAddonKey, modulesWithAddons, readAddonStates, saveAddonCatalog } from '../common/addons';
 import { periodOf, shiftPeriod } from '../common/billing-engine';
-import { HUMAN_OVERSIGHT_NOTICE, LANDING_NOTICE, META_NOTICE, NUMBERS_NOTICE, REFERRAL, SERVICE_MODES, planPriceFor, serviceModeOf } from '../common/offer';
+import { HUMAN_OVERSIGHT_NOTICE, INCLUDED_ADDONS, LANDING_NOTICE, META_NOTICE, NUMBERS_NOTICE, REFERRAL, SERVICE_MODES, planPriceFor, serviceModeOf } from '../common/offer';
 import { AuditModule, AuditService } from './audit.module';
 import { EmailsModule, EmailsService } from './emails.module';
 
@@ -72,6 +72,7 @@ export class CommerceService {
       nextBillingDay: new Date(deadline.getTime() + 1),
       addons: catalog.map((a) => {
         const st = states[a.key];
+        if (a.included) return { ...a, active: hasPlan(company), qty: 1, since: null, until: null, requested: false, monthly: 0 };
         return {
           ...a,
           active: !!st?.enabled,
@@ -87,6 +88,7 @@ export class CommerceService {
 
   async request(user: AuthUser, key: string, dto: { qty?: number; companyId?: string }) {
     if (!isAddonKey(key)) throw new NotFoundException('Ese complemento no existe');
+    if ((INCLUDED_ADDONS as string[]).includes(key)) throw new BadRequestException('Eso ya viene incluido en tu plan, no tiene costo extra');
     const id = this.companyIdOf(user, dto?.companyId);
     const def = (await addonCatalog(this.prisma)).find((a) => a.key === key)!;
     if (def.status !== 'AVAILABLE') throw new BadRequestException(`${def.name} estará disponible próximamente`);
@@ -107,6 +109,7 @@ export class CommerceService {
   /** La empresa lo apaga cuando quiera: se cobra solo hasta el mes en curso. */
   async cancel(user: AuthUser, key: string, dto: { companyId?: string }) {
     if (!isAddonKey(key)) throw new NotFoundException('Ese complemento no existe');
+    if ((INCLUDED_ADDONS as string[]).includes(key)) throw new BadRequestException('Eso ya viene incluido en tu plan, no tiene costo extra');
     const id = this.companyIdOf(user, dto?.companyId);
     const company = await this.prisma.company.findUniqueOrThrow({ where: { id } });
     const states = readAddonStates(company);
@@ -115,7 +118,7 @@ export class CommerceService {
     states[key] = { ...st, enabled: false, requestedAt: null, ...(st?.enabled ? { until: new Date().toISOString() } : {}) };
     await this.prisma.company.update({
       where: { id },
-      data: { addonsJson: JSON.stringify(states), modulesJson: JSON.stringify(modulesWithAddons(parseJson<string[]>(company.modulesJson, []), states)) },
+      data: { addonsJson: JSON.stringify(states), modulesJson: JSON.stringify(modulesWithAddons(parseJson<string[]>(company.modulesJson, []), states, hasPlan(company))) },
     });
     await this.audit.log({ actor: user, companyId: id, action: 'addon.cancel', entity: 'Company', entityId: id, detail: key });
     return this.addons(user, id);
@@ -125,6 +128,7 @@ export class CommerceService {
 
   async setAddon(actor: AuthUser, companyId: string, key: string, dto: { enabled?: boolean; qty?: number; price?: number | null }) {
     if (!isAddonKey(key)) throw new NotFoundException('Ese complemento no existe');
+    if ((INCLUDED_ADDONS as string[]).includes(key)) throw new BadRequestException('Eso ya viene incluido en tu plan, no tiene costo extra');
     const company = await this.prisma.company.findUniqueOrThrow({ where: { id: companyId } });
     const def = (await addonCatalog(this.prisma)).find((a) => a.key === key)!;
     const states = readAddonStates(company);
@@ -140,7 +144,7 @@ export class CommerceService {
       ...(!enabled && prev.enabled ? { until: now } : {}),
     };
     // Cada complemento con sección propia aparece (o se oculta) en el menú de la empresa
-    let modules = modulesWithAddons(parseJson<string[]>(company.modulesJson, []), states);
+    let modules = modulesWithAddons(parseJson<string[]>(company.modulesJson, []), states, hasPlan(company));
     if (key === 'social' && enabled && !modules.includes('marketing')) modules = [...modules, 'marketing'];
     const data: Record<string, any> = { addonsJson: JSON.stringify(states), modulesJson: JSON.stringify(modules) };
     await this.prisma.company.update({ where: { id: companyId }, data });
@@ -202,7 +206,7 @@ export class CommerceService {
         includedMetaUsd: p.includedMetaUsd ?? 10, highlight: p.highlight, features: parseJson<string[]>(p.featuresJson, []),
       })),
       modes: SERVICE_MODES,
-      addons: catalog.map((a) => ({ name: a.name, description: a.description, price: a.price, perUnit: a.perUnit ?? null, status: a.status })),
+      addons: catalog.map((a) => ({ name: a.name, description: a.description, price: a.price, perUnit: a.perUnit ?? null, status: a.status, included: !!a.included })),
       notices: { numbers: NUMBERS_NOTICE, meta: META_NOTICE, landing: LANDING_NOTICE, humanOversight: HUMAN_OVERSIGHT_NOTICE },
     };
   }

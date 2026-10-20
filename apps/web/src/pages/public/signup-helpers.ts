@@ -13,6 +13,8 @@ export interface Preview {
   company: { name: string; city: string; summary: string };
   proposal: SetupProposal;
   blueprint: BusinessBlueprint;
+  /** Tipo de negocio detectado y herramientas que no le aplican */
+  profile?: { key: string; label: string; hide: string[] };
   mode?: 'ai' | 'guided';
 }
 

@@ -338,6 +338,8 @@ model Contact {
   pipelineId String?
   // Identificadores en otros canales (Instagram / Messenger)
   externalId String?
+  /// Primer origen del contacto (anuncio, publicación o directo); no se sobreescribe
+  originJson     String?
 }
 
 // ─── Conversaciones y mensajes ───────────────────────────────────────
@@ -364,6 +366,8 @@ model Conversation {
   unreadCount    Int          @default(0)
   lastMessageAt  DateTime     @default(now())
   createdAt      DateTime     @default(now())
+  /// De dónde llegó: anuncio de Meta, publicación o directo (common/chat-origin.ts)
+  originJson     String?
 
   messages Message[]
   orders   Order[]
@@ -1451,4 +1455,29 @@ model StoredFile {
 
   @@unique([companyId, name])
   @@index([companyId])
+}
+
+/// Cita con un agente de BackOffice. Lo técnico (IA, WhatsApp, plantillas de
+/// Meta) lo configuramos nosotros en una llamada: el cliente nunca queda solo.
+model AgentCall {
+  id          String    @id @default(cuid()) @map("_id")
+  companyId   String
+  userId      String?
+  requestedBy String
+  /// SETUP | AI | WHATSAPP | TEMPLATES | PLAN | TEAM | OTHER
+  topic       String
+  slotAt      DateTime
+  phone       String
+  notes       String?
+  /// REQUESTED | CONFIRMED | DONE | CANCELLED | NO_SHOW
+  status      String    @default("REQUESTED")
+  agentName   String?
+  meetUrl     String?
+  doneNotes   String?
+  cancelledBy String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @default(now())
+
+  @@index([companyId])
+  @@index([slotAt])
 }

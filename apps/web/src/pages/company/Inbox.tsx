@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { clsx } from 'clsx';
 import {
-  AlertTriangle, ArrowLeft, Bot, Check, CheckCheck, Hand,
+  AlertTriangle, ArrowLeft, Bot, Check, CheckCheck, Hand, Info,
   Image as ImageIcon, MapPin, Paperclip, Receipt, Search, Send, UserRound, X, Zap,
 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
@@ -18,6 +18,7 @@ import {
 } from '../../components/ui';
 import { MediaImage, MessageFile } from '../../components/media';
 import { AppointmentModal, FollowUpModal } from './Agenda';
+import ChatInsights from '../../components/ChatInsights';
 import { PickCompany, useCompanyScope, withScope } from './shared';
 
 /** Ticks de entrega estilo WhatsApp para mensajes salientes. */
@@ -133,6 +134,7 @@ export default function Inbox() {
   const [managingReplies, setManagingReplies] = useState(false);
   const [replyIndex, setReplyIndex] = useState(0);
   const [photoPicker, setPhotoPicker] = useState(false);
+  const [showInfo, setShowInfo] = useState(() => { try { return localStorage.getItem('inbox-info') !== '0'; } catch { return true; } });
   const [scheduling, setScheduling] = useState(false);
   const [followingUp, setFollowingUp] = useState(false);
   const [typingBy, setTypingBy] = useState<string | null>(null);
@@ -398,6 +400,14 @@ export default function Inbox() {
                       <Hand size={12} /> Modo humano
                     </Button>
                   )}
+                  <Button
+                    size="sm"
+                    variant={showInfo ? undefined : 'outline'}
+                    aria-pressed={showInfo}
+                    onClick={() => setShowInfo((v) => { try { localStorage.setItem('inbox-info', v ? '0' : '1'); } catch { /* sin almacenamiento */ } return !v; })}
+                  >
+                    <Info size={12} /> Info del chat
+                  </Button>
                   <Button size="sm" variant="outline" onClick={() => setScheduling(true)}>
                     Agendar cita
                   </Button>
@@ -423,6 +433,12 @@ export default function Inbox() {
                 </div>
               )}
             </header>
+
+            {showInfo && (
+              <div className="max-h-[45%] shrink-0 overflow-y-auto">
+                <ChatInsights conversationId={detail.id} />
+              </div>
+            )}
 
             <div ref={scrollRef} className="flex-1 space-y-3 overflow-y-auto bg-bone p-4">
               {detail.messages.map((message) => (

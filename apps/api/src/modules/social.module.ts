@@ -42,6 +42,7 @@ import { platformAiKey } from '../ai/ai-access';
 import { extractJson } from '../ai/types';
 import { AuditService } from './audit.module';
 import { EmailsModule, EmailsService } from './emails.module';
+import { usdCopRate } from '../common/trm';
 
 /**
  * Extra "Redes sociales con IA": imágenes generadas (las paga BackOffice, con
@@ -146,6 +147,7 @@ export class SocialService {
       defaults,
       usage: { ...usage, left: Math.max(0, addon.credits - usage.credits) },
       creditCost: CREDIT_COST,
+      usdCop: await usdCopRate(this.prisma),
       imageProvider: img.provider,
       oauthAvailable: !!(app.appId && app.appSecret),
       connection: conn
@@ -543,7 +545,7 @@ No inventes precios ni promociones que no estén en los datos.`,
 
   async platformReport() {
     const companies = await this.prisma.company.findMany({ where: { addonsJson: { contains: '"social"' } }, select: { id: true, name: true, addonsJson: true } });
-    const rate = Number((await this.prisma.platformSetting.findUnique({ where: { key: 'USD_COP_RATE' } }))?.value) || 3200;
+    const rate = await usdCopRate(this.prisma);
     const period = periodOf();
     const out: any[] = [];
     for (const c of companies) {

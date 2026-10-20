@@ -1,3 +1,4 @@
+import { currentTrm } from '../common/trm';
 import {
   BadRequestException,
   Body,
@@ -47,14 +48,15 @@ const SETTING_GROUPS: Array<{ group: string; keys: string[]; purpose: string }> 
   { group: 'Meta', keys: ['META_APP_ID', 'META_VERIFY_TOKEN', 'META_APP_SECRET'], purpose: 'Canales Meta (WhatsApp Cloud, Instagram, Messenger): verificación y firma de webhooks' },
   { group: 'Registro web', keys: ['GEMINI_API_KEYS', 'SIGNUP_NOTIFY_EMAIL'], purpose: 'IA genérica (Gemini, llaves solo en el .env, rotan solas) que arma las empresas nuevas y las acompaña; correo que recibe cada registro' },
   { group: 'Correo', keys: ['SMTP_HOST', 'SMTP_PORT', 'SMTP_USER', 'SMTP_PASS', 'SMTP_FROM'], purpose: 'Envío real de correos (sin esto quedan en cola)' },
-  { group: 'Wompi', keys: ['WOMPI_PUBLIC_KEY', 'WOMPI_INTEGRITY_SECRET', 'WOMPI_EVENTS_SECRET', 'USD_COP_RATE'], purpose: 'Pagos Colombia' },
+  { group: 'Wompi', keys: ['WOMPI_PUBLIC_KEY', 'WOMPI_INTEGRITY_SECRET', 'WOMPI_EVENTS_SECRET'], purpose: 'Pagos Colombia' },
+  { group: 'Dólar (TRM)', keys: ['TRM_MARKUP_COP', 'USD_COP_RATE'], purpose: 'TRM oficial en vivo + margen; la tasa de respaldo solo se usa si no hay conexión' },
   { group: 'Video (MoneyPrinterTurbo)', keys: ['MPT_BASE_URL', 'MPT_API_KEY'], purpose: 'Generación de reels del módulo de marketing' },
 ];
 
 @Injectable()
 export class DevToolsService {
   constructor(
-    private readonly prisma: PrismaService,
+    readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly emails: EmailsService,
     private readonly twilio: TwilioService,
@@ -398,6 +400,16 @@ export class DevToolsController {
   @Delete('apikeys/:id')
   revokeApiKey(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.dev.revokeApiKey(user, id);
+  }
+
+  @Get('trm')
+  trm() {
+    return currentTrm(this.dev.prisma);
+  }
+
+  @Post('trm/refresh')
+  refreshTrm() {
+    return currentTrm(this.dev.prisma, { force: true });
   }
 
   @Get('settings')

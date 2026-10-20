@@ -1,3 +1,5 @@
+import { readAddonStates } from '../../common/addons';
+import { INCLUDED_ADDONS } from '../../common/offer';
 import { BadRequestException, Body, Controller, ForbiddenException, Get, Injectable, Module, Param, Patch, Post, Put, Query } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { CurrentUser, Roles } from '../../auth/decorators';
@@ -37,9 +39,23 @@ export class AddonPanelService {
     if (!id) throw new ForbiddenException('Falta companyId');
     const company = await this.prisma.company.findUniqueOrThrow({ where: { id } });
     if (!addonEnabled(company, key)) {
-      throw new ForbiddenException(`${ADDON_NAMES[key]} no está activo. Pídelo en Mi plan y tu asesor lo configura.`);
+      throw new ForbiddenException(
+        (INCLUDED_ADDONS as string[]).includes(key)
+          ? `${ADDON_NAMES[key]} viene incluido en todos los planes. Elige tu plan en Mi plan y lo dejamos listo contigo.`
+          : `${ADDON_NAMES[key]} no está activo. Pídelo en Mi plan y tu asesor lo configura.`,
+      );
     }
     return company;
+  }
+
+  /** Enciende o apaga los envíos automáticos (reactivación y cobranza). */
+  async setAuto(user: AuthUser, companyId: string | undefined, key: 'reactivation' | 'collections', auto: boolean) {
+    const company = await this.company(user, companyId, key);
+    const states: any = readAddonStates(company);
+    states[key] = { ...(states[key] ?? { enabled: false }), auto: !!auto };
+    await this.prisma.company.update({ where: { id: company.id }, data: { addonsJson: JSON.stringify(states) } });
+    await this.audit.log({ actor: user, companyId: company.id, action: 'addon.auto', entity: 'Company', entityId: company.id, detail: `${ADDON_NAMES[key]}: ${auto ? 'automático' : 'manual'}` });
+    return { auto: !!auto };
   }
 
   async saveConfig(user: AuthUser, companyId: string | undefined, key: 'reactivation' | 'collections' | 'salesAudit', raw: any) {
@@ -61,7 +77,14 @@ export class AddonPanelController {
   /* Reactivación */
   @Get('reactivation')
   async reactivation(@CurrentUser() user: AuthUser, @Query('companyId') companyId?: string) {
-    return this.panel.reactivation.summary(await this.panel.company(user, companyId, 'reactivation'));
+    const company = await this.panel.company(user, companyId, 'reactivation');
+    return { ...(await this.panel.reactivation.summary(company)), auto: readAddonStates(company).reactivation?.auto === true };
+  }
+
+  @Put('reactivation/auto')
+  @Roles(ROLES.SUPER_ADMIN, ROLES.DEV, ROLES.COMPANY_ADMIN)
+  reactivationAuto(@CurrentUser() user: AuthUser, @Body() dto: any, @Query('companyId') companyId?: string) {
+    return this.panel.setAuto(user, companyId, 'reactivation', dto?.auto === true);
   }
 
   @Put('reactivation/config')
@@ -81,7 +104,14 @@ export class AddonPanelController {
   /* Cobranza */
   @Get('collections')
   async collections(@CurrentUser() user: AuthUser, @Query('companyId') companyId?: string) {
-    return this.panel.collections.summary(await this.panel.company(user, companyId, 'collections'));
+    const company = await this.panel.company(user, companyId, 'collections');
+    return { ...(await this.panel.collections.summary(company)), auto: readAddonStates(company).collections?.auto === true };
+  }
+
+  @Put('collections/auto')
+  @Roles(ROLES.SUPER_ADMIN, ROLES.DEV, ROLES.COMPANY_ADMIN)
+  collectionsAuto(@CurrentUser() user: AuthUser, @Body() dto: any, @Query('companyId') companyId?: string) {
+    return this.panel.setAuto(user, companyId, 'collections', dto?.auto === true);
   }
 
   @Put('collections/config')

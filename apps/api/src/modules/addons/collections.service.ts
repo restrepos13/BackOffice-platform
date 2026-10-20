@@ -5,7 +5,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { NOT_DELETED, parseJson } from '../../common/constants';
 import { WA_OUTBOUND_QUEUE } from '../../queue/queue.module';
 import {
-  addonEnabled, approvedTemplates, collectionsConfig, cop, fillText, firstName, localClock,
+  addonAutoSend, addonEnabled, approvedTemplates, collectionsConfig, cop, fillText, firstName, localClock,
 } from '../../common/addon-config';
 import { sendToContact, whatsappLine } from './engine-support';
 
@@ -189,9 +189,9 @@ export class CollectionsService {
 
   @Cron('10 * * * *')
   async hourly() {
-    const companies = await this.prisma.company.findMany({ where: { status: 'ACTIVE', addonsJson: { contains: 'collections' } } }).catch(() => []);
+    const companies = await this.prisma.company.findMany({ where: { status: 'ACTIVE', OR: [{ planId: { not: null } }, { addonsJson: { contains: 'collections' } }] } }).catch(() => []);
     for (const company of companies as any[]) {
-      if (!addonEnabled(company, 'collections')) continue;
+      if (!addonAutoSend(company, 'collections')) continue; // solo si la empresa encendió los envíos automáticos
       try {
         await this.syncFromOrders(company);
         if (localClock(company.timezone).hour !== collectionsConfig(company).sendHour) continue;

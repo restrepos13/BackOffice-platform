@@ -10,6 +10,9 @@ import type {
 import { Badge, Button, Card, Loading, PageHeader, Stat, statusTone } from '../../components/ui';
 import { BarsChart, MessagesChart } from '../../components/charts';
 import { PickCompany, useCompanyScope, withScope } from './shared';
+import ScheduleCall from '../../components/ScheduleCall';
+import { ProgressBar } from '../../components/SetupProgress';
+import TeamQuest from '../../components/TeamQuest';
 
 function greeting(): string {
   const hour = new Date().getHours();
@@ -18,62 +21,73 @@ function greeting(): string {
   return 'Buenas noches';
 }
 
-/** Checklist de primeros pasos — guía amigable hasta dejar la IA operando. */
+/** Primeros pasos: lo técnico lo hace un agente contigo; lo tuyo, en un clic. */
 function SetupChecklist({
   company,
   integrations,
   bots,
   media,
+  q,
 }: {
   company?: Company;
   integrations?: Integration[];
   bots?: Bot[];
   media?: MediaAsset[];
+  q: string;
 }) {
   const lines = (integrations ?? []).filter((i) => i.type === 'WHATSAPP');
-  const steps = [
+  const steps: Array<{ label: string; hint: string; done: boolean; to: string; who: 'agent' | 'you'; optional?: boolean }> = [
+    ...(company?.aiBillingMode === 'PLATFORM'
+      ? []
+      : [{
+          label: 'Conectar tu inteligencia artificial',
+          hint: 'Lo hacemos contigo en la llamada: no tienes que buscar ni copiar nada.',
+          done: !!company?.hasDeepinfraKey,
+          to: '/app/settings',
+          who: 'agent' as const,
+        }]),
     {
-      label: 'Conecta tu llave de DeepInfra',
-      hint: 'Tu IA la necesita para pensar — el costo lo pagas directo al proveedor.',
-      done: !!company?.hasDeepinfraKey,
-      to: '/app/settings',
-    },
-    {
-      label: 'Dale personalidad a tu asistente',
-      hint: 'Prompt, tono y límites — o aplica una plantilla de la biblioteca en un clic.',
-      done: (bots ?? []).some((b) => (b.systemPrompt ?? '').length > 20),
-      to: '/app/bots',
-    },
-    {
-      label: 'Conecta tu línea de WhatsApp',
-      hint: 'El número por el que tu asistente va a atender.',
+      label: 'Conectar tu WhatsApp',
+      hint: 'Tu agente lo deja funcionando contigo. Solo ten tu celular a la mano.',
       done: lines.some((l) => l.status === 'CONNECTED'),
       to: '/app/integrations',
+      who: 'agent',
     },
     {
-      label: 'Activa el asistente',
-      hint: 'Cuando la personalidad esté lista, pásalo de borrador a activo.',
+      label: 'Conocer a tu asistente',
+      hint: 'Ya lo armamos con lo que nos contaste. Míralo y cámbiale lo que quieras.',
+      done: (bots ?? []).some((b) => (b.systemPrompt ?? '').length > 20),
+      to: '/app/bots',
+      who: 'you',
+    },
+    {
+      label: 'Encender tu asistente',
+      hint: 'Cuando te guste cómo responde, lo activamos juntos.',
       done: (bots ?? []).some((b) => b.status === 'ACTIVE'),
       to: '/app/bots',
+      who: 'agent',
     },
     {
-      label: 'Carga tu galería (opcional)',
-      hint: 'Fotos que la IA puede enviar — con precio si son contenido de pago.',
+      label: 'Subir fotos de tus productos',
+      hint: 'Las que el asistente puede enviar a tus clientes.',
       done: (media ?? []).length > 0,
       to: '/app/media',
+      who: 'you',
       optional: true,
     },
   ];
   const corePending = steps.filter((s) => !s.done && !s.optional).length;
   if (corePending === 0) return null;
   const doneCount = steps.filter((s) => s.done).length;
+  const pct = Math.round((doneCount / steps.length) * 100);
 
   return (
     <Card
-      kicker={`Primeros pasos · ${doneCount}/${steps.length}`}
-      title="Deja tu IA operando"
+      kicker={`Primeros pasos · ${pct}% listo`}
+      title="Dejemos tu asistente funcionando"
       className="mb-6"
     >
+      <ProgressBar pct={pct} className="mb-4" />
       <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
         {steps.map((step) => (
           <Link
@@ -95,10 +109,21 @@ function SetupChecklist({
                 {step.label}
                 {step.optional ? ' · opcional' : ''}
               </span>
-              {!step.done && <span className="block text-xs text-ink-3">{step.hint}</span>}
+              {!step.done && (
+                <>
+                  <span className="mt-0.5 inline-block">
+                    <Badge tone={step.who === 'agent' ? 'info' : 'neutral'}>{step.who === 'agent' ? 'Lo hacemos contigo' : 'Tú, en un clic'}</Badge>
+                  </span>
+                  <span className="block text-xs text-ink-3">{step.hint}</span>
+                </>
+              )}
             </span>
           </Link>
         ))}
+      </div>
+      <div className="mt-4 flex flex-wrap items-center gap-3 border-t-2 border-line pt-3">
+        <ScheduleCall q={q} topic="SETUP" label="Agéndame con un agente" defaultPhone={company?.contactPhone ?? ''} />
+        <p className="text-xs text-ink-3">No estás solo: un agente de BackOffice te llama y lo deja listo contigo.</p>
       </div>
     </Card>
   );
@@ -181,11 +206,14 @@ export default function Dashboard() {
         }
       />
 
+      <TeamQuest q={q} />
+
       <SetupChecklist
         company={company}
         integrations={integrations}
         bots={bots}
         media={media}
+        q={q}
       />
 
       {/* Agenda del día */}

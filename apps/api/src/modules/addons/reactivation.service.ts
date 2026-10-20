@@ -5,7 +5,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { NOT_DELETED } from '../../common/constants';
 import { WA_OUTBOUND_QUEUE } from '../../queue/queue.module';
 import {
-  ReactivationConfig, addonEnabled, approvedTemplates, fillText, firstName, localClock, reactivationConfig,
+  ReactivationConfig, addonAutoSend, addonEnabled, approvedTemplates, fillText, firstName, localClock, reactivationConfig,
 } from '../../common/addon-config';
 import { sendToContact, whatsappLine } from './engine-support';
 
@@ -177,9 +177,9 @@ export class ReactivationService {
 
   @Cron('5 * * * *')
   async hourly() {
-    const companies = await this.prisma.company.findMany({ where: { status: 'ACTIVE', addonsJson: { contains: 'reactivation' } } }).catch(() => []);
+    const companies = await this.prisma.company.findMany({ where: { status: 'ACTIVE', OR: [{ planId: { not: null } }, { addonsJson: { contains: 'reactivation' } }] } }).catch(() => []);
     for (const company of companies as any[]) {
-      if (!addonEnabled(company, 'reactivation')) continue;
+      if (!addonAutoSend(company, 'reactivation')) continue; // solo si la empresa encendió los envíos automáticos
       try {
         await this.updateResults(company.id);
         const cfg = reactivationConfig(company);

@@ -1240,6 +1240,7 @@ export interface SocialStatus {
   defaults: { price: number; credits: number };
   usage: { images: number; videos: number; credits: number; costUsd: number; left: number };
   creditCost: { image: number; video: number };
+  usdCop: number;
   imageProvider: string;
   oauthAvailable: boolean;
   connection: {

@@ -319,7 +319,7 @@ function OrdersTab() {
   );
 }
 
-interface CatalogAddon { key: string; name: string; description: string; price: number; perUnit?: string; status: 'AVAILABLE' | 'SOON' }
+interface CatalogAddon { key: string; name: string; description: string; price: number; perUnit?: string; status: 'AVAILABLE' | 'SOON'; included?: boolean }
 
 function AddonsTab() {
   const queryClient = useQueryClient();
@@ -368,7 +368,7 @@ function AddonsTab() {
       </Card>
       <Card kicker="Precio mensual (COP, IVA incluido)" title="Catálogo de complementos" actions={<Button size="sm" disabled={save.isPending} onClick={() => save.mutate()}>Guardar precios</Button>}>
         <div className="grid gap-3 md:grid-cols-2">
-          {catalog.map((a) => (
+          {catalog.filter((a) => !a.included).map((a) => (
             <div key={a.key} className="grid grid-cols-[minmax(0,1fr)_130px_150px] items-center gap-2 border-2 border-line p-3">
               <div className="min-w-0">
                 <p className="text-sm font-semibold">{a.name}</p>

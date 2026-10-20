@@ -239,3 +239,27 @@ describe('límites de canales por plan', () => {
     expect(fillText('Hola {{nombre}}, {{oferta}} ¿Te ayudamos?', { nombre: 'Beto', oferta: '' })).toBe('Hola Beto, ¿Te ayudamos?');
   });
 });
+
+describe('herramientas incluidas en todos los planes', () => {
+  const { addonAutoSend, addonEnabled } = require('../src/common/addon-config');
+  const { modulesWithAddons, addonLinesFor } = require('../src/common/addons');
+  const { ADDONS } = require('../src/common/offer');
+
+  it('con plan se pueden usar, pero solo escriben solas si la empresa enciende los envíos automáticos', () => {
+    const sinPlan = { planId: null, addonsJson: null };
+    const conPlan = { planId: 'p1', addonsJson: null };
+    const encendida = { planId: 'p1', addonsJson: JSON.stringify({ reactivation: { enabled: false, auto: true } }) };
+    expect(addonEnabled(sinPlan, 'reactivation')).toBe(false);
+    expect(addonEnabled(conPlan, 'salesAudit')).toBe(true);
+    expect(addonAutoSend(conPlan, 'reactivation')).toBe(false);
+    expect(addonAutoSend(encendida, 'reactivation')).toBe(true);
+    expect(addonEnabled(conPlan, 'extraChannels')).toBe(false); // ese sí es complemento aparte
+  });
+
+  it('aparecen en el menú con plan y nunca se facturan', () => {
+    expect(modulesWithAddons(['inbox'], {}, true)).toEqual(['inbox', 'reactivation', 'collections', 'salesAudit']);
+    expect(modulesWithAddons(['inbox', 'reactivation'], {}, false)).toEqual(['inbox']);
+    const lines = addonLinesFor({ addonsJson: JSON.stringify({ reactivation: { enabled: true, price: 89000 }, collections: { enabled: true } }) }, ADDONS, '2026-10');
+    expect(lines).toEqual([]);
+  });
+});

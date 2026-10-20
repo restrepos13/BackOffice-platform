@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ChevronLeft, ChevronRight, Download, LayoutGrid, List } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { toast } from 'sonner';
-import { api } from '../../lib/api';
+import { api, downloadPdf } from '../../lib/api';
 import { CHANNEL_LABELS, STAGE_LABELS, timeAgo } from '../../lib/format';
 import type { Contact, Pipeline, PipelineStage } from '../../lib/types';
 import {
@@ -45,6 +45,7 @@ export default function Contacts() {
   const { ready, q, canWrite, companyId } = useCompanyScope();
   const queryClient = useQueryClient();
   const [search, setSearch] = useState('');
+  const [exporting, setExporting] = useState(false);
   const [stage, setStage] = useState('');
   const [view, setView] = useState<'lista' | 'tablero'>('lista');
   const [editing, setEditing] = useState<ContactForm | null>(null);
@@ -114,29 +115,17 @@ export default function Contacts() {
     count: contacts?.filter((c) => c.stage === s.key).length ?? 0,
   }));
 
-  /** "Tu base de datos de clientes, 100% tuya" — exportación a CSV. */
-  function exportCsv() {
-    const rows = contacts ?? [];
-    const esc = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`;
-    const csv = [
-      ['Nombre', 'Teléfono', 'Correo', 'Etapa', 'Canal', 'Etiquetas', 'Notas', 'Última actividad', 'Creado'].join(';'),
-      ...rows.map((c) =>
-        [
-          esc(c.name), esc(c.phone), esc(c.email), esc(labelOf.get(c.stage)?.label ?? c.stage),
-          esc(CHANNEL_LABELS[c.channel] ?? c.channel), esc(c.tags.join(', ')),
-          esc(c.notes), esc(new Date(c.lastActivityAt).toLocaleString('es-CO')),
-          esc(new Date(c.createdAt).toLocaleString('es-CO')),
-        ].join(';'),
-      ),
-    ].join('\n');
-    const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `contactos-${new Date().toISOString().slice(0, 10)}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
-    toast.success(`${rows.length} contactos exportados — la base es tuya`);
+  /** "Tu base de datos de clientes, 100% tuya" — solo en PDF, con la marca de la empresa. */
+  async function exportPdf() {
+    setExporting(true);
+    try {
+      await downloadPdf(withScope('/company/data-export/pdf?sections=contactos', q), 'contactos.pdf');
+      toast.success('Tus contactos se descargaron en PDF');
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'No se pudo generar el PDF');
+    } finally {
+      setExporting(false);
+    }
   }
 
   return (
@@ -146,9 +135,11 @@ export default function Contacts() {
         title="Contactos"
         actions={
           <>
-            <Button variant="outline" onClick={exportCsv} disabled={!contacts?.length}>
-              <Download size={13} /> Exportar CSV
-            </Button>
+            {canWrite && (
+              <Button variant="outline" onClick={exportPdf} disabled={!contacts?.length || exporting}>
+                <Download size={13} /> {exporting ? 'Preparando PDF…' : 'Descargar PDF'}
+              </Button>
+            )}
             {canWrite && (
               <Button onClick={() => setEditing({ ...emptyForm, pipelineId, stage: STAGES[0].key })}>+ Nuevo contacto</Button>
             )}

@@ -1,3 +1,4 @@
+import { hasPlan, modulesWithAddons, readAddonStates } from '../common/addons';
 import {
   BadRequestException,
   Body,
@@ -142,7 +143,8 @@ export class CompaniesService {
       // Pagos y facturación electrónica: solo el estado, jamás los secretos
       paymentConfig: serializePaymentConfig(paymentConfigJson),
       einvoiceConfig: serializeEinvoiceConfig(einvoiceConfigJson),
-      modules: parseJson<string[]>(company.modulesJson, []),
+      // Reactivación, cobranza y auditor vienen con cualquier plan
+      modules: modulesWithAddons(parseJson<string[]>(company.modulesJson, []), readAddonStates(company), hasPlan(company)),
       limits: parseJson<Record<string, number>>(company.limitsJson, {}),
       // La llave de DeepInfra jamás sale completa del API
       hasDeepinfraKey: !!deepinfraApiKey,

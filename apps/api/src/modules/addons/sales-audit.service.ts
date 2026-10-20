@@ -233,7 +233,7 @@ export class SalesAuditService {
   /** Lunes 7:00 (Bogotá): informe de la semana para cada empresa con el complemento. */
   @Cron('0 7 * * 1', { timeZone: 'America/Bogota' })
   async weekly() {
-    const companies = await this.prisma.company.findMany({ where: { status: 'ACTIVE', addonsJson: { contains: 'salesAudit' } } }).catch(() => []);
+    const companies = await this.prisma.company.findMany({ where: { status: 'ACTIVE', OR: [{ planId: { not: null } }, { addonsJson: { contains: 'salesAudit' } }] } }).catch(() => []);
     for (const company of companies as any[]) {
       if (!addonEnabled(company, 'salesAudit')) continue;
       try {

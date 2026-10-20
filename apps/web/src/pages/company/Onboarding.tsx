@@ -8,6 +8,8 @@ import { api } from '../../lib/api';
 import { Button, Loading, PageHeader } from '../../components/ui';
 import { PickCompany, useCompanyScope, withScope } from './shared';
 import CheckoutSection from '../../components/CheckoutSection';
+import ScheduleCall from '../../components/ScheduleCall';
+import TeamQuest from '../../components/TeamQuest';
 import { AiCostSummary } from './AiCosts';
 
 /**
@@ -57,7 +59,7 @@ function GuideChat({ q, name, chatLeft }: { q: string; name: string; chatLeft: n
     setDraft('');
     ask.mutate(next);
   };
-  const suggestions = ['¿Qué me falta para empezar?', '¿Cómo cargo mis productos?', '¿Qué plan me conviene?'];
+  const suggestions = ['¿Qué me falta para empezar?', '¿Qué hacen ustedes y qué hago yo?', '¿Qué plan me conviene?'];
   return (
     <section className="flex h-[520px] flex-col border-2 border-ink bg-paper">
       <header className="flex items-center justify-between border-b-2 border-ink px-4 py-3">
@@ -120,6 +122,8 @@ export default function Onboarding() {
     <>
       <PageHeader kicker={`${st.rubroLabel} · ${st.company.status === 'ONBOARDING' ? 'en configuración' : 'activa'}`} title="Primeros pasos" accent={st.company.name} />
 
+      <TeamQuest q={q} compact />
+
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_400px]">
         <div className="space-y-6">
           <section className="border-2 border-ink bg-paper p-5">
@@ -148,11 +152,10 @@ export default function Onboarding() {
                 </li>
               ))}
             </ul>
-            {st.company.status === 'ONBOARDING' && (
-              <p className="mt-4 border-2 border-line bg-bone px-3 py-2 text-xs text-ink-2">
-                Nuestro equipo ya recibió tu registro y te escribirá por WhatsApp para conectar tu número y dejar tu asistente funcionando.
-              </p>
-            )}
+            <div className="mt-4 flex flex-wrap items-center gap-3 border-2 border-line bg-bone px-3 py-3">
+              <ScheduleCall q={q} topic="SETUP" label="Agéndame con un agente" />
+              <p className="text-xs text-ink-2">Conectar tu WhatsApp, la inteligencia artificial y las plantillas lo hacemos nosotros contigo en una llamada.</p>
+            </div>
           </section>
 
           {(st.onboarding.needs?.length || st.onboarding.assistantFlow?.length) ? (

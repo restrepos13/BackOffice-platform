@@ -9,6 +9,7 @@ import {
   forwardRef,
   useEffect,
 } from 'react';
+import { ProgressBar, useFakeProgress } from './SetupProgress';
 
 /* ─── Botones ──────────────────────────────────────────────────────── */
 
@@ -426,11 +427,16 @@ export function EmptyState({
   );
 }
 
-export function Loading({ label = 'Cargando…' }: { label?: string }) {
+/** Carga con barra y porcentaje: se siente como "lo estamos preparando", no como espera. */
+export function Loading({ label = 'Preparando tu información…' }: { label?: string }) {
+  const pct = useFakeProgress(true, false, 2500);
   return (
-    <div className="flex items-center justify-center gap-3 py-16 text-ink-3">
-      <span className="h-3 w-3 animate-pulse bg-ink" aria-hidden />
-      <span className="kicker">{label}</span>
+    <div className="flex flex-col items-center justify-center gap-2 py-16 text-ink-3" aria-busy="true">
+      <span className="kicker">{label === 'Cargando…' ? 'Preparando tu información…' : label}</span>
+      <div className="flex w-56 items-center gap-2">
+        <ProgressBar pct={pct} className="h-2.5 flex-1" />
+        <span className="w-9 text-right text-xs tabular-nums">{pct}%</span>
+      </div>
     </div>
   );
 }

@@ -7,7 +7,7 @@ import { api } from '../../lib/api';
 interface PublicPlans {
   plans: Array<{ name: string; tier: string | null; maxLines: number; priceSelf: number; priceManaged: number; includedMetaUsd: number; highlight: boolean; features: string[] }>;
   modes: Record<'SELF' | 'MANAGED', { name: string; short: string }>;
-  addons: Array<{ name: string; description: string; price: number; perUnit: string | null; status: 'AVAILABLE' | 'SOON' }>;
+  addons: Array<{ name: string; description: string; price: number; perUnit: string | null; status: 'AVAILABLE' | 'SOON'; included?: boolean }>;
   notices: { numbers: string; meta: string; landing: string; humanOversight: string };
 }
 
@@ -71,10 +71,23 @@ function PlansSection() {
         <p className="border-2 border-line bg-paper p-3 text-xs text-ink-2">{data.notices.numbers}</p>
         <p className="border-2 border-line bg-paper p-3 text-xs text-ink-2">{data.notices.meta}</p>
       </div>
+      {data.addons.some((a) => a.included) && (
+        <div className="mt-8">
+          <p className="kicker mb-3">Incluido en todos los planes</p>
+          <div className="grid gap-3 md:grid-cols-3">
+            {data.addons.filter((a) => a.included).map((a) => (
+              <div key={a.name} className="border-2 border-ink bg-paper p-4">
+                <p className="font-semibold">{a.name}</p>
+                <p className="mt-1 text-sm text-ink-2">{a.description}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
       <div className="mt-8">
         <p className="kicker mb-3">Complementos</p>
         <div className="flex flex-wrap gap-2">
-          {data.addons.map((a) => (
+          {data.addons.filter((a) => !a.included).map((a) => (
             <span key={a.name} title={a.description} className={`inline-flex items-center gap-2 border-2 px-3 py-1.5 text-sm ${a.status === 'SOON' ? 'border-line text-ink-3' : 'border-ink bg-paper'}`}>
               {a.name}
               <span className="text-xs">{a.status === 'SOON' ? 'Próximamente' : `${cop(a.price)}/mes${a.perUnit ? ` por ${a.perUnit}` : ''}`}</span>

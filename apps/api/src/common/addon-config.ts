@@ -5,6 +5,7 @@
  * conversación por la línea de WhatsApp y textos con variables.
  */
 import { readAddonStates } from './addons';
+import { INCLUDED_ADDONS } from './offer';
 import { parseJson } from './constants';
 
 export interface ReactivationConfig {
@@ -113,8 +114,15 @@ export function withAddonConfig(company: { addonsJson?: string | null }, key: st
   return JSON.stringify(states);
 }
 
-export function addonEnabled(company: { addonsJson?: string | null }, key: string): boolean {
+/** ¿Puede usar la herramienta? Las incluidas, con cualquier plan; el resto, si el complemento está activo. */
+export function addonEnabled(company: { addonsJson?: string | null; planId?: string | null }, key: string): boolean {
+  if ((INCLUDED_ADDONS as string[]).includes(key)) return !!company?.planId || !!readAddonStates(company)[key]?.enabled;
   return !!readAddonStates(company)[key]?.enabled;
+}
+
+/** Envíos automáticos encendidos por la empresa (reactivación y cobranza escriben a sus clientes). */
+export function addonAutoSend(company: { addonsJson?: string | null; planId?: string | null }, key: string): boolean {
+  return addonEnabled(company, key) && readAddonStates(company)[key]?.auto === true;
 }
 
 /** Hora local (0-23) y fecha local YYYY-MM-DD de la empresa. */

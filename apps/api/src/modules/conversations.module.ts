@@ -21,6 +21,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { CurrentUser, Roles } from '../auth/decorators';
 import {
   AuthUser,
+  NOT_DELETED,
   ROLES,
   isPlatformRole,
   scopeCompanyId,
@@ -63,6 +64,60 @@ export class ConversationsService {
       throw new ForbiddenException();
     }
     return conversation;
+  }
+
+  /** Ficha de rastreo del chat: de dónde llegó, por qué línea, quién atiende y qué ha comprado. */
+  async insights(user: AuthUser, id: string) {
+    this.assertNotArea(user);
+    const conversation: any = await this.assertAccess(user, id);
+    const [contact, line, messages, orders, receivables, touches, otherChats]: any[] = await Promise.all([
+      this.prisma.contact.findUnique({ where: { id: conversation.contactId }, include: { assignedTo: { select: { name: true } } } }),
+      conversation.integrationId ? this.prisma.integration.findUnique({ where: { id: conversation.integrationId } }) : null,
+      this.prisma.message.findMany({ where: { conversationId: id }, select: { direction: true, author: true, createdAt: true }, orderBy: { createdAt: 'asc' }, take: 2000 }),
+      this.prisma.order.findMany({ where: { companyId: conversation.companyId, contactId: conversation.contactId, ...NOT_DELETED }, select: { status: true, total: true, createdAt: true, paymentStatus: true }, orderBy: { createdAt: 'desc' }, take: 200 }),
+      this.prisma.receivable.findMany({ where: { companyId: conversation.companyId, contactId: conversation.contactId, status: 'PENDING' }, select: { amount: true } }),
+      this.prisma.addonTouch.findMany({ where: { companyId: conversation.companyId, contactId: conversation.contactId }, orderBy: { createdAt: 'desc' }, take: 1 }),
+      this.prisma.conversation.count({ where: { companyId: conversation.companyId, contactId: conversation.contactId } }),
+    ]);
+    const parse = (raw: string | null | undefined) => { try { return raw ? JSON.parse(raw) : null; } catch { return null; } };
+    const firstIn = messages.find((m: any) => m.direction === 'IN');
+    const firstReply = firstIn ? messages.find((m: any) => m.direction === 'OUT' && new Date(m.createdAt) > new Date(firstIn.createdAt)) : null;
+    const sales = orders.filter((o: any) => !['borrador', 'cancelado'].includes(o.status));
+    const lineCfg = parse(line?.configJson) ?? {};
+    const origin = parse(conversation.originJson);
+    const firstOrigin = parse(contact?.originJson);
+    const ORIGIN_LABEL: Record<string, string> = { AD: 'Anuncio de Meta', POST: 'Publicación de Meta', DIRECT: 'Escribió directo' };
+    return {
+      origin: origin ? { ...origin, label: ORIGIN_LABEL[origin.kind] ?? 'Directo' } : { kind: 'UNKNOWN', label: 'Sin dato (chat anterior al rastreo)' },
+      firstOrigin: firstOrigin ? { ...firstOrigin, label: ORIGIN_LABEL[firstOrigin.kind] ?? 'Directo' } : null,
+      line: line ? { id: line.id, name: line.name, phone: lineCfg.displayPhone ?? lineCfg.fromNumber ?? null, channel: line.type } : null,
+      channel: conversation.channel,
+      startedAt: conversation.createdAt,
+      lastMessageAt: conversation.lastMessageAt,
+      status: conversation.status,
+      attendedBy: conversation.botPaused ? { kind: 'HUMAN', name: conversation.attendedByName ?? 'Una persona del equipo' } : { kind: 'BOT', name: 'Asistente IA' },
+      needsAttention: !!conversation.needsAttention,
+      messages: {
+        total: messages.length,
+        fromClient: messages.filter((m: any) => m.direction === 'IN').length,
+        fromBot: messages.filter((m: any) => m.direction === 'OUT' && m.author === 'BOT').length,
+        fromTeam: messages.filter((m: any) => m.direction === 'OUT' && m.author === 'AGENT').length,
+        firstReplyMin: firstIn && firstReply ? Math.max(0, Math.round((+new Date(firstReply.createdAt) - +new Date(firstIn.createdAt)) / 60000)) : null,
+      },
+      contact: contact ? {
+        id: contact.id, name: contact.name, phone: contact.phone, email: contact.email, stage: contact.stage,
+        tags: parse(contact.tagsJson) ?? [], assignedTo: contact.assignedTo?.name ?? null, since: contact.createdAt,
+        optOut: !!contact.optOut, conversations: otherChats,
+      } : null,
+      purchases: {
+        count: sales.length,
+        total: sales.reduce((n: number, o: any) => n + (o.total ?? 0), 0),
+        last: sales[0] ? { at: sales[0].createdAt, status: sales[0].status, total: sales[0].total ?? 0 } : null,
+        unpaid: sales.filter((o: any) => ['NONE', 'PENDING', 'FAILED'].includes(o.paymentStatus ?? 'NONE')).length,
+      },
+      owed: receivables.reduce((n: number, r: any) => n + (r.amount ?? 0), 0),
+      lastAutomation: touches[0] ? { addon: touches[0].addon, status: touches[0].status, at: touches[0].createdAt } : null,
+    };
   }
 
   async list(
@@ -311,6 +366,11 @@ export class ConversationsController {
     @Res() res: Response,
   ) {
     return this.conversations.messageFile(user, messageId, res);
+  }
+
+  @Get(':id/insights')
+  insights(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.conversations.insights(user, id);
   }
 
   @Get(':id')

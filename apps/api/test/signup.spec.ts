@@ -247,7 +247,9 @@ describe('entrevista: la IA pregunta cómo funciona el negocio', () => {
     // El prompt se adapta al negocio y no se trae roles inventados del navegador
     const sent = (chat.mock.calls[0] as any[])[0].messages;
     expect(sent[0].content).toContain('A LA MEDIDA');
-    expect(sent).toHaveLength(6);
+    // + el perfil del negocio detectado por código (preguntas de SU negocio)
+    expect(sent).toHaveLength(7);
+    expect(sent[1].content).toContain('Cursos y educación');
     
   });
 

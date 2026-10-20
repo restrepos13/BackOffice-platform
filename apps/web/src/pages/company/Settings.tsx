@@ -8,13 +8,19 @@ import {
   Badge, Button, Card, Field, Input, Loading, PageHeader, Select, Textarea, statusTone,
 } from '../../components/ui';
 import { PickCompany, useCompanyScope, withScope } from './shared';
+import ScheduleCall from '../../components/ScheduleCall';
+import DataExport from '../../components/DataExport';
 
 function DeepinfraKeyForm({
   company,
   canWrite,
+  isPlatform,
+  q,
 }: {
   company: Company;
   canWrite: boolean;
+  isPlatform: boolean;
+  q: string;
 }) {
   const queryClient = useQueryClient();
   const [key, setKey] = useState('');
@@ -39,7 +45,18 @@ function DeepinfraKeyForm({
           <Badge tone="warn">Sin configurar</Badge>
         )}
       </p>
-      {canWrite && (
+      {!isPlatform && (
+        // Lo técnico lo hacemos nosotros: el cliente no busca llaves ni entra a otras páginas
+        <div className="space-y-2">
+          <p className="text-ink-2">
+            {company.hasDeepinfraKey
+              ? 'Tu inteligencia artificial ya está conectada. Si quieres cambiar algo, lo hacemos contigo en una llamada.'
+              : 'Conectar la inteligencia artificial lo hacemos nosotros contigo, en una llamada corta. Tú no tienes que buscar ni copiar nada.'}
+          </p>
+          <ScheduleCall q={q} topic="AI" size="sm" variant={company.hasDeepinfraKey ? 'outline' : 'solid'} label="Agéndame con un agente" defaultPhone={company.contactPhone ?? ''} />
+        </div>
+      )}
+      {isPlatform && canWrite && (
         <>
           <Field
             label={company.hasDeepinfraKey ? 'Reemplazar llave' : 'API key de DeepInfra'}
@@ -70,7 +87,7 @@ function DeepinfraKeyForm({
         </>
       )}
       <p className="border-t border-line pt-2 text-xs text-ink-3">
-        Con tu propia llave, el consumo de IA te lo factura DeepInfra directamente
+        Con tu propia cuenta, el consumo de IA te lo cobra el proveedor directamente
         — aquí lo ves desglosado y en vivo en <strong>Consumo IA</strong>.
       </p>
     </div>
@@ -348,15 +365,21 @@ export default function CompanySettings() {
           ) : company.aiBillingMode === 'HYBRID' ? (
             <Card kicker="Tu cuenta + IA de BackOffice" title="Inteligencia artificial">
               <p className="mb-3 text-sm text-ink-2">
-                Usas tu propia cuenta de DeepInfra y además la IA de BackOffice
+                Usas tu propia cuenta de IA y además la IA de BackOffice
                 {company.aiHybridPrimary === 'PLATFORM' ? ' (va primero; tu cuenta queda de respaldo)' : ' de respaldo'}.
                 Si una no está disponible, la otra sigue respondiendo: tus clientes nunca quedan sin atención.
               </p>
-              <DeepinfraKeyForm company={company} canWrite={canWrite} />
+              <DeepinfraKeyForm company={company} canWrite={canWrite} isPlatform={isPlatform} q={q} />
             </Card>
           ) : (
-            <Card kicker="BYOK · el costo de IA lo pagas directo a DeepInfra" title="Llave DeepInfra">
-              <DeepinfraKeyForm company={company} canWrite={canWrite} />
+            <Card kicker="Tu IA · el consumo lo pagas directo al proveedor" title="Inteligencia artificial">
+              <DeepinfraKeyForm company={company} canWrite={canWrite} isPlatform={isPlatform} q={q} />
+            </Card>
+          )}
+
+          {canWrite && (
+            <Card kicker="Tus datos son tuyos" title="Descarga tu información">
+              <DataExport q={q} />
             </Card>
           )}
 

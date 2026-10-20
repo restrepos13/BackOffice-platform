@@ -57,7 +57,7 @@ export default function SalesAudit() {
   return (
     <>
       <PageHeader
-        kicker="Complemento · llega cada lunes"
+        kicker="Incluido en tu plan · llega cada lunes"
         title="Auditor"
         accent="de ventas"
         actions={canWrite && <Button disabled={generate.isPending} onClick={() => generate.mutate()}><FileSearch size={14} /> {generate.isPending ? 'Analizando…' : 'Analizar los últimos 7 días'}</Button>}

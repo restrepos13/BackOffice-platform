@@ -10,6 +10,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { computeAiCredits } from '../ai/ai-access';
 import { CurrentUser, Roles } from '../auth/decorators';
 import { AuthUser, ROLES, scopeCompanyId } from '../common/constants';
+import { usdCopRate } from '../common/trm';
 
 /**
  * Consumo de IA en detalle (eventos AiUsageEvent).
@@ -264,9 +265,9 @@ export class AiUsageService {
         where: { id: scoped },
         select: { currency: true, name: true },
       }),
-      this.prisma.platformSetting.findUnique({ where: { key: 'USD_COP_RATE' } }),
+      usdCopRate(this.prisma),
     ]);
-    const rate = Number(rateRow?.value || 4000);
+    const rate = rateRow;
     const toCop = (usd: number) => Math.round(usd * rate);
     const deltaPct =
       previous.totalUsd > 0

@@ -7,6 +7,7 @@ import type { AiCreditsStatus, CompanyAiUsage, MonthlyConsumption, Payment } fro
 import { Badge, Card, Loading, PageHeader, Select, Stat, Table } from '../../components/ui';
 import { CostSeriesChart } from '../../components/charts';
 import { useAiModels } from '../../components/media';
+import ScheduleCall from '../../components/ScheduleCall';
 import { PickCompany, useCompanyScope, withScope } from './shared';
 import { useState } from 'react';
 
@@ -243,14 +244,12 @@ export default function Usage() {
       {!platformAi && !data.hasDeepinfraKey && (
         <div className="mb-4 flex flex-wrap items-center justify-between gap-2 border-2 border-warn bg-warn-soft px-4 py-2.5">
           <p className="text-sm text-warn">
-            <strong>Sin llave de DeepInfra.</strong>{' '}
+            <strong>Tu inteligencia artificial aún no está conectada.</strong>{' '}
             {hybridAi
-              ? 'Mientras tanto responde la IA de BackOffice; conéctala para usar tu propia cuenta.'
-              : 'Tu IA no podrá responder hasta conectarla — el costo lo pagas tú directo al proveedor, sin margen nuestro.'}
+              ? 'Mientras tanto responde la IA de BackOffice. La conectamos contigo en una llamada.'
+              : 'La conectamos nosotros contigo en una llamada corta: tú no tienes que hacer nada técnico.'}
           </p>
-          <Link to="/app/settings" className="text-xs font-semibold uppercase tracking-wider text-warn underline">
-            Conectar llave →
-          </Link>
+          <ScheduleCall q={q} topic="AI" size="sm" label="Agéndame con un agente" />
         </div>
       )}
 

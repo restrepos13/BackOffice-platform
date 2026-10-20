@@ -28,6 +28,7 @@ import { parseDailyChats } from '../common/ai-cost';
 import { SignupStep, SignupTracker } from './signup-tracking';
 import { linkReferral } from './commerce.module';
 import { guidedBlueprint, guidedTurn } from '../common/signup-guided';
+import { TEAM_SIZES, detectProfile, fitToProfile, interviewHint, profileOfCompany } from '../common/business-profile';
 import { blueprintSystemPrompt, interviewSystemPrompt } from '../common/signup-prompts';
 import { RUBRO_CONFIG, Rubro, guessRubro, isRubro, onboardingChecklist } from '../common/rubros';
 import { ANNUAL_MONTHS_CHARGED } from '../common/billing-engine';
@@ -159,6 +160,8 @@ export class SignupService {
           maxTokens: 1200,
           messages: [
             { role: 'system', content: interviewSystemPrompt(MAX_QUESTIONS) },
+            // Perfil detectado por código: preguntas y opciones de SU negocio, no de restaurante
+            { role: 'system', content: interviewHint(detectProfile(answers.map((a) => a.content).join(' '), answers[0].content)) },
             // Historial compacto: las preguntas ya hechas pesan poco, las respuestas mandan
             ...msgs.slice(-12).map((m) => ({ role: m.role, content: m.content.slice(0, m.role === 'assistant' ? 160 : 500) })),
           ],
@@ -175,7 +178,7 @@ export class SignupService {
     // Plan B: si ya contó bastante, se arma con eso; si no, preguntas fijas
     await this.tracker.touch(dto?.session, { mode: 'guided' });
     // Las preguntas fijas de volumen ya se hicieron: el plan B arranca una más atrás
-    const turn = answers.length >= 6 ? { listo: true } : guidedTurn(answers[0].content, answers.length - 1);
+    const turn = answers.length >= 6 ? { listo: true } : guidedTurn(answers[0].content, answers.length - 1, answers.map((a) => a.content).join(' '));
     return { ...normalizeInterviewTurn(turn, answers.length, MAX_QUESTIONS), mode: 'guided' as const };
   }
 
@@ -225,7 +228,8 @@ export class SignupService {
       mode = 'guided';
     }
     const proposal = normalizeProposal(raw);
-    const bp = normalizeBlueprint(raw, guessRubro(ownerText));
+    const profile = detectProfile(ownerText, answers[0]?.content ?? ownerText);
+    const bp = fitToProfile(normalizeBlueprint(raw, guessRubro(ownerText)), proposal, profile, ownerText);
     // Siempre hay asistente: si la IA no lo propuso, uno sensato con el nombre del negocio
     if (!proposal.assistant) {
       const business = typeof raw.empresa?.nombre === 'string' && raw.empresa.nombre.trim() ? raw.empresa.nombre.trim().slice(0, 60) : 'tu negocio';
@@ -250,6 +254,8 @@ export class SignupService {
       },
       proposal,
       blueprint,
+      // Lo que la pantalla de revisión NO debe ofrecer a este tipo de negocio
+      profile: { key: profile.key, label: profile.label, hide: profile.deny },
       mode,
     };
     if (mode === 'ai') {
@@ -500,7 +506,34 @@ export class SignupService {
       })),
       requestedPlan: ob.requestedPlan ?? null,
       chatLeft: Math.max(0, CHAT_DAILY_CAP - chatUsed),
+      // Preguntas de su equipo con opciones de SU tipo de negocio (no de restaurante)
+      profile: (() => { const p = profileOfCompany(ob, rubro); return { key: p.key, label: p.label, roles: p.roles, pains: p.pains }; })(),
+      team: ob.team ?? null,
     };
+  }
+
+  /** Respuestas cortas sobre su equipo (primeros pasos del panel). Se guardan paso a paso. */
+  async saveTeam(user: AuthUser, dto: any, companyId?: string) {
+    const id = this.companyIdOf(user, companyId);
+    const company = await this.prisma.company.findUniqueOrThrow({ where: { id } });
+    const ob = parseJson<Record<string, any>>(company.onboardingJson, {});
+    const clean = (v: unknown, max = 60) => String(v ?? '').replace(/\s+/g, ' ').trim().slice(0, max);
+    const list = (v: unknown) => (Array.isArray(v) ? [...new Set(v.map((x) => clean(x)).filter(Boolean))].slice(0, 12) : []);
+    const prev = ob.team ?? {};
+    const team = {
+      ...prev,
+      ...(dto?.size !== undefined ? { size: TEAM_SIZES.includes(dto.size) ? dto.size : prev.size ?? null } : {}),
+      ...(dto?.roles !== undefined ? { roles: list(dto.roles) } : {}),
+      ...(dto?.whatsappBy !== undefined ? { whatsappBy: clean(dto.whatsappBy) } : {}),
+      ...(dto?.pains !== undefined ? { pains: list(dto.pains) } : {}),
+      ...(dto?.done ? { doneAt: new Date().toISOString() } : {}),
+      updatedAt: new Date().toISOString(),
+    };
+    await this.prisma.company.update({ where: { id }, data: { onboardingJson: JSON.stringify({ ...ob, team }) } });
+    if (dto?.done) {
+      await this.audit.log({ actor: user, companyId: id, action: 'onboarding.team', entity: 'Company', entityId: id, detail: `${team.size ?? '?'} personas · ${(team.roles ?? []).join(', ')}` });
+    }
+    return team;
   }
 
   async status(user: AuthUser, companyId?: string) {
@@ -533,9 +566,9 @@ export class SignupService {
             'BackOffice atiende el WhatsApp del negocio con un asistente IA que responde, vende, toma pedidos o agenda citas, y le da al dueño un panel con todo.\n' +
             `Avance: ${st.checklist.done} de ${st.checklist.total} pasos.\nListo:\n${done}\nPendiente:\n${pending}\n` +
             `Planes de su rubro (COP, IVA incluido, precio "desde"; el valor final lo confirma el equipo):\n${plans}\n` +
-            'La IA de BackOffice se compra aparte en paquetes prepagos (500 conversaciones $99.000, 2.000 $299.000, 5.000 $599.000, 15.000 $1.490.000) o con cuenta propia.\n' +
+            'Hay dos formas de pagar la IA: "Tu IA" (la pagan directo al proveedor) o "Todo incluido" (la cobramos a fin de mes junto con la mensualidad). Reactivación de clientes, cobranza y auditor de ventas vienen en todos los planes.\n' +
             'Reglas: respuestas cortas (máx. 5 líneas), cálidas, en español colombiano, sin tecnicismos. Texto plano: sin markdown, sin asteriscos, sin emojis y sin rutas ni enlaces; nombra la sección del menú como aparece arriba. ' +
-            'Conectar el WhatsApp y activar el plan lo hace el equipo de BackOffice, que le escribirá por WhatsApp. ' +
+            'Lo técnico (conectar el WhatsApp, la inteligencia artificial y las plantillas de Meta) NO lo hace el cliente: lo hace un agente de BackOffice en una llamada. Cuando pregunten por algo técnico, invítalos a tocar el botón "Agéndame con un agente". Nunca le pidas llaves ni que entre a otras páginas. ' +
             'Nunca pidas contraseñas, tarjetas ni datos bancarios. No inventes funciones, precios ni descuentos. Si preguntan algo ajeno a su negocio o a BackOffice, redirige con amabilidad.',
         },
         ...history,
@@ -733,6 +766,12 @@ export class SignupController {
   @Throttle({ default: { ttl: 60_000, limit: 10 } })
   chat(@CurrentUser() user: AuthUser, @Body() dto: any, @Query('companyId') companyId?: string) {
     return this.signup.chat(user, dto, companyId ?? dto?.companyId);
+  }
+
+  @Post('onboarding/team')
+  @Roles(ROLES.SUPER_ADMIN, ROLES.DEV, ROLES.COMPANY_ADMIN)
+  saveTeam(@CurrentUser() user: AuthUser, @Body() dto: any, @Query('companyId') companyId?: string) {
+    return this.signup.saveTeam(user, dto, companyId);
   }
 
   @Post('onboarding/request-plan')

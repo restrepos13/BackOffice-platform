@@ -242,3 +242,84 @@ export async function buildDailyReportPdf(company: BrandCompany, data: any): Pro
   brandFooter(doc, company);
   return collect(doc);
 }
+
+/* ═══ Descarga de datos de la empresa (solo PDF) ═══ */
+
+export interface ExportSection {
+  title: string;
+  /** Anchos relativos; se reparten en el ancho útil de la hoja */
+  columns: Array<{ label: string; width: number; align?: 'left' | 'right' }>;
+  rows: string[][];
+  note?: string;
+}
+
+/** Todas las secciones en tablas, con encabezado repetido al cambiar de página. */
+export async function buildDataExportPdf(company: BrandCompany, sections: ExportSection[], meta: { requestedBy: string }): Promise<Buffer> {
+  const doc = new PDFDocument({ size: 'LETTER', layout: 'landscape', margin: 40, bufferPages: true });
+  const color = company.brandColor || INK;
+  const left = 40;
+  const usable = doc.page.width - 80;
+  const bottom = () => doc.page.height - 60;
+
+  brandHeader(doc, company, 'Datos de tu empresa', 'Descarga de información');
+  doc.fillColor(GRAY).font('Helvetica').fontSize(9)
+    .text(`Pedido por ${meta.requestedBy} · ${fmt(new Date(), company.timezone)} · Contiene: ${sections.map((s) => `${s.title} (${s.rows.length})`).join(', ')}`, left, doc.y, { width: usable });
+  doc.moveDown(0.8);
+
+  for (const section of sections) {
+    const total = section.columns.reduce((n, c) => n + c.width, 0);
+    const widths = section.columns.map((c) => (c.width / total) * usable);
+    const head = () => {
+      const top = doc.y;
+      doc.rect(left, top, usable, 18).fill(color);
+      let x = left;
+      doc.fillColor('#ffffff').font('Helvetica-Bold').fontSize(7.5);
+      section.columns.forEach((c, i) => {
+        doc.text(c.label.toUpperCase(), x + 4, top + 5, { width: widths[i] - 8, align: c.align ?? 'left', lineBreak: false, ellipsis: true });
+        x += widths[i];
+      });
+      doc.y = top + 18;
+    };
+    if (doc.y > bottom() - 80) doc.addPage();
+    doc.fillColor(INK).font('Helvetica-Bold').fontSize(13).text(section.title, left, doc.y);
+    if (section.note) doc.fillColor(GRAY).font('Helvetica').fontSize(8).text(section.note, left, doc.y + 2, { width: usable });
+    doc.moveDown(0.4);
+    if (!section.rows.length) {
+      doc.fillColor(GRAY).font('Helvetica').fontSize(9).text('Sin registros.', left, doc.y);
+      doc.moveDown(1.2);
+      continue;
+    }
+    head();
+    section.rows.forEach((r, idx) => {
+      doc.font('Helvetica').fontSize(8);
+      const h = Math.max(16, ...r.map((cell, i) => doc.heightOfString(cell || '—', { width: widths[i] - 8 }) + 7));
+      if (doc.y + h > bottom()) {
+        doc.addPage();
+        doc.y = 40;
+        head();
+      }
+      const top = doc.y;
+      if (idx % 2 === 1) doc.rect(left, top, usable, h).fill('#f4f1ec');
+      let x = left;
+      doc.fillColor(INK).font('Helvetica').fontSize(8);
+      r.forEach((cell, i) => {
+        doc.text(cell || '—', x + 4, top + 4, { width: widths[i] - 8, align: section.columns[i]?.align ?? 'left' });
+        x += widths[i];
+      });
+      doc.y = top + h;
+    });
+    doc.moveDown(1.2);
+  }
+
+  // Pie y número de página en cada hoja
+  const range = doc.bufferedPageRange();
+  for (let i = range.start; i < range.start + range.count; i++) {
+    doc.switchToPage(i);
+    // Sin margen inferior: el pie no debe abrir hojas nuevas en blanco
+    doc.page.margins.bottom = 0;
+    brandFooter(doc, company);
+    doc.fillColor(GRAY).font('Helvetica').fontSize(7.5)
+      .text(`Página ${i + 1} de ${range.count}`, left, doc.page.height - 30, { width: usable, align: 'right', lineBreak: false });
+  }
+  return collect(doc);
+}

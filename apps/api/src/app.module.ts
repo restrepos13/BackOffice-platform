@@ -49,6 +49,8 @@ import { MetaAdsModule } from './modules/meta-ads.module';
 import { IncidentsModule } from './modules/incidents.module';
 import { CommerceModule } from './modules/commerce.module';
 import { AddonEnginesModule } from './modules/addons/addon-engines.module';
+import { AgentCallsModule } from './modules/agent-calls.module';
+import { DataExportModule } from './modules/data-export.module';
 import { InboundOrdersModule } from './modules/inbound-orders.module';
 import { AiSetupModule } from './modules/ai-setup.module';
 import { SignupModule } from './modules/signup.module';
@@ -107,6 +109,8 @@ import { ScheduleModule } from '@nestjs/schedule';
     IncidentsModule,
     CommerceModule,
     AddonEnginesModule,
+    AgentCallsModule,
+    DataExportModule,
     InboundOrdersModule,
     AiSetupModule,
     SignupModule,

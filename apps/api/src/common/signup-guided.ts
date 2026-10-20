@@ -6,6 +6,7 @@
  * validadores (normalizeInterviewTurn, normalizeProposal, normalizeBlueprint).
  */
 import { Rubro, guessRubro } from './rubros';
+import { ProfileKey, detectProfile } from './business-profile';
 
 interface GuidedQuestion {
   pregunta: string;
@@ -41,13 +42,29 @@ const COMMON_END: GuidedQuestion[] = [
   { pregunta: '¿Qué quieres que haga el asistente por ti?', opciones: ['Responder preguntas', 'Tomar pedidos', 'Agendar citas', 'Cobrar y confirmar pagos'] },
 ];
 
-export function guidedQuestions(rubro: Rubro): GuidedQuestion[] {
-  return [...COMMON_START, ...BY_RUBRO[rubro], ...COMMON_END];
+/** Preguntas propias de perfiles que comparten rubro (una marca de ropa no es cualquier tienda). */
+const BY_PROFILE: Partial<Record<ProfileKey, GuidedQuestion[]>> = {
+  ROPA: [
+    { pregunta: '¿Cómo le llegan las prendas a tus clientes?', opciones: ['Envío por transportadora', 'Recogen en la tienda', 'Las dos'] },
+    { pregunta: '¿Qué te preguntan primero?', opciones: ['Tallas y disponibilidad', 'El precio', 'Cómo es el envío', 'Cambios y devoluciones'] },
+  ],
+  EDUCACION: [
+    { pregunta: '¿Tus cursos tienen fechas y cupos?', opciones: ['Sí, fechas fijas con cupos', 'Cuando el estudiante quiera', 'Las dos'] },
+    { pregunta: '¿Qué le pides al estudiante para inscribirlo?', opciones: ['Documento de identidad', 'Pago o anticipo', 'Certificados previos', 'Nada especial'] },
+  ],
+  BELLEZA: [
+    { pregunta: '¿Tus clientes reservan con un profesional en especial?', opciones: ['Sí, eligen con quién', 'No, con quien esté libre', 'A veces'] },
+    { pregunta: '¿Pides anticipo para separar la cita?', opciones: ['Sí, siempre', 'Solo en servicios largos', 'No'] },
+  ],
+};
+
+export function guidedQuestions(rubro: Rubro, profile?: ProfileKey): GuidedQuestion[] {
+  return [...COMMON_START, ...((profile && BY_PROFILE[profile]) || BY_RUBRO[rubro]), ...COMMON_END];
 }
 
 /** Siguiente pregunta fija (answered = respuestas que ya dio, contando la descripción). */
-export function guidedTurn(firstAnswer: string, answered: number) {
-  const questions = guidedQuestions(guessRubro(firstAnswer));
+export function guidedTurn(firstAnswer: string, answered: number, allText = firstAnswer) {
+  const questions = guidedQuestions(guessRubro(firstAnswer), detectProfile(allText, firstAnswer).key);
   const next = questions[answered - 1];
   return next
     ? { listo: false, pregunta: next.pregunta, opciones: next.opciones, nota: '' }

@@ -26,7 +26,7 @@ interface PlanSummary {
 interface AddonsView {
   deadline: string;
   nextBillingDay: string;
-  addons: Array<{ key: string; name: string; description: string; price: number; perUnit?: string; status: 'AVAILABLE' | 'SOON'; active: boolean; requested: boolean; qty: number; monthly: number }>;
+  addons: Array<{ key: string; name: string; description: string; price: number; perUnit?: string; status: 'AVAILABLE' | 'SOON'; included?: boolean; active: boolean; requested: boolean; qty: number; monthly: number }>;
 }
 interface Referrals {
   code: string;
@@ -35,6 +35,8 @@ interface Referrals {
 }
 
 const day = (iso: string) => new Date(iso).toLocaleDateString('es-CO', { day: 'numeric', month: 'long' });
+
+const INCLUDED_PATH: Record<string, string> = { reactivation: '/app/reactivacion', collections: '/app/cobranza', salesAudit: '/app/auditor' };
 
 export default function MyPlan() {
   const { ready, q, canWrite } = useCompanyScope();
@@ -131,9 +133,26 @@ export default function MyPlan() {
         </div>
       </div>
 
+      <Card kicker="Sin costo extra, en todos los planes" title="Incluido en tu plan" className="mb-6">
+        <div className="grid gap-3 md:grid-cols-3">
+          {addons.addons.filter((a) => a.included).map((a) => (
+            <Link key={a.key} to={INCLUDED_PATH[a.key] ?? '/app/mi-plan'} className="group flex flex-col justify-between border-2 border-ink bg-bone p-4 transition-colors hover:bg-bone-2">
+              <div>
+                <div className="flex items-start justify-between gap-2">
+                  <p className="font-semibold">{a.name}</p>
+                  <Badge tone={a.active ? 'ok' : 'neutral'}>{a.active ? 'Incluido' : 'Con tu plan'}</Badge>
+                </div>
+                <p className="mt-1 text-sm text-ink-2">{a.description}</p>
+              </div>
+              <span className="mt-3 text-xs font-semibold underline">{a.active ? 'Abrir' : 'Ver cómo funciona'}</span>
+            </Link>
+          ))}
+        </div>
+      </Card>
+
       <Card kicker={`Puedes apagarlos hasta el ${day(addons.deadline)} para que no se cobren el próximo mes`} title="Complementos" className="mb-6">
         <div className="grid gap-3 md:grid-cols-2">
-          {addons.addons.filter((a) => a.status === 'AVAILABLE').map((a) => {
+          {addons.addons.filter((a) => a.status === 'AVAILABLE' && !a.included).map((a) => {
             const n = qty[a.key] ?? 1;
             return (
               <div key={a.key} className={clsx('flex flex-col justify-between border-2 p-4', a.active ? 'border-ink bg-ok-soft' : 'border-line bg-bone')}>

@@ -13,6 +13,7 @@ import {
   Badge, Button, Card, Field, Input, Loading, Modal, PageHeader, Select,
   statusTone,
 } from '../../components/ui';
+import ScheduleCall from '../../components/ScheduleCall';
 import { PickCompany, useCompanyScope, withScope } from './shared';
 
 const TYPE_ICONS: Record<string, typeof MessageCircle> = {
@@ -40,7 +41,7 @@ const TYPE_BLURBS: Record<string, string> = {
 const ADDABLE = ['WHATSAPP', 'INSTAGRAM', 'MESSENGER', 'TELEGRAM', 'META_ADS', 'N8N', 'GOOGLE_CALENDAR', 'WEBHOOK'];
 
 export default function Integrations() {
-  const { ready, q, canWrite, companyId } = useCompanyScope();
+  const { ready, q, canWrite, companyId, isPlatform } = useCompanyScope();
   const queryClient = useQueryClient();
   const [adding, setAdding] = useState(false);
   const [newType, setNewType] = useState('WHATSAPP');
@@ -110,6 +111,16 @@ export default function Integrations() {
         memoria, y todo queda medido en un solo lugar. Las cuentas se vinculan
         con el botón <strong>Conectar</strong> — no guardamos credenciales aquí.
       </p>
+
+      {!isPlatform && !integrations?.some((i) => i.type === 'WHATSAPP' && i.status === 'CONNECTED') && (
+        <div className="mb-8 flex flex-wrap items-center justify-between gap-3 border-2 border-ink bg-paper p-4">
+          <div className="max-w-xl text-sm">
+            <p className="font-semibold">Conectar tu WhatsApp lo hacemos contigo</p>
+            <p className="text-ink-2">Un agente de BackOffice te llama, conecta tu número con Meta y deja tu asistente respondiendo. Tú solo tienes tu celular a la mano.</p>
+          </div>
+          <ScheduleCall q={q} topic="WHATSAPP" label="Agéndame con un agente" />
+        </div>
+      )}
 
       {/* ─── Líneas WhatsApp (varios números, personalidad por línea) ─── */}
       <div className="mb-3 flex items-end justify-between">

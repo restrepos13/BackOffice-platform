@@ -678,6 +678,7 @@ function SettingsForm({
     WOMPI_EVENTS_SECRET: settings.WOMPI_EVENTS_SECRET ?? '',
     WOMPI_REDIRECT_URL: settings.WOMPI_REDIRECT_URL ?? '',
     USD_COP_RATE: settings.USD_COP_RATE ?? '4000',
+    TRM_MARKUP_COP: settings.TRM_MARKUP_COP ?? '20',
     SMTP_HOST: settings.SMTP_HOST ?? '',
     SMTP_PORT: settings.SMTP_PORT ?? '587',
     SMTP_USER: settings.SMTP_USER ?? '',
@@ -768,13 +769,23 @@ function SettingsForm({
       </div>
 
       <div className="border-t-2 border-line pt-3">
+        <p className="kicker mb-2">Dólar · TRM en vivo</p>
+        <TrmPanel />
+        <div className="mt-3 grid gap-3 md:grid-cols-2">
+          <Field label="Margen sobre la TRM (COP)" hint="Se suma siempre a la TRM del día. Por defecto $20">
+            <Input inputMode="numeric" value={form.TRM_MARKUP_COP} onChange={(e) => set({ TRM_MARKUP_COP: e.target.value.replace(/\D/g, '') })} />
+          </Field>
+          <Field label="TRM de respaldo" hint="Solo si no hay conexión y no hay ninguna cotización guardada">
+            <Input inputMode="numeric" value={form.USD_COP_RATE} onChange={(e) => set({ USD_COP_RATE: e.target.value.replace(/\D/g, '') })} />
+          </Field>
+        </div>
+      </div>
+
+      <div className="border-t-2 border-line pt-3">
         <p className="kicker mb-2">Pasarela Wompi (Colombia) · Internacional: próximamente</p>
         <div className="grid gap-3 md:grid-cols-2">
           <Field label="Ambiente">
             <Input value={form.WOMPI_ENV} onChange={(e) => set({ WOMPI_ENV: e.target.value })} placeholder="test | production" />
-          </Field>
-          <Field label="Tasa USD → COP" hint="Para convertir la mensualidad">
-            <Input value={form.USD_COP_RATE} onChange={(e) => set({ USD_COP_RATE: e.target.value })} />
           </Field>
           <Field label="Public key" hint="pub_test_… / pub_prod_…">
             <Input value={form.WOMPI_PUBLIC_KEY} onChange={(e) => set({ WOMPI_PUBLIC_KEY: e.target.value })} />
@@ -829,6 +840,40 @@ function SettingsForm({
 const SCOPE_LABELS: Record<string, string> = { read: 'Lectura', write: 'Escritura', orders: 'Pedidos externos' };
 
 /** Cómo conectar Rappi, un POS o la tienda web: POST /api/inbound/orders. */
+interface TrmQuote { official: number | null; officialDate: string | null; market: number | null; base: number; markup: number; rate: number; source: 'OFICIAL' | 'MERCADO' | 'GUARDADA' | 'RESPALDO'; fetchedAt: string }
+const TRM_SOURCE: Record<TrmQuote['source'], string> = {
+  OFICIAL: 'TRM oficial (Superfinanciera)',
+  MERCADO: 'Dólar de mercado (la oficial no respondió)',
+  GUARDADA: 'Última cotización guardada (sin conexión)',
+  RESPALDO: 'Tasa de respaldo manual (sin conexión)',
+};
+
+/** TRM que se está usando para cobrar, de dónde sale y cuándo se leyó. */
+function TrmPanel() {
+  const queryClient = useQueryClient();
+  const { data } = useQuery({ queryKey: ['dev-trm'], queryFn: () => api.get<TrmQuote>('/dev/trm'), refetchInterval: 5 * 60_000 });
+  const refresh = useMutation({
+    mutationFn: () => api.post<TrmQuote>('/dev/trm/refresh', {}),
+    onSuccess: (q) => { queryClient.setQueryData(['dev-trm'], q); toast.success('TRM actualizada'); },
+    onError: (e) => toast.error(e instanceof Error ? e.message : 'No se pudo actualizar'),
+  });
+  if (!data) return <Loading />;
+  const cop = (n: number | null) => (n == null ? '—' : `$ ${n.toLocaleString('es-CO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
+  return (
+    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <Stat label="Se cobra a" value={cop(data.rate)} hint={`${cop(data.base)} + $${data.markup} de margen`} tone={data.source === 'OFICIAL' ? 'ok' : 'warn'} />
+      <Stat label="TRM oficial" value={cop(data.official)} hint={data.officialDate ? `Vigente ${data.officialDate}` : 'No disponible'} />
+      <Stat label="Dólar de mercado" value={cop(data.market)} hint="Referencia del momento" />
+      <div className="flex flex-col justify-between border-2 border-line p-3 text-xs text-ink-3">
+        <span>{TRM_SOURCE[data.source]} · leída {timeAgo(data.fetchedAt)}. Se refresca sola cada 15 min.</span>
+        <Button size="sm" variant="outline" className="mt-2 self-start" disabled={refresh.isPending} onClick={() => refresh.mutate()}>
+          <RefreshCw size={12} /> {refresh.isPending ? 'Leyendo…' : 'Actualizar ya'}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 function InboundOrdersDocs() {
   const example = `curl -X POST ${window.location.origin}/api/inbound/orders \\
   -H "x-api-key: bo_live_…" -H "Content-Type: application/json" \\

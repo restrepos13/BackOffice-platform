@@ -462,7 +462,7 @@ function ExtrasCard({ company, onSaved }: { company: Company; onSaved: () => voi
     onError: (e) => toast.error(e instanceof Error ? e.message : 'Error'),
   });
   if (!st) return null;
-  const rate = 3200;
+  const rate = st.usdCop;
   const costCop = Math.round(st.usage.costUsd * rate);
   const net = Math.round(st.addon.price / 1.19);
   const f = form ?? { price: String(st.addon.price), credits: String(st.addon.credits) };

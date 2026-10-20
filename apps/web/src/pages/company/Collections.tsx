@@ -19,6 +19,7 @@ interface Receivable {
   remindersSent: number; lastReminderAt: string | null; paidAt: string | null; fromOrder: boolean; overdueDays: number;
 }
 interface Summary {
+  auto: boolean;
   config: Config;
   templates: Array<{ key: string; name: string; body: string }>;
   totals: { pendingCount: number; pendingAmount: number; overdueAmount: number; remindersSent: number; recoveredAmount: number; recoveredCount: number };
@@ -62,6 +63,12 @@ export default function Collections() {
     onError: (e) => toast.error(e instanceof Error ? e.message : 'Error'),
   });
 
+  const auto = useMutation({
+    mutationFn: (on: boolean) => api.put<{ auto: boolean }>(withScope('/addons/collections/auto', q), { auto: on }),
+    onSuccess: (r) => { queryClient.invalidateQueries({ queryKey: ['collections'] }); toast.success(r.auto ? 'Listo: desde ahora recuerda los pagos pendientes solo, todos los días' : 'Envíos automáticos apagados'); },
+    onError: (e) => toast.error(e instanceof Error ? e.message : 'Error'),
+  });
+
   if (!ready) return <PickCompany />;
   if (error) return <Card title="Cobranza humanizada"><p className="text-sm">{error instanceof Error ? error.message : 'No disponible'} <Link to="/app/mi-plan" className="font-semibold underline">Ir a Mi plan</Link></p></Card>;
   if (isLoading || !data || !form) return <Loading />;
@@ -72,7 +79,7 @@ export default function Collections() {
   return (
     <>
       <PageHeader
-        kicker="Complemento"
+        kicker="Incluido en tu plan"
         title="Cobranza"
         accent="humanizada"
         actions={canWrite && (
@@ -82,6 +89,14 @@ export default function Collections() {
           </div>
         )}
       />
+
+      <div className={`mb-6 flex flex-wrap items-center justify-between gap-3 border-2 p-4 ${data.auto ? 'border-ink bg-ok-soft' : 'border-line bg-paper'}`}>
+        <div className="text-sm">
+          <p className="font-semibold">{data.auto ? 'Envíos automáticos encendidos' : 'Envíos automáticos apagados'}</p>
+          <p className="text-ink-2">{data.auto ? `Cada día a las ${form.sendHour}:00 recuerda los pagos pendientes solo, respetando tus límites.` : 'Incluido en tu plan. Revisa los ajustes y enciéndelo cuando quieras; mientras tanto puedes enviar a mano.'}</p>
+        </div>
+        {canWrite && <Switch checked={data.auto} disabled={auto.isPending} onChange={(v) => auto.mutate(v)} label="Envíos automáticos" showLabel />}
+      </div>
 
       <div className="mb-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <Stat label="Por cobrar" value={fmtMoney(t.pendingAmount)} hint={`${t.pendingCount} cuentas`} />

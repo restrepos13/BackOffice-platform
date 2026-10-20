@@ -1,3 +1,4 @@
+import { originFromTwilio, originUpdates } from '../common/chat-origin';
 import {
   Body,
   Controller,
@@ -270,6 +271,7 @@ export class TwilioService implements OnModuleInit, OnApplicationShutdown {
       },
       orderBy: { lastMessageAt: 'desc' },
     });
+    const isNewConversation = !conversation;
     if (!conversation) {
       conversation = await this.prisma.conversation.create({
         data: {
@@ -282,6 +284,10 @@ export class TwilioService implements OnModuleInit, OnApplicationShutdown {
         },
       });
     }
+    // De dónde llegó (anuncio de Meta, publicación o directo)
+    const origin = originUpdates(originFromTwilio(payload), conversation, contact, isNewConversation);
+    if (origin.conversation) conversation = await this.prisma.conversation.update({ where: { id: conversation.id }, data: origin.conversation });
+    if (origin.contact) contact = await this.prisma.contact.update({ where: { id: contact.id }, data: origin.contact });
 
     // Multimedia: se descarga con las credenciales de la línea y queda en el panel
     let type = 'TEXT';

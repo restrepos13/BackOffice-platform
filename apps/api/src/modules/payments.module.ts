@@ -23,6 +23,7 @@ import { buildCheckoutUrl, verifyEventSignature } from '../common/wompi';
 import { ensureTrackingLink, orderCode, publicWebUrl } from '../common/tracking';
 import { AuditService } from './audit.module';
 import { EventsService } from './events.module';
+import { usdCopRate } from '../common/trm';
 
 /**
  * Pagos con Wompi (Colombia):
@@ -141,8 +142,7 @@ export class PaymentsService {
     if (invoice.status === 'PAID') throw new BadRequestException('La factura ya está pagada');
     if (invoice.totalAmount <= 0) throw new BadRequestException('La factura no tiene valor a pagar');
 
-    const cfg = await this.settings();
-    const rate = Number(cfg.USD_COP_RATE || 4000);
+    const rate = await usdCopRate(this.prisma);
     const cop = invoice.currency === 'COP' ? invoice.totalAmount : invoice.totalAmount * rate;
     const payment = await this.platformCheckout({
       companyId: invoice.companyId,
@@ -162,8 +162,7 @@ export class PaymentsService {
 
   /** Checkout de un paquete prepago de IA (lo llama AiCreditsService). */
   async createPackageCheckout(user: AuthUser, companyId: string, pkg: any) {
-    const cfg = await this.settings();
-    const rate = Number(cfg.USD_COP_RATE || 4000);
+    const rate = await usdCopRate(this.prisma);
     const cop = pkg.currency === 'USD' ? pkg.price * rate : pkg.price;
     const payment = await this.platformCheckout({
       companyId,

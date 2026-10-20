@@ -103,6 +103,22 @@ export async function openPdf(path: string): Promise<void> {
   setTimeout(() => URL.revokeObjectURL(url), 60_000);
 }
 
+/** Descarga un PDF autenticado del API con el nombre que manda el servidor. */
+export async function downloadPdf(path: string, fallbackName = 'datos.pdf'): Promise<void> {
+  const res = await fetch(`${BASE}${path}`, { headers: { Authorization: `Bearer ${getToken()}` } });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data?.message ?? 'No se pudo generar el PDF');
+  }
+  const name = /filename="([^"]+)"/.exec(res.headers.get('Content-Disposition') ?? '')?.[1] ?? fallbackName;
+  const url = URL.createObjectURL(await res.blob());
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = name;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 60_000);
+}
+
 /** Sube un archivo (multipart) al API con el JWT. */
 export async function uploadFile<T = unknown>(path: string, field: string, file: File, extra?: Record<string, string>): Promise<T> {
   const form = new FormData();

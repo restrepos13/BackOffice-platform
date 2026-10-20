@@ -126,8 +126,9 @@ describe('compra del plan: modalidad, complementos, pago confirmado y activació
       planId: 'p2', billingCycle: 'MONTHLY', serviceMode: 'MANAGED',
       addons: [{ key: 'reactivation' }, { key: 'extraChannels', qty: 2 }, { key: 'voiceCalls' }, { key: 'hackeo' } as any],
     });
-    expect(order).toMatchObject({ planName: 'Intermedio', serviceMode: 'MANAGED', planAmount: 529000, total: 529000 + 89000 + 59000 * 2 });
-    expect(order.addons.map((a: any) => a.key)).toEqual(['reactivation', 'extraChannels']); // "próximamente" y basura fuera
+    // La reactivación ya viene en el plan: no se cobra ni se agrega como complemento
+    expect(order).toMatchObject({ planName: 'Intermedio', serviceMode: 'MANAGED', planAmount: 529000, total: 529000 + 59000 * 2 });
+    expect(order.addons.map((a: any) => a.key)).toEqual(['extraChannels']); // incluidos, "próximamente" y basura fuera
     expect(db.planOrder.filter((o: any) => o.status === 'CANCELLED')).toHaveLength(1);
     await expect(service.createOrder({ ...ADMIN, role: 'COMPANY_VIEWER' }, { planId: 'p1' })).rejects.toBeTruthy();
 
@@ -142,8 +143,9 @@ describe('compra del plan: modalidad, complementos, pago confirmado y activació
     const c = db.company[0];
     expect(c).toMatchObject({ planId: 'p2', status: 'ACTIVE', serviceMode: 'MANAGED', aiBillingMode: 'PLATFORM' });
     const addons = JSON.parse(c.addonsJson);
-    expect(addons.reactivation.enabled).toBe(true);
     expect(addons.extraChannels.qty).toBe(2);
+    // Con plan aparecen solas las herramientas incluidas
+    expect(JSON.parse(c.modulesJson)).toEqual(expect.arrayContaining(['reactivation', 'collections', 'salesAudit']));
     expect(JSON.parse(c.landingJson).status).toBe('PENDING');
   });
 });
@@ -175,7 +177,7 @@ describe('cobro mensual por modalidad (mes vencido)', () => {
     db.aiUsageEvent.push({ companyId: 'c9', billedTo: 'PLATFORM', costUsd: 10, createdAt: new Date(2026, 10, 5) }, { companyId: 'c9', billedTo: 'BYOK', costUsd: 50, createdAt: new Date(2026, 10, 5) });
     const inv = await computeCompanyInvoice(prisma, company, '2026-11');
     expect(inv.lines.find((l: any) => l.kind === 'PLAN').amount).toBe(279000);
-    expect(inv.lines.find((l: any) => l.kind === 'AI').amount).toBe(42000); // 10 USD × 1.05 × 4000
+    expect(inv.lines.find((l: any) => l.kind === 'AI').amount).toBe(42210); // 10 USD × 1.05 × (4000 + $20 de margen)
     const { recordAiUsage } = require('../src/ai/ai-access');
     db.company.push({ id: 'c9', serviceMode: 'MANAGED' });
     db.aiCreditLot.push({ id: 'l', companyId: 'c9', total: 5, remaining: 5, expiresAt: new Date(Date.now() + 86400e3), createdAt: new Date() });
@@ -209,15 +211,16 @@ describe('complementos: se piden, los activa el equipo y se apagan hasta un día
     db.company.push({ id: 'c1', name: 'Doña Rosa', addonsJson: null, modulesJson: '[]' });
     const svc = new CommerceService(prisma as any, audit as any, emails as any);
     await expect(svc.request(ADMIN, 'voiceCalls', {})).rejects.toThrow(/próximamente/);
-    await svc.request(ADMIN, 'collections', {});
-    expect((await svc.requests())[0]).toMatchObject({ key: 'collections', companyName: 'Doña Rosa' });
-    await svc.setAddon(DEV, 'c1', 'collections', { enabled: true });
+    await expect(svc.request(ADMIN, 'collections', {})).rejects.toThrow(/incluido/);
+    await svc.request(ADMIN, 'extraChannels', { qty: 1 });
+    expect((await svc.requests())[0]).toMatchObject({ key: 'extraChannels', companyName: 'Doña Rosa' });
+    await svc.setAddon(DEV, 'c1', 'extraChannels', { enabled: true });
     let view = await svc.addons(ADMIN);
-    expect(view.addons.find((a: any) => a.key === 'collections')).toMatchObject({ active: true, monthly: 89000 });
-    await svc.cancel(ADMIN, 'collections', {});
+    expect(view.addons.find((a: any) => a.key === 'extraChannels')).toMatchObject({ active: true, monthly: 59000 });
+    await svc.cancel(ADMIN, 'extraChannels', {});
     view = await svc.addons(ADMIN);
-    expect(view.addons.find((a: any) => a.key === 'collections')).toMatchObject({ active: false });
-    expect(JSON.parse(db.company[0].addonsJson).collections.until).toBeTruthy();
+    expect(view.addons.find((a: any) => a.key === 'extraChannels')).toMatchObject({ active: false });
+    expect(JSON.parse(db.company[0].addonsJson).extraChannels.until).toBeTruthy();
     await svc.setAddon(DEV, 'c1', 'social', { enabled: true });
     expect(JSON.parse(db.company[0].modulesJson)).toContain('marketing');
   });

@@ -39,6 +39,7 @@ export interface AdjustmentLike {
 
 import { addonCatalog, addonLinesFor } from './addons';
 import { AI_RESALE_MARKUP, DEFAULT_INCLUDED_META_USD, type ServiceMode, planPriceFor, serviceModeOf } from './offer';
+import { usdCopRate } from './trm';
 
 export const PERIOD_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
 
@@ -266,13 +267,13 @@ export async function computeCompanyInvoice(prisma: any, company: any, period: s
   const [adjustments, usage, rateRow, catalog, aiEvents] = await Promise.all([
     prisma.billingAdjustment.findMany({ where: { companyId: company.id, active: true }, orderBy: { createdAt: 'asc' } }),
     prisma.usageRecord.findMany({ where: { companyId: company.id, date: { gte: from, lt: to } } }),
-    prisma.platformSetting.findUnique({ where: { key: 'USD_COP_RATE' } }),
+    usdCopRate(prisma),
     addonCatalog(prisma),
     mode === 'MANAGED'
       ? prisma.aiUsageEvent.findMany({ where: { companyId: company.id, billedTo: 'PLATFORM', createdAt: { gte: from, lt: to } }, select: { costUsd: true } })
       : Promise.resolve([]),
   ]);
-  const rate = Number(rateRow?.value || 4000);
+  const rate = rateRow;
   const toCurrency = (usd: number) => (currency === 'COP' ? usd * rate : usd);
   const metaUsedUsd = usage.reduce((s: number, u: any) => s + (u.waCostUsd ?? 0), 0);
   const metaIncludedUsd = company.plan?.includedMetaUsd ?? DEFAULT_INCLUDED_META_USD;

@@ -123,19 +123,22 @@ export interface AddonDef {
   price: number;
   perUnit?: string;
   status: 'AVAILABLE' | 'SOON';
+  /** Viene incluido en todos los planes (sin costo, no se compra aparte). */
+  included?: boolean;
 }
 
 export const ADDONS: AddonDef[] = [
+  // Incluidos en todos los planes: el centro de mando de ventas de la empresa
   {
-    key: 'reactivation', name: 'Reactivación de clientes dormidos', price: 89000, status: 'AVAILABLE',
+    key: 'reactivation', name: 'Reactivación de clientes dormidos', price: 0, status: 'AVAILABLE', included: true,
     description: 'La IA le escribe con un mensaje personal a quien no te compra hace 30, 60 o 90 días para que vuelva.',
   },
   {
-    key: 'collections', name: 'Cobranza humanizada', price: 89000, status: 'AVAILABLE',
+    key: 'collections', name: 'Cobranza humanizada', price: 0, status: 'AVAILABLE', included: true,
     description: 'Recordatorios de pago amables por WhatsApp, con el valor y cómo pagar, para que no se te acumule la cartera.',
   },
   {
-    key: 'salesAudit', name: 'Auditor de ventas con IA', price: 69000, status: 'AVAILABLE',
+    key: 'salesAudit', name: 'Auditor de ventas con IA', price: 0, status: 'AVAILABLE', included: true,
     description: 'Cada semana te dice por qué se perdieron ventas (precio, demora, falta de producto) leyendo tus conversaciones.',
   },
   {
@@ -190,3 +193,6 @@ export function planPriceFor(plan: { priceMonthly: number; priceManaged?: number
   if (!plan) return 0;
   return mode === 'MANAGED' && (plan.priceManaged ?? 0) > 0 ? plan.priceManaged! : plan.priceMonthly;
 }
+
+/** Herramientas que vienen en todos los planes (antes eran complementos). */
+export const INCLUDED_ADDONS = ADDONS.filter((a) => a.included).map((a) => a.key);

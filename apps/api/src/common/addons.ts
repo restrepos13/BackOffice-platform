@@ -8,7 +8,7 @@
  * (el día 1): si lo apaga el 30, ese mes siguiente ya no aparece.
  * La activación la hace el equipo (hay que configurarlo); el cliente lo pide.
  */
-import { ADDONS, type AddonDef, type AddonKey } from './offer';
+import { ADDONS, INCLUDED_ADDONS, type AddonDef, type AddonKey } from './offer';
 
 export interface AddonState {
   enabled: boolean;
@@ -18,6 +18,8 @@ export interface AddonState {
   until?: string | null;
   requestedAt?: string | null;
   credits?: number;
+  /** Incluidos (reactivación, cobranza): la empresa encendió los envíos automáticos */
+  auto?: boolean;
   /** Ajustes del motor del complemento (addon-config.ts) */
   config?: Record<string, any>;
 }
@@ -45,6 +47,7 @@ export async function addonCatalog(prisma: any): Promise<AddonDef[]> {
   const socialPrice = Number(rows.find((r: any) => r.key === 'SOCIAL_ADDON_PRICE')?.value);
   return ADDONS.map((a) => {
     const o = overrides[a.key] ?? {};
+    if (a.included) return { ...a }; // incluido en el plan: ni precio ni estado editables
     const price = Number.isFinite(Number(o.price)) && Number(o.price) >= 0
       ? Number(o.price)
       : a.key === 'social' && socialPrice > 0 ? socialPrice : a.price;
@@ -92,6 +95,7 @@ export function addonLinesFor(company: { addonsJson?: string | null }, catalog: 
   const states = readAddonStates(company);
   const lines: Array<{ concept: string; amount: number }> = [];
   for (const def of catalog) {
+    if (def.included) continue;
     const st = states[def.key];
     if (!activeDuring(st, period)) continue;
     const qty = def.perUnit ? Math.max(1, Math.round(st?.qty ?? 1)) : 1;
@@ -118,10 +122,18 @@ export function isAddonKey(v: unknown): v is AddonKey {
 /** Complementos con sección propia en el panel de la empresa (Company.modulesJson). */
 export const ADDON_MODULES: Record<string, string> = { reactivation: 'reactivation', collections: 'collections', salesAudit: 'salesAudit' };
 
+/** ¿La empresa tiene plan? Las herramientas incluidas aparecen desde que elige uno. */
+export function hasPlan(company: { planId?: string | null }): boolean {
+  return !!company?.planId;
+}
+
 /** Módulos de la empresa con las secciones de complementos al día según su estado. */
-export function modulesWithAddons(modules: string[], states: Record<string, AddonState>): string[] {
+export function modulesWithAddons(modules: string[], states: Record<string, AddonState>, withPlan = false): string[] {
   const managed = new Set(Object.values(ADDON_MODULES));
   const out = modules.filter((m) => !managed.has(m));
-  for (const [key, mod] of Object.entries(ADDON_MODULES)) if (states[key]?.enabled) out.push(mod);
+  for (const [key, mod] of Object.entries(ADDON_MODULES)) {
+    const included = (INCLUDED_ADDONS as string[]).includes(key);
+    if (included ? withPlan : states[key]?.enabled) out.push(mod);
+  }
   return out;
 }

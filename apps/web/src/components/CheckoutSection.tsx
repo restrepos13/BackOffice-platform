@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { clsx } from 'clsx';
 import { AlertTriangle, Check, CreditCard, Gift, Landmark, MessageCircle, Minus, Plus, QrCode, RotateCcw, Sparkles, UserRound } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import SetupProgress from './SetupProgress';
 import { api } from '../lib/api';
 import { fmtMoney } from '../lib/format';
 import { withScope } from '../pages/company/shared';
@@ -21,7 +22,7 @@ interface CheckoutPlan {
   id: string; name: string; tier: string | null; priceSelf: number; priceManaged: number; annualSelf: number; annualManaged: number;
   maxUsers: number; maxLines: number; maxCouriers: number; highlight: boolean; minTermMonths: number; includedMetaUsd: number; features: string[];
 }
-interface Addon { key: string; name: string; description: string; price: number; perUnit?: string; status: 'AVAILABLE' | 'SOON'; active: boolean; requested: boolean }
+interface Addon { key: string; name: string; description: string; price: number; perUnit?: string; status: 'AVAILABLE' | 'SOON'; included?: boolean; active: boolean; requested: boolean }
 interface CheckoutData {
   plans: CheckoutPlan[];
   modes: Record<Mode, { name: string; short: string; summary: string; includes: string[]; youPay: string[] }>;
@@ -96,7 +97,8 @@ export default function CheckoutSection({ q, canWrite }: { q: string; canWrite: 
   const plan = data.plans.find((p) => p.id === planId) ?? null;
   const monthly = plan ? (mode === 'MANAGED' ? plan.priceManaged : plan.priceSelf) : 0;
   const planAmount = plan ? (cycle === 'ANNUAL' ? (mode === 'MANAGED' ? plan.annualManaged : plan.annualSelf) : monthly) : 0;
-  const available = data.addons.filter((a) => a.status === 'AVAILABLE');
+  const included = data.addons.filter((a) => a.included);
+  const available = data.addons.filter((a) => a.status === 'AVAILABLE' && !a.included);
   const soon = data.addons.filter((a) => a.status === 'SOON');
   const addonsTotal = Object.entries(addons).reduce((s, [key, qty]) => s + (data.addons.find((a) => a.key === key)?.price ?? 0) * qty, 0);
   const total = planAmount + addonsTotal;
@@ -217,6 +219,14 @@ export default function CheckoutSection({ q, canWrite }: { q: string; canWrite: 
 
           {/* 3. Complementos */}
           <div className="border-2 border-ink bg-paper p-4">
+            {included.length > 0 && (
+              <div className="mb-4 border-l-2 border-ok pl-3 text-sm">
+                <p className="font-semibold">Ya viene en tu plan, sin costo extra:</p>
+                <ul className="mt-1 space-y-0.5 text-ink-2">
+                  {included.map((a) => <li key={a.key}><b>{a.name}:</b> {a.description}</li>)}
+                </ul>
+              </div>
+            )}
             <p className="kicker">Complementos (opcionales)</p>
             <p className="mt-1 text-xs text-ink-3">Los apagas cuando quieras desde tu panel; si lo haces antes del día de pago, el mes siguiente ya no se cobran.</p>
             <div className="mt-3 grid gap-2 md:grid-cols-2">
@@ -328,17 +338,14 @@ export default function CheckoutSection({ q, canWrite }: { q: string; canWrite: 
               </>
             ) : (
               <>
-                <p className="display text-3xl">Preparando todo…</p>
-                <ol className="mt-4 space-y-3">
-                  {STEPS.filter((s) => Object.keys(addons).length || !s.includes('complementos')).map((label, i) => (
-                    <li key={label} className={clsx('flex items-center gap-3 text-sm', i > experience.step && 'text-ink-3')}>
-                      <span className={clsx('flex h-6 w-6 items-center justify-center border-2', i < experience.step ? 'border-ok bg-ok text-white' : i === experience.step ? 'animate-pulse border-ink' : 'border-line')}>
-                        {i < experience.step && <Check size={13} />}
-                      </span>
-                      {label}
-                    </li>
-                  ))}
-                </ol>
+                <p className="display mb-4 text-3xl">Preparando todo…</p>
+                <SetupProgress
+                  title="Configurando tu empresa"
+                  steps={STEPS.filter((s) => Object.keys(addons).length || !s.includes('complementos'))}
+                  running
+                  expectedMs={5000}
+                  className="!border-line"
+                />
               </>
             )}
           </div>

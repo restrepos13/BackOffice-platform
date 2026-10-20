@@ -26,8 +26,8 @@ const COMPANY_STEPS: TourStep[] = [
   { target: 'nav-inbox', title: 'Conversaciones', body: 'Aquí ves TODO lo que conversa tu asistente IA por WhatsApp, en vivo. Puedes intervenir como humano cuando quieras — la IA se pausa sola en esa conversación.' },
   { target: 'nav-orders', title: 'Pedidos', body: 'Los pedidos que toma la IA (o tu equipo) con su trazabilidad completa: confirmación, áreas de producción, recordatorios y entrega.' },
   { target: 'nav-reports', title: 'Reportes', body: 'El reporte diario con alertas, comparativos, la precisión real de la IA y una pestaña para preguntarle a tus datos en lenguaje natural.' },
-  { target: 'nav-usage', title: 'Consumo IA', body: 'Cuánto consume tu IA y tus mensajes de WhatsApp, en tu moneda y con proyección de fin de mes. Tu llave, tu costo, sin sorpresas.' },
-  { target: 'nav-settings', title: 'Configuración', body: 'La personalidad de tu asistente, tu llave de IA, horarios, catálogo y plantillas. Todo editable sin tocar código.' },
+  { target: 'nav-usage', title: 'Consumo IA', body: 'Cuánto consume tu IA y tus mensajes de WhatsApp, en tu moneda y con proyección de fin de mes. Sin sorpresas.' },
+  { target: 'nav-settings', title: 'Configuración', body: 'Los datos de tu empresa, horarios y catálogo. Lo técnico lo dejamos listo contigo en una llamada.' },
 ];
 
 const AREA_STEPS: TourStep[] = [

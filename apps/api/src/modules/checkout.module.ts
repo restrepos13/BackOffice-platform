@@ -14,10 +14,13 @@ import { addonCatalog, isAddonKey, modulesWithAddons, readAddonStates } from '..
 import {
   AI_RESALE_MARKUP, HUMAN_OVERSIGHT_NOTICE, LANDING_NOTICE, MAX_IMPLEMENTATION_DAYS, META_NOTICE, NUMBERS_NOTICE,
   SERVICE_MODES, type ServiceMode, planPriceFor,
+  INCLUDED_ADDONS,
 } from '../common/offer';
 import { ensureFile, removeFile, saveFile } from '../common/file-store';
+import { TEAM_SIZE_PEOPLE } from '../common/business-profile';
 import { AuditModule, AuditService } from './audit.module';
 import { EmailsModule, EmailsService } from './emails.module';
+import { usdCopRate } from '../common/trm';
 
 /**
  * Compra del plan desde el panel de la empresa.
@@ -164,7 +167,8 @@ export class CheckoutService {
     return {
       dailyChats: Number(ob.dailyChats) > 0 ? Number(ob.dailyChats) : 20,
       modules,
-      users: Math.max(1, users),
+      // Lo que contó en primeros pasos pesa aunque aún no haya creado los usuarios
+      users: Math.max(1, users, TEAM_SIZE_PEOPLE[ob.team?.size] ?? 0),
       lines: Math.max(1, lines),
     };
   }
@@ -175,11 +179,11 @@ export class CheckoutService {
       this.prisma.aiModel.findMany({ where: { active: true } }),
       this.prisma.bot.findFirst({ where: { companyId: company.id } }),
       this.prisma.product.count({ where: { companyId: company.id, active: true } }),
-      this.prisma.platformSetting.findUnique({ where: { key: 'USD_COP_RATE' } }),
+      usdCopRate(this.prisma),
     ]);
     const model = models.find((m: any) => m.modelId === bot?.model) ?? models.find((m: any) => m.recommended) ?? models[0];
     if (!model) return null;
-    const trm = Number(rate?.value) > 1000 ? Number(rate!.value) : 4000;
+    const trm = rate;
     const est = estimateAiCosts(
       {
         promptChars: String(bot?.systemPrompt ?? '').length + String(bot?.personalityJson ?? '').length || 1500,
@@ -255,7 +259,7 @@ export class CheckoutService {
     const mode: ServiceMode = dto?.serviceMode === 'MANAGED' ? 'MANAGED' : 'SELF';
     const catalog = await addonCatalog(this.prisma);
     const addons = (Array.isArray(dto?.addons) ? dto.addons : [])
-      .filter((a) => isAddonKey(a?.key))
+      .filter((a) => isAddonKey(a?.key) && !(INCLUDED_ADDONS as string[]).includes(a.key))
       .map((a) => {
         const def = catalog.find((c) => c.key === a.key)!;
         const qty = def.perUnit ? Math.min(10, Math.max(1, Math.round(Number(a.qty) || 1))) : 1;
@@ -418,7 +422,7 @@ export class CheckoutService {
     const now = new Date().toISOString();
     const states = readAddonStates(company);
     for (const a of parseJson<Array<{ key: string; qty: number; price: number }>>(order.addonsJson, [])) {
-      if (!isAddonKey(a.key)) continue;
+      if (!isAddonKey(a.key) || (INCLUDED_ADDONS as string[]).includes(a.key)) continue;
       states[a.key] = { ...(states[a.key] ?? {}), enabled: true, qty: a.qty, since: now, until: null, requestedAt: null };
     }
     // Primera suscripción → landing de regalo (la arma el equipo)
@@ -436,7 +440,7 @@ export class CheckoutService {
         // "Todo incluido" usa la IA de BackOffice; "Tu IA", la llave del cliente
         aiBillingMode: mode === 'MANAGED' ? 'PLATFORM' : 'BYOK',
         addonsJson: JSON.stringify(states),
-        modulesJson: JSON.stringify(modulesWithAddons(parseJson<string[]>(company.modulesJson, []), states)),
+        modulesJson: JSON.stringify(modulesWithAddons(parseJson<string[]>(company.modulesJson, []), states, true)),
         ...(firstTime && !landing.status ? { landingJson: JSON.stringify({ status: 'PENDING', createdAt: now }) } : {}),
       },
     });

@@ -4,6 +4,7 @@ import { CurrentUser } from '../auth/decorators';
 import { AuthUser, NOT_DELETED, isPlatformRole, parseJson } from '../common/constants';
 import { CostModel, REFERENCE_MODELS, estimateAiCosts } from '../common/ai-cost';
 import { AI_RESALE_MARKUP } from '../common/offer';
+import { usdCopRate } from '../common/trm';
 
 /**
  * "¿Cuánto me cuesta la IA?" para cada empresa, con SUS números: tamaño de las
@@ -29,9 +30,7 @@ export class AiCostService {
   }
 
   async trm(): Promise<number> {
-    const row = await this.prisma.platformSetting.findUnique({ where: { key: 'USD_COP_RATE' } });
-    const n = Number(row?.value);
-    return Number.isFinite(n) && n > 1000 ? n : 4000;
+    return usdCopRate(this.prisma);
   }
 
   async estimate(user: AuthUser, query: { companyId?: string; dailyChats?: string }) {

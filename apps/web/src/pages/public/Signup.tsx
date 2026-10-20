@@ -3,6 +3,7 @@ import {
   AlertTriangle, ArrowLeft, ArrowRight, Check, ChevronDown, Eye, EyeOff, HardHat, Mic, MicOff, Plus, RotateCcw,
   Send, Shirt, Sparkles, Stethoscope, Trash2, Utensils, X,
 } from 'lucide-react';
+import SetupProgress from '../../components/SetupProgress';
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { Link, Navigate, useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
@@ -177,7 +178,6 @@ export default function Signup() {
   const [chatError, setChatError] = useState<string | null>(null);
   const [interviewDone, setInterviewDone] = useState(false);
   const [building, setBuilding] = useState(false);
-  const [buildStep, setBuildStep] = useState(0);
   const [buildError, setBuildError] = useState<string | null>(null);
   const [preview, setPreview] = useState<Preview | null>(null);
   const [open, setOpen] = useState<string | null>(null);
@@ -215,13 +215,6 @@ export default function Signup() {
     if (step > 1) track('view', { step: step === 2 ? 'PREVIEW' : 'ACCOUNT' });
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }, [step]);
-  // Mientras arma el plano, la lista de pasos avanza para que se note que trabaja
-  useEffect(() => {
-    if (!building) return;
-    setBuildStep(0);
-    const t = setInterval(() => setBuildStep((s) => Math.min(s + 1, BUILD_STEPS.length - 1)), 2600);
-    return () => clearInterval(t);
-  }, [building]);
 
   if (!loading && user) return <Navigate to="/" replace />;
 
@@ -515,17 +508,7 @@ export default function Signup() {
                   </p>
                 )}
                 {building && (
-                  <ol className="space-y-2 border-2 border-ink bg-paper p-4 text-sm" aria-label="Armando tu cuenta">
-                    {BUILD_STEPS.map((label, i) => (
-                      <li key={label} className={clsx('flex items-center gap-2', i > buildStep && 'text-ink-3')}>
-                        <span className={clsx('flex h-5 w-5 items-center justify-center border-2', i < buildStep ? 'border-ok bg-ok text-white' : i === buildStep ? 'animate-pulse border-ink' : 'border-line')}>
-                          {i < buildStep && <Check size={11} />}
-                        </span>
-                        {label}
-                      </li>
-                    ))}
-                    <li className="pt-1 text-xs text-ink-3">Esto toma entre 10 y 40 segundos.</li>
-                  </ol>
+                  <SetupProgress title="Armando tu cuenta" steps={BUILD_STEPS} running={building} expectedMs={22000} hint="Esto toma entre 10 y 40 segundos." />
                 )}
                 {buildError && !building && (
                   <Notice tone="bad" action={<Button size="sm" onClick={() => build()}><RotateCcw size={13} /> Intentar otra vez</Button>}>
@@ -709,7 +692,7 @@ export default function Signup() {
             >
               <p className="mb-3 text-xs text-ink-3">Conversaciones, contactos, asistente, equipo y facturación siempre van incluidos.</p>
               <div className="grid gap-2 sm:grid-cols-2">
-                {Object.entries(TOOLS).map(([key, t]) => {
+                {Object.entries(TOOLS).filter(([key]) => !preview.profile?.hide.includes(key) || bp.modules.includes(key)).map(([key, t]) => {
                   const on = bp.modules.includes(key);
                   const needsOrders = ['production', 'delivery', 'menu'].includes(key) && !bp.modules.includes('orders');
                   return (
