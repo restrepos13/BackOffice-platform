@@ -268,7 +268,8 @@ describe('entrevista: la IA pregunta cómo funciona el negocio', () => {
     const turn = await service.interview({ messages: NAMED });
     expect(turn).toMatchObject({ done: false, mode: 'guided' });
     expect(turn.question.length).toBeGreaterThan(5);
-    expect(turn.options.length).toBeGreaterThan(1);
+    // La pregunta guiada sale del motor por código: lo que aún no sabe (puede ser texto libre)
+    expect(Array.isArray(turn.options)).toBe(true);
     (service as any).pool = fakePool(jest.fn(async () => ({ content: 'no sé', model: 'm', keyLabel: 'k', tokens: 1 })));
     expect(await service.interview({ messages: NAMED })).toMatchObject({ done: false, mode: 'guided' });
   });

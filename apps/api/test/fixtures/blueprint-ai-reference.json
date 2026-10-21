@@ -1,0 +1,1820 @@
+{
+ "ropa": {
+  "model": "gemini-2.5-flash",
+  "raw": {
+   "rubro": "VENTAS",
+   "tipo_negocio": "Marca de ropa femenina",
+   "empresa": {
+    "nombre": "Lúa",
+    "ciudad": "Medellín",
+    "resumen": "Marca de ropa femenina con blusas, vestidos y jeans."
+   },
+   "necesidades": [
+    {
+     "titulo": "Responder preguntas frecuentes sobre tallas y precios",
+     "como_lo_resuelve": "El asistente virtual de BackOffice responderá automáticamente las preguntas más comunes y mostrará la información de los productos."
+    },
+    {
+     "titulo": "Mostrar el catálogo de productos a los clientes",
+     "como_lo_resuelve": "BackOffice creará un menú digital con todos tus productos, descripciones y precios, que los clientes podrán ver fácilmente por WhatsApp."
+    },
+    {
+     "titulo": "Tomar los datos completos para los pedidos y envíos",
+     "como_lo_resuelve": "El sistema de pedidos de BackOffice guiará al cliente para recolectar toda la información necesaria para el envío y el pago."
+    },
+    {
+     "titulo": "Gestionar los pedidos y las ventas",
+     "como_lo_resuelve": "BackOffice organizará todos tus pedidos, clientes y ventas en un solo lugar, facilitando el seguimiento y la gestión."
+    }
+   ],
+   "herramientas": [
+    "orders",
+    "menu",
+    "gerencia"
+   ],
+   "embudo": {
+    "nombre": "Proceso de venta Lúa",
+    "etapas": [
+     {
+      "nombre": "Contacto inicial",
+      "tipo": "abierta"
+     },
+     {
+      "nombre": "Consulta de producto",
+      "tipo": "abierta"
+     },
+     {
+      "nombre": "Solicita información de tallas/precios",
+      "tipo": "abierta"
+     },
+     {
+      "nombre": "Pedido en proceso",
+      "tipo": "abierta"
+     },
+     {
+      "nombre": "Pago recibido",
+      "tipo": "ganada"
+     },
+     {
+      "nombre": "Envío realizado",
+      "tipo": "ganada"
+     },
+     {
+      "nombre": "Venta perdida",
+      "tipo": "perdida"
+     }
+    ]
+   },
+   "productos": [
+    {
+     "nombre": "Vestidos",
+     "categoria": "Ropa femenina",
+     "precio": 120000,
+     "descripcion": "Variedad de estilos y tallas disponibles.",
+     "presentaciones": []
+    },
+    {
+     "nombre": "Blusas",
+     "categoria": "Ropa femenina",
+     "precio": 65000,
+     "descripcion": "Variedad de estilos y tallas disponibles.",
+     "presentaciones": []
+    },
+    {
+     "nombre": "Jeans",
+     "categoria": "Ropa femenina",
+     "precio": null,
+     "descripcion": "Variedad de estilos y tallas disponibles.",
+     "presentaciones": []
+    }
+   ],
+   "horario": null,
+   "domicilios": {
+    "activo": true,
+    "tarifa_base": null,
+    "por_km": null,
+    "cobertura_km": null,
+    "tiempo_preparacion_min": null
+   },
+   "datos_cliente": [
+    "Nombre completo",
+    "Cédula",
+    "Dirección de envío",
+    "Ciudad",
+    "Número de contacto",
+    "Comprobante de pago"
+   ],
+   "flujo_asistente": [
+    "Saluda al cliente y se presenta como asistente de Lúa.",
+    "Pregunta cómo puede ayudar y si busca algo en específico.",
+    "Si el cliente pregunta por productos, muestra el catálogo digital con blusas, vestidos y jeans.",
+    "Responde preguntas sobre tallas y precios de los productos.",
+    "Si el cliente desea hacer un pedido, solicita los datos de envío y el comprobante de pago.",
+    "Confirma el pedido y los datos de envío.",
+    "Informa sobre el proceso de envío y los tiempos de entrega.",
+    "Agradece la compra."
+   ],
+   "respuestas_rapidas": [
+    {
+     "atajo": "tallas",
+     "titulo": "Información de tallas",
+     "texto": "¡Hola! Para nuestras blusas, vestidos y jeans manejamos tallas S, M, L y XL. ¿Qué prenda te interesa para darte medidas más exactas?"
+    },
+    {
+     "atajo": "precios",
+     "titulo": "Precios de productos",
+     "texto": "Nuestros vestidos tienen un valor de $120.000 y las blusas $65.000. Los jeans varían según el modelo. Puedes ver todo nuestro catálogo aquí: [link al catálogo]"
+    },
+    {
+     "atajo": "pago",
+     "titulo": "Métodos de pago",
+     "texto": "Aceptamos pagos por transferencia Bancolombia y Nequi. El pago se realiza antes del envío. Te enviaremos los datos una vez confirmes tu pedido."
+    },
+    {
+     "atajo": "envio",
+     "titulo": "Información de envíos",
+     "texto": "Hacemos envíos a todo el país por transportadora. En Medellín, también tenemos servicio de mensajería. El costo del envío se calcula según tu ubicación."
+    }
+   ],
+   "seguimientos": [
+    {
+     "cuando": "no_reply",
+     "horas": 3,
+     "mensaje": "¡Hola de nuevo! ¿Tienes alguna otra pregunta sobre nuestros productos o tu pedido? Estoy aquí para ayudarte."
+    }
+   ],
+   "preguntas": [
+    {
+     "pregunta": "¿Qué tallas manejan?",
+     "respuesta": "Manejamos tallas S, M, L y XL. Si necesitas medidas específicas, con gusto te las damos."
+    },
+    {
+     "pregunta": "¿Cuánto valen los vestidos?",
+     "respuesta": "Nuestros vestidos tienen un valor de $120.000."
+    },
+    {
+     "pregunta": "¿Cuánto valen las blusas?",
+     "respuesta": "Las blusas tienen un valor de $65.000."
+    },
+    {
+     "pregunta": "¿Cómo puedo pagar?",
+     "respuesta": "Puedes pagar por transferencia Bancolombia o Nequi. El pago se realiza antes del envío."
+    },
+    {
+     "pregunta": "¿Hacen envíos a otras ciudades?",
+     "respuesta": "Sí, hacemos envíos a todo el país por transportadora. En Medellín, también tenemos servicio de mensajería."
+    }
+   ],
+   "asistente": {
+    "nombre": "Sofía",
+    "tono": "Amable y servicial",
+    "estilo": "Directo y eficiente",
+    "bienvenida": "¡Hola! Soy Sofía, la asistente virtual de Lúa. Estoy aquí para ayudarte con tus preguntas sobre nuestra ropa, tallas, precios y pedidos. ¿Cómo puedo asistirte hoy?",
+    "instrucciones": "Atiende a los clientes de Lúa, responde preguntas sobre tallas y precios de blusas, vestidos y jeans. Muestra el catálogo de productos y guía al cliente para tomar los datos necesarios para un pedido (nombre, cédula, dirección, ciudad, contacto y comprobante de pago). Nunca inventa precios ni promociones. Siempre es amable y clara."
+   }
+  }
+ },
+ "almuerzos": {
+  "model": "gemini-2.5-flash",
+  "raw": {
+   "rubro": "COMIDAS",
+   "tipo_negocio": "Almuerzos a domicilio",
+   "empresa": {
+    "nombre": "Sazón de la Abuela",
+    "ciudad": "Bogotá",
+    "resumen": "Almuerzos caseros a domicilio para oficinas."
+   },
+   "necesidades": [
+    {
+     "titulo": "Gestionar los pedidos que llegan por WhatsApp",
+     "como_lo_resuelve": "BackOffice te permite tener un catálogo digital para que tus clientes hagan sus pedidos directamente por WhatsApp, organizando todo en un solo lugar."
+    },
+    {
+     "titulo": "Coordinar los domicilios con mis 3 domiciliarios",
+     "como_lo_resuelve": "Con el módulo de domicilios de BackOffice, puedes asignar pedidos a tus domiciliarios, ver su ubicación en tiempo real y tus clientes pueden seguir su pedido."
+    },
+    {
+     "titulo": "Atender a muchos clientes al tiempo sin demoras",
+     "como_lo_resuelve": "El asistente virtual de BackOffice puede atender hasta 100 clientes al día, tomando pedidos y respondiendo preguntas frecuentes de forma automática y rápida."
+    }
+   ],
+   "herramientas": [
+    "orders",
+    "production",
+    "delivery",
+    "menu",
+    "gerencia",
+    "analytics"
+   ],
+   "embudo": {
+    "nombre": "Proceso de Pedido de Almuerzo",
+    "etapas": [
+     {
+      "nombre": "Nuevo contacto",
+      "tipo": "abierta"
+     },
+     {
+      "nombre": "Pregunta por menú",
+      "tipo": "abierta"
+     },
+     {
+      "nombre": "Pedido en curso",
+      "tipo": "abierta"
+     },
+     {
+      "nombre": "Pedido entregado",
+      "tipo": "ganada"
+     },
+     {
+      "nombre": "No concretó",
+      "tipo": "perdida"
+     }
+    ]
+   },
+   "productos": [
+    {
+     "nombre": "Menú del día",
+     "categoria": "Almuerzos",
+     "precio": 16000,
+     "descripcion": "Incluye sopa, seco y jugo.",
+     "presentaciones": []
+    },
+    {
+     "nombre": "Menú ejecutivo",
+     "categoria": "Almuerzos",
+     "precio": 22000,
+     "descripcion": "",
+     "presentaciones": []
+    }
+   ],
+   "horario": {
+    "dias": [
+     1,
+     2,
+     3,
+     4,
+     5
+    ],
+    "abre": "11:00",
+    "cierra": "15:00"
+   },
+   "domicilios": {
+    "activo": true,
+    "tarifa_base": null,
+    "por_km": null,
+    "cobertura_km": null,
+    "tiempo_preparacion_min": null
+   },
+   "datos_cliente": [
+    "Nombre completo",
+    "Dirección de entrega",
+    "Número de contacto",
+    "Método de pago"
+   ],
+   "flujo_asistente": [
+    "Saludo y bienvenida, presentando el menú del día y el ejecutivo.",
+    "Preguntar al cliente qué menú desea y la cantidad.",
+    "Solicitar la dirección de entrega y un número de contacto.",
+    "Confirmar el método de pago (efectivo o Nequi).",
+    "Informar el tiempo estimado de entrega.",
+    "Despedida y agradecimiento por el pedido."
+   ],
+   "respuestas_rapidas": [
+    {
+     "atajo": "menu-hoy",
+     "titulo": "Menú del día",
+     "texto": "¡Hola! El menú de hoy es [Sopa], [Seco] con [Proteína] y [Acompañamiento], y [Jugo]. El valor es $16.000. También tenemos el menú ejecutivo por $22.000."
+    },
+    {
+     "atajo": "metodos-pago",
+     "titulo": "Métodos de pago",
+     "texto": "Puedes pagar en efectivo contra entrega o por Nequi al [Número de Nequi]."
+    },
+    {
+     "atajo": "horario",
+     "titulo": "Horario de atención",
+     "texto": "Atendemos de lunes a viernes de 11:00 AM a 3:00 PM."
+    }
+   ],
+   "seguimientos": [
+    {
+     "cuando": "no_reply",
+     "horas": 3,
+     "mensaje": "¡Hola! ¿Aún estás interesado en nuestro menú? Avísanos si necesitas algo más para tu almuerzo."
+    }
+   ],
+   "preguntas": [
+    {
+     "pregunta": "¿Cuál es el menú de hoy?",
+     "respuesta": "El menú del día incluye sopa, seco y jugo por $16.000. También tenemos el menú ejecutivo por $22.000."
+    },
+    {
+     "pregunta": "¿Cuáles son los métodos de pago?",
+     "respuesta": "Aceptamos efectivo contra entrega y pagos por Nequi."
+    },
+    {
+     "pregunta": "¿Cuál es el horario de atención?",
+     "respuesta": "Atendemos de lunes a viernes de 11:00 AM a 3:00 PM."
+    }
+   ],
+   "asistente": {
+    "nombre": "Sofía",
+    "tono": "Amable y eficiente",
+    "estilo": "Directo y servicial",
+    "bienvenida": "¡Hola! Soy Sofía, la asistente virtual de Sazón de la Abuela. Estoy aquí para ayudarte con tu pedido de almuerzo. ¿En qué puedo servirte hoy?",
+    "instrucciones": "Atiende a los clientes que llegan por WhatsApp, les ofrece el menú del día y el ejecutivo, toma sus pedidos, solicita la dirección y el método de pago. Nunca debe inventar precios o productos que no estén en el catálogo."
+   }
+  }
+ },
+ "unas": {
+  "model": "gemini-2.5-flash",
+  "raw": {
+   "rubro": "SERVICIOS",
+   "tipo_negocio": "Salón de uñas y pestañas",
+   "empresa": {
+    "nombre": "Glow Nails",
+    "ciudad": "Cali",
+    "resumen": "Salón de uñas y pestañas en Cali."
+   },
+   "necesidades": [
+    {
+     "titulo": "Agendar citas por WhatsApp, eligiendo manicurista y hora",
+     "como_lo_resuelve": "BackOffice gestiona tu agenda de citas, permitiendo a los clientes elegir el servicio, la fecha, la hora y la manicurista disponible, todo desde WhatsApp."
+    },
+    {
+     "titulo": "Pedir un anticipo de 20.000 por Nequi para apartar la cita",
+     "como_lo_resuelve": "El asistente guía al cliente para realizar el pago del anticipo por Nequi y confirma la cita una vez recibido el comprobante."
+    }
+   ],
+   "herramientas": [
+    "orders",
+    "menu",
+    "agenda",
+    "gerencia",
+    "analytics"
+   ],
+   "embudo": {
+    "nombre": "Proceso de agendamiento Glow Nails",
+    "etapas": [
+     {
+      "nombre": "Contacto inicial",
+      "tipo": "abierta"
+     },
+     {
+      "nombre": "Consulta de servicios",
+      "tipo": "abierta"
+     },
+     {
+      "nombre": "Cita en proceso (anticipo pendiente)",
+      "tipo": "abierta"
+     },
+     {
+      "nombre": "Cita confirmada (anticipo pagado)",
+      "tipo": "ganada"
+     },
+     {
+      "nombre": "Cita realizada",
+      "tipo": "ganada"
+     },
+     {
+      "nombre": "No agendó",
+      "tipo": "perdida"
+     }
+    ]
+   },
+   "productos": [
+    {
+     "nombre": "Manicura Semipermanente",
+     "categoria": "Uñas",
+     "precio": 45000,
+     "descripcion": "Manicura con esmalte semipermanente de larga duración.",
+     "presentaciones": []
+    },
+    {
+     "nombre": "Uñas Acrílicas",
+     "categoria": "Uñas",
+     "precio": 90000,
+     "descripcion": "Aplicación de uñas acrílicas para mayor longitud y resistencia.",
+     "presentaciones": []
+    },
+    {
+     "nombre": "Pestañas Pelo a Pelo",
+     "categoria": "Pestañas",
+     "precio": 120000,
+     "descripcion": "Extensión de pestañas con técnica pelo a pelo para un look natural y voluminoso.",
+     "presentaciones": []
+    }
+   ],
+   "horario": {
+    "dias": [
+     1,
+     2,
+     3,
+     4,
+     5,
+     6
+    ],
+    "abre": "09:00",
+    "cierra": "19:00"
+   },
+   "domicilios": null,
+   "datos_cliente": [
+    "Nombre completo",
+    "Servicio deseado",
+    "Fecha y hora de la cita",
+    "Manicurista preferida (opcional)",
+    "Comprobante de pago del anticipo"
+   ],
+   "flujo_asistente": [
+    "Saludo de bienvenida a Glow Nails.",
+    "Preguntar al cliente qué servicio le interesa o si desea agendar una cita.",
+    "Mostrar el catálogo de servicios y precios.",
+    "Solicitar la fecha y hora deseada para la cita.",
+    "Preguntar si tiene alguna manicurista de preferencia.",
+    "Verificar la disponibilidad en la agenda.",
+    "Informar sobre el anticipo de $20.000 por Nequi para apartar la cita y solicitar el comprobante de pago.",
+    "Confirmar la cita una vez recibido y verificado el anticipo.",
+    "Enviar un recordatorio de la cita un día antes."
+   ],
+   "respuestas_rapidas": [
+    {
+     "atajo": "servicios",
+     "titulo": "Nuestros servicios",
+     "texto": "¡Claro! En Glow Nails ofrecemos:\n💅 Manicura Semipermanente: $45.000\n💅 Uñas Acrílicas: $90.000\n👁️ Pestañas Pelo a Pelo: $120.000\n¿Cuál te interesa?"
+    },
+    {
+     "atajo": "horario",
+     "titulo": "Horario de atención",
+     "texto": "Nuestro horario de atención en Glow Nails es de lunes a sábado, de 9:00 a.m. a 7:00 p.m. ¡Te esperamos!"
+    },
+    {
+     "atajo": "anticipo",
+     "titulo": "Información sobre anticipo",
+     "texto": "Para apartar tu cita en Glow Nails, solicitamos un anticipo de $20.000 por Nequi. Una vez realizado el pago, por favor envíanos el comprobante para confirmar tu reserva."
+    }
+   ],
+   "seguimientos": [
+    {
+     "cuando": "no_reply",
+     "horas": 1,
+     "mensaje": "¡Hola! ¿Necesitas ayuda con algo más en Glow Nails? Estoy aquí para asistirte."
+    }
+   ],
+   "preguntas": [
+    {
+     "pregunta": "¿Cuánto cuesta la manicura semipermanente?",
+     "respuesta": "La manicura semipermanente en Glow Nails tiene un costo de $45.000."
+    },
+    {
+     "pregunta": "¿Cómo puedo agendar una cita?",
+     "respuesta": "Puedes agendar tu cita eligiendo el servicio, la fecha, hora y si tienes una manicurista preferida. Te pediré un anticipo de $20.000 por Nequi para confirmarla."
+    },
+    {
+     "pregunta": "¿Necesito pagar un anticipo para mi cita?",
+     "respuesta": "Sí, para apartar tu cita en Glow Nails, solicitamos un anticipo de $20.000 por Nequi. Esto nos ayuda a asegurar tu espacio."
+    }
+   ],
+   "asistente": {
+    "nombre": "Sofía",
+    "tono": "Amable y profesional",
+    "estilo": "Claro y eficiente",
+    "bienvenida": "¡Hola! Soy Sofía, tu asistente virtual de Glow Nails. ¿En qué puedo ayudarte hoy?",
+    "instrucciones": "Atiende a los clientes de Glow Nails, ofrece información sobre servicios y precios, agenda citas, solicita anticipos por Nequi y confirma las reservas. Nunca debe dar descuentos no autorizados ni agendar sin el anticipo."
+   }
+  }
+ },
+ "odonto": {
+  "model": "gemini-2.5-flash",
+  "raw": {
+   "rubro": "SERVICIOS",
+   "tipo_negocio": "Consultorio Odontológico",
+   "empresa": {
+    "nombre": "Sonrisa Plena",
+    "ciudad": "Pereira",
+    "resumen": "Consultorio odontológico particular en Pereira."
+   },
+   "necesidades": [
+    {
+     "titulo": "Que el asistente agende citas",
+     "como_lo_resuelve": "BackOffice te permite agendar citas fácilmente, ver la disponibilidad de la doctora y que tus pacientes elijan el mejor horario."
+    },
+    {
+     "titulo": "Recordar la cita un día antes",
+     "como_lo_resuelve": "El sistema enviará recordatorios automáticos a tus pacientes un día antes de su cita, reduciendo las inasistencias."
+    },
+    {
+     "titulo": "Que el asistente responda precios aproximados",
+     "como_lo_resuelve": "El asistente puede dar información de precios de tus servicios de forma automática, como el costo de la valoración."
+    }
+   ],
+   "herramientas": [
+    "agenda",
+    "automations",
+    "gerencia",
+    "analytics"
+   ],
+   "embudo": {
+    "nombre": "Proceso de Citas Odontológicas",
+    "etapas": [
+     {
+      "nombre": "Contacto inicial",
+      "tipo": "abierta"
+     },
+     {
+      "nombre": "Valoración agendada",
+      "tipo": "abierta"
+     },
+     {
+      "nombre": "Valoración realizada",
+      "tipo": "abierta"
+     },
+     {
+      "nombre": "Tratamiento iniciado",
+      "tipo": "ganada"
+     },
+     {
+      "nombre": "Cita perdida",
+      "tipo": "perdida"
+     }
+    ]
+   },
+   "productos": [
+    {
+     "nombre": "Limpieza dental",
+     "categoria": "Servicio Odontológico",
+     "precio": null,
+     "descripcion": "Servicio de limpieza dental para mantener tu salud oral.",
+     "presentaciones": []
+    },
+    {
+     "nombre": "Blanqueamiento dental",
+     "categoria": "Servicio Odontológico",
+     "precio": null,
+     "descripcion": "Tratamiento para aclarar el tono de tus dientes.",
+     "presentaciones": []
+    },
+    {
+     "nombre": "Ortodoncia",
+     "categoria": "Servicio Odontológico",
+     "precio": null,
+     "descripcion": "Tratamiento para corregir la posición de los dientes.",
+     "presentaciones": []
+    },
+    {
+     "nombre": "Diseño de sonrisa",
+     "categoria": "Servicio Odontológico",
+     "precio": null,
+     "descripcion": "Procedimiento estético para mejorar la apariencia de tu sonrisa.",
+     "presentaciones": []
+    },
+    {
+     "nombre": "Valoración inicial",
+     "categoria": "Consulta",
+     "precio": 50000,
+     "descripcion": "Consulta inicial con la doctora para evaluar tu salud oral y planificar tratamientos.",
+     "presentaciones": []
+    }
+   ],
+   "horario": null,
+   "domicilios": null,
+   "datos_cliente": [
+    "Nombre",
+    "Cédula",
+    "Edad",
+    "Enfermedad"
+   ],
+   "flujo_asistente": [
+    "1. Saluda al cliente y dale la bienvenida a Sonrisa Plena.",
+    "2. Pregunta el motivo de su consulta (agendar cita, información de servicios, precios).",
+    "3. Si desea agendar una cita: pide su nombre, cédula, edad y si tiene alguna enfermedad. Luego, ofrece las fechas y horas disponibles para la valoración.",
+    "4. Si pregunta por precios: proporciona el costo de la valoración ($50.000) y explica que para los otros servicios se requiere una valoración previa para dar un presupuesto exacto.",
+    "5. Confirma la cita o resuelve las dudas adicionales.",
+    "6. Despide al cliente amablemente."
+   ],
+   "respuestas_rapidas": [
+    {
+     "atajo": "valoracion",
+     "titulo": "Costo Valoración",
+     "texto": "¡Claro! La valoración inicial con la doctora tiene un costo de $50.000. En ella, evaluaremos tu caso y te daremos un plan de tratamiento."
+    },
+    {
+     "atajo": "limpieza",
+     "titulo": "Información Limpieza",
+     "texto": "El servicio de limpieza dental te ayuda a mantener una boca sana y fresca. Para darte un precio exacto, necesitamos una valoración previa."
+    },
+    {
+     "atajo": "blanqueamiento",
+     "titulo": "Información Blanqueamiento",
+     "texto": "Nuestro blanqueamiento dental te ayudará a tener una sonrisa más brillante. Para conocer el costo y si eres candidato, te invitamos a una valoración."
+    },
+    {
+     "atajo": "ortodoncia",
+     "titulo": "Información Ortodoncia",
+     "texto": "Ofrecemos tratamientos de ortodoncia para alinear tus dientes y mejorar tu mordida. El precio varía según el caso, por lo que es indispensable una valoración."
+    },
+    {
+     "atajo": "diseno-sonrisa",
+     "titulo": "Información Diseño de Sonrisa",
+     "texto": "El diseño de sonrisa es un tratamiento personalizado para embellecer tu sonrisa. Para un presupuesto, necesitamos una valoración previa."
+    }
+   ],
+   "seguimientos": [],
+   "preguntas": [
+    {
+     "pregunta": "¿Cuánto cuesta la valoración?",
+     "respuesta": "La valoración inicial con la doctora tiene un costo de $50.000."
+    },
+    {
+     "pregunta": "¿Qué servicios ofrecen?",
+     "respuesta": "Ofrecemos limpieza, blanqueamiento, ortodoncia, diseño de sonrisa y valoración."
+    }
+   ],
+   "asistente": {
+    "nombre": "Sofía",
+    "tono": "Amable y profesional",
+    "estilo": "Claro y conciso, enfocado en la solución",
+    "bienvenida": "¡Hola! Soy Sofía, la asistente virtual de Sonrisa Plena. Estoy aquí para ayudarte a agendar tu cita o resolver tus dudas sobre nuestros servicios.",
+    "instrucciones": "Atiende a los clientes de Sonrisa Plena. Ofrece agendar citas, dar información sobre los servicios y sus precios aproximados (especialmente la valoración). Siempre pide nombre, cédula, edad y si tienen alguna enfermedad al agendar. Nunca da diagnósticos ni tratamientos sin la valoración de la doctora."
+   }
+  }
+ },
+ "alturas": {
+  "model": "gemini-2.5-flash",
+  "raw": {
+   "rubro": "SERVICIOS",
+   "tipo_negocio": "Centro de entrenamiento en alturas",
+   "empresa": {
+    "nombre": "Alturas Seguras",
+    "ciudad": "Itagüí",
+    "resumen": "Centro de entrenamiento en trabajo seguro en alturas."
+   },
+   "necesidades": [
+    {
+     "titulo": "Recordar a los clientes que deben reentrenar cada año.",
+     "como_lo_resuelve": "BackOffice puede enviar recordatorios automáticos por WhatsApp a tus clientes cuando se acerque la fecha de reentrenamiento, asegurando que no pierdan su certificación."
+    },
+    {
+     "titulo": "Gestionar los cupos de los cursos semanales (20 personas por grupo).",
+     "como_lo_resuelve": "BackOffice te permite llevar un control de los cupos disponibles para cada grupo semanal, evitando sobrecupos y facilitando las inscripciones."
+    }
+   ],
+   "herramientas": [
+    "orders",
+    "agenda",
+    "campaigns",
+    "gerencia",
+    "analytics"
+   ],
+   "embudo": {
+    "nombre": "Inscripción a Cursos de Alturas",
+    "etapas": [
+     {
+      "nombre": "Contacto inicial",
+      "tipo": "abierta"
+     },
+     {
+      "nombre": "Información enviada",
+      "tipo": "abierta"
+     },
+     {
+      "nombre": "Documentos solicitados",
+      "tipo": "abierta"
+     },
+     {
+      "nombre": "Pago pendiente",
+      "tipo": "abierta"
+     },
+     {
+      "nombre": "Inscrito y pagado",
+      "tipo": "ganada"
+     },
+     {
+      "nombre": "Certificado entregado",
+      "tipo": "ganada"
+     },
+     {
+      "nombre": "Reentrenamiento pendiente",
+      "tipo": "abierta"
+     }
+    ]
+   },
+   "productos": [
+    {
+     "nombre": "Curso Avanzado Trabajo Seguro en Alturas",
+     "categoria": "Cursos",
+     "precio": 380000,
+     "descripcion": "Curso de 40 horas para certificación en trabajo seguro en alturas.",
+     "presentaciones": []
+    },
+    {
+     "nombre": "Reentrenamiento Trabajo Seguro en Alturas",
+     "categoria": "Cursos",
+     "precio": 180000,
+     "descripcion": "Reentrenamiento de 8 horas para mantener la certificación anual.",
+     "presentaciones": []
+    }
+   ],
+   "horario": null,
+   "domicilios": null,
+   "datos_cliente": [
+    "Cédula",
+    "Certificado de EPS vigente",
+    "Certificado de ARL vigente"
+   ],
+   "flujo_asistente": [
+    "Saludo y bienvenida, preguntando cómo puede ayudar.",
+    "Ofrecer información sobre los cursos disponibles (Avanzado y Reentrenamiento).",
+    "Preguntar si el cliente es persona natural o empresa para aplicar descuentos por grupo.",
+    "Solicitar los documentos necesarios para la inscripción (Cédula, EPS, ARL).",
+    "Informar sobre los precios y métodos de pago.",
+    "Confirmar la inscripción una vez recibido el pago y los documentos, asignando un cupo en el grupo semanal.",
+    "Informar sobre la entrega del certificado.",
+    "Recordar la importancia del reentrenamiento anual."
+   ],
+   "respuestas_rapidas": [
+    {
+     "atajo": "info-cursos",
+     "titulo": "Información de Cursos",
+     "texto": "¡Claro! Ofrecemos el Curso Avanzado de 40 horas y el Reentrenamiento de 8 horas. ¿Cuál te interesa?"
+    },
+    {
+     "atajo": "requisitos",
+     "titulo": "Requisitos de Inscripción",
+     "texto": "Para inscribirte necesitamos: Cédula, certificado de EPS vigente y certificado de ARL vigente. El pago se realiza antes de iniciar el curso."
+    },
+    {
+     "atajo": "precios",
+     "titulo": "Precios de Cursos",
+     "texto": "El Curso Avanzado cuesta $380.000 y el Reentrenamiento $180.000. Si eres una empresa, tenemos descuentos especiales por grupo."
+    }
+   ],
+   "seguimientos": [
+    {
+     "cuando": "no_reply",
+     "horas": 3,
+     "mensaje": "¡Hola! ¿Tienes alguna pregunta adicional sobre nuestros cursos de Alturas Seguras? Estoy aquí para ayudarte."
+    }
+   ],
+   "preguntas": [
+    {
+     "pregunta": "¿Qué cursos ofrecen?",
+     "respuesta": "Ofrecemos el Curso Avanzado de 40 horas y el Reentrenamiento de 8 horas para trabajo seguro en alturas."
+    },
+    {
+     "pregunta": "¿Cuáles son los requisitos para inscribirme?",
+     "respuesta": "Necesitas Cédula, certificado de EPS y ARL vigente, y realizar el pago antes de iniciar el curso."
+    },
+    {
+     "pregunta": "¿Cuánto cuestan los cursos?",
+     "respuesta": "El Curso Avanzado vale $380.000 y el Reentrenamiento $180.000. Tenemos descuentos para empresas por grupo."
+    },
+    {
+     "pregunta": "¿Cada cuánto debo reentrenar?",
+     "respuesta": "El reentrenamiento debe realizarse cada año para mantener tu certificación vigente."
+    }
+   ],
+   "asistente": {
+    "nombre": "Sofía",
+    "tono": "Amable y profesional",
+    "estilo": "Claro y directo",
+    "bienvenida": "¡Hola! Soy Sofía, la asistente virtual de Alturas Seguras. Estoy aquí para ayudarte con toda la información sobre nuestros cursos de trabajo seguro en alturas. ¿Cómo puedo asistirte hoy?",
+    "instrucciones": "Atiende a los clientes de Alturas Seguras, ofrece información detallada sobre los cursos (Avanzado y Reentrenamiento), sus precios y los requisitos de inscripción. Gestiona las inscripciones y los cupos semanales. Nunca inventa información ni ofrece descuentos no autorizados. Siempre invita a la inscripción y al pago, y recuerda la importancia del reentrenamiento anual."
+   }
+  }
+ },
+ "inmobiliaria": {
+  "model": "gemini-2.5-flash",
+  "raw": {
+   "rubro": "VENTAS",
+   "tipo_negocio": "Inmobiliaria",
+   "empresa": {
+    "nombre": "Habitar",
+    "ciudad": "Medellín",
+    "resumen": "Inmobiliaria de arriendos y ventas de apartamentos en Medellín."
+   },
+   "necesidades": [
+    {
+     "titulo": "Filtrar a los interesados",
+     "como_lo_resuelve": "El asistente hará preguntas clave para entender qué busca el cliente y así solo pasarle a los asesores los contactos realmente calificados."
+    },
+    {
+     "titulo": "Enviar fotos del inmueble",
+     "como_lo_resuelve": "Podrás tener un catálogo digital con todas las fotos y detalles de tus propiedades, que el asistente enviará automáticamente o a solicitud del cliente."
+    },
+    {
+     "titulo": "Agendar visitas",
+     "como_lo_resuelve": "El asistente gestionará la agenda de tus asesores, permitiendo a los clientes reservar visitas directamente desde el chat, con recordatorios automáticos."
+    },
+    {
+     "titulo": "Gestionar documentos para el estudio de arrendamiento/venta",
+     "como_lo_resuelve": "El asistente puede informar sobre los documentos necesarios y guiar al cliente en el proceso de envío, facilitando la recolección de información."
+    }
+   ],
+   "herramientas": [
+    "menu",
+    "agenda",
+    "automations",
+    "campaigns",
+    "analytics",
+    "gerencia"
+   ],
+   "embudo": {
+    "nombre": "Proceso de Arriendo/Venta Habitar",
+    "etapas": [
+     {
+      "nombre": "Interesado inicial",
+      "tipo": "abierta"
+     },
+     {
+      "nombre": "Información enviada",
+      "tipo": "abierta"
+     },
+     {
+      "nombre": "Visita agendada",
+      "tipo": "abierta"
+     },
+     {
+      "nombre": "Documentos solicitados",
+      "tipo": "abierta"
+     },
+     {
+      "nombre": "Estudio de arrendamiento/venta",
+      "tipo": "abierta"
+     },
+     {
+      "nombre": "Arriendo/Venta exitosa",
+      "tipo": "ganada"
+     },
+     {
+      "nombre": "No califica/Desiste",
+      "tipo": "perdida"
+     }
+    ]
+   },
+   "productos": [],
+   "horario": null,
+   "domicilios": null,
+   "datos_cliente": [
+    "Nombre completo",
+    "Número de contacto",
+    "Correo electrónico",
+    "Tipo de inmueble (arriendo o venta)",
+    "Presupuesto aproximado",
+    "Zona de interés",
+    "Número de habitaciones",
+    "Necesita parqueadero (sí/no)",
+    "Cédula",
+    "Carta laboral",
+    "Extractos bancarios",
+    "Datos del codeudor (si aplica)"
+   ],
+   "flujo_asistente": [
+    "1. Saludo y bienvenida, presentándose como asistente de Habitar.",
+    "2. Pregunta si el cliente busca arriendo o venta.",
+    "3. Solicita información clave: presupuesto, zona de interés, número de habitaciones y si necesita parqueadero.",
+    "4. Muestra opciones de inmuebles que coincidan con los criterios, incluyendo fotos y descripciones detalladas (desde el catálogo digital).",
+    "5. Ofrece agendar una visita con un asesor para los inmuebles de interés.",
+    "6. Si el cliente acepta, pide los datos necesarios para la visita y la agenda en el calendario del asesor.",
+    "7. Explica brevemente el proceso de estudio de arrendamiento/venta y los documentos requeridos.",
+    "8. Ofrece resolver otras dudas o finalizar la conversación."
+   ],
+   "respuestas_rapidas": [
+    {
+     "atajo": "documentos-arriendo",
+     "titulo": "¿Qué documentos necesito para arrendar?",
+     "texto": "Para el estudio de arrendamiento necesitamos: cédula, carta laboral, extractos bancarios y un codeudor. ¿Te gustaría que te enviara el listado completo?"
+    },
+    {
+     "atajo": "agendar-visita",
+     "titulo": "Agendar visita",
+     "texto": "Claro, para agendar una visita, por favor indícame tu nombre completo, número de contacto y el inmueble que te interesa. ¿Qué día y hora te gustaría visitarlo?"
+    },
+    {
+     "atajo": "zonas-medellin",
+     "titulo": "¿En qué zonas de Medellín tienen propiedades?",
+     "texto": "Tenemos propiedades en diversas zonas de Medellín como El Poblado, Laureles, Envigado, Sabaneta, entre otras. ¿Hay alguna zona en particular que te interese?"
+    }
+   ],
+   "seguimientos": [
+    {
+     "cuando": "no_reply",
+     "horas": 4,
+     "mensaje": "¡Hola de nuevo! ¿Tienes alguna otra pregunta sobre los inmuebles que te envié o te gustaría agendar una visita? Estoy aquí para ayudarte."
+    }
+   ],
+   "preguntas": [
+    {
+     "pregunta": "¿Qué documentos necesito para arrendar?",
+     "respuesta": "Para el estudio de arrendamiento solicitamos: cédula, carta laboral, extractos bancarios y un codeudor. Nuestro asistente te puede dar más detalles."
+    },
+    {
+     "pregunta": "¿Cómo puedo agendar una visita a un apartamento?",
+     "respuesta": "Puedes agendar una visita directamente con nuestro asistente virtual. Solo indícale el inmueble de tu interés y él te ayudará a coordinar con un asesor."
+    },
+    {
+     "pregunta": "¿Tienen apartamentos con parqueadero?",
+     "respuesta": "Sí, contamos con varias opciones de apartamentos que incluyen parqueadero. Nuestro asistente puede filtrar las propiedades según tus necesidades."
+    }
+   ],
+   "asistente": {
+    "nombre": "Sofía",
+    "tono": "Amable y profesional",
+    "estilo": "Directo y eficiente",
+    "bienvenida": "¡Hola! Soy Sofía, la asistente virtual de Habitar. Estoy aquí para ayudarte a encontrar tu próximo hogar en Medellín. ¿Buscas arriendo o venta?",
+    "instrucciones": "Atiende a los clientes de Habitar, filtra a los interesados preguntando por sus necesidades (arriendo/venta, presupuesto, zona, habitaciones, parqueadero), envía fotos de los inmuebles disponibles, agenda visitas con los asesores y explica el proceso de estudio de arrendamiento/venta y los documentos requeridos. Nunca da información de contacto personal de los asesores ni negocia precios."
+   }
+  }
+ },
+ "tecnologia": {
+  "model": "gemini-2.5-flash",
+  "raw": {
+   "rubro": "VENTAS",
+   "tipo_negocio": "Tienda de celulares",
+   "empresa": {
+    "nombre": "TecnoMax",
+    "ciudad": "Barranquilla",
+    "resumen": "Tienda de celulares y accesorios nuevos"
+   },
+   "necesidades": [
+    {
+     "titulo": "Necesito manejar muchos clientes que me escriben por WhatsApp.",
+     "como_lo_resuelve": "BackOffice centraliza todas tus conversaciones de WhatsApp para que no pierdas ningún cliente, incluso con alto volumen."
+    },
+    {
+     "titulo": "Quiero mostrar mis productos de forma fácil.",
+     "como_lo_resuelve": "Con el catálogo digital, tus clientes verán todos tus celulares y accesorios con fotos y descripciones, y podrán hacer pedidos directamente por WhatsApp."
+    },
+    {
+     "titulo": "Necesito un control de mis ventas y pagos.",
+     "como_lo_resuelve": "BackOffice te permite registrar cada venta, el método de pago (efectivo, tarjeta, transferencia, Addi) y generar reportes para que sepas cuánto vendes y cómo."
+    },
+    {
+     "titulo": "Quiero organizar los envíos y las entregas.",
+     "como_lo_resuelve": "Podrás gestionar los pedidos para recogida en tienda o coordinar los envíos nacionales con Servientrega, manteniendo un registro claro."
+    }
+   ],
+   "herramientas": [
+    "orders",
+    "menu",
+    "gerencia",
+    "automations",
+    "analytics",
+    "campaigns"
+   ],
+   "embudo": {
+    "nombre": "Proceso de Venta TecnoMax",
+    "etapas": [
+     {
+      "nombre": "Contacto inicial",
+      "tipo": "abierta"
+     },
+     {
+      "nombre": "Interesado en producto",
+      "tipo": "abierta"
+     },
+     {
+      "nombre": "Cotización/Pedido",
+      "tipo": "abierta"
+     },
+     {
+      "nombre": "Pago pendiente",
+      "tipo": "abierta"
+     },
+     {
+      "nombre": "Venta confirmada",
+      "tipo": "ganada"
+     },
+     {
+      "nombre": "Venta perdida",
+      "tipo": "perdida"
+     }
+    ]
+   },
+   "productos": [
+    {
+     "nombre": "Celulares Samsung",
+     "categoria": "Celulares",
+     "precio": null,
+     "descripcion": "Modelos nuevos de Samsung",
+     "presentaciones": []
+    },
+    {
+     "nombre": "Celulares Xiaomi",
+     "categoria": "Celulares",
+     "precio": null,
+     "descripcion": "Modelos nuevos de Xiaomi",
+     "presentaciones": []
+    },
+    {
+     "nombre": "Forros para celular",
+     "categoria": "Accesorios",
+     "precio": null,
+     "descripcion": "Variedad de forros para diferentes modelos",
+     "presentaciones": []
+    },
+    {
+     "nombre": "Cargadores",
+     "categoria": "Accesorios",
+     "precio": null,
+     "descripcion": "Cargadores originales y compatibles",
+     "presentaciones": []
+    },
+    {
+     "nombre": "Audífonos",
+     "categoria": "Accesorios",
+     "precio": null,
+     "descripcion": "Audífonos con cable e inalámbricos",
+     "presentaciones": []
+    }
+   ],
+   "horario": {
+    "dias": [
+     1,
+     2,
+     3,
+     4,
+     5,
+     6
+    ],
+    "abre": "09:00",
+    "cierra": "20:00"
+   },
+   "domicilios": {
+    "activo": true,
+    "tarifa_base": null,
+    "por_km": null,
+    "cobertura_km": null,
+    "tiempo_preparacion_min": null
+   },
+   "datos_cliente": [
+    "nombre completo",
+    "dirección de envío (si aplica)",
+    "número de contacto",
+    "método de pago preferido"
+   ],
+   "flujo_asistente": [
+    "Saludar al cliente con el nombre del negocio.",
+    "Preguntar qué tipo de celular o accesorio está buscando.",
+    "Ofrecer el catálogo digital para que el cliente explore los productos.",
+    "Responder preguntas sobre productos específicos (características, disponibilidad).",
+    "Si el cliente decide comprar, solicitar los datos para el pedido (producto, cantidad, si es para recoger en tienda o envío).",
+    "Informar sobre los métodos de pago disponibles (efectivo, tarjeta, transferencia, crédito Addi).",
+    "Confirmar el pedido y la forma de entrega (recogida en tienda o envío por Servientrega).",
+    "Agradecer la compra y ofrecer ayuda futura."
+   ],
+   "respuestas_rapidas": [
+    {
+     "atajo": "horario",
+     "titulo": "Horario de atención",
+     "texto": "¡Claro! Nuestro horario es de Lunes a Sábado de 9 AM a 8 PM y Domingos de 10 AM a 2 PM. ¡Te esperamos!"
+    },
+    {
+     "atajo": "pagos",
+     "titulo": "Métodos de pago",
+     "texto": "Aceptamos efectivo, tarjeta de crédito/débito, transferencia bancaria y crédito con Addi. ¡Elige el que prefieras!"
+    },
+    {
+     "atajo": "envios",
+     "titulo": "Opciones de envío",
+     "texto": "Hacemos envíos a todo el país a través de Servientrega o puedes recoger tu pedido directamente en nuestra tienda en Barranquilla."
+    }
+   ],
+   "seguimientos": [],
+   "preguntas": [],
+   "asistente": {
+    "nombre": "Max",
+    "tono": "Amigable y servicial",
+    "estilo": "Claro y directo",
+    "bienvenida": "¡Hola! Soy Max, el asistente virtual de TecnoMax. ¿En qué puedo ayudarte hoy?",
+    "instrucciones": "Atiende a los clientes de TecnoMax, ofrece el catálogo de celulares Samsung y Xiaomi, forros, cargadores y audífonos. Informa sobre los métodos de pago (efectivo, tarjeta, transferencia, crédito Addi) y las opciones de entrega (recogida en tienda o envío por Servientrega). Nunca inventa precios ni promociones. Menciona el horario de atención: Lunes a Sábado de 9 AM a 8 PM y Domingos de 10 AM a 2 PM."
+   }
+  }
+ },
+ "taller": {
+  "model": "gemini-2.5-flash",
+  "raw": {
+   "rubro": "SERVICIOS",
+   "tipo_negocio": "Taller de motos",
+   "empresa": {
+    "nombre": "MotoServicio El Paisa",
+    "ciudad": "Envigado",
+    "resumen": "Taller de mantenimiento de motos en Envigado."
+   },
+   "necesidades": [
+    {
+     "titulo": "Agendar citas para no hacer esperar a los clientes",
+     "como_lo_resuelve": "BackOffice gestiona tu agenda de citas, enviando recordatorios automáticos para que tus clientes no olviden su turno."
+    },
+    {
+     "titulo": "Enviar cotizaciones y avisar cuando la moto está lista",
+     "como_lo_resuelve": "Podrás enviar cotizaciones detalladas y notificar a tus clientes automáticamente cuando el servicio de su moto esté terminado."
+    },
+    {
+     "titulo": "Gestionar los servicios y pagos de forma organizada",
+     "como_lo_resuelve": "BackOffice te permite registrar cada servicio, su estado y los pagos, para que tengas un control claro de tu operación."
+    }
+   ],
+   "herramientas": [
+    "agenda",
+    "orders",
+    "gerencia",
+    "automations",
+    "analytics"
+   ],
+   "embudo": {
+    "nombre": "Proceso de Servicio de Moto",
+    "etapas": [
+     {
+      "nombre": "Contacto inicial",
+      "tipo": "abierta"
+     },
+     {
+      "nombre": "Revisión y cotización",
+      "tipo": "abierta"
+     },
+     {
+      "nombre": "Servicio en proceso",
+      "tipo": "abierta"
+     },
+     {
+      "nombre": "Listo para entrega y pago",
+      "tipo": "ganada"
+     },
+     {
+      "nombre": "Cotización no aceptada",
+      "tipo": "perdida"
+     }
+    ]
+   },
+   "productos": [
+    {
+     "nombre": "Cambio de aceite",
+     "categoria": "Mantenimiento",
+     "precio": 35000,
+     "descripcion": "Incluye aceite y mano de obra.",
+     "presentaciones": []
+    },
+    {
+     "nombre": "Revisión general",
+     "categoria": "Mantenimiento",
+     "precio": null,
+     "descripcion": "Diagnóstico completo del estado de la moto.",
+     "presentaciones": []
+    },
+    {
+     "nombre": "Frenos",
+     "categoria": "Mantenimiento",
+     "precio": null,
+     "descripcion": "Revisión y ajuste del sistema de frenos.",
+     "presentaciones": []
+    },
+    {
+     "nombre": "Sincronización",
+     "categoria": "Mantenimiento",
+     "precio": null,
+     "descripcion": "Ajuste de motor para óptimo rendimiento.",
+     "presentaciones": []
+    }
+   ],
+   "horario": null,
+   "domicilios": null,
+   "datos_cliente": [
+    "Nombre completo",
+    "Número de celular",
+    "Marca y modelo de la moto",
+    "Placa de la moto",
+    "Servicio solicitado",
+    "Fecha y hora de la cita"
+   ],
+   "flujo_asistente": [
+    "Saludar y presentarse como asistente de MotoServicio El Paisa.",
+    "Preguntar qué servicio necesita el cliente o si desea agendar una cita.",
+    "Si el cliente quiere agendar, pedir datos de la moto (marca, modelo, placa) y el servicio requerido.",
+    "Ofrecer horarios disponibles para la cita y confirmarla.",
+    "Si es una consulta general, responder con información sobre los servicios.",
+    "Informar sobre los métodos de pago (efectivo o transferencia) al recoger la moto.",
+    "Despedirse y ofrecer ayuda futura."
+   ],
+   "respuestas_rapidas": [
+    {
+     "atajo": "cambio-aceite",
+     "titulo": "Información Cambio de Aceite",
+     "texto": "El cambio de aceite tiene un costo de $35.000 e incluye el aceite y la mano de obra."
+    },
+    {
+     "atajo": "servicios",
+     "titulo": "Nuestros Servicios",
+     "texto": "En MotoServicio El Paisa ofrecemos cambio de aceite, revisión general, frenos y sincronización. ¿Cuál te interesa?"
+    },
+    {
+     "atajo": "cita",
+     "titulo": "Agendar Cita",
+     "texto": "Para agendar tu cita, por favor indícanos la marca, modelo y placa de tu moto, y qué servicio necesitas."
+    },
+    {
+     "atajo": "pago",
+     "titulo": "Métodos de Pago",
+     "texto": "Puedes pagar en efectivo o por transferencia al momento de recoger tu moto."
+    }
+   ],
+   "seguimientos": [
+    {
+     "cuando": "no_reply",
+     "horas": 3,
+     "mensaje": "¡Hola! ¿Tienes alguna otra pregunta sobre nuestros servicios o te gustaría agendar tu cita en MotoServicio El Paisa?"
+    }
+   ],
+   "preguntas": [
+    {
+     "pregunta": "¿Cuánto cuesta el cambio de aceite?",
+     "respuesta": "El cambio de aceite tiene un costo de $35.000."
+    },
+    {
+     "pregunta": "¿Qué servicios ofrecen?",
+     "respuesta": "Ofrecemos cambio de aceite, revisión general, frenos y sincronización."
+    },
+    {
+     "pregunta": "¿Necesito agendar cita?",
+     "respuesta": "Sí, preferimos que agendes una cita para darte un mejor servicio y evitar esperas."
+    }
+   ],
+   "asistente": {
+    "nombre": "Sofía",
+    "tono": "Amable y servicial",
+    "estilo": "Claro y directo, enfocado en la solución",
+    "bienvenida": "¡Hola! Soy Sofía, la asistente virtual de MotoServicio El Paisa. ¿En qué puedo ayudarte hoy?",
+    "instrucciones": "Atiende a los clientes de MotoServicio El Paisa, agenda citas, informa sobre los servicios y precios, y resuelve dudas. Nunca debe dar información técnica detallada que requiera un mecánico ni prometer descuentos no autorizados."
+   }
+  }
+ },
+ "fotografia": {
+  "model": "gemini-2.5-flash",
+  "raw": {
+   "rubro": "SERVICIOS",
+   "tipo_negocio": "Fotografía de Eventos",
+   "empresa": {
+    "nombre": "Luz Eterna Fotografía",
+    "ciudad": "Bucaramanga",
+    "resumen": "Fotografía profesional para bodas y eventos especiales."
+   },
+   "necesidades": [
+    {
+     "titulo": "Gestionar disponibilidad de fechas y enviar cotizaciones",
+     "como_lo_resuelve": "El asistente puede preguntar la fecha, el lugar y el tipo de evento, y luego enviar automáticamente los paquetes de servicios con sus precios. La disponibilidad de la fecha deberá ser confirmada por el equipo de Luz Eterna Fotografía."
+    },
+    {
+     "titulo": "Recibir anticipos para reservar fechas",
+     "como_lo_resuelve": "El asistente informará sobre el proceso de anticipo del 30% para la reserva de la fecha, facilitando la conversión de interesados en clientes."
+    }
+   ],
+   "herramientas": [
+    "orders",
+    "agenda",
+    "media",
+    "gerencia",
+    "analytics"
+   ],
+   "embudo": {
+    "nombre": "Proceso de Contratación de Fotografía",
+    "etapas": [
+     {
+      "nombre": "Contacto Inicial",
+      "tipo": "abierta"
+     },
+     {
+      "nombre": "Información Solicitada",
+      "tipo": "abierta"
+     },
+     {
+      "nombre": "Paquetes Enviados",
+      "tipo": "abierta"
+     },
+     {
+      "nombre": "Anticipo Recibido",
+      "tipo": "ganada"
+     },
+     {
+      "nombre": "Evento Realizado",
+      "tipo": "ganada"
+     },
+     {
+      "nombre": "Perdida",
+      "tipo": "perdida"
+     }
+    ]
+   },
+   "productos": [
+    {
+     "nombre": "Paquete Básico de Fotografía",
+     "categoria": "Bodas y Eventos",
+     "precio": 1800000,
+     "descripcion": "Cobertura fotográfica profesional para tu evento especial.",
+     "presentaciones": []
+    },
+    {
+     "nombre": "Paquete Premium de Fotografía y Video",
+     "categoria": "Bodas y Eventos",
+     "precio": 3500000,
+     "descripcion": "Cobertura fotográfica y de video profesional para tu evento, capturando cada momento.",
+     "presentaciones": []
+    }
+   ],
+   "horario": null,
+   "domicilios": null,
+   "datos_cliente": [
+    "fecha del evento",
+    "lugar del evento",
+    "tipo de evento"
+   ],
+   "flujo_asistente": [
+    "Saludo de bienvenida y presentación de Luz Eterna Fotografía.",
+    "Preguntar al cliente la fecha deseada para el evento.",
+    "Preguntar el lugar donde se realizará el evento.",
+    "Preguntar el tipo de evento (boda, cumpleaños, etc.).",
+    "Presentar los paquetes de fotografía disponibles con sus precios y descripciones.",
+    "Explicar el proceso de reserva con el anticipo del 30% para asegurar la fecha.",
+    "Ofrecer la opción de hablar con un asesor humano para resolver dudas o personalizar un paquete."
+   ],
+   "respuestas_rapidas": [
+    {
+     "atajo": "paquete-basico",
+     "titulo": "Información Paquete Básico",
+     "texto": "Nuestro Paquete Básico de Fotografía tiene un valor de $1.800.000 e incluye cobertura fotográfica profesional para tu evento especial."
+    },
+    {
+     "atajo": "paquete-premium",
+     "titulo": "Información Paquete Premium",
+     "texto": "El Paquete Premium de Fotografía y Video tiene un valor de $3.500.000 y ofrece cobertura fotográfica y de video profesional para capturar cada momento de tu evento."
+    },
+    {
+     "atajo": "reserva",
+     "titulo": "Proceso de Reserva",
+     "texto": "Para reservar tu fecha, solicitamos un anticipo del 30% del valor total del paquete. El resto se cancela el día del evento. ¡Así aseguramos tu día especial!"
+    }
+   ],
+   "seguimientos": [],
+   "preguntas": [],
+   "asistente": {
+    "nombre": "Sofía",
+    "tono": "Amable y profesional",
+    "estilo": "Claro y conciso",
+    "bienvenida": "¡Hola! Soy Sofía, tu asistente virtual de Luz Eterna Fotografía. Estoy aquí para ayudarte a capturar los momentos más especiales de tu vida. ¿En qué puedo ayudarte hoy?",
+    "instrucciones": "El asistente debe saludar cordialmente, preguntar la fecha, el lugar y el tipo de evento que el cliente desea fotografiar. Luego, debe presentar los paquetes de fotografía disponibles con sus precios y explicar el proceso de reserva con el anticipo del 30%. Nunca debe prometer disponibilidad sin confirmación manual por parte del equipo de Luz Eterna Fotografía."
+   }
+  }
+ },
+ "reposteria": {
+  "model": "gemini-2.5-flash",
+  "raw": {
+   "rubro": "COMIDAS",
+   "tipo_negocio": "Repostería por Encargo",
+   "empresa": {
+    "nombre": "Dulce Antojo",
+    "ciudad": "Manizales",
+    "resumen": "Preparamos tortas y postres personalizados por encargo."
+   },
+   "necesidades": [
+    {
+     "titulo": "Gestionar pedidos y pagos de forma organizada",
+     "como_lo_resuelve": "BackOffice llevará el registro de todos tus pedidos, productos y pagos, enviando recordatorios y confirmaciones automáticamente."
+    },
+    {
+     "titulo": "Organizar la producción de tortas y postres",
+     "como_lo_resuelve": "Podrás ver las comandas por fecha y tipo de producto, facilitando la planificación de tu producción diaria."
+    },
+    {
+     "titulo": "Coordinar entregas y recogidas eficientemente",
+     "como_lo_resuelve": "BackOffice te ayudará a gestionar los domicilios y las recogidas en tu casa, con seguimiento si es necesario."
+    },
+    {
+     "titulo": "Mostrar mi catálogo de productos a los clientes",
+     "como_lo_resuelve": "Tendrás un menú digital con tus tortas y postres, que los clientes podrán ver y pedir directamente por WhatsApp."
+    }
+   ],
+   "herramientas": [
+    "orders",
+    "production",
+    "delivery",
+    "menu",
+    "gerencia"
+   ],
+   "embudo": {
+    "nombre": "Proceso de Pedido Dulce Antojo",
+    "etapas": [
+     {
+      "nombre": "Nuevo contacto",
+      "tipo": "abierta"
+     },
+     {
+      "nombre": "Cotización enviada",
+      "tipo": "abierta"
+     },
+     {
+      "nombre": "Abono recibido",
+      "tipo": "ganada"
+     },
+     {
+      "nombre": "En producción",
+      "tipo": "abierta"
+     },
+     {
+      "nombre": "Entregado/Recogido",
+      "tipo": "ganada"
+     },
+     {
+      "nombre": "Perdido",
+      "tipo": "perdida"
+     }
+    ]
+   },
+   "productos": [
+    {
+     "nombre": "Tortas personalizadas",
+     "categoria": "Tortas",
+     "precio": 60000,
+     "descripcion": "Tortas por encargo, desde 60.000. Pedido mínimo 2 días antes, para eventos grandes una semana.",
+     "presentaciones": []
+    },
+    {
+     "nombre": "Cupcakes (docena)",
+     "categoria": "Postres",
+     "precio": 45000,
+     "descripcion": "Docena de cupcakes. Pedido mínimo 2 días antes.",
+     "presentaciones": []
+    },
+    {
+     "nombre": "Mesas de postres",
+     "categoria": "Postres",
+     "precio": null,
+     "descripcion": "Mesas de postres para eventos. Pedido mínimo una semana antes.",
+     "presentaciones": []
+    }
+   ],
+   "horario": null,
+   "domicilios": {
+    "activo": true,
+    "tarifa_base": null,
+    "por_km": null,
+    "cobertura_km": null,
+    "tiempo_preparacion_min": null
+   },
+   "datos_cliente": [
+    "Nombre completo",
+    "Teléfono de contacto",
+    "Detalles del pedido (sabor, diseño, tamaño, cantidad)",
+    "Fecha y hora de entrega o recogida",
+    "Dirección de entrega (si aplica)",
+    "Fecha del evento (si aplica)"
+   ],
+   "flujo_asistente": [
+    "Saluda al cliente y le da la bienvenida a Dulce Antojo.",
+    "Pregunta qué tipo de producto le interesa (tortas, cupcakes, mesas de postres).",
+    "Solicita los detalles específicos del pedido (sabor, diseño, tamaño, cantidad).",
+    "Pregunta la fecha y hora deseada para la entrega o recogida, informando sobre la anticipación mínima requerida.",
+    "Ofrece las opciones de entrega: recogida en casa o domicilio con costo adicional.",
+    "Calcula y presenta una cotización detallada al cliente.",
+    "Explica el método de pago: 50% de abono por Nequi para separar y el resto al entregar.",
+    "Si el cliente acepta, solicita los datos completos para el pedido (nombre, teléfono, dirección si aplica).",
+    "Confirma el pedido y envía los detalles de pago para el abono."
+   ],
+   "respuestas_rapidas": [
+    {
+     "atajo": "precios",
+     "titulo": "Precios de productos",
+     "texto": "¡Claro! Tenemos tortas personalizadas desde $60.000, la docena de cupcakes a $45.000 y mesas de postres con cotización personalizada."
+    },
+    {
+     "atajo": "anticipacion",
+     "titulo": "Tiempo de anticipación",
+     "texto": "Para tortas y cupcakes, el pedido mínimo es con 2 días de anticipación. Para eventos grandes o mesas de postres, por favor, con una semana."
+    },
+    {
+     "atajo": "pago",
+     "titulo": "Métodos de pago",
+     "texto": "Para confirmar tu pedido, solicitamos un abono del 50% por Nequi. El saldo restante se paga al momento de la entrega o recogida."
+    },
+    {
+     "atajo": "domicilio",
+     "titulo": "Opciones de entrega",
+     "texto": "Ofrecemos servicio a domicilio con costo adicional en Manizales, o puedes recoger tu pedido directamente en nuestra dirección."
+    }
+   ],
+   "seguimientos": [
+    {
+     "cuando": "no_reply",
+     "horas": 3,
+     "mensaje": "¡Hola! ¿Tienes alguna pregunta sobre tu cotización o pedido en Dulce Antojo? Estoy aquí para ayudarte."
+    }
+   ],
+   "preguntas": [
+    {
+     "pregunta": "¿Con cuánto tiempo de anticipación debo pedir?",
+     "respuesta": "Para tortas y cupcakes, mínimo 2 días. Para eventos grandes o mesas de postres, una semana."
+    },
+    {
+     "pregunta": "¿Cómo hago para pagar?",
+     "respuesta": "Se requiere un abono del 50% por Nequi para separar tu pedido, y el resto al momento de la entrega."
+    },
+    {
+     "pregunta": "¿Hacen domicilios?",
+     "respuesta": "Sí, tenemos servicio a domicilio con costo adicional en Manizales, o puedes recoger tu pedido en nuestra casa."
+    }
+   ],
+   "asistente": {
+    "nombre": "Sofía",
+    "tono": "Amable y servicial",
+    "estilo": "Claro y detallado",
+    "bienvenida": "¡Hola! Soy Sofía, la asistente virtual de Dulce Antojo. Estoy aquí para ayudarte con tus pedidos de tortas y postres. ¿En qué puedo servirte hoy?",
+    "instrucciones": "Atiende a los clientes, toma pedidos de tortas, cupcakes y mesas de postres, informa sobre precios, tiempos de anticipación y métodos de pago. Siempre debe solicitar los detalles completos del pedido y la fecha de entrega/recogida. Nunca debe negociar precios ni dar descuentos."
+   }
+  }
+ },
+ "gimnasio": {
+  "model": "gemini-2.5-flash",
+  "raw": {
+   "rubro": "SERVICIOS",
+   "tipo_negocio": "Gimnasio",
+   "empresa": {
+    "nombre": "Power Fit",
+    "ciudad": "Villavicencio",
+    "resumen": "Gimnasio con clases grupales y zona de pesas."
+   },
+   "necesidades": [
+    {
+     "titulo": "Responder sobre planes y precios",
+     "como_lo_resuelve": "El asistente de BackOffice puede dar información detallada de los planes y precios a tus clientes."
+    },
+    {
+     "titulo": "Agendar clases de prueba",
+     "como_lo_resuelve": "El asistente puede agendar automáticamente las clases de prueba en tu agenda, pidiendo los datos necesarios."
+    },
+    {
+     "titulo": "Recordar renovaciones de mensualidad",
+     "como_lo_resuelve": "BackOffice puede enviar recordatorios automáticos a tus clientes cuando su mensualidad esté por vencer, para que no se les olvide renovar."
+    }
+   ],
+   "herramientas": [
+    "orders",
+    "agenda",
+    "campaigns",
+    "menu",
+    "analytics",
+    "gerencia"
+   ],
+   "embudo": {
+    "nombre": "Proceso de Inscripción Power Fit",
+    "etapas": [
+     {
+      "nombre": "Contacto inicial",
+      "tipo": "abierta"
+     },
+     {
+      "nombre": "Interesado en planes",
+      "tipo": "abierta"
+     },
+     {
+      "nombre": "Clase de prueba agendada",
+      "tipo": "abierta"
+     },
+     {
+      "nombre": "Clase de prueba realizada",
+      "tipo": "abierta"
+     },
+     {
+      "nombre": "Inscrito",
+      "tipo": "ganada"
+     },
+     {
+      "nombre": "No interesado",
+      "tipo": "perdida"
+     }
+    ]
+   },
+   "productos": [
+    {
+     "nombre": "Mensualidad",
+     "categoria": "Membresías",
+     "precio": 90000,
+     "descripcion": "Acceso ilimitado a instalaciones y clases grupales por un mes.",
+     "presentaciones": []
+    },
+    {
+     "nombre": "Trimestre",
+     "categoria": "Membresías",
+     "precio": 240000,
+     "descripcion": "Acceso ilimitado a instalaciones y clases grupales por tres meses.",
+     "presentaciones": []
+    },
+    {
+     "nombre": "Clase de prueba",
+     "categoria": "Servicios",
+     "precio": null,
+     "descripcion": "Clase de prueba gratuita para conocer nuestras instalaciones y clases.",
+     "presentaciones": []
+    }
+   ],
+   "horario": {
+    "dias": [
+     1,
+     2,
+     3,
+     4,
+     5,
+     6
+    ],
+    "abre": "05:00",
+    "cierra": "22:00"
+   },
+   "domicilios": null,
+   "datos_cliente": [
+    "Nombre completo",
+    "Número de celular",
+    "Correo electrónico"
+   ],
+   "flujo_asistente": [
+    "Saluda al cliente con el nombre del negocio.",
+    "Pregunta cómo puede ayudar y ofrece información sobre planes y horarios.",
+    "Si el cliente pregunta por planes o precios, los detalla.",
+    "Si el cliente pregunta por clases de spinning, ofrece los horarios y la opción de agendar una clase de prueba.",
+    "Si el cliente desea agendar una clase de prueba, solicita nombre completo, número de celular y correo electrónico.",
+    "Confirma la clase de prueba agendada y envía un recordatorio.",
+    "Pregunta si tiene alguna otra duda y se despide amablemente."
+   ],
+   "respuestas_rapidas": [
+    {
+     "atajo": "precios",
+     "titulo": "Precios y Planes",
+     "texto": "¡Claro! En Power Fit tenemos:\n- Mensualidad: $90.000\n- Trimestre: $240.000\n¡También puedes tomar una clase de prueba gratis para conocernos!"
+    },
+    {
+     "atajo": "horarios",
+     "titulo": "Horarios del Gimnasio",
+     "texto": "Nuestro horario es:\n- Lunes a viernes: 5:00 AM a 10:00 PM\n- Sábados: 7:00 AM a 2:00 PM\n¡Te esperamos!"
+    },
+    {
+     "atajo": "spinning",
+     "titulo": "Clases de Spinning",
+     "texto": "Sí, tenemos clases de spinning. ¿Te gustaría conocer los horarios específicos o agendar tu clase de prueba gratuita para que la vivas?"
+    },
+    {
+     "atajo": "entrenador",
+     "titulo": "Entrenador Personalizado",
+     "texto": "¡Claro que sí! Contamos con entrenadores personalizados para que alcances tus metas de forma más efectiva. Pregunta en recepción por nuestros paquetes."
+    }
+   ],
+   "seguimientos": [
+    {
+     "cuando": "no_reply",
+     "horas": 3,
+     "mensaje": "¡Hola de nuevo! ¿Tienes alguna otra pregunta sobre Power Fit o te gustaría que te ayude a agendar tu clase de prueba?"
+    }
+   ],
+   "preguntas": [
+    {
+     "pregunta": "¿Cuáles son los precios?",
+     "respuesta": "Tenemos mensualidad por $90.000 y trimestre por $240.000. ¡También puedes tomar una clase de prueba gratis!"
+    },
+    {
+     "pregunta": "¿Qué horarios tienen?",
+     "respuesta": "Abrimos de lunes a viernes de 5:00 AM a 10:00 PM y sábados de 7:00 AM a 2:00 PM."
+    },
+    {
+     "pregunta": "¿Hay clases de spinning?",
+     "respuesta": "Sí, tenemos clases de spinning. ¿Te gustaría conocer los horarios o agendar una clase de prueba?"
+    },
+    {
+     "pregunta": "¿Ofrecen entrenador personalizado?",
+     "respuesta": "Sí, contamos con entrenadores personalizados para ayudarte a alcanzar tus metas. Pregunta por nuestros paquetes."
+    }
+   ],
+   "asistente": {
+    "nombre": "Sofía",
+    "tono": "Amigable y motivador",
+    "estilo": "Claro y directo",
+    "bienvenida": "¡Hola! Soy Sofía, la asistente virtual de Power Fit. ¿Cómo puedo ayudarte hoy?",
+    "instrucciones": "Atiende a los clientes de Power Fit, responde preguntas sobre planes, precios y horarios. Ofrece y agenda clases de prueba gratuitas. Nunca inventa información ni da consejos médicos o de entrenamiento sin la supervisión de un experto."
+   }
+  }
+ },
+ "webcam": {
+  "model": "gemini-3.5-flash-lite",
+  "raw": {
+   "rubro": "WEBCAM",
+   "tipo_negocio": "Estudio webcam",
+   "empresa": {
+    "nombre": "Studio Venus",
+    "ciudad": "Cali",
+    "resumen": "Estudio webcam con 12 modelos enfocado en la venta de contenido personalizado y suscripciones."
+   },
+   "necesidades": [
+    {
+     "titulo": "Conversar con fans y ofrecer galería",
+     "como_lo_resuelve": "Un asistente virtual que atiende a más de 100 fans al día y muestra el catálogo de fotos y videos con precios."
+    },
+    {
+     "titulo": "Validar pagos antes de enviar contenido",
+     "como_lo_resuelve": "El asistente verifica comprobantes o estado de pago por plataforma antes de entregar cualquier material."
+    },
+    {
+     "titulo": "Atención personalizada por modelo",
+     "como_lo_resuelve": "Cada una de las 12 modelos cuenta con su propia línea de WhatsApp y personalidad asignada en el asistente."
+    }
+   ],
+   "herramientas": [
+    "media",
+    "orders",
+    "analytics"
+   ],
+   "embudo": {
+    "nombre": "Venta de contenido",
+    "etapas": [
+     {
+      "nombre": "Nuevo fan",
+      "tipo": "abierta"
+     },
+     {
+      "nombre": "Enviando catálogo",
+      "tipo": "abierta"
+     },
+     {
+      "nombre": "Esperando pago",
+      "tipo": "abierta"
+     },
+     {
+      "nombre": "Contenido entregado",
+      "tipo": "ganada"
+     }
+    ]
+   },
+   "productos": [
+    {
+     "nombre": "Foto personalizada",
+     "categoria": "Contenido",
+     "precio": null,
+     "descripcion": "Foto exclusiva según solicitud del fan, pago previo requerido",
+     "presentaciones": []
+    },
+    {
+     "nombre": "Video personalizado",
+     "categoria": "Contenido",
+     "precio": null,
+     "descripcion": "Video exclusivo según solicitud del fan, pago previo requerido",
+     "presentaciones": []
+    },
+    {
+     "nombre": "Suscripción mensual",
+     "categoria": "Suscripción",
+     "precio": null,
+     "descripcion": "Acceso mensual al contenido exclusivo, pago previo requerido",
+     "presentaciones": []
+    }
+   ],
+   "horario": null,
+   "domicilios": null,
+   "datos_cliente": [
+    "Nombre o usuario del fan",
+    "Tipo de contenido de interés",
+    "Comprobante de pago"
+   ],
+   "flujo_asistente": [
+    "Saludar al fan de parte de la modelo",
+    "Indicar el tipo de contenido disponible en la galería",
+    "Recibir la solicitud del fan y dar el precio",
+    "Solicitar el comprobante de pago por transferencia o plataforma",
+    "Confirmar el pago y enviar el contenido solicitado"
+   ],
+   "respuestas_rapidas": [
+    {
+     "atajo": "galeria",
+     "titulo": "Ver galería",
+     "texto": "Hola, aquí puedes ver las fotos y videos disponibles para ti hoy."
+    },
+    {
+     "atajo": "pago",
+     "titulo": "Métodos de pago",
+     "texto": "Puedes pagar por transferencia bancaria o a través de nuestra plataforma. Recuerda que enviamos el contenido una vez confirmado el pago."
+    }
+   ],
+   "seguimientos": [
+    {
+     "cuando": "no_reply",
+     "horas": 2,
+     "mensaje": "¿Sigues por ahí? Dime qué tipo de contenido te gustaría ver hoy."
+    }
+   ],
+   "preguntas": [
+    {
+     "pregunta": "¿Cómo puedo pagar?",
+     "respuesta": "Aceptamos pagos por transferencia bancaria y nuestra plataforma de pagos. El contenido se envía siempre después de confirmar el pago."
+    }
+   ],
+   "asistente": {
+    "nombre": "Venus",
+    "tono": "Seductor y amable",
+    "estilo": "Cercano y profesional",
+    "bienvenida": "¡Hola! Qué gusto saludarte, soy el asistente oficial en Studio Venus. ¿Qué contenido te gustaría ver hoy?",
+    "instrucciones": "Atiende a los fans con una personalidad adaptada a cada modelo, ofrece el contenido de la galería, responde dudas de precios y nunca envíes ningún material sin antes verificar el pago."
+   }
+  }
+ }
+}

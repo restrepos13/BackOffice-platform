@@ -27,7 +27,7 @@ import { benchMany } from '../ai/setup-ai-bench';
 import { parseDailyChats } from '../common/ai-cost';
 import { SignupStep, SignupTracker } from './signup-tracking';
 import { linkReferral } from './commerce.module';
-import { guidedBlueprint, guidedTurn } from '../common/signup-guided';
+import { codeBlueprint, codeInterviewTurn, toPairs } from '../common/blueprint-engine';
 import { TEAM_SIZES, detectProfile, fitToProfile, interviewHint, profileOfCompany } from '../common/business-profile';
 import { blueprintSystemPrompt, interviewSystemPrompt } from '../common/signup-prompts';
 import { RUBRO_CONFIG, Rubro, guessRubro, isRubro, onboardingChecklist } from '../common/rubros';
@@ -182,7 +182,8 @@ export class SignupService {
     // Plan B: si ya contó bastante, se arma con eso; si no, preguntas fijas
     await this.tracker.touch(dto?.session, { mode: 'guided' });
     // Las preguntas fijas de volumen ya se hicieron: el plan B arranca una más atrás
-    const turn = answers.length >= 6 ? { listo: true } : guidedTurn(answers[0].content, answers.length - 1, answers.map((a) => a.content).join(' '));
+    // Sin IA: el código pregunta solo lo que aún no sabe de SU negocio
+    const turn = codeInterviewTurn(toPairs(msgs), MAX_QUESTIONS);
     return { ...normalizeInterviewTurn(turn, answers.length, MAX_QUESTIONS), mode: 'guided' as const };
   }
 
@@ -230,7 +231,8 @@ export class SignupService {
       if (spent?.calls) await this.tracker.touch(dto?.session, { ai: { calls: spent.calls, tokens: spent.tokens ?? 0 } });
     }
     if (!raw) {
-      raw = guidedBlueprint(answers.length ? answers.map((a) => a.content) : [ownerText]);
+      // Sin IA: el motor por código arma el plano (≈ 76 % igual al de la IA en las pruebas)
+      raw = codeBlueprint(msgs.length ? toPairs(msgs) : [['', ownerText]]);
       mode = 'guided';
     }
     const proposal = normalizeProposal(raw);
