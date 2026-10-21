@@ -1,3 +1,4 @@
+import { assertSchedulable, policyOf, resetApproval } from '../common/creative-guard';
 import {
   BadRequestException,
   Body,
@@ -216,6 +217,7 @@ Sin promesas falsas ni exceso de emojis.`,
         title: String(parsed.title || piece.title).slice(0, 140),
         copy: String(parsed.copy).slice(0, 2200),
         hashtagsJson: JSON.stringify(Array.isArray(parsed.hashtags) ? parsed.hashtags.map(String).slice(0, 10) : []),
+        ...(piece.approvedAt ? resetApproval(piece.status) : {}),
         imagePrompt: typeof parsed.image_prompt === 'string' ? parsed.image_prompt.slice(0, 1500) : piece.imagePrompt,
         status: piece.status === 'IDEA' ? 'BORRADOR' : piece.status,
       },
@@ -248,6 +250,8 @@ Sin promesas falsas ni exceso de emojis.`,
         data: {
           assetFile: file, assetMime: img.mime, imagePrompt: prompt, mediaToken: randomBytes(18).toString('hex'),
           status: ['IDEA', 'BORRADOR'].includes(piece.status) ? 'LISTO' : piece.status,
+          // Imagen nueva = contenido nuevo: hay que volver a aprobar
+          ...(piece.approvedAt ? resetApproval(piece.status) : {}),
         },
       });
       await this.audit.log({
@@ -342,6 +346,8 @@ No inventes precios ni promociones que no estén en los datos.`,
     if (targets.includes('instagram') && !conn.igUserId && !conn.sandbox) {
       throw new BadRequestException('Tu página no tiene una cuenta de Instagram profesional vinculada');
     }
+    // Aprobación, redes autorizadas, horario, tope diario y pausa (reglas de la marca)
+    await assertSchedulable(this.prisma, piece, when, targets);
     const updated = await this.prisma.contentPiece.update({
       where: { id: pieceId },
       data: { scheduledAt: when, targetsJson: JSON.stringify(targets), status: 'PROGRAMADO', publishError: null, channel: targets[0] },
@@ -353,12 +359,19 @@ No inventes precios ni promociones que no estén en los datos.`,
     const piece = await this.piece(user, pieceId);
     await this.assertAddon(piece.companyId);
     if (piece.status === 'PUBLICADO') throw new BadRequestException('Esta pieza ya se publicó');
+    await assertSchedulable(this.prisma, piece, new Date(), parseJson<string[]>(piece.targetsJson, []));
     await this.prisma.contentPiece.update({ where: { id: pieceId }, data: { status: 'PROGRAMADO', scheduledAt: new Date() } });
     return this.publishPiece(pieceId);
   }
 
   /** Publica en cada destino pendiente. Idempotente: lo ya publicado no se repite. */
   async publishPiece(pieceId: string) {
+    // Pausa global de la marca o pieza sin aprobación: no se publica (queda como está)
+    const pre = await this.prisma.contentPiece.findUnique({ where: { id: pieceId }, select: { companyId: true, approvedAt: true, status: true } });
+    if (!pre) return null;
+    if (pre.status === 'PROGRAMADO' && (!pre.approvedAt || (await policyOf(this.prisma, pre.companyId)).paused)) {
+      return serializePiece(await this.prisma.contentPiece.findUniqueOrThrow({ where: { id: pieceId } }));
+    }
     const claim = await this.prisma.contentPiece.updateMany({
       where: { id: pieceId, status: { in: ['PROGRAMADO', 'PUBLICANDO'] } },
       data: { status: 'PUBLICANDO', publishAttempts: { increment: 1 } },

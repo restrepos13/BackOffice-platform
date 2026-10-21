@@ -153,13 +153,22 @@ describe('plan del mes y programación', () => {
   it('programar exige texto, destino, conexión y (para Instagram) imagen', async () => {
     const { service, db } = setup();
     db.contentPiece.push({ id: 'p1', companyId: 'co1', title: 'x', copy: 'Hola', status: 'LISTO', hashtagsJson: '[]', targetsJson: '[]' });
-    const future = new Date(Date.now() + 3600e3).toISOString();
+    // Mañana a las 10:00 a. m. de Bogotá (dentro del horario permitido de la marca)
+    const tomorrow = new Date(Date.now() + 86400e3);
+    const future = new Date(Date.UTC(tomorrow.getUTCFullYear(), tomorrow.getUTCMonth(), tomorrow.getUTCDate(), 15)).toISOString();
     await expect(service.schedule(ADMIN, 'p1', { scheduledAt: future, targets: ['facebook'] })).rejects.toThrow(/Conecta/);
     db.integration.push({ id: 'i', companyId: 'co1', type: 'META_SOCIAL', configJson: JSON.stringify({ pageId: '111', sandbox: true }) });
     await expect(service.schedule(ADMIN, 'p1', { scheduledAt: future, targets: ['instagram'] })).rejects.toThrow(/imagen/);
     await expect(service.schedule(ADMIN, 'p1', { scheduledAt: '2020-01-01', targets: ['facebook'] })).rejects.toThrow(/futura/);
+    // Sin aprobación no se programa (ni la primera ni ninguna)
+    await expect(service.schedule(ADMIN, 'p1', { scheduledAt: future, targets: ['facebook'] })).rejects.toThrow(/aprobación/);
+    db.contentPiece[0].approvedAt = new Date();
+    db.contentPiece[0].autoApproved = false;
     const ok = await service.schedule(ADMIN, 'p1', { scheduledAt: future, targets: ['facebook'] });
     expect(ok.status).toBe('PROGRAMADO');
+    // A las 3 a. m. está fuera del horario de la marca
+    const night = new Date(Date.UTC(tomorrow.getUTCFullYear(), tomorrow.getUTCMonth(), tomorrow.getUTCDate(), 8)).toISOString();
+    await expect(service.schedule(ADMIN, 'p1', { scheduledAt: night, targets: ['facebook'] })).rejects.toThrow(/horario/);
   });
 });
 
@@ -167,7 +176,7 @@ describe('publicación en Facebook e Instagram', () => {
   it('modo prueba: marca publicado sin salir a internet', async () => {
     const { service, db } = setup({ connection: 'sandbox' });
     service.fetchImpl = jest.fn(async () => { throw new Error('no debería llamar a Meta'); }) as any;
-    db.contentPiece.push({ id: 'p1', companyId: 'co1', title: 't', copy: 'Hola', status: 'PROGRAMADO', hashtagsJson: '["#a"]', targetsJson: '["facebook","instagram"]', assetFile: 'x.svg', assetMime: 'image/svg+xml', mediaToken: 'a'.repeat(36), publishAttempts: 0 });
+    db.contentPiece.push({ id: 'p1', companyId: 'co1', title: 't', copy: 'Hola', status: 'PROGRAMADO', approvedAt: new Date(), autoApproved: false, hashtagsJson: '["#a"]', targetsJson: '["facebook","instagram"]', assetFile: 'x.svg', assetMime: 'image/svg+xml', mediaToken: 'a'.repeat(36), publishAttempts: 0 });
     const r = await service.publishPiece('p1');
     expect(r?.status).toBe('PUBLICADO');
     expect(JSON.parse(db.contentPiece[0].publishResultJson).instagram.sandbox).toBe(true);
@@ -184,7 +193,7 @@ describe('publicación en Facebook e Instagram', () => {
       if (url.includes('/999/media')) return reply(200, { id: 'cont1' });
       return reply(404, { error: { message: 'no' } });
     }) as any;
-    db.contentPiece.push({ id: 'p1', companyId: 'co1', title: 't', copy: 'Hola', status: 'PROGRAMADO', hashtagsJson: '[]', targetsJson: '["facebook","instagram"]', assetFile: 'x.png', assetMime: 'image/png', mediaToken: 'b'.repeat(36), publishAttempts: 0 });
+    db.contentPiece.push({ id: 'p1', companyId: 'co1', title: 't', copy: 'Hola', status: 'PROGRAMADO', approvedAt: new Date(), autoApproved: false, hashtagsJson: '[]', targetsJson: '["facebook","instagram"]', assetFile: 'x.png', assetMime: 'image/png', mediaToken: 'b'.repeat(36), publishAttempts: 0 });
     const first = await service.publishPiece('p1');
     expect(first?.status).toBe('ERROR');
     expect(first?.publishError).toContain('Meta: Media not ready');
@@ -207,11 +216,11 @@ describe('publicación en Facebook e Instagram', () => {
       if (url.includes('/cont9')) return reply(200, { status_code: status });
       return reply(404, {});
     }) as any;
-    db.contentPiece.push({ id: 'v1', companyId: 'co1', title: 't', copy: 'Reel', status: 'PROGRAMADO', hashtagsJson: '[]', targetsJson: '["instagram"]', assetFile: 'r.mp4', assetMime: 'video/mp4', mediaToken: 'c'.repeat(36), publishAttempts: 0 });
+    db.contentPiece.push({ id: 'v1', companyId: 'co1', title: 't', copy: 'Reel', status: 'PROGRAMADO', approvedAt: new Date(), autoApproved: false, hashtagsJson: '[]', targetsJson: '["instagram"]', assetFile: 'r.mp4', assetMime: 'video/mp4', mediaToken: 'c'.repeat(36), publishAttempts: 0 });
     expect((await service.publishPiece('v1'))?.status).toBe('PUBLICANDO');
     status = 'FINISHED';
     expect((await service.publishPiece('v1'))?.status).toBe('PUBLICADO');
-    db.contentPiece.push({ id: 's1', companyId: 'co1', title: 't', copy: 'x', status: 'PROGRAMADO', hashtagsJson: '[]', targetsJson: '["facebook"]', assetFile: 'x.svg', assetMime: 'image/svg+xml', mediaToken: 'd'.repeat(36), publishAttempts: 0 });
+    db.contentPiece.push({ id: 's1', companyId: 'co1', title: 't', copy: 'x', status: 'PROGRAMADO', approvedAt: new Date(), autoApproved: false, hashtagsJson: '[]', targetsJson: '["facebook"]', assetFile: 'x.svg', assetMime: 'image/svg+xml', mediaToken: 'd'.repeat(36), publishAttempts: 0 });
     const svg = await service.publishPiece('s1');
     expect(svg?.status).toBe('ERROR');
     expect(svg?.publishError).toContain('prueba');

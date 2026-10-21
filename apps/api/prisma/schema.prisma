@@ -724,6 +724,16 @@ model ContentPiece {
 
   @@index([companyId, status])
   @@index([companyId, scheduledAt])
+  /// Diseño editable del que salió la imagen (y su versión)
+  designId          String?
+  designVersion     Int?
+  /// Categoría para las reglas de autonomía (PRODUCTO | PROMO | TIPS | MARCA | OTRO)
+  category          String?
+  /// Aprobación humana: quién y cuándo (o por qué se rechazó)
+  approvedBy        String?
+  approvedAt        DateTime?
+  reviewNote        String?
+  autoApproved      Boolean?
 }
 
 // Tarea de generación de video (integración MoneyPrinterTurbo — cascarón).
@@ -1503,4 +1513,121 @@ model HealthSample {
   dataJson String
 
   @@index([env, at])
+}
+
+/* ═══ BackOffice Creative ═══ */
+
+/// Identidad de marca de la empresa (una por empresa). Lo confirmado por la
+/// empresa vive en los campos; lo que propone la IA queda aparte en
+/// suggestionsJson hasta que alguien lo acepte (nunca se sobrescribe solo).
+model BrandProfile {
+  id               String   @id @default(cuid()) @map("_id")
+  companyId        String   @unique
+  name             String
+  description      String?
+  logosJson        String   @default("[]") // [{assetId, label}]
+  colorsJson       String   @default("[]") // [{hex, label}]
+  fontsJson        String   @default("[]") // nombres de la lista permitida
+  tone             String?
+  vocabularyJson   String   @default("[]")
+  avoidWordsJson   String   @default("[]")
+  audience         String?
+  productsJson     String   @default("[]") // [{name, price?, confirmed}]
+  ctasJson         String   @default("[]")
+  offersJson       String   @default("[]") // [{text, price?, validUntil?}] confirmadas por la empresa
+  restrictionsJson String   @default("[]") // reglas visuales y de comunicación
+  formatsJson      String   @default("[]") // formatos que usa
+  protectedJson    String   @default("{}") // {logo: bool, colors: bool}
+  policyJson       String   @default("{}") // reglas de publicación y autonomía
+  suggestionsJson  String?  // propuestas de la IA pendientes de aceptar
+  version          Int      @default(1)
+  updatedBy        String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @default(now())
+}
+
+/// Recurso de marca subido por la empresa (logo, imagen, referencia).
+/// Archivo privado: solo se sirve por un endpoint con autorización.
+model BrandAsset {
+  id        String   @id @default(cuid()) @map("_id")
+  companyId String
+  kind      String   @default("IMAGE") // LOGO | IMAGE | REFERENCE
+  name      String
+  fileName  String
+  mimeType  String
+  sizeBytes Int
+  width     Int?
+  height    Int?
+  createdBy String?
+  createdAt DateTime @default(now())
+
+  @@index([companyId, kind])
+}
+
+/// Diseño editable por capas (documento validado y versionado, no una imagen plana).
+model CreativeDesign {
+  id            String   @id @default(cuid()) @map("_id")
+  companyId     String
+  name          String
+  format        String   // IG_POST | IG_PORTRAIT | STORY | FB_POST
+  docJson       String
+  schemaVersion Int      @default(1)
+  /// Control de concurrencia: cada guardado sube la versión; un guardado con versión vieja se rechaza
+  version       Int      @default(1)
+  templateKey   String?
+  status        String   @default("ACTIVE") // ACTIVE | ARCHIVED
+  exportFile    String?
+  exportMime    String?
+  createdBy     String?
+  updatedBy     String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @default(now())
+
+  @@index([companyId, status, updatedAt])
+}
+
+/// Historial de versiones de un diseño (para recuperar y deshacer entre sesiones).
+model CreativeDesignVersion {
+  id        String   @id @default(cuid()) @map("_id")
+  designId  String
+  companyId String
+  version   Int
+  docJson   String
+  createdBy String?
+  createdAt DateTime @default(now())
+
+  @@index([designId, version])
+}
+
+/// Movimiento de créditos de Creative. idempotencyKey evita cobrar dos veces
+/// la misma operación (reintentos o doble clic).
+model CreativeCreditMove {
+  id             String   @id @default(cuid()) @map("_id")
+  companyId      String
+  userId         String?
+  /// RESERVE | COMMIT | RELEASE | GRANT
+  kind           String
+  /// TEXT | IMAGE | VIDEO | EXTRA
+  operation      String
+  credits        Int
+  /// MONTHLY (cupo del plan) | EXTRA (paquetes)
+  bucket         String   @default("MONTHLY")
+  idempotencyKey String   @unique
+  provider       String?
+  model          String?
+  costUsd        Float?
+  resourceType   String?
+  resourceId     String?
+  note           String?
+  createdAt      DateTime @default(now())
+
+  @@index([companyId, createdAt])
+}
+
+/// Saldo extra de créditos (paquetes adicionales o regalos), aparte del cupo mensual del plan.
+model CreativeWallet {
+  id           String   @id @default(cuid()) @map("_id")
+  companyId    String   @unique
+  extraCredits Int      @default(0)
+  updatedAt    DateTime @default(now())
 }

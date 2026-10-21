@@ -1,3 +1,4 @@
+import { MANUAL_STATUSES, resetApproval } from '../common/creative-guard';
 import {
   BadRequestException,
   Body,
@@ -173,14 +174,22 @@ export class MarketingService {
       copy: dto.copy,
       script: dto.script,
       type: PIECE_TYPES.includes(dto.type) ? dto.type : undefined,
-      status: PIECE_STATUSES.includes(dto.status) ? dto.status : undefined,
+      // Programar, aprobar y publicar SOLO lo hace el servidor con sus reglas (nunca el navegador)
+      status: MANUAL_STATUSES.includes(dto.status) ? dto.status : undefined,
       channel: CHANNELS.includes(dto.channel) ? dto.channel : dto.channel === null ? null : undefined,
       campaignId: dto.campaignId === null ? null : dto.campaignId,
       scheduledAt: dto.scheduledAt === null ? null : dto.scheduledAt ? new Date(dto.scheduledAt) : undefined,
-      publishedAt: dto.status === 'PUBLICADO' ? new Date() : undefined,
+
       assetUrl: dto.assetUrl,
       ...(Array.isArray(dto.hashtags) ? { hashtagsJson: JSON.stringify(dto.hashtags) } : {}),
     };
+    // Cambiar el contenido de una pieza aprobada le quita la aprobación
+    if (id) {
+      const before = await this.prisma.contentPiece.findUniqueOrThrow({ where: { id } });
+      const changed = (['title', 'copy', 'assetUrl'] as const).some((k) => dto[k] !== undefined && dto[k] !== (before as any)[k])
+        || (Array.isArray(dto.hashtags) && JSON.stringify(dto.hashtags) !== before.hashtagsJson);
+      if (changed && before.approvedAt) Object.assign(data, resetApproval(before.status));
+    }
     const piece = id
       ? await this.prisma.contentPiece.update({ where: { id }, data })
       : await this.prisma.contentPiece.create({
@@ -264,6 +273,7 @@ Brief: ${piece.brief ?? 'sin brief — proponlo tú a partir del título'}`,
         hashtagsJson: JSON.stringify(Array.isArray(parsed.hashtags) ? parsed.hashtags.slice(0, 10) : []),
         ...(piece.type === 'REEL' && parsed.script ? { script: parsed.script } : {}),
         status: piece.status === 'IDEA' ? 'BORRADOR' : piece.status,
+        ...(piece.approvedAt ? resetApproval(piece.status) : {}),
       },
     });
     await this.audit.log({

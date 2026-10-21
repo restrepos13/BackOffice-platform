@@ -115,6 +115,12 @@ export function createMockPrisma() {
     salesAudit: [] as Doc[],
     agentCall: [] as Doc[],
     healthSample: [] as Doc[],
+    creativeWallet: [] as Doc[],
+    creativeCreditMove: [] as Doc[],
+    creativeDesignVersion: [] as Doc[],
+    creativeDesign: [] as Doc[],
+    brandAsset: [] as Doc[],
+    brandProfile: [] as Doc[],
     socialUsage: [] as Doc[],
     invoice: [] as Doc[],
     usageRecord: [] as Doc[],
@@ -177,6 +183,12 @@ export function createMockPrisma() {
     return out;
   };
 
+  const UNIQUE: Record<string, string[]> = {
+    creativeCreditMove: ['idempotencyKey'],
+    brandProfile: ['companyId'],
+    creativeWallet: ['companyId'],
+    socialUsage: ['companyId+period'],
+  };
   const model = (name: keyof typeof db, defaults: Doc = {}) => {
     // matches + filtros por relación y claves compuestas (companyId_date)
     const match = (doc: Doc, where: Doc | undefined): boolean => {
@@ -249,6 +261,13 @@ export function createMockPrisma() {
     },
     create: async ({ data }: Doc) => {
       const { items, ...plain } = data;
+      // Índices únicos como en Mongo (P2002 si se repite)
+      for (const key of UNIQUE[name as string] ?? []) {
+        const fields = key.split('+');
+        if (fields.every((f) => plain[f] != null) && db[name].some((d: Doc) => fields.every((f) => d[f] === plain[f]))) {
+          throw Object.assign(new Error(`Unique constraint failed on ${String(name)}.${key}`), { code: 'P2002' });
+        }
+      }
       const doc = { id: id(), createdAt: new Date(), updatedAt: new Date(), ...defaults, ...definedOnly(plain) };
       db[name].push(doc);
       if (items?.create && name === 'order') {
@@ -346,6 +365,12 @@ export function createMockPrisma() {
     salesAudit: model('salesAudit', { source: 'REGLAS', tokens: 0, examplesJson: '[]' }),
     agentCall: model('agentCall', { status: 'REQUESTED' }),
     healthSample: model('healthSample'),
+    creativeWallet: model('creativeWallet', { extraCredits: 0 }),
+    creativeCreditMove: model('creativeCreditMove', { bucket: 'MONTHLY' }),
+    creativeDesignVersion: model('creativeDesignVersion'),
+    creativeDesign: model('creativeDesign', { status: 'ACTIVE', schemaVersion: 1, version: 1 }),
+    brandAsset: model('brandAsset'),
+    brandProfile: model('brandProfile', { version: 1, logosJson: '[]', colorsJson: '[]', fontsJson: '[]', vocabularyJson: '[]', avoidWordsJson: '[]', productsJson: '[]', ctasJson: '[]', offersJson: '[]', restrictionsJson: '[]', formatsJson: '[]', protectedJson: '{}', policyJson: '{}' }),
     planOrder: model('planOrder', { status: 'REQUESTED', aiPackageAmount: 0, currency: 'COP', billingCycle: 'MONTHLY' }),
     socialUsage: model('socialUsage', { images: 0, videos: 0, credits: 0, costUsd: 0 }),
     invoice: model('invoice', { status: 'PENDING', currency: 'USD', linesJson: '[]' }),
