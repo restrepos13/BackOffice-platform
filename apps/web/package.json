@@ -11,9 +11,11 @@
   "dependencies": {
     "@tanstack/react-query": "^5.64.1",
     "clsx": "^2.1.1",
+    "konva": "9.3.22",
     "lucide-react": "^0.471.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
+    "react-konva": "18.2.16",
     "react-router-dom": "^7.1.1",
     "recharts": "^2.15.0",
     "sonner": "^1.7.1"

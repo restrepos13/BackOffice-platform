@@ -24,6 +24,7 @@ import {
   Factory,
   FileText,
   Megaphone,
+  Palette,
   Bike,
   ListChecks,
   Store,
@@ -174,6 +175,11 @@ const DELIVERY_NAV: NavItem[] = [
 /** Marketing: extra por empresa (módulo "marketing"). */
 const MARKETING_NAV: NavItem[] = [
   { to: '/app/marketing', label: 'Marketing', icon: Megaphone },
+];
+
+/** Creative: diseños, marca y calendario (incluido en todos los planes). */
+const CREATIVE_NAV: NavItem[] = [
+  { to: '/app/creative', label: 'Creative', icon: Palette },
 ];
 
 /** Usuario de área de producción: SOLO ve su área. */
@@ -349,6 +355,7 @@ export default function AppShell() {
     ...(hasOrders ? ORDERS_NAV : []),
     ...(hasDelivery ? DELIVERY_NAV : []),
     ...(hasMarketing ? MARKETING_NAV : []),
+    ...CREATIVE_NAV,
     // Sin pedidos: catálogo/servicios, horario, conocimiento y pagos viven en "Mi negocio"
     ...(!hasOrders ? [{ to: '/app/orders/settings', label: 'Mi negocio', icon: Store }] : []),
     ...COMPANY_NAV.slice(2),

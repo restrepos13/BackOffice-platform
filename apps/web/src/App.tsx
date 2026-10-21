@@ -52,6 +52,8 @@ const OrdersReports = lazy(() => import('./pages/company/OrdersReports'));
 const Customers = lazy(() => import('./pages/company/Customers'));
 const AreaView = lazy(() => import('./pages/company/AreaView'));
 const Marketing = lazy(() => import('./pages/company/Marketing'));
+const CreativeHome = lazy(() => import('./pages/company/creative/CreativeHome'));
+const CreativeEditor = lazy(() => import('./pages/company/creative/Editor'));
 const Deliveries = lazy(() => import('./pages/company/Deliveries'));
 const CourierApp = lazy(() => import('./pages/courier/CourierApp'));
 const Tracking = lazy(() => import('./pages/public/Tracking'));
@@ -156,6 +158,8 @@ export default function App() {
         <Route path="/app/customers" element={<BlockArea><Customers /></BlockArea>} />
         <Route path="/app/deliveries" element={<BlockArea><Deliveries /></BlockArea>} />
         <Route path="/app/marketing" element={<BlockArea><Marketing /></BlockArea>} />
+        <Route path="/app/creative" element={<BlockArea><CreativeHome /></BlockArea>} />
+        <Route path="/app/creative/editor/:id" element={<BlockArea><CreativeEditor /></BlockArea>} />
         <Route path="/app/area" element={<AreaView />} />
         <Route path="/app/contacts" element={<Contacts />} />
         <Route path="/app/campaigns" element={<BlockArea><Campaigns /></BlockArea>} />
