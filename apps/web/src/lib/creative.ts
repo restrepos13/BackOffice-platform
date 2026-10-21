@@ -67,8 +67,12 @@ export function loadAsset(assetId: string, q = ''): Promise<HTMLImageElement> {
       if (!res.ok) throw new Error('Imagen no disponible');
       const url = URL.createObjectURL(await res.blob());
       const img = new Image();
-      img.src = url;
-      await img.decode();
+      // onload y no img.decode(): decode() a veces nunca resuelve aunque la imagen ya cargó
+      await new Promise<void>((resolve, reject) => {
+        img.onload = () => resolve();
+        img.onerror = () => reject(new Error('Imagen no disponible'));
+        img.src = url;
+      });
       return img;
     })());
     imageCache.get(key)!.catch(() => imageCache.delete(key));

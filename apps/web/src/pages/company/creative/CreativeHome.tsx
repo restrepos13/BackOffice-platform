@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import { api, uploadFile } from '../../../lib/api';
+import type { SocialStatus } from '../../../lib/types';
 import { CATEGORY_LABELS, FONTS, FORMATS, type FormatKey, STATUS_LABELS, authedBlobUrl } from '../../../lib/creative';
 import { Badge, Button, Card, EmptyState, Field, Input, Loading, Modal, PageHeader, Select, Stat, Switch, Tabs, Textarea } from '../../../components/ui';
 import { PickCompany, useCompanyScope, withScope } from '../shared';
@@ -324,10 +325,17 @@ function Calendar({ q }: { q: string }) {
     onSuccess: () => { refresh(); toast.success('Programación cancelada'); },
     onError: (e) => toast.error(e instanceof Error ? e.message : 'Error'),
   });
+  const { data: social } = useQuery({ queryKey: ['social-status', q], queryFn: () => api.get<SocialStatus>(withScope('/social/status', q)), retry: false });
   const pending = useMemo(() => (data ?? []).filter((p) => p.status === 'EN_REVISION'), [data]);
   if (isLoading || !data) return <Loading />;
   return (
     <>
+      {social && !social.connection?.connected && (
+        <div className="mb-5 border-2 border-warn bg-paper px-4 py-3 text-sm">
+          Para programar o publicar, primero conecta tu página de Facebook e Instagram. Mientras tanto puedes diseñar y aprobar.{' '}
+          <Link to="/app/marketing" className="font-semibold underline">Conectar en Marketing</Link>
+        </div>
+      )}
       {pending.length > 0 && (
         <Card kicker="Cola de aprobaciones" title={`${pending.length} esperando revisión`} className="mb-6">
           <ul className="divide-y divide-line text-sm">
@@ -356,7 +364,7 @@ function Calendar({ q }: { q: string }) {
             <tbody>
               {data.map((p) => (
                 <tr key={p.id} className="border-b border-line align-top">
-                  <td className="p-2"><b>{p.title}</b><span className="block text-[11px] text-ink-3">{CATEGORY_LABELS[p.category ?? ''] ?? 'Sin categoría'}{p.approvedBy ? ` · aprobó ${p.approvedBy}` : ''}</span>{p.publishError && <span className="block text-xs text-bad">{p.publishError}</span>}</td>
+                  <td className="p-2"><b>{p.title}</b><span className="block text-[11px] text-ink-3">{CATEGORY_LABELS[p.category ?? ''] ?? 'Sin categoría'}{p.approvedBy ? ` · aprobó ${p.approvedBy}` : ''}</span>{p.publishError && <span className="block text-xs text-bad">{p.publishError}</span>}{p.status === 'BORRADOR' && p.reviewNote && <span className="block text-xs text-warn">Pidieron cambios: {p.reviewNote}</span>}</td>
                   <td className="p-2"><Badge tone={STATUS_TONE[p.status] ?? 'neutral'}>{STATUS_LABELS[p.status] ?? p.status}</Badge></td>
                   <td className="p-2 text-xs">{p.scheduledAt ? new Date(p.scheduledAt).toLocaleString('es-CO', { dateStyle: 'medium', timeStyle: 'short' }) : '—'}</td>
                   <td className="p-2 text-xs">{p.targets.join(', ') || '—'}</td>
