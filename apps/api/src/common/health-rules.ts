@@ -106,6 +106,8 @@ export interface HealthMetrics {
   ai: { todayUsd: number; monthUsd: number; projectionUsd: number; avg7Usd: number; top: Array<{ companyId: string; name: string; usd: number }>; openrouter: { remainingUsd: number | null; totalCredits: number | null } };
   quotas: { gemini: Array<{ label: string; used: number; limit: number }>; openrouter: Array<{ label: string; used: number; limit: number }> };
   companies: Array<{ id: string; name: string; reasons: string[] }>;
+  /** Controles de seguridad del servidor (producción) */
+  security?: { production: boolean; trustProxyHops: number; metaSecret: boolean; wompiEventsSecret: boolean; platformMfaRequired: boolean; platformWithoutMfa: number };
 }
 
 export interface HealthCheck {
@@ -278,6 +280,31 @@ export function evaluateHealth(m: HealthMetrics, c: HealthConfig): HealthCheck[]
     detail: m.companies.slice(0, 6).map((x) => `${x.name}: ${x.reasons.join(', ')}`).join(' · ') || 'Todas tienen WhatsApp, asistente activo, movimiento y facturas al día.',
     advice: m.companies.length ? 'Llámalas: una empresa sin WhatsApp o sin movimiento es una empresa que se va.' : undefined,
   });
+
+  /* ── Seguridad: configuración que no debe faltar en producción ── */
+  if (m.security?.production) {
+    const sec = m.security;
+    out.push({
+      key: 'security.proxy', area: 'RENDER', title: 'Límites por IP (anti fuerza bruta)',
+      level: sec.trustProxyHops > 0 ? 'OK' : 'CRIT',
+      value: sec.trustProxyHops > 0 ? `Proxy de confianza: ${sec.trustProxyHops}` : 'Sin configurar',
+      detail: 'Sin TRUST_PROXY_HOPS todos los visitantes comparten la IP del proxy y los límites de login no distinguen a nadie.',
+      advice: sec.trustProxyHops > 0 ? undefined : 'Agrega TRUST_PROXY_HOPS=2 en Render (Vercel → Render).',
+    });
+    out.push({
+      key: 'security.webhooks', area: 'RENDER', title: 'Firmas de webhooks',
+      level: sec.metaSecret ? 'OK' : 'WARN',
+      value: sec.metaSecret ? 'Meta firmado' : 'Falta META_APP_SECRET',
+      detail: `Sin el secreto de Meta se rechazan los mensajes de WhatsApp Cloud, Instagram y Messenger. Wompi: ${sec.wompiEventsSecret ? 'eventos firmados' : 'sin secret (pagos por Wompi rechazados)'}.`,
+    });
+    out.push({
+      key: 'security.mfa', area: 'RENDER', title: 'Verificación en dos pasos de plataforma',
+      level: sec.platformWithoutMfa === 0 && sec.platformMfaRequired ? 'OK' : sec.platformWithoutMfa > 0 ? 'CRIT' : 'WARN',
+      value: `${sec.platformWithoutMfa} cuenta(s) de plataforma sin MFA`,
+      detail: sec.platformMfaRequired ? 'PLATFORM_MFA_REQUIRED=true: sin MFA no pueden usar la plataforma.' : 'Aún no es obligatoria (PLATFORM_MFA_REQUIRED).',
+      advice: sec.platformWithoutMfa > 0 ? 'Cada dev la activa en "Seguridad de mi cuenta"; luego PLATFORM_MFA_REQUIRED=true en Render.' : undefined,
+    });
+  }
 
   return out;
 }

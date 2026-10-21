@@ -224,9 +224,13 @@ export default function Emails() {
                 {preview.error}
               </p>
             )}
-            <div
-              className="border-2 border-line bg-white p-5 text-sm"
-              dangerouslySetInnerHTML={{ __html: preview.body }}
+            {/* Aislado: sin scripts, sin formularios y sin acceso a la sesión del dev */}
+            <iframe
+              title="Vista previa del correo"
+              sandbox=""
+              referrerPolicy="no-referrer"
+              className="h-[60vh] w-full border-2 border-line bg-white"
+              srcDoc={preview.body}
             />
             <p className="kicker">
               {preview.actorName} · {fmtDateTime(preview.createdAt)}

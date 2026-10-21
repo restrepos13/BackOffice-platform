@@ -18,7 +18,8 @@ import { mkdirSync, writeFileSync } from 'fs';
 import { join, resolve } from 'path';
 
 const prisma = new PrismaClient();
-const PASSWORD = bcrypt.hashSync('backoffice2026', 10);
+// Nunca una clave escrita en el código (repositorio público): sale de apps/api/.env
+const PASSWORD = bcrypt.hashSync(seedPassword('SEED_PASSWORD_DEMO'), 12);
 
 // Pseudo-aleatorio determinista para que el seed sea reproducible
 let seedState = 42;

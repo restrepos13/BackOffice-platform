@@ -1,3 +1,4 @@
+import { isProductionHost } from '../common/team-notify';
 import { originFromTwilio, originUpdates } from '../common/chat-origin';
 import {
   Body,
@@ -100,6 +101,16 @@ export function mapMediaType(contentType: string | undefined): {
   if (ct.startsWith('image/')) return { type: 'IMAGE', ext: ct.includes('png') ? 'png' : 'jpg' };
   if (ct.startsWith('video/')) return { type: 'DOCUMENT', ext: 'mp4' };
   return { type: 'DOCUMENT', ext: ct.includes('pdf') ? 'pdf' : 'bin' };
+}
+
+/** ¿La URL del archivo es de Twilio? (https y dominio twilio.com / twiliocdn.com) */
+export function isTwilioMediaUrl(raw: unknown): boolean {
+  try {
+    const u = new URL(String(raw));
+    return u.protocol === 'https:' && !u.username && !u.password && /(^|\.)(twilio\.com|twiliocdn\.com)$/i.test(u.hostname);
+  } catch {
+    return false;
+  }
 }
 
 @Injectable()
@@ -297,7 +308,8 @@ export class TwilioService implements OnModuleInit, OnApplicationShutdown {
       const mapped = mapMediaType(payload.MediaContentType0);
       type = mapped.type;
       const creds = line ? this.lineConfig(line) : null;
-      if (creds?.accountSid && creds.authToken) {
+      // Las credenciales de Twilio SOLO viajan a servidores de Twilio (nunca a una URL cualquiera del mensaje)
+      if (creds?.accountSid && creds.authToken && isTwilioMediaUrl(payload.MediaUrl0)) {
         try {
           const res = await fetch(payload.MediaUrl0, {
             headers: {
@@ -706,7 +718,9 @@ export class TwilioWebhooksController {
       req.originalUrl,
       body,
     );
-    if (!valid && !creds?.sandbox) {
+    // Sin firma válida no entra nada. La excepción "sandbox" solo existe en un
+    // computador de pruebas: en producción permitiría inyectar mensajes falsos.
+    if (!valid && !(creds?.sandbox && !isProductionHost())) {
       this.logger.warn(`firma inválida para ${slug}`);
       res.status(403).send('firma inválida');
       return;
@@ -736,7 +750,7 @@ export class TwilioWebhooksController {
       req.originalUrl,
       body,
     );
-    if (!valid && !creds?.sandbox) {
+    if (!valid && !(creds?.sandbox && !isProductionHost())) {
       res.status(403).send('firma inválida');
       return;
     }

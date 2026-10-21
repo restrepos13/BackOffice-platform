@@ -14,6 +14,7 @@
  *   andres@deliciasandinas.co  · Demo-Delicias-2026  (COMPANY_COURIER, en ruta)
  * El tour queda SIN ver en cada regeneración (arranca solo en la demo).
  */
+import { randomBytes } from 'crypto';
 import type { PrismaClient } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
 import { quoteDelivery } from '../common/geo';
@@ -24,7 +25,20 @@ import { AGENT_PRESETS } from '../ai/agent/tools';
 /** Slug reservado de la empresa demo (protegido contra borrado). */
 export const DEMO_COMPANY_SLUG = 'delicias-demo';
 
-const PASSWORD = bcrypt.hashSync('Demo-Delicias-2026', 10);
+/**
+ * Contraseña de las cuentas demo: SOLO desde DEMO_PASSWORD (Render / .env), nunca
+ * en el código (el repositorio es público). Sin la variable se usa una clave
+ * aleatoria que nadie conoce: la demo existe pero nadie puede entrar.
+ */
+let cachedHash: string | null = null;
+const PASSWORD = () => (cachedHash ??= demoPasswordHash());
+
+function demoPasswordHash(): string {
+  const configured = String(process.env.DEMO_PASSWORD ?? '').trim();
+  if (configured.length >= 12) return bcrypt.hashSync(configured, 12);
+  console.warn('[demo] DEMO_PASSWORD ausente o con menos de 12 caracteres: las cuentas demo quedan sin acceso');
+  return bcrypt.hashSync(randomBytes(24).toString('base64url'), 12);
+}
 
 const MODEL = 'meta-llama/Llama-3.3-70B-Instruct';
 
@@ -140,7 +154,7 @@ export async function seedDemoCompany(prisma: PrismaClient) {
     data: {
       email: 'demo@deliciasandinas.co', name: 'Carolina Díaz',
       role: 'COMPANY_ADMIN', jobTitle: 'Gerente general', companyId: co.id,
-      passwordHash: PASSWORD, // tour SIN ver: arranca solo en la demo
+      passwordHash: PASSWORD(), // tour SIN ver: arranca solo en la demo
     },
   });
 
@@ -244,7 +258,7 @@ export async function seedDemoCompany(prisma: PrismaClient) {
     data: {
       email: 'andres@deliciasandinas.co', name: 'Andrés Gómez',
       role: 'COMPANY_COURIER', jobTitle: 'Domiciliario', companyId: co.id,
-      phone: '+57 315 400 1001', passwordHash: PASSWORD,
+      phone: '+57 315 400 1001', passwordHash: PASSWORD(),
       onShift: true, lastLat: 6.2369, lastLng: -75.5852, lastLocAt: new Date(),
     },
   });
@@ -252,7 +266,7 @@ export async function seedDemoCompany(prisma: PrismaClient) {
     data: {
       email: 'luisa@deliciasandinas.co', name: 'Luisa Fernanda Ríos',
       role: 'COMPANY_COURIER', jobTitle: 'Domiciliaria', companyId: co.id,
-      phone: '+57 315 400 1002', passwordHash: PASSWORD, onShift: false,
+      phone: '+57 315 400 1002', passwordHash: PASSWORD(), onShift: false,
     },
   });
   // Rastro GPS de Andrés: de la cocina hacia la Clínica del Prado
@@ -286,7 +300,7 @@ export async function seedDemoCompany(prisma: PrismaClient) {
     data: {
       email: 'cocina@deliciasandinas.co', name: 'Equipo Cocina',
       role: 'COMPANY_AREA', jobTitle: 'Cocina', companyId: co.id,
-      productionAreaId: cocina.id, passwordHash: PASSWORD,
+      productionAreaId: cocina.id, passwordHash: PASSWORD(),
     },
   });
 

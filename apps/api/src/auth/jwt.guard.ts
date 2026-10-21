@@ -2,6 +2,7 @@ import {
   CanActivate,
   ExecutionContext,
   Injectable,
+  ForbiddenException,
   UnauthorizedException,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
@@ -15,7 +16,7 @@ import { PrismaService } from '../prisma/prisma.service';
  * (con un caché corto para no consultar Mongo en cada clic).
  */
 const SESSION_TTL_MS = 30_000;
-type SessionRow = { active: boolean; role: string; companyId: string | null; at: number };
+type SessionRow = { active: boolean; role: string; companyId: string | null; sessionVersion: number; mfaEnabled: boolean; at: number };
 const sessions = new Map<string, SessionRow>();
 
 export function forgetSession(userId: string) {
@@ -35,13 +36,13 @@ export class JwtAuthGuard implements CanActivate {
     if (hit && Date.now() - hit.at < SESSION_TTL_MS) return hit;
     const row = await this.prisma.user.findUnique({
       where: { id: userId },
-      select: { active: true, role: true, companyId: true },
+      select: { active: true, role: true, companyId: true, sessionVersion: true, mfaEnabled: true },
     });
     if (!row) {
       sessions.delete(userId);
       return null;
     }
-    const fresh = { active: row.active, role: row.role, companyId: row.companyId ?? null, at: Date.now() };
+    const fresh = { active: row.active, role: row.role, companyId: row.companyId ?? null, sessionVersion: row.sessionVersion ?? 0, mfaEnabled: !!row.mfaEnabled, at: Date.now() };
     if (sessions.size > 5000) sessions.clear();
     sessions.set(userId, fresh);
     return fresh;
@@ -62,6 +63,9 @@ export class JwtAuthGuard implements CanActivate {
     try {
       payload = await this.jwt.verifyAsync(token, {
         secret: process.env.JWT_SECRET,
+        algorithms: ['HS256'],
+        issuer: 'backoffice-api',
+        audience: 'backoffice-web',
       });
     } catch {
       throw new UnauthorizedException('Token inválido o expirado');
@@ -69,6 +73,15 @@ export class JwtAuthGuard implements CanActivate {
     const current = await this.session(payload.sub);
     if (!current || !current.active) {
       throw new UnauthorizedException('Tu usuario fue desactivado');
+    }
+    // Revocación real: cerrar sesión, cambiar la contraseña o el rol invalida los tokens viejos
+    if ((payload.sv ?? 0) !== current.sessionVersion) {
+      throw new UnauthorizedException('Tu sesión se cerró. Vuelve a iniciar sesión.');
+    }
+    // Cuentas de plataforma sin MFA: con PLATFORM_MFA_REQUIRED=true solo pueden activarlo
+    const url = String(req.originalUrl ?? req.url ?? '');
+    if (process.env.PLATFORM_MFA_REQUIRED === 'true' && ['SUPER_ADMIN', 'DEV'].includes(current.role) && !current.mfaEnabled && !url.startsWith('/api/auth/')) {
+      throw new ForbiddenException('Activa la verificación en dos pasos para usar las herramientas de plataforma');
     }
     req.user = {
       id: payload.sub,

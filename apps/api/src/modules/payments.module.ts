@@ -1,3 +1,4 @@
+import { isProductionHost } from '../common/team-notify';
 import {
   BadRequestException,
   Body,
@@ -189,9 +190,11 @@ export class PaymentsService {
     const secret = cfg.WOMPI_EVENTS_SECRET || '';
     const transaction = body?.data?.transaction;
     if (!transaction?.reference) throw new BadRequestException('Evento sin transacción');
-    // En producción la firma es OBLIGATORIA (solo test acepta eventos sin secret)
-    if (!secret && (cfg.WOMPI_ENV || 'test') !== 'test') {
-      throw new UnauthorizedException('WOMPI_EVENTS_SECRET no configurado: eventos rechazados en producción');
+    // La firma es OBLIGATORIA en el servidor de producción aunque Wompi esté en
+    // modo test: un evento sin firma podría marcar facturas pagadas o regalar
+    // créditos de IA. Sin secret solo se aceptan en un computador de pruebas.
+    if (!secret && (isProductionHost() || (cfg.WOMPI_ENV || 'test') !== 'test')) {
+      throw new UnauthorizedException('WOMPI_EVENTS_SECRET no configurado: eventos rechazados');
     }
     if (secret && !verifyEventSignature(body, secret)) {
       throw new UnauthorizedException('Firma del evento inválida');
@@ -347,7 +350,8 @@ export class PaymentsService {
     if (!company) throw new NotFoundException('Empresa no encontrada');
     const cfg = parseJson<CompanyPaymentConfig>(company.paymentConfigJson, {});
     const secret = readSecret(cfg.eventsSecretEnc);
-    if (!secret && cfg.env === 'prod') {
+    // Igual que arriba: sin firma, cualquier comprador podría marcar su pedido como pagado
+    if (!secret && (isProductionHost() || cfg.env === 'prod')) {
       throw new UnauthorizedException('Falta el events secret de Wompi de la empresa');
     }
     if (secret && !verifyEventSignature(body, secret)) throw new UnauthorizedException('Firma del evento inválida');

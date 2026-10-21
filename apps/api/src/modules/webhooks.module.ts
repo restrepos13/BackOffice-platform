@@ -1,3 +1,4 @@
+import { isProductionHost } from '../common/team-notify';
 import { ChatOrigin, originFromMeta, originUpdates } from '../common/chat-origin';
 import {
   Body,
@@ -58,10 +59,19 @@ export class WebhooksService {
     throw new UnauthorizedException('Token de verificación inválido');
   }
 
-  /** Con META_APP_SECRET configurado, la firma es obligatoria. */
+  /**
+   * La firma de Meta (X-Hub-Signature-256 con META_APP_SECRET) es obligatoria.
+   * Sin secret configurado, en producción se rechaza todo: si no, cualquiera
+   * podría inyectar mensajes haciéndose pasar por un cliente. Solo un
+   * computador de pruebas acepta mensajes sin firma.
+   */
   async assertSignature(raw: Buffer | undefined, signature: string | undefined) {
     const secret = await this.setting('META_APP_SECRET');
-    if (secret && !verifyMetaSignature(raw, signature, secret)) {
+    if (!secret) {
+      if (isProductionHost()) throw new UnauthorizedException('META_APP_SECRET no configurado: webhooks de Meta rechazados');
+      return;
+    }
+    if (!verifyMetaSignature(raw, signature, secret)) {
       throw new UnauthorizedException('Firma de Meta inválida');
     }
   }

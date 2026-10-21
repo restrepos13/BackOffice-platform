@@ -13,7 +13,10 @@ import type { AuthUser, Role } from './types';
 interface AuthContextValue {
   user: AuthUser | null;
   loading: boolean;
-  login: (email: string, password: string) => Promise<AuthUser>;
+  /** Devuelve el usuario, o el paso de verificación en dos pasos si la cuenta lo tiene activo. */
+  login: (email: string, password: string) => Promise<AuthUser | { mfaToken: string }>;
+  /** Segundo paso del login: código de la app o de recuperación. */
+  verifyMfa: (mfaToken: string, code: string) => Promise<AuthUser>;
   /** Entra con una sesión ya emitida (registro por la web). */
   adopt: (token: string, user: AuthUser) => void;
   logout: () => void;
@@ -40,10 +43,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const login = useCallback(async (email: string, password: string) => {
-    const res = await api.post<{ token: string; user: AuthUser }>(
+    const res = await api.post<{ token: string; user: AuthUser } | { mfaRequired: true; mfaToken: string }>(
       '/auth/login',
       { email, password },
     );
+    if ('mfaRequired' in res) return { mfaToken: res.mfaToken };
+    setToken(res.token);
+    setUser(res.user);
+    return res.user;
+  }, []);
+
+  const verifyMfa = useCallback(async (mfaToken: string, code: string) => {
+    const res = await api.post<{ token: string; user: AuthUser }>('/auth/mfa/verify', { mfaToken, code });
     setToken(res.token);
     setUser(res.user);
     return res.user;
@@ -55,6 +66,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const logout = useCallback(() => {
+    // Cierra la sesión también en el servidor: el token deja de servir aunque alguien lo haya copiado
+    if (getToken()) void api.post('/auth/logout').catch(() => undefined);
     setToken(null);
     localStorage.removeItem('bo_company');
     setUser(null);
@@ -67,13 +80,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       user,
       loading,
       login,
+      verifyMfa,
       adopt,
       logout,
       isPlatform,
       canWrite: !!user && user.role !== 'COMPANY_VIEWER',
       hasRole: (...roles: Role[]) => !!user && roles.includes(user.role),
     };
-  }, [user, loading, login, adopt, logout]);
+  }, [user, loading, login, verifyMfa, adopt, logout]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

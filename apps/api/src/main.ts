@@ -41,6 +41,11 @@ async function bootstrap() {
   // Vercel → Render = 2. Sin la variable no se confía en X-Forwarded-For.
   const hops = Number(process.env.TRUST_PROXY_HOPS ?? 0);
   if (hops > 0) app.set('trust proxy', hops);
+  else if (process.env.RENDER === 'true') {
+    // Sin esto, todos los visitantes comparten la IP del proxy: los límites "por IP"
+    // (login, registro) se vuelven un solo cupo global y la fuerza bruta no se frena bien
+    console.warn('[seguridad] TRUST_PROXY_HOPS no está configurado en producción: los límites por IP no distinguen visitantes');
+  }
 
   // Límite de payload (los uploads de galería van por multer con su propio límite)
   // El cuerpo crudo se guarda para verificar firmas de webhooks (Meta)

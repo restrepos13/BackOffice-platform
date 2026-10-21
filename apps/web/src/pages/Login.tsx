@@ -5,11 +5,14 @@ import { useAuth } from '../lib/auth';
 import { Button, Field, Input } from '../components/ui';
 
 export default function Login() {
-  const { user, login, loading } = useAuth();
+  const { user, login, verifyMfa, loading } = useAuth();
   const navigate = useNavigate();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
+  // Verificación en dos pasos: después de la contraseña, el código de la app
+  const [mfaToken, setMfaToken] = useState<string | null>(null);
+  const [code, setCode] = useState('');
 
   if (!loading && user) {
     return (
@@ -24,10 +27,18 @@ export default function Login() {
     e.preventDefault();
     setBusy(true);
     try {
-      const u = await login(email, password);
+      const r = mfaToken ? await verifyMfa(mfaToken, code) : await login(email, password);
+      if ('mfaToken' in r) {
+        setMfaToken(r.mfaToken);
+        return;
+      }
       // Cada rol aterriza en su espacio (área, domiciliario, empresa o plataforma)
-      navigate(u.role === 'SUPER_ADMIN' || u.role === 'DEV' ? '/platform' : '/');
+      navigate(r.role === 'SUPER_ADMIN' || r.role === 'DEV' ? '/platform' : '/');
     } catch (err) {
+      if (mfaToken && /venció/.test(err instanceof Error ? err.message : '')) {
+        setMfaToken(null);
+        setCode('');
+      }
       toast.error(err instanceof Error ? err.message : 'Error al iniciar sesión');
     } finally {
       setBusy(false);
@@ -53,6 +64,30 @@ export default function Login() {
           onSubmit={onSubmit}
           className="space-y-4 border-2 border-ink bg-paper p-6 shadow-[8px_8px_0_0_rgba(26,26,26,0.9)]"
         >
+          {mfaToken ? (
+            <>
+              <p className="text-sm">Abre tu app de autenticación y escribe el código de 6 dígitos. Si no tienes el celular, usa un código de recuperación.</p>
+              <Field label="Código de verificación" required>
+                <Input
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  autoFocus
+                  placeholder="123 456"
+                  maxLength={11}
+                  value={code}
+                  onChange={(e) => setCode(e.target.value)}
+                  required
+                />
+              </Field>
+              <Button type="submit" disabled={busy || code.replace(/\s/g, '').length < 6} className="w-full">
+                {busy ? 'Verificando…' : 'Verificar y entrar →'}
+              </Button>
+              <button type="button" className="w-full cursor-pointer text-center text-xs underline" onClick={() => { setMfaToken(null); setCode(''); }}>
+                Volver
+              </button>
+            </>
+          ) : (
+          <>
           <Field label="Correo" required>
             <Input
               type="email"
@@ -76,6 +111,8 @@ export default function Login() {
           <Button type="submit" disabled={busy} className="w-full">
             {busy ? 'Entrando…' : 'Entrar al panel →'}
           </Button>
+          </>
+          )}
         </form>
 
         <p className="mt-4 text-center text-sm">

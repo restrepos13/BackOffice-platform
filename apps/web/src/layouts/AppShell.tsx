@@ -51,8 +51,9 @@ import {
 } from 'lucide-react';
 import { Suspense, useEffect, useRef, useState } from 'react';
 import { Navigate, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
-import { api } from '../lib/api';
+import { api, setToken } from '../lib/api';
 import { TermsGate } from '../components/Terms';
+import MfaSettings from '../components/MfaSettings';
 import { useIncidents } from '../pages/platform/Incidents';
 import { useActiveCompanyId, useAuth } from '../lib/auth';
 import { useLiveEvents } from '../lib/events';
@@ -66,9 +67,11 @@ function ChangePasswordModal({ open, onClose }: { open: boolean; onClose: () => 
   const [next, setNext] = useState('');
   const change = useMutation({
     mutationFn: () =>
-      api.post('/auth/change-password', { currentPassword: current, newPassword: next }),
-    onSuccess: () => {
-      toast.success('Contraseña actualizada');
+      api.post<{ token?: string }>('/auth/change-password', { currentPassword: current, newPassword: next }),
+    onSuccess: (r) => {
+      // Las demás sesiones se cerraron; esta sigue con el token nuevo
+      if (r?.token) setToken(r.token);
+      toast.success('Contraseña actualizada. Cerramos tus otras sesiones.');
       setCurrent('');
       setNext('');
       onClose();
@@ -76,7 +79,7 @@ function ChangePasswordModal({ open, onClose }: { open: boolean; onClose: () => 
     onError: (e) => toast.error(e instanceof Error ? e.message : 'Error'),
   });
   return (
-    <Modal open={open} onClose={onClose} kicker="Mi cuenta" title="Cambiar contraseña">
+    <Modal open={open} onClose={onClose} kicker="Mi cuenta" title="Seguridad de mi cuenta">
       <div className="space-y-4">
         <Field label="Contraseña actual" required>
           <Input type="password" autoComplete="current-password" value={current}
@@ -93,6 +96,7 @@ function ChangePasswordModal({ open, onClose }: { open: boolean; onClose: () => 
         >
           {change.isPending ? 'Guardando…' : 'Actualizar contraseña'}
         </Button>
+        <MfaSettings />
       </div>
     </Modal>
   );
@@ -461,7 +465,7 @@ export default function AppShell() {
             onClick={() => setChangingPassword(true)}
             className="mb-1.5 flex w-full cursor-pointer items-center justify-center gap-2 border-2 border-line px-2 py-1.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-2 hover:border-ink hover:text-ink"
           >
-            Cambiar contraseña
+            Seguridad de mi cuenta
           </button>
           <button
             onClick={logout}

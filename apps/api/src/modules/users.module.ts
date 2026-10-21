@@ -14,7 +14,7 @@ import {
 } from '@nestjs/common';
 import { IsEmail, IsIn, IsOptional, IsString, MinLength } from 'class-validator';
 import { PrismaService } from '../prisma/prisma.service';
-import { AuthService } from '../auth/auth.service';
+import { AuthService, publicUser } from '../auth/auth.service';
 import { CurrentUser, Roles } from '../auth/decorators';
 import {
   AuthUser,
@@ -54,9 +54,9 @@ export class UsersService {
     private readonly audit: AuditService,
   ) {}
 
-  private safe<T extends { passwordHash?: string }>(u: T) {
-    const { passwordHash: _ph, ...rest } = u;
-    return rest;
+  private safe<T extends Record<string, any>>(u: T) {
+    // Nunca salen hashes, secretos de MFA ni contadores internos
+    return publicUser(u) as Omit<T, 'passwordHash'>;
   }
 
   async list(user: AuthUser, companyId?: string) {
@@ -173,6 +173,10 @@ export class UsersService {
         active: dto.active,
         ...(dto.password
           ? { passwordHash: AuthService.hashPassword(dto.password), failedLogins: 0, lockedUntil: null }
+          : {}),
+        // Clave, rol o estado nuevos: las sesiones abiertas de esa persona se cierran
+        ...(dto.password || dto.active === false || (dto.role && dto.role !== target.role)
+          ? { sessionVersion: (target.sessionVersion ?? 0) + 1 }
           : {}),
       },
     });

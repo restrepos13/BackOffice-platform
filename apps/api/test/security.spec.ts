@@ -262,7 +262,7 @@ describe('login: bloqueo por intentos y anti-enumeración', () => {
     const { auth, users } = authSetup();
     users[0].failedLogins = 3;
     const res = await auth.login('admin@test.co', 'Correcta-123');
-    expect(res.token).toBe('token-de-prueba');
+    expect((res as any).token).toBe('token-de-prueba');
     expect(users[0].failedLogins).toBe(0);
     expect(users[0].lockedUntil).toBeNull();
   });
@@ -300,17 +300,19 @@ describe('login: bloqueo por intentos y anti-enumeración', () => {
   });
 
   it('cambio de contraseña exige mínimo 8 caracteres y la actual correcta', async () => {
-    const { auth } = authSetup();
+    const { auth, users } = authSetup();
     await expect(auth.changePassword('u1', 'Correcta-123', 'corta')).rejects.toThrow(/8 caracteres/);
     await expect(auth.changePassword('u1', 'equivocada', 'NuevaClave-99')).rejects.toThrow(/no coincide/);
-    await expect(auth.changePassword('u1', 'Correcta-123', 'NuevaClave-99')).resolves.toEqual({ ok: true });
+    await expect(auth.changePassword('u1', 'Correcta-123', 'NuevaClave-99')).resolves.toMatchObject({ ok: true, token: expect.any(String) });
+    // Cambiar la contraseña cierra las demás sesiones (sube la versión de sesión)
+    expect(users.find((u: any) => u.id === 'u1').sessionVersion).toBe(1);
   });
 
   it('el bloqueo expira: pasada la ventana vuelve a permitir el login correcto', async () => {
     const { auth, users } = authSetup();
     users[0].lockedUntil = new Date(Date.now() - 1000); // ya venció
     const res = await auth.login('admin@test.co', 'Correcta-123');
-    expect(res.token).toBeDefined();
+    expect((res as any).token).toBeDefined();
     expect(users[0].lockedUntil).toBeNull();
   });
 });

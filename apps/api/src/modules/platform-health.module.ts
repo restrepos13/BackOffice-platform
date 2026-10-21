@@ -265,6 +265,27 @@ export class PlatformHealthService {
     return out;
   }
 
+  /** Configuración de seguridad que debe estar en producción. */
+  private async security(): Promise<HealthMetrics['security']> {
+    const keys = await this.prisma.platformSetting.findMany({ where: { key: { in: ['META_APP_SECRET', 'WOMPI_EVENTS_SECRET'] } }, select: { key: true, value: true } }).catch(() => []);
+    const has = (k: string) => !!process.env[k] || keys.some((r: any) => r.key === k && r.value);
+    // Total menos los que tienen MFA (en Mongo, los usuarios viejos no tienen el campo y no los encuentra un filtro "false")
+    const platformWhere = { role: { in: ['SUPER_ADMIN', 'DEV'] }, active: true };
+    const [platformTotal, platformMfa] = await Promise.all([
+      this.prisma.user.count({ where: platformWhere }).catch(() => 0),
+      this.prisma.user.count({ where: { ...platformWhere, mfaEnabled: true } }).catch(() => 0),
+    ]);
+    const platformWithoutMfa = Math.max(0, platformTotal - platformMfa);
+    return {
+      production: ENV === 'prod',
+      trustProxyHops: Number(process.env.TRUST_PROXY_HOPS ?? 0) || 0,
+      metaSecret: has('META_APP_SECRET'),
+      wompiEventsSecret: has('WOMPI_EVENTS_SECRET'),
+      platformMfaRequired: process.env.PLATFORM_MFA_REQUIRED === 'true',
+      platformWithoutMfa,
+    };
+  }
+
   /** Mide todo y evalúa. */
   async measure(now = new Date()): Promise<{ metrics: HealthMetrics; checks: HealthCheck[]; config: HealthConfig }> {
     const cfg = await this.config();
@@ -284,6 +305,7 @@ export class PlatformHealthService {
       ai,
       quotas: await this.quotas(cfg, ai.openrouter),
       companies: await this.companiesAtRisk(cfg, now),
+      security: await this.security(),
     };
     return { metrics, checks: evaluateHealth(metrics, cfg), config: cfg };
   }

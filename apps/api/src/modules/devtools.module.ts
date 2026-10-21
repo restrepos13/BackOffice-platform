@@ -53,6 +53,16 @@ const SETTING_GROUPS: Array<{ group: string; keys: string[]; purpose: string }> 
   { group: 'Video (MoneyPrinterTurbo)', keys: ['MPT_BASE_URL', 'MPT_API_KEY'], purpose: 'Generación de reels del módulo de marketing' },
 ];
 
+const MASK = '••••';
+/** Claves con secretos (la llave pública de Wompi y los ids no lo son). */
+export function isSecretSetting(key: string): boolean {
+  return /(SECRET|TOKEN|PASS|PASSWORD|API_KEY|PRIVATE)/.test(key) && !/PUBLIC/.test(key);
+}
+export function maskSetting(value: string | null | undefined): string {
+  const v = String(value ?? '');
+  return v ? `${MASK}${v.length > 8 ? v.slice(-4) : ''}` : '';
+}
+
 @Injectable()
 export class DevToolsService {
   constructor(
@@ -98,7 +108,7 @@ export class DevToolsService {
       }
     }
 
-    const settings = await this.getSettings();
+    const settings = await this.rawSettings();
     const settingsChecklist = SETTING_GROUPS.map((g) => ({
       group: g.group,
       purpose: g.purpose,
@@ -315,13 +325,24 @@ export class DevToolsService {
     return key;
   }
 
-  async getSettings() {
+  /** Valores tal cual (solo para uso interno del servidor). */
+  private async rawSettings() {
     const rows = await this.prisma.platformSetting.findMany();
     return Object.fromEntries(rows.map((r) => [r.key, r.value]));
   }
 
+  /** Lo que ve Dev Tools: los secretos salen enmascarados (solo los últimos 4). */
+  async getSettings() {
+    const all = await this.rawSettings();
+    return Object.fromEntries(Object.entries(all).map(([k, v]) => [k, isSecretSetting(k) ? maskSetting(v) : v]));
+  }
+
   async setSettings(actor: AuthUser, values: Record<string, string>) {
-    for (const [key, value] of Object.entries(values)) {
+    for (const [key, raw] of Object.entries(values ?? {})) {
+      if (!/^[A-Z][A-Z0-9_]{1,63}$/.test(key)) continue; // solo claves de configuración válidas
+      const value = String(raw ?? '');
+      // Un secreto enmascarado que vuelve sin cambios no se guarda (se conserva el real)
+      if (isSecretSetting(key) && value.startsWith(MASK)) continue;
       await this.prisma.platformSetting.upsert({
         where: { key },
         create: { key, value },

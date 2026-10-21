@@ -47,6 +47,15 @@ model User {
 
   auditLogs        AuditLog[]
   assignedContacts Contact[]  @relation("AssignedContacts")
+  /// Sube al cerrar sesión, cambiar la contraseña, desactivar o cambiar el rol:
+  /// los tokens emitidos antes dejan de servir (revocación real del lado servidor)
+  sessionVersion Int       @default(0)
+  /// MFA (TOTP): secreto cifrado, activo y último paso usado (anti-repetición)
+  mfaSecretEnc   String?
+  mfaEnabled     Boolean   @default(false)
+  mfaLastStep    Int?
+  /// Códigos de recuperación (bcrypt), de un solo uso
+  mfaRecoveryJson String?
 }
 
 // ─── Planes ──────────────────────────────────────────────────────────

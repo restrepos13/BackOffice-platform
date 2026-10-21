@@ -313,7 +313,7 @@ export function createMockPrisma() {
     feedback: model('feedback', { status: 'PENDIENTE', alerted: false, rating: null, respondedAt: null }),
     dailyReport: model('dailyReport'),
     auditLog: model('auditLog'),
-    user: model('user', { active: true, failedLogins: 0, lockedUntil: null }),
+    user: model('user', { active: true, failedLogins: 0, lockedUntil: null, sessionVersion: 0, mfaEnabled: false }),
     marketingCampaign: model('marketingCampaign', { status: 'BORRADOR', channelsJson: '[]' }),
     contentPiece: model('contentPiece', { status: 'IDEA', type: 'POST', hashtagsJson: '[]' }),
     videoJob: model('videoJob', { state: 'PENDIENTE', progress: 0, provider: 'MPT' }),

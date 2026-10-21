@@ -95,7 +95,8 @@ describe('Equipo BackOffice', () => {
     await expect(guard.canActivate(ctx)).rejects.toThrow(/desactivado/);
 
     await service.update(SA, dev.id, { active: true });
-    await expect(guard.canActivate(ctx)).resolves.toBe(true);
+    // Desactivar cierra sus sesiones: al reactivarlo, el token viejo sigue sin servir (debe entrar de nuevo)
+    await expect(guard.canActivate(ctx)).rejects.toThrow(/sesión se cerró/);
     await service.remove(SA, dev.id);
     await expect(guard.canActivate(ctx)).rejects.toThrow();
   });
