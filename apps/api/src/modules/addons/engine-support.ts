@@ -37,12 +37,14 @@ export async function sendToContact(
   input: {
     companyId: string; contact: any; line: any; text: string; authorName: string;
     template: WaTemplate | null; templateVars: Record<string, string>; category: 'MARKETING' | 'UTILIDAD';
+    /** Reloj del motor (la ventana de 24 h se mide contra él) */
+    now?: Date;
   },
 ): Promise<SendResult> {
   if (input.contact.optOut) return { sent: false, reason: 'El cliente pidió no recibir mensajes' };
   if (!input.contact.phone && input.contact.channel !== 'SIMULATOR') return { sent: false, reason: 'Sin número de teléfono' };
   const conversation = await conversationFor(prisma, input.companyId, input.contact, input.line);
-  const inWindow = await withinServiceWindow(prisma, conversation.id);
+  const inWindow = await withinServiceWindow(prisma, conversation.id, input.now ?? new Date());
   if (!inWindow && !input.template) {
     return { sent: false, reason: 'Fuera de las 24 h y sin plantilla aprobada por Meta', conversationId: conversation.id };
   }

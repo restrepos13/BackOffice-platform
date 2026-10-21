@@ -9,6 +9,7 @@ import helmet from 'helmet';
 import { json, urlencoded } from 'express';
 import { AppModule } from './app.module';
 import { BufferedLogger } from './common/log-buffer';
+import { perfMiddleware } from './common/perf-monitor';
 import { SharePreviewService } from './modules/share-preview.module';
 
 async function bootstrap() {
@@ -33,6 +34,8 @@ async function bootstrap() {
     }),
   );
   app.disable('x-powered-by');
+  // Medidor interno de velocidad y errores (Plataforma → Salud)
+  app.use(perfMiddleware);
 
   // IP real del visitante detrás de proxies (límites por IP): Render = 1 salto,
   // Vercel → Render = 2. Sin la variable no se confía en X-Forwarded-For.

@@ -38,6 +38,7 @@ import {
   Users,
   Wallet,
   Headset,
+  HeartPulse,
   RefreshCcw,
   HandCoins,
   FileSearch,
@@ -116,6 +117,7 @@ const PLATFORM_NAV: NavItem[] = [
   { to: '/platform/companies', label: 'Empresas', icon: Building2 },
   { to: '/platform/registros', label: 'Registros', icon: UserPlus },
   { to: '/platform/citas', label: 'Citas', icon: Headset },
+  { to: '/platform/salud', label: 'Salud', icon: HeartPulse },
   { to: '/platform/ventas', label: 'Ventas', icon: Wallet },
   { to: '/platform/publicidad', label: 'Publicidad', icon: Megaphone },
   { to: '/platform/plans', label: 'Planes', icon: CircleDollarSign },
@@ -245,7 +247,18 @@ export default function AppShell() {
     }
     lastSeenSignup.current = latest.id;
   }, [signupSummary?.latestDone, navigate]);
-  const platformNav = PLATFORM_NAV.map((item) => (item.to === '/platform/registros' ? { ...item, badge: signupSummary?.pendingFollow } : item));
+  // Salud de la plataforma: cuántas alertas en amarillo o rojo hay en la última foto
+  const { data: health } = useQuery({
+    queryKey: ['health-summary'],
+    queryFn: () => api.get<{ crit: number; warn: number }>('/platform/health/summary'),
+    enabled: !!isPlatform,
+    refetchInterval: 5 * 60_000,
+  });
+  const platformNav = PLATFORM_NAV.map((item) =>
+    item.to === '/platform/registros' ? { ...item, badge: signupSummary?.pendingFollow }
+      : item.to === '/platform/salud' ? { ...item, badge: (health?.crit ?? 0) + (health?.warn ?? 0) || undefined }
+        : item,
+  );
   const { data: companies } = useQuery({
     queryKey: ['companies'],
     queryFn: () => api.get<Company[]>('/companies'),

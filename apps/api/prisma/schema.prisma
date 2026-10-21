@@ -1481,3 +1481,17 @@ model AgentCall {
   @@index([companyId])
   @@index([slotAt])
 }
+
+/// Foto de salud de la plataforma cada 10 minutos (Plataforma → Salud).
+/// Métricas en JSON (velocidad, memoria, MongoDB, Redis, colas, gasto de IA);
+/// se conservan 30 días para tendencias ("se llena en X días", "lento 3 días").
+model HealthSample {
+  id       String   @id @default(cuid()) @map("_id")
+  at       DateTime @default(now())
+  /// prod (Render) | local: las pruebas en un computador no se mezclan con producción
+  env      String   @default("prod")
+  bootId   String
+  dataJson String
+
+  @@index([env, at])
+}

@@ -109,6 +109,7 @@ export class ReactivationService {
       const res = await sendToContact(this.prisma, this.queue, {
         companyId: company.id, contact, line, text, authorName: 'Reactivación de clientes', template,
         templateVars: { '1': vars.nombre || 'hola', '2': cfg.offer || cand.lastProduct || company.name }, category: 'MARKETING',
+        now,
       });
       await this.prisma.addonTouch.create({
         data: {

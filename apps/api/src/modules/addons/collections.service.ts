@@ -113,6 +113,7 @@ export class CollectionsService {
       const res = await sendToContact(this.prisma, this.queue, {
         companyId: company.id, contact, line, text: fillText(cfg.message, vars), authorName: 'Cobranza', template,
         templateVars: { '1': vars.nombre || 'hola', '2': vars.valor, '3': vars.concepto }, category: 'UTILIDAD',
+        now,
       });
       await this.prisma.addonTouch.create({
         data: {

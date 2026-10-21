@@ -12,6 +12,7 @@ const Plans = lazy(() => import('./pages/platform/Plans'));
 const PlatformUsers = lazy(() => import('./pages/platform/Users'));
 const Registros = lazy(() => import('./pages/platform/Registros'));
 const Citas = lazy(() => import('./pages/platform/Citas'));
+const Salud = lazy(() => import('./pages/platform/Salud'));
 const AiCosts = lazy(() => import('./pages/company/AiCosts'));
 const MyPlan = lazy(() => import('./pages/company/MyPlan'));
 const Reactivation = lazy(() => import('./pages/company/Reactivation'));
@@ -136,6 +137,7 @@ export default function App() {
         <Route path="/platform/users" element={<RequirePlatform><PlatformUsers /></RequirePlatform>} />
         <Route path="/platform/registros" element={<RequirePlatform><Registros /></RequirePlatform>} />
         <Route path="/platform/citas" element={<RequirePlatform><Citas /></RequirePlatform>} />
+        <Route path="/platform/salud" element={<RequirePlatform><Salud /></RequirePlatform>} />
         <Route path="/platform/ventas" element={<RequirePlatform><Ventas /></RequirePlatform>} />
         <Route path="/platform/publicidad" element={<RequirePlatform><Publicidad /></RequirePlatform>} />
         <Route path="/platform/terminos" element={<RequirePlatform><TermsAdmin /></RequirePlatform>} />
