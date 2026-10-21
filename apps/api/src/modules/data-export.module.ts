@@ -80,7 +80,7 @@ export class DataExportService {
           columns: [{ label: 'Pedido', width: 1.3 }, { label: 'Fecha', width: 1.6 }, { label: 'Cliente', width: 3 }, { label: 'Estado', width: 1.8 }, { label: 'Pago', width: 1.4 }, { label: 'Total', width: 1.6, align: 'right' }],
           rows: rows.map((o: any) => [
             String(o.id).slice(-6).toUpperCase(), day(o.createdAt, tz), o.customer?.name ?? o.contact?.name ?? '',
-            String(o.status ?? '').replaceAll('_', ' ').replace(/^./, (c: string) => c.toUpperCase()), o.paymentStatus === 'APPROVED' ? 'Pagado' : 'Pendiente', money(o.total),
+            String(o.status ?? '').replaceAll('_', ' ').replace(/^./, (c: string) => c.toUpperCase()), o.paymentStatus === 'PAID' ? 'Pagado' : o.paymentStatus === 'REPORTED' ? 'Pago reportado' : 'Pendiente', money(o.total),
           ]),
         });
       } else if (key === 'cobranza') {

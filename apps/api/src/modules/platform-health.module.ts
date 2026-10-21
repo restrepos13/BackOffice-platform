@@ -52,6 +52,8 @@ export class PlatformHealthService {
   private readonly logger = new Logger('Salud');
   private cache: { at: number; value: any } | null = null;
   private credits: { at: number; value: { remainingUsd: number | null; totalCredits: number | null } } | null = null;
+  /** El tamaño de la base cambia despacio: se lee cada 15 min (leerlo tarda varios segundos) */
+  private mongoCache: { at: number; value: Awaited<ReturnType<PlatformHealthService['readMongo']>> } | null = null;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -95,7 +97,14 @@ export class PlatformHealthService {
     });
   }
 
-  private async mongo() {
+  private async mongo(fresh = false) {
+    if (!fresh && this.mongoCache && Date.now() - this.mongoCache.at < 15 * 60e3) return this.mongoCache.value;
+    const value = await this.readMongo();
+    if (value) this.mongoCache = { at: Date.now(), value };
+    return value;
+  }
+
+  private async readMongo() {
     try {
       // En bytes y redondeado a décimas de MB (con scale=MB las colecciones chicas salen en 0)
       const mb = (bytes: unknown) => Math.round((Number(bytes ?? 0) / 1048576) * 10) / 10;
@@ -107,11 +116,18 @@ export class PlatformHealthService {
       try {
         const list: any = await this.prisma.$runCommandRaw({ listCollections: 1, nameOnly: true });
         const names: string[] = (list?.cursor?.firstBatch ?? []).map((c: any) => c.name).filter((n: string) => !n.startsWith('system.'));
-        for (const name of names.slice(0, 80)) {
-          try {
-            const cs: any = await this.prisma.$runCommandRaw({ collStats: name });
-            collections.push({ name, mb: mb(Number(cs.size ?? 0) + Number(cs.totalIndexSize ?? 0)), count: Number(cs.count ?? 0) });
-          } catch { /* colección sin permiso de estadísticas */ }
+        // En paralelo por tandas (una por una tardaba ~10 s contra Atlas)
+        const list80 = names.slice(0, 80);
+        for (let i = 0; i < list80.length; i += 16) {
+          const batch = await Promise.all(list80.slice(i, i + 16).map(async (name) => {
+            try {
+              const cs: any = await this.prisma.$runCommandRaw({ collStats: name });
+              return { name, mb: mb(Number(cs.size ?? 0) + Number(cs.totalIndexSize ?? 0)), count: Number(cs.count ?? 0) };
+            } catch {
+              return null; // colección sin permiso de estadísticas
+            }
+          }));
+          for (const b of batch) if (b) collections.push(b);
         }
       } catch { /* el plan no deja listar: solo el total */ }
       collections.sort((a, b) => b.mb - a.mb);

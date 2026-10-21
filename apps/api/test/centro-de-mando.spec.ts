@@ -67,3 +67,19 @@ describe('descarga de datos', () => {
     await expect(svc.pdf({ id: 'u1', name: 'K', role: 'COMPANY_ADMIN', companyId: 'c1' } as any, { sections: 'csv' })).rejects.toThrow(/al menos una/);
   });
 });
+
+describe('registro: la IA nunca deja esperando', () => {
+  it('si la cadena no responde a tiempo se rinde (y el registro sigue con preguntas guiadas)', async () => {
+    const { GeminiPool } = require('../src/ai/gemini-pool');
+    const { createMockPrisma: mk } = require('./helpers/mock-prisma');
+    const { prisma } = mk();
+    const pool = new GeminiPool(prisma);
+    const slow = jest.fn(() => new Promise((r) => setTimeout(() => r({ result: null, error: 'lento' }), 1500)));
+    pool.chain = async () => ({ entries: [1, 2, 3, 4, 5].map((i) => ({ provider: 'GEMINI', model: `m${i}`, enabled: true })) });
+    pool.tryEntry = slow;
+    const t = Date.now();
+    await expect(pool.chatJson({ messages: [{ role: 'user', content: 'hola' }], deadlineMs: 3500 }, () => true)).rejects.toBeTruthy();
+    expect(Date.now() - t).toBeLessThan(4000);
+    expect(slow.mock.calls.length).toBeLessThan(5); // no recorrió toda la cadena
+  });
+});

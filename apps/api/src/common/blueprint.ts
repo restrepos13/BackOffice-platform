@@ -66,7 +66,8 @@ export function normalizeInterviewTurn(raw: unknown, answered: number, maxQuesti
   return {
     done: forcedDone || o.listo === true || !question,
     question: forcedDone ? '' : question,
-    options: list(o.opciones, 5, 80),
+    // Opciones = respuestas cortas para tocar; nunca preguntas ni párrafos
+    options: list(o.opciones, 5, 200).filter((x) => x.length <= 60 && !/[?¿]/.test(x)).slice(0, 4),
     understood: str(o.nota, 240),
   };
 }

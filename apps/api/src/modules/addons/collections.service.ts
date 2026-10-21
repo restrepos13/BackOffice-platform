@@ -36,9 +36,14 @@ export class CollectionsService {
   /** Pedidos sin pagar → cuentas por cobrar; pedidos pagados o cancelados → cerradas. */
   async syncFromOrders(company: any) {
     const cfg = collectionsConfig(company);
+    // Pocas consultas en lote (antes era una por cuenta y una por pedido)
     const open = await this.prisma.receivable.findMany({ where: { companyId: company.id, status: 'PENDING', orderId: { not: null } } });
+    const linked = open.length
+      ? await this.prisma.order.findMany({ where: { id: { in: open.map((r: any) => r.orderId) } }, select: { id: true, deletedAt: true, status: true, paymentStatus: true, paidAt: true } })
+      : [];
+    const byOrder = new Map(linked.map((o: any) => [o.id, o]));
     for (const r of open) {
-      const order = await this.prisma.order.findUnique({ where: { id: r.orderId! } });
+      const order: any = byOrder.get(r.orderId!);
       if (!order || order.deletedAt || order.status === 'cancelado') {
         await this.prisma.receivable.update({ where: { id: r.id }, data: { status: 'CANCELLED' } });
       } else if (order.paymentStatus === 'PAID') {
@@ -55,9 +60,13 @@ export class CollectionsService {
       select: { id: true, contactId: true, total: true, deliveredAt: true, deliveryAt: true, createdAt: true },
       take: 1000,
     });
+    if (!orders.length) return;
+    const known = new Set(
+      (await this.prisma.receivable.findMany({ where: { companyId: company.id, orderId: { in: orders.map((o: any) => o.id) } }, select: { orderId: true } }))
+        .map((r: any) => r.orderId),
+    );
     for (const o of orders) {
-      const exists = await this.prisma.receivable.findFirst({ where: { companyId: company.id, orderId: o.id } });
-      if (exists) continue;
+      if (known.has(o.id)) continue;
       await this.prisma.receivable.create({
         data: {
           companyId: company.id, contactId: o.contactId!, orderId: o.id, concept: `Pedido del ${new Date(o.createdAt).toLocaleDateString('es-CO', { day: 'numeric', month: 'short' })}`,

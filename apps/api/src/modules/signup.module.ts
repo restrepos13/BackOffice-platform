@@ -152,12 +152,16 @@ export class SignupService {
     }
     const daily = dailyChatsFrom(msgs);
     if (daily) await this.tracker.touch(dto?.session, { dailyChats: daily });
-    try {
+    // Si la IA ya falló en este registro, sigue guiado: nadie vuelve a esperar por ella
+    const stickyGuided = (await this.tracker.modeOf(dto?.session)) === 'guided';
+    if (!stickyGuided) try {
       // El tope de tokens no cuesta (se paga lo usado); el ahorro está en el historial compacto
       const { raw, tokens, calls } = await this.pool.chatJson(
         {
           temperature: 0.5,
           maxTokens: 1200,
+          // Nadie espera más de 12 s una pregunta: si la IA se demora, siguen las preguntas guiadas
+          deadlineMs: 12_000,
           messages: [
             { role: 'system', content: interviewSystemPrompt(MAX_QUESTIONS) },
             // Perfil detectado por código: preguntas y opciones de SU negocio, no de restaurante
@@ -203,6 +207,8 @@ export class SignupService {
       json: true,
       temperature: 0.2,
       maxTokens: 6000,
+      // La pantalla "Armando tu cuenta" espera como mucho 1 minuto; luego, el plano básico
+      deadlineMs: 60_000,
       messages: [
         {
           role: 'system',
@@ -558,6 +564,7 @@ export class SignupService {
     const result = await this.pool.chat({
       temperature: 0.4,
       maxTokens: 700,
+      deadlineMs: 25_000,
       messages: [
         {
           role: 'system',

@@ -38,6 +38,16 @@ export class SignupTracker {
     return this.prisma.signupSession.findUnique({ where: { token } });
   }
 
+  /** Modo en que va el registro ("ai" o "guided"). */
+  async modeOf(token: unknown): Promise<string | null> {
+    if (!isSessionToken(token)) return null;
+    try {
+      return (await this.get(token))?.mode ?? null;
+    } catch {
+      return null;
+    }
+  }
+
   /**
    * Registra actividad. El paso solo avanza (volver atrás no "des-avanza"), las
    * respuestas guardan el máximo y la IA suma.

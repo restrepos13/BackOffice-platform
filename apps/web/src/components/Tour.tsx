@@ -1,3 +1,4 @@
+import { useQuery } from '@tanstack/react-query';
 import { useEffect, useMemo, useState } from 'react';
 import { api } from '../lib/api';
 import { useAuth } from '../lib/auth';
@@ -52,7 +53,15 @@ export default function Tour() {
 
   // En "Primeros pasos" la guía es la IA: el tour espera a que la empresa esté lista
   const onboarding = user?.company?.status === 'ONBOARDING';
-  const show = !!user && !user.tourDoneAt && !dismissed && !onboarding && steps.length > 0;
+  // Primero los términos: el tour no se monta encima del aviso de aceptación (misma consulta en caché)
+  const needsTerms = user?.role === 'COMPANY_ADMIN' || user?.role === 'COMPANY_VIEWER';
+  const { data: terms } = useQuery({
+    queryKey: ['terms-status'],
+    queryFn: () => api.get<{ required: boolean }>('/terms/status'),
+    enabled: !!user && needsTerms,
+  });
+  const termsPending = needsTerms && (!terms || terms.required);
+  const show = !!user && !user.tourDoneAt && !dismissed && !onboarding && !termsPending && steps.length > 0;
   const current = steps[step];
 
   // Medir el ancla del paso actual (y seguirla si la ventana cambia)

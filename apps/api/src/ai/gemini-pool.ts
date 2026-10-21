@@ -60,7 +60,11 @@ export interface PoolChatResult {
   provider: AiProviderName;
 }
 
-export type ChatOpts = { messages: ChatMessage[]; json?: boolean; maxTokens?: number; temperature?: number; timeoutMs?: number };
+export type ChatOpts = {
+  messages: ChatMessage[]; json?: boolean; maxTokens?: number; temperature?: number; timeoutMs?: number;
+  /** Tiempo máximo de TODA la cadena: al vencerse se da por no disponible (y el registro pasa al plan B) */
+  deadlineMs?: number;
+};
 type FetchLike = (url: string, init: any) => Promise<{ ok: boolean; status: number; text(): Promise<string>; json(): Promise<any> }>;
 
 export function fingerprint(key: string): string {
@@ -86,6 +90,12 @@ export function sanitizeChain(raw: unknown): ChainEntry[] {
     }))
     .filter((e): e is ChainEntry => !!e.provider && /^[\w.:/@-]+$/.test(e.model) && !seen.has(chainId(e as ChainEntry)) && !!seen.add(chainId(e as ChainEntry)))
     .slice(0, 40);
+}
+
+/** Recorta el tiempo de espera de un intento a lo que queda del presupuesto total. */
+function withBudget(opts: ChatOpts, left: number): ChatOpts {
+  if (!Number.isFinite(left)) return opts;
+  return { ...opts, timeoutMs: Math.max(2000, Math.min(opts.timeoutMs ?? left, left)) };
 }
 
 export class GeminiPool {
@@ -224,7 +234,10 @@ export class GeminiPool {
     if (!keys.length) return { result: null, error: 'sin llaves de Gemini' };
     const day = today();
     let error = 'sin llaves disponibles hoy';
+    // El tiempo es para el modelo, no por llave: probar otra llave no lo alarga
+    const end = Date.now() + (opts.timeoutMs ?? TIMEOUT_MS);
     for (const [i, key] of keys.entries()) {
+      if (end - Date.now() < 1500) { error = 'tardó demasiado'; break; }
       const fp = fingerprint(key);
       const combo = `${fp}:${model}`;
       if ((this.cooldown.get(fp) ?? 0) > Date.now()) continue;
@@ -234,7 +247,7 @@ export class GeminiPool {
       let res;
       try {
         const controller = new AbortController();
-        const timer = setTimeout(() => controller.abort(), opts.timeoutMs ?? TIMEOUT_MS);
+        const timer = setTimeout(() => controller.abort(), Math.max(1000, end - Date.now()));
         res = await this.fetchImpl(GEMINI_URL, {
           method: 'POST',
           signal: controller.signal,
@@ -315,9 +328,12 @@ export class GeminiPool {
   async chat(opts: ChatOpts): Promise<PoolChatResult> {
     const { entries } = await this.chain();
     const errors: string[] = [];
+    const until = opts.deadlineMs ? Date.now() + opts.deadlineMs : Infinity;
     for (const entry of entries) {
       if (!entry.enabled) continue;
-      const { result, error } = await this.tryEntry(entry, opts);
+      const left = until - Date.now();
+      if (left < 2000) { errors.push('se acabó el tiempo'); break; }
+      const { result, error } = await this.tryEntry(entry, withBudget(opts, left));
       if (result) return result;
       errors.push(`${entry.model}: ${error}`);
     }
@@ -340,9 +356,12 @@ export class GeminiPool {
     const errors: string[] = [];
     let tokens = 0;
     let calls = 0;
+    const until = opts.deadlineMs ? Date.now() + opts.deadlineMs : Infinity;
     for (const entry of entries) {
       if (!entry.enabled) continue;
-      const { result, error } = await this.tryEntry(entry, { ...opts, json: true });
+      const left = until - Date.now();
+      if (left < 2000) { errors.push('se acabó el tiempo'); break; }
+      const { result, error } = await this.tryEntry(entry, { ...withBudget(opts, left), json: true });
       if (!result) {
         errors.push(`${entry.model}: ${error}`);
         continue;
