@@ -1,6 +1,6 @@
 import {
   BadRequestException, Body, ConflictException, Controller, Delete, ForbiddenException, Get, Injectable, Logger, Module, NotFoundException,
-  Param, Patch, Post, Put, Query, Res,
+  Param, Post, Put, Query, Res,
 } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { Throttle } from '@nestjs/throttler';
@@ -21,6 +21,7 @@ import { CrmAdStats, audit } from '../common/ads/findings';
 import { Autonomy, METRICS, RuleLike, budgetAllowed, evaluateRule, guardAutoAction, ruleRunKey, validateRule } from '../common/ads/autopilot';
 import { adIdOf, revenueFunnel } from '../common/ads/revenue';
 import { Brief, buildProposal, validateBrief } from '../common/ads/proposal';
+import { OPEN, OppDraft, storeDetected } from '../common/opportunities/store';
 import { AuditModule, AuditService } from './audit.module';
 
 /**
@@ -377,7 +378,7 @@ export class AdsService {
     })).sort((a, b) => b.spend - a.spend);
     const currencies = [...new Set(accounts.map((a) => a.currency))];
     const [openFindings, pendingActions, executed] = await Promise.all([
-      this.prisma.adFinding.count({ where: { companyId: c.id, mode, status: { in: ['NEW', 'REVIEWED'] } } }),
+      this.prisma.opportunity.count({ where: { companyId: c.id, source: 'ADS', mode, status: { in: OPEN } } }),
       this.prisma.adActionLog.count({ where: { companyId: c.id, mode, status: 'PROPOSED' } }),
       this.prisma.adActionLog.count({ where: { companyId: c.id, mode, status: 'EXECUTED', createdAt: { gte: new Date(Date.parse(`${p.current.since}T00:00:00Z`)) } } }),
     ]);
@@ -461,22 +462,13 @@ export class AdsService {
           entities.map((e) => ({ ...e, issues: parseJson<string[]>(e.issuesJson, []) })),
           rows, { until, currency: a.currency, minSpend: 0 }, crm,
         );
-        const seen = new Set<string>();
-        for (const d of drafts) {
-          const dedupeKey = `${a.id}:${d.dedupeKey}`;
-          seen.add(dedupeKey);
-          const data = {
-            severity: d.severity, title: d.title, explanationJson: JSON.stringify(d.explanation), evidenceJson: JSON.stringify(d.evidence),
-            periodJson: JSON.stringify(d.period), confidence: d.confidence, impactJson: d.impact ? JSON.stringify(d.impact) : null,
-            actionJson: JSON.stringify(d.action), entityName: d.entityName, lastSeenAt: this.now(),
-          };
-          const existing = await this.prisma.adFinding.findUnique({ where: { dedupeKey } });
-          if (existing) await this.prisma.adFinding.update({ where: { id: existing.id }, data });
-          else await this.prisma.adFinding.create({ data: { companyId, accountId: a.id, mode, ruleKey: d.ruleKey, dedupeKey, level: d.level, externalId: d.externalId, firstSeenAt: this.now(), ...data } });
-        }
-        // Lo que ya no aparece y nadie tocó se marca resuelto (no se borra)
-        const open = await this.prisma.adFinding.findMany({ where: { companyId, accountId: a.id, status: 'NEW' } });
-        for (const f of open) if (!seen.has(f.dedupeKey)) await this.prisma.adFinding.update({ where: { id: f.id }, data: { status: 'RESOLVED', statusBy: 'Auditoría automática', statusAt: this.now() } });
+        const platform = mode === 'DEMO' ? 'Datos de demostración (simulados)' : `${a.provider === 'META' ? 'Meta Ads' : a.provider} (reportado por la plataforma)`;
+        const opps: OppDraft[] = drafts.map((d) => ({
+          ...d,
+          sources: d.ruleKey.startsWith('LEAD_') ? [platform, 'CRM de BackOffice'] : [platform],
+          action: { ...d.action, label: d.action.type === 'PAUSE' ? 'Pausar' : d.action.type === 'REVIEW' ? 'Revisar' : undefined, href: d.action.type === 'REVIEW' ? '/app/ads?tab=campanas' : undefined },
+        }));
+        await storeDetected(this.prisma, { companyId, source: 'ADS', mode, accountId: a.id, keyPrefix: a.id }, opps, this.now());
         out[a.id] = drafts.length;
       }
     }
@@ -488,41 +480,26 @@ export class AdsService {
     return this.runAudit(c.id);
   }
 
-  async findings(user: AuthUser, q: { companyId?: string; status?: string; mode?: string }) {
-    const c = await this.companyOf(user, q.companyId);
-    const mode = await this.modeFor(c.id, q.mode);
-    const status = q.status ? String(q.status).split(',').filter((s) => ['NEW', 'REVIEWED', 'APPROVED', 'EXECUTED', 'DISMISSED', 'RESOLVED'].includes(s)) : ['NEW', 'REVIEWED', 'APPROVED'];
-    const rows = await this.prisma.adFinding.findMany({ where: { companyId: c.id, mode, status: { in: status } }, orderBy: { lastSeenAt: 'desc' }, take: 200 });
-    const rank: Record<string, number> = { HIGH: 0, MEDIUM: 1, LOW: 2 };
-    return rows.map((f) => ({
-      ...f, explanation: parseJson(f.explanationJson, {}), evidence: parseJson(f.evidenceJson, {}), period: parseJson(f.periodJson, {}),
-      impact: parseJson(f.impactJson, null), action: parseJson(f.actionJson, {}),
-    })).sort((a, b) => (rank[a.severity] ?? 3) - (rank[b.severity] ?? 3));
-  }
-
-  async setFindingStatus(user: AuthUser, id: string, dto: { status?: string }, companyId?: string) {
-    const c = await this.companyOf(user, companyId);
-    const f = await this.prisma.adFinding.findUnique({ where: { id } });
-    if (!f || f.companyId !== c.id) throw new NotFoundException('Hallazgo no encontrado');
-    const status = String(dto?.status);
-    if (!['REVIEWED', 'DISMISSED', 'RESOLVED', 'NEW'].includes(status)) throw new BadRequestException('Estado inválido');
-    await this.prisma.adFinding.update({ where: { id }, data: { status, statusBy: user.name, statusAt: this.now() } });
-    return { ok: true };
-  }
-
-  /** Ejecuta la acción de un hallazgo (hoy: pausar). Confirmación explícita obligatoria. */
-  async executeFinding(user: AuthUser, id: string, dto: { confirm?: boolean }, companyId?: string) {
-    const c = await this.companyOf(user, companyId);
-    const f = await this.prisma.adFinding.findUnique({ where: { id } });
-    if (!f || f.companyId !== c.id) throw new NotFoundException('Hallazgo no encontrado');
-    const action = parseJson<{ type?: string }>(f.actionJson, {});
-    if (action.type !== 'PAUSE' || !f.externalId) throw new BadRequestException('Este hallazgo no tiene una acción ejecutable');
-    if (dto?.confirm !== true) throw new BadRequestException('Confirma la acción');
-    const entity = await this.prisma.adEntity.findFirst({ where: { companyId: c.id, accountId: f.accountId, level: f.level, externalId: f.externalId } });
+  /** Pausa el elemento de una oportunidad de anuncios (la confirmación la exige quien llama). */
+  async pauseForOpportunity(actor: string, companyId: string, opp: { id: string; accountId: string | null; level: string | null; externalId: string | null }) {
+    if (!opp.accountId || !opp.level || !opp.externalId) throw new BadRequestException('Esta oportunidad no tiene un elemento para pausar');
+    const entity = await this.prisma.adEntity.findFirst({ where: { companyId, accountId: opp.accountId, level: opp.level, externalId: opp.externalId } });
     if (!entity) throw new NotFoundException('El elemento ya no existe en la cuenta');
-    const res = await this.changeStatus(user.name, c.id, entity, 'PAUSED', { source: 'FINDING', findingId: f.id, key: `finding:${f.id}` });
-    await this.prisma.adFinding.update({ where: { id }, data: { status: 'EXECUTED', statusBy: user.name, statusAt: this.now() } });
-    return res;
+    const since = addDays(isoDay(this.now()), -7);
+    const rows = await this.prisma.adInsightDaily.findMany({ where: { companyId, accountId: opp.accountId, externalId: opp.externalId, date: { gte: since } } });
+    const before = totals(rows);
+    const res = await this.changeStatus(actor, companyId, entity, 'PAUSED', { source: 'FINDING', findingId: opp.id, key: `opportunity:${opp.id}` });
+    return { ...res, baseline: { dailySpend: before.days ? before.spend / before.days : 0, since } };
+  }
+
+  /** Métricas de un elemento desde una fecha (para observar resultados). */
+  async metricsSince(companyId: string, accountId: string, level: string, externalId: string, since: string) {
+    const where: any = { companyId, accountId, date: { gte: since } };
+    if (level === 'CAMPAIGN') where.campaignExternalId = externalId;
+    else if (level === 'AD') where.externalId = externalId;
+    const rows = await this.prisma.adInsightDaily.findMany({ where });
+    const entity = await this.prisma.adEntity.findFirst({ where: { companyId, accountId, externalId } });
+    return { totals: totals(rows), effectiveStatus: entity?.effectiveStatus ?? null };
   }
 
   /* ── Acciones sobre campañas (auditables) ── */
@@ -880,10 +857,7 @@ export class AdsController {
   @Get('campaigns') @Roles(...READ) campaigns(@CurrentUser() u: AuthUser, @Query() q: any) { return this.ads.campaignTree(u, q); }
   @Post('entities/:id/status') @Roles(...WRITE) status(@CurrentUser() u: AuthUser, @Param('id') id: string, @Body() dto: any, @Query('companyId') c?: string) { return this.ads.setEntityStatus(u, id, dto, c); }
 
-  @Get('findings') @Roles(...READ) findings(@CurrentUser() u: AuthUser, @Query() q: any) { return this.ads.findings(u, q); }
   @Post('audit') @Roles(...WRITE) @Throttle({ default: { ttl: 60_000, limit: 6 } }) auditNow(@CurrentUser() u: AuthUser, @Query('companyId') c?: string) { return this.ads.auditNow(u, c); }
-  @Patch('findings/:id') @Roles(...WRITE) finding(@CurrentUser() u: AuthUser, @Param('id') id: string, @Body() dto: any, @Query('companyId') c?: string) { return this.ads.setFindingStatus(u, id, dto, c); }
-  @Post('findings/:id/execute') @Roles(...WRITE) execFinding(@CurrentUser() u: AuthUser, @Param('id') id: string, @Body() dto: any, @Query('companyId') c?: string) { return this.ads.executeFinding(u, id, dto, c); }
 
   @Get('actions') @Roles(...READ) actions(@CurrentUser() u: AuthUser, @Query() q: any) { return this.ads.actions(u, q); }
   @Post('actions/:id/decide') @Roles(...WRITE) decide(@CurrentUser() u: AuthUser, @Param('id') id: string, @Body() dto: any, @Query('companyId') c?: string) { return this.ads.decideAction(u, id, dto, c); }

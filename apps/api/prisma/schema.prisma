@@ -1740,36 +1740,63 @@ model AdSyncRun {
   @@index([accountId, startedAt])
 }
 
-/// Hallazgo de la auditoría (regla determinista con evidencia).
-model AdFinding {
+/// Oportunidad comercial (Radar): sale de reglas deterministas sobre datos
+/// reales de anuncios (ADS) o del CRM (CRM). Guarda evidencia, fuentes,
+/// decisiones del usuario y el resultado observado después de actuar.
+model Opportunity {
   id              String    @id @default(cuid()) @map("_id")
   companyId       String
-  accountId       String
+  /// ADS | CRM
+  source          String
   mode            String    @default("REAL")
+  accountId       String?
   ruleKey         String
-  /// Una por regla + elemento + periodo: no se duplica al re-auditar
+  /// Una por regla + elemento + periodo: no se duplica al re-detectar
   dedupeKey       String    @unique
-  level           String
+  level           String?
   externalId      String?
   entityName      String?
   severity        String    @default("MEDIUM")
   title           String
+  summary         String?
   /// {facts[], interpretation, assumptions[], missing[], action, expected, uncertainty}
   explanationJson String
   evidenceJson    String    @default("{}")
+  /// Fuentes de los datos, p. ej. ["Meta Ads (reportado por la plataforma)", "CRM de BackOffice"]
+  sourcesJson     String    @default("[]")
   periodJson      String    @default("{}")
-  confidence      String    @default("MEDIA")
+  /// SUFFICIENT | INITIAL | MISSING_DATA (sin porcentajes inventados)
+  evidence        String    @default("INITIAL")
   impactJson      String?
-  /// {type: PAUSE|RESUME|REVIEW|NONE, risk, reversible}
+  /// {type, label, risk, reversible, href?, contactIds?}
   actionJson      String    @default("{}")
-  /// NEW | REVIEWED | APPROVED | EXECUTED | DISMISSED | RESOLVED
+  /// NEW | REVIEWING | PREPARED | NEEDS_APPROVAL | EXECUTED | OBSERVING | RESULT | DISMISSED | SNOOZED
   status          String    @default("NEW")
-  statusBy        String?
-  statusAt        DateTime?
+  snoozedUntil    DateTime?
+  /// [{at, by, status, note}] — cada decisión del usuario
+  decisionsJson   String    @default("[]")
+  /// Foto de los datos al actuar y lo observado después
+  baselineJson    String?
+  resultJson      String?
+  actedAt         DateTime?
+  resultAt        DateTime?
   firstSeenAt     DateTime  @default(now())
   lastSeenAt      DateTime  @default(now())
 
   @@index([companyId, status])
+}
+
+/// Lo que BackOffice sabe del negocio, lo que el usuario corrigió y su progreso.
+model CompanyContext {
+  id              String   @id @default(cuid()) @map("_id")
+  companyId       String   @unique
+  /// Correcciones del usuario: {clave: {value, at, by}} (pisan lo inferido)
+  overridesJson   String   @default("{}")
+  /// {intent, lastIntentAt}
+  preferencesJson String   @default("{}")
+  /// Hitos con fecha: firstVisitAt, firstValueAt, intents[], abandons…
+  progressJson    String   @default("{}")
+  updatedAt       DateTime @default(now())
 }
 
 /// Ajustes de publicidad por empresa: autonomía, pausa global y límites.

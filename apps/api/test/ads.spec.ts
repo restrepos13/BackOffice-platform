@@ -154,14 +154,13 @@ describe('Ads · cuentas, sincronización y aislamiento', () => {
     const { svc, db } = world();
     const acc = await svc.connectDemo(A, {});
     const entity = db.adEntity.find((e: any) => e.level === 'CAMPAIGN')!;
-    const finding = db.adFinding[0];
+    const finding = db.opportunity[0];
     const rule = await svc.createRule(A, { name: 'Gasto', metric: 'SPEND', windowDays: 7, threshold: 1, action: 'RECOMMEND_PAUSE' });
     const brief = await svc.saveBrief(A, { product: 'Café', goal: 'MESSAGES', location: 'Medellín', dailyBudget: 20000 });
     await expect(svc.syncNow(B, acc.id)).rejects.toThrow(/no encontrada/);
     await expect(svc.disconnect(B, acc.id)).rejects.toThrow(/no encontrada/);
     await expect(svc.setEntityStatus(B, entity.id, { status: 'PAUSED', confirm: true })).rejects.toThrow(/no encontrado/);
-    await expect(svc.setFindingStatus(B, finding.id, { status: 'DISMISSED' })).rejects.toThrow(/no encontrado/);
-    await expect(svc.executeFinding(B, finding.id, { confirm: true })).rejects.toThrow(/no encontrado/);
+    expect(finding.companyId).toBe('coA');
     await expect(svc.updateRule(B, rule.id, { threshold: 0 })).rejects.toThrow(/no encontrada/);
     await expect(svc.deleteRule(B, rule.id)).rejects.toThrow(/no encontrada/);
     await expect(svc.createFromBrief(B, brief.id, { accountId: acc.id, confirm: true })).rejects.toThrow(/no encontrado/);
@@ -172,7 +171,6 @@ describe('Ads · cuentas, sincronización y aislamiento', () => {
     const ovB = await svc.overview(B, { companyId: 'coA' });
     expect(ovB.accounts).toHaveLength(0);
     expect(ovB.totals.spend).toBe(0);
-    expect(await svc.findings(B, { companyId: 'coA' })).toHaveLength(0);
     await svc.runRules('coA', true);
     expect(await svc.actions(B, { companyId: 'coA' })).toHaveLength(0);
   });
@@ -212,18 +210,20 @@ describe('Ads · auditoría', () => {
   it('detecta los escenarios con evidencia y explicación, sin duplicar al re-auditar', async () => {
     const { svc, db } = world();
     await svc.connectDemo(A, {});
-    const keys = new Set(db.adFinding.map((f: any) => f.ruleKey));
+    const keys = new Set(db.opportunity.map((f: any) => f.ruleKey));
     expect(keys.has('CPR_UP')).toBe(true);
     expect(keys.has('SPEND_NO_RESULTS')).toBe(true);
     expect(keys.has('AD_ISSUES')).toBe(true);
-    const n = db.adFinding.length;
+    const n = db.opportunity.length;
     await svc.auditNow(A);
-    expect(db.adFinding.length).toBe(n);
-    const [f] = (await svc.findings(A, {})) as any[];
-    expect(f.explanation.facts.length).toBeGreaterThan(0);
-    expect(f.explanation).toHaveProperty('assumptions');
-    expect(f.explanation).toHaveProperty('missing');
-    expect(f.explanation).toHaveProperty('uncertainty');
+    expect(db.opportunity.length).toBe(n);
+    const f = JSON.parse(db.opportunity[0].explanationJson);
+    expect(f.facts.length).toBeGreaterThan(0);
+    expect(f).toHaveProperty('assumptions');
+    expect(f).toHaveProperty('missing');
+    expect(f).toHaveProperty('uncertainty');
+    expect(db.opportunity.every((o: any) => o.source === 'ADS' && o.mode === 'DEMO' && o.summary && JSON.parse(o.sourcesJson).length)).toBe(true);
+    expect(db.opportunity.every((o: any) => ['SUFFICIENT', 'INITIAL', 'MISSING_DATA'].includes(o.evidence))).toBe(true);
   });
 
   it('sin resultados en toda la cuenta, culpa a la medición y no a las campañas', () => {
@@ -250,17 +250,6 @@ describe('Ads · auditoría', () => {
     ];
     const f = runAudit(ents, rows, { until: '2026-10-10', currency: 'COP' });
     expect(f.filter((x) => x.ruleKey === 'SPEND_NO_RESULTS')).toHaveLength(0);
-  });
-
-  it('ejecutar el hallazgo pide confirmación y deja registro', async () => {
-    const { svc, db } = world();
-    await svc.connectDemo(A, {});
-    const f = db.adFinding.find((x: any) => x.ruleKey === 'SPEND_NO_RESULTS')!;
-    await expect(svc.executeFinding(A, f.id, {})).rejects.toThrow(/Confirma/);
-    const res = await svc.executeFinding(A, f.id, { confirm: true });
-    expect(res.demo).toBe(true);
-    expect(db.adActionLog.find((l: any) => l.findingId === f.id)!.status).toBe('EXECUTED');
-    expect(db.adEntity.find((e: any) => e.externalId === f.externalId)!.status).toBe('PAUSED');
   });
 });
 
