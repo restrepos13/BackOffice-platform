@@ -4,7 +4,7 @@ import {
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { Throttle } from '@nestjs/throttler';
-import { randomBytes } from 'crypto';
+import { createHash, randomBytes } from 'crypto';
 import { createReadStream, readFileSync } from 'fs';
 import type { Response } from 'express';
 import { PrismaService } from '../prisma/prisma.service';
@@ -25,6 +25,9 @@ import { checkQuality } from '../common/creative/quality';
 import { fingerprint } from '../common/creative/similarity';
 import { adaptDesign, readComposition } from '../common/creative/adapt';
 import { AuditModule, AuditService } from './audit.module';
+import { Products } from '../auth/products.guard';
+import { assertAssetDeletable } from './library.module';
+import { ProductInactiveError, hasProduct } from '../common/products';
 
 /**
  * BackOffice Creative: identidad de marca, recursos, diseños editables por
@@ -57,7 +60,7 @@ export class CreativeService {
     if (!id) throw new ForbiddenException('Falta companyId');
     const company = await this.prisma.company.findUnique({ where: { id } });
     if (!company) throw new NotFoundException('Empresa no encontrada');
-    if (!company.planId && !isPlatformRole(user.role)) throw new ForbiddenException('Creative viene con tu plan: elige uno en Mi plan');
+    if (!isPlatformRole(user.role) && !hasProduct(company, 'CREATIVE')) throw new ForbiddenException(ProductInactiveError.body(['CREATIVE'], company));
     return company;
   }
 
@@ -215,7 +218,9 @@ export class CreativeService {
 
   async assets(user: AuthUser, companyId?: string) {
     const company = await this.companyOf(user, companyId);
-    return this.prisma.brandAsset.findMany({ where: { companyId: company.id }, orderBy: { createdAt: 'desc' }, take: 200 });
+    // El editor trabaja con imágenes: los videos de la biblioteca (Ads Intelligence) no aparecen aquí
+    const rows = await this.prisma.brandAsset.findMany({ where: { companyId: company.id }, orderBy: { createdAt: 'desc' }, take: 300 });
+    return rows.filter((a: any) => String(a.mimeType).startsWith('image/')).slice(0, 200);
   }
 
   /** Productos del catálogo (los de Pedidos/Menú), con si tienen foto. */
@@ -246,7 +251,7 @@ export class CreativeService {
     const fileName = `brand-${randomBytes(12).toString('hex')}.${ext}`;
     await saveFile(this.prisma, company.id, fileName, buffer, info.mime);
     return this.prisma.brandAsset.create({
-      data: { companyId: company.id, kind: 'IMAGE', name, fileName, mimeType: info.mime, sizeBytes: buffer.length, width: info.width, height: info.height, createdBy: 'Catálogo' },
+      data: { companyId: company.id, kind: 'IMAGE', name, fileName, mimeType: info.mime, sizeBytes: buffer.length, width: info.width, height: info.height, createdBy: 'Catálogo', source: 'CATALOG', originModule: 'CREATIVE', sha256: createHash('sha256').update(buffer).digest('hex') },
     });
   }
 
@@ -268,6 +273,7 @@ export class CreativeService {
         companyId: company.id, kind: ['LOGO', 'IMAGE', 'REFERENCE'].includes(dto?.kind) ? dto.kind : 'IMAGE',
         name: clip(dto?.name, 80) || clip(file.originalname, 80) || 'Imagen', fileName, mimeType: info.mime, sizeBytes: file.size,
         width: info.width, height: info.height, createdBy: user.name,
+        source: 'UPLOAD', originModule: 'CREATIVE', sha256: createHash('sha256').update(file.buffer).digest('hex'),
       },
     });
     await this.audit.log({ actor: user, companyId: company.id, action: 'creative.asset_uploaded', entity: 'BrandAsset', entityId: asset.id, detail: asset.name });
@@ -286,6 +292,7 @@ export class CreativeService {
 
   async deleteAsset(user: AuthUser, assetId: string) {
     const asset = await this.assetOf(user, assetId);
+    await assertAssetDeletable(this.prisma, asset.companyId, asset.id);
     await this.prisma.brandAsset.delete({ where: { id: asset.id } });
     await removeFile(this.prisma, asset.companyId, asset.fileName);
     await this.audit.log({ actor: user, companyId: asset.companyId, action: 'creative.asset_deleted', entity: 'BrandAsset', entityId: asset.id, detail: asset.name });
@@ -742,6 +749,7 @@ export class CreativeService {
   }
 }
 
+@Products('CREATIVE')
 @Controller('creative')
 export class CreativeController {
   constructor(private readonly creative: CreativeService) {}

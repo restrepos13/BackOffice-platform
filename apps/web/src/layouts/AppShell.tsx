@@ -26,6 +26,8 @@ import {
   Megaphone,
   Palette,
   ChartNoAxesCombined,
+  FolderOpen,
+  Lock,
   Bike,
   ListChecks,
   Store,
@@ -63,6 +65,7 @@ import { ROLE_LABELS } from '../lib/format';
 import type { Company } from '../lib/types';
 import { Badge, Button, Field, Input, Loading, Modal } from '../components/ui';
 import Tour from '../components/Tour';
+import type { ProductKey } from '../lib/products';
 
 function ChangePasswordModal({ open, onClose }: { open: boolean; onClose: () => void }) {
   const [current, setCurrent] = useState('');
@@ -115,6 +118,8 @@ interface NavItem {
   tour?: string;
   /** Número de pendientes (se pinta al lado) */
   badge?: number;
+  /** Producto no activo: se ve atenuado y lleva a pedirlo */
+  muted?: boolean;
 }
 
 const PLATFORM_NAV: NavItem[] = [
@@ -178,11 +183,23 @@ const MARKETING_NAV: NavItem[] = [
   { to: '/app/marketing', label: 'Marketing', icon: Megaphone },
 ];
 
-/** Creative: diseños, marca y calendario (incluido en todos los planes). */
+/** BackOffice Creative: diseños, marca y calendario. */
 const CREATIVE_NAV: NavItem[] = [
   { to: '/app/creative', label: 'Creative', icon: Palette },
+];
+
+/** BackOffice Ads Intelligence: publicidad pagada. */
+const ADS_NAV: NavItem[] = [
   { to: '/app/ads', label: 'Publicidad', icon: ChartNoAxesCombined },
 ];
+
+/** Biblioteca de recursos compartida por Creative y Ads Intelligence. */
+const LIBRARY_NAV: NavItem[] = [
+  { to: '/app/biblioteca', label: 'Biblioteca', icon: FolderOpen },
+];
+
+/** Cuenta: común a los tres productos. */
+const ACCOUNT_PATHS = ['/app/usage', '/app/mi-plan', '/app/billing', '/app/team', '/app/settings'];
 
 /** Usuario de área de producción: SOLO ve su área. */
 const AREA_NAV: NavItem[] = [
@@ -190,6 +207,7 @@ const AREA_NAV: NavItem[] = [
 ];
 
 function NavSection({ title, items, tour }: { title: string; items: NavItem[]; tour?: string }) {
+  if (!items.length) return null;
   return (
     <div className="mb-6" data-tour={tour}>
       <p className="kicker mb-2 px-3">{title}</p>
@@ -205,7 +223,9 @@ function NavSection({ title, items, tour }: { title: string; items: NavItem[]; t
                 'flex items-center gap-3 border-l-2 px-3 py-2 text-[13px] font-medium transition-colors',
                 isActive
                   ? 'border-ink bg-ink text-bone'
-                  : 'border-transparent text-ink-2 hover:border-line hover:bg-bone-2 hover:text-ink',
+                  : item.muted
+                    ? 'border-transparent text-ink-3 hover:border-line hover:bg-bone-2 hover:text-ink-2'
+                    : 'border-transparent text-ink-2 hover:border-line hover:bg-bone-2 hover:text-ink',
               )
             }
           >
@@ -351,17 +371,27 @@ export default function AppShell() {
   const companyModules = activeCompany?.modules ?? [];
   const allowed = (item: NavItem) => !item.module || companyModules.includes(item.module);
   const onboarding = activeCompany?.status === 'ONBOARDING';
-  const companyNav = [
-    ...(onboarding ? [{ to: '/app/bienvenida', label: 'Primeros pasos', icon: ListChecks }] : []),
+  // Productos activos (el servidor también los exige; aquí solo se ordena el menú)
+  const products = activeCompany?.products ?? [];
+  const hasProduct = (k: ProductKey) => products.includes(k);
+  const automationNav = hasProduct('AUTOMATION') ? [
     ...COMPANY_NAV.slice(0, 2), // Dashboard, Conversaciones
     ...(hasOrders ? ORDERS_NAV : []),
     ...(hasDelivery ? DELIVERY_NAV : []),
-    ...(hasMarketing ? MARKETING_NAV : []),
-    ...CREATIVE_NAV,
     // Sin pedidos: catálogo/servicios, horario, conocimiento y pagos viven en "Mi negocio"
     ...(!hasOrders ? [{ to: '/app/orders/settings', label: 'Mi negocio', icon: Store }] : []),
-    ...COMPANY_NAV.slice(2),
-  ].filter(allowed);
+    ...COMPANY_NAV.slice(2).filter((i) => !ACCOUNT_PATHS.includes(i.to)),
+  ].filter(allowed) : [];
+  const creativeNav = hasProduct('CREATIVE') ? [...CREATIVE_NAV, ...(hasMarketing ? MARKETING_NAV : [])] : [];
+  const adsNav = hasProduct('ADS') ? ADS_NAV : [];
+  const libraryNav = hasProduct('CREATIVE') || hasProduct('ADS') ? LIBRARY_NAV : [];
+  const accountNav = [
+    ...(onboarding ? [{ to: '/app/bienvenida', label: 'Primeros pasos', icon: ListChecks }] : []),
+    ...COMPANY_NAV.filter((i) => ACCOUNT_PATHS.includes(i.to)),
+  ];
+  const inactiveNav: NavItem[] = activeCompany
+    ? (activeCompany.productStates ?? []).filter((p) => !p.enabled).map((p) => ({ to: `/app/producto/${p.key.toLowerCase()}`, label: p.short, icon: Lock, muted: true }))
+    : [];
 
   // El domiciliario tiene su propia app móvil, fuera del panel
   if (isCourier) return <Navigate to="/courier" replace />;
@@ -437,15 +467,17 @@ export default function AppShell() {
           )}
 
           {(!isPlatform || companyId) && (
-            <NavSection
-              title={
-                isPlatform
-                  ? `Viendo: ${activeCompany?.name ?? '…'}`
-                  : (user?.company?.name ?? 'Mi empresa')
-              }
-              items={companyNav}
-              tour="nav-company"
-            />
+            <div data-tour="nav-company">
+              <p className="kicker mb-3 px-3 !text-ink">
+                {isPlatform ? `Viendo: ${activeCompany?.name ?? '…'}` : (user?.company?.name ?? 'Mi empresa')}
+              </p>
+              <NavSection title="Automation" items={automationNav} />
+              <NavSection title="Creative" items={creativeNav} />
+              <NavSection title="Ads Intelligence" items={adsNav} />
+              <NavSection title="Recursos" items={libraryNav} />
+              <NavSection title="Cuenta" items={accountNav} />
+              <NavSection title="Otros productos" items={inactiveNav} />
+            </div>
           )}
             </>
           )}

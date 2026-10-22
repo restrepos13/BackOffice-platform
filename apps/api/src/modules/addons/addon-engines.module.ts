@@ -14,6 +14,7 @@ import { EmailsModule } from '../emails.module';
 import { ReactivationService } from './reactivation.service';
 import { CollectionsService } from './collections.service';
 import { SalesAuditService } from './sales-audit.service';
+import { Products } from '../../auth/products.guard';
 
 /**
  * Panel de los complementos automáticos: ver lo que harán y lo que lograron,
@@ -70,6 +71,7 @@ export class AddonPanelService {
   }
 }
 
+@Products('AUTOMATION')
 @Controller('addons')
 export class AddonPanelController {
   constructor(private readonly panel: AddonPanelService) {}

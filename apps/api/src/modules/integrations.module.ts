@@ -25,6 +25,7 @@ import {
 import { AuditService } from './audit.module';
 import { buildConnectUrl } from './companies.module';
 import { encryptSecret } from '../common/crypto';
+import { Products } from '../auth/products.guard';
 
 @Injectable()
 export class IntegrationsService {
@@ -234,6 +235,7 @@ export class IntegrationsService {
   }
 }
 
+@Products('AUTOMATION')
 @Controller('integrations')
 export class IntegrationsController {
   constructor(private readonly integrations: IntegrationsService) {}

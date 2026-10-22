@@ -29,6 +29,7 @@ import {
 import { AuditService } from './audit.module';
 import { EventsService } from './events.module';
 import { TwilioModule, TwilioService } from './twilio.module';
+import { Products } from '../auth/products.guard';
 
 const UPLOADS_DIR = resolve(process.cwd(), 'uploads');
 
@@ -339,6 +340,7 @@ export class ConversationsService {
 
 const WRITE_ROLES = [ROLES.SUPER_ADMIN, ROLES.DEV, ROLES.COMPANY_ADMIN] as const;
 
+@Products('AUTOMATION')
 @Controller('conversations')
 export class ConversationsController {
   constructor(private readonly conversations: ConversationsService) {}

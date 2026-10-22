@@ -32,6 +32,7 @@ import { EventsService } from './events.module';
 import { AI_PROVIDER, AiChatOptions, AiProvider, extractJson } from '../ai/types';
 import { DeepInfraProvider } from '../ai/deepinfra.provider';
 import { AiBilling, AiSession, recordAiUsage, resolveAiAccess } from '../ai/ai-access';
+import { Products } from '../auth/products.guard';
 
 /* ═══ Herramientas predefinidas de la consulta en lenguaje natural ═══
  * El modelo SOLO elige herramienta + parámetros de esta lista. El texto del
@@ -772,6 +773,7 @@ const READ_ROLES = [
 ] as const;
 const WRITE_ROLES = [ROLES.SUPER_ADMIN, ROLES.DEV, ROLES.COMPANY_ADMIN] as const;
 
+@Products('AUTOMATION')
 @Controller('reports')
 export class ReportsController {
   constructor(

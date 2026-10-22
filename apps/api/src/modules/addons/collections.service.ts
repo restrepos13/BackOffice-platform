@@ -8,6 +8,7 @@ import {
   addonAutoSend, addonEnabled, approvedTemplates, collectionsConfig, cop, fillText, firstName, localClock,
 } from '../../common/addon-config';
 import { sendToContact, whatsappLine } from './engine-support';
+import { hasProduct } from '../../common/products';
 
 /**
  * Cobranza humanizada.
@@ -201,6 +202,7 @@ export class CollectionsService {
   async hourly() {
     const companies = await this.prisma.company.findMany({ where: { status: 'ACTIVE', OR: [{ planId: { not: null } }, { addonsJson: { contains: 'collections' } }] } }).catch(() => []);
     for (const company of companies as any[]) {
+      if (!hasProduct(company, 'AUTOMATION')) continue; // complemento de Automation
       if (!addonAutoSend(company, 'collections')) continue; // solo si la empresa encendió los envíos automáticos
       try {
         await this.syncFromOrders(company);

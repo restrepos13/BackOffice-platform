@@ -32,6 +32,7 @@ import {
   scopeCompanyId,
 } from '../common/constants';
 import { AuditService } from './audit.module';
+import { Products } from '../auth/products.guard';
 
 /**
  * Galería de medios: fotos que la empresa carga para que la IA (o un agente)
@@ -162,6 +163,7 @@ export class MediaService {
   }
 }
 
+@Products('AUTOMATION')
 @Controller('media')
 export class MediaController {
   constructor(private readonly media: MediaService) {}

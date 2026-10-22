@@ -22,6 +22,8 @@ import { AuthUser, NOT_DELETED, ROLES, isPlatformRole, parseJson, scopeCompanyId
 import { WA_OUTBOUND_QUEUE } from '../queue/queue.module';
 import { queueBotText, renderCampaignText, withinServiceWindow } from '../common/customer-notify';
 import { AuditService } from './audit.module';
+import { Products } from '../auth/products.guard';
+import { hasProduct } from '../common/products';
 
 /**
  * Campañas por WhatsApp (envío masivo segmentado) + seguimiento automático.
@@ -411,7 +413,10 @@ export class CampaignsService {
         where: { status: 'SCHEDULED', scheduledAt: { lte: new Date() } },
         take: 5,
       });
-      for (const b of due) {
+      const owners = due.length ? await this.prisma.company.findMany({ where: { id: { in: due.map((b) => b.companyId) } }, select: { id: true, planId: true, productsJson: true } }) : [];
+      const active = new Set(owners.filter((c) => hasProduct(c, 'AUTOMATION')).map((c) => c.id));
+      // Sin Automation activo la campaña programada espera (no se envía ni se pierde)
+      for (const b of due.filter((x) => active.has(x.companyId))) {
         await this.send(null, b.id).catch((err) => this.logger.warn(`campaña ${b.id}: ${err.message}`));
       }
     } catch (err: any) {
@@ -441,6 +446,7 @@ export class CampaignsService {
     });
     let sent = 0;
     for (const company of companies) {
+      if (!hasProduct(company, 'AUTOMATION')) continue;
       const rules = (parseJson<Record<string, any>>(company.orderConfigJson, {}).followUps ?? [])
         .filter((r: any) => r?.enabled && r?.id && r?.message && Number(r.afterHours) >= 1 && Number(r.afterHours) <= 23);
       if (!rules.length) continue;
@@ -495,6 +501,7 @@ export class CampaignsService {
   }
 }
 
+@Products('AUTOMATION')
 @Controller('campaigns')
 export class CampaignsController {
   constructor(private readonly campaigns: CampaignsService) {}

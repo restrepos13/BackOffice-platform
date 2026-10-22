@@ -15,6 +15,8 @@ import { addDays, isoDay } from '../common/ads/provider';
 import { ReactivationService } from './addons/reactivation.service';
 import { AdsModule, AdsService } from './ads.module';
 import { AuditModule, AuditService } from './audit.module';
+import { Products } from '../auth/products.guard';
+import { ProductInactiveError, hasAnyProduct, hasProduct } from '../common/products';
 
 /**
  * Radar comercial: oportunidades de anuncios y del CRM en un solo lugar,
@@ -35,6 +37,11 @@ const EDITABLE: Record<string, string> = {
 };
 const EVENTS = ['visit', 'intent', 'first_value', 'opportunity_opened', 'abandon_step'];
 
+/** Fuentes del Radar que la empresa puede ver: anuncios con Ads Intelligence, CRM con Automation. */
+export function sourcesOf(company: { productsJson?: string | null; planId?: string | null }): Array<'ADS' | 'CRM'> {
+  return [...(hasProduct(company, 'ADS') ? (['ADS'] as const) : []), ...(hasProduct(company, 'AUTOMATION') ? (['CRM'] as const) : [])];
+}
+
 @Injectable()
 export class OpportunitiesService {
   private readonly logger = new Logger('Oportunidades');
@@ -43,18 +50,21 @@ export class OpportunitiesService {
 
   constructor(private readonly prisma: PrismaService, private readonly audit: AuditService, private readonly ads: AdsService) {}
 
-  async companyOf(user: AuthUser, companyId?: string) {
+  /** radar=true: oportunidades (necesita alguna fuente). radar=false: contexto de Creative/Ads. */
+  async companyOf(user: AuthUser, companyId?: string, radar = true) {
     const id = isPlatformRole(user.role) ? companyId : user.companyId;
     if (!id) throw new ForbiddenException('Falta companyId');
     const company = await this.prisma.company.findUnique({ where: { id } });
     if (!company) throw new NotFoundException('Empresa no encontrada');
-    if (!company.planId && !isPlatformRole(user.role)) throw new ForbiddenException('Creative viene con tu plan: elige uno en Mi plan');
+    if (radar && !sourcesOf(company).length) throw new ForbiddenException(ProductInactiveError.body(['AUTOMATION', 'ADS'], company));
+    if (!radar && !hasAnyProduct(company, ['CREATIVE', 'ADS'])) throw new ForbiddenException(ProductInactiveError.body(['CREATIVE', 'ADS'], company));
     return company;
   }
 
-  private async opp(companyId: string, id: string) {
+  private async opp(company: { id: string; productsJson?: string | null; planId?: string | null }, id: string) {
     const o = await this.prisma.opportunity.findUnique({ where: { id } });
-    if (!o || o.companyId !== companyId) throw new NotFoundException('Oportunidad no encontrada');
+    // Una oportunidad de una fuente que la empresa no tiene activa no existe para ella
+    if (!o || o.companyId !== company.id || !sourcesOf(company).includes(o.source as any)) throw new NotFoundException('Oportunidad no encontrada');
     return o;
   }
 
@@ -96,8 +106,9 @@ export class OpportunitiesService {
 
   async detectNow(user: AuthUser, companyId?: string) {
     const c = await this.companyOf(user, companyId);
-    const crm = await this.detectCrm(c.id);
-    const ads = await this.ads.runAudit(c.id).catch(() => ({}));
+    const sources = sourcesOf(c);
+    const crm = sources.includes('CRM') ? await this.detectCrm(c.id) : null;
+    const ads = sources.includes('ADS') ? await this.ads.runAudit(c.id).catch(() => ({})) : null;
     return { crm, ads };
   }
 
@@ -107,7 +118,8 @@ export class OpportunitiesService {
     const c = await this.companyOf(user, q.companyId);
     const statuses = q.view === 'done' ? ['EXECUTED', 'OBSERVING', 'RESULT'] : q.view === 'closed' ? ['DISMISSED', 'SNOOZED'] : q.view === 'all' ? undefined : OPEN;
     const where: any = { companyId: c.id, ...(statuses ? { status: { in: statuses } } : {}) };
-    if (q.source === 'ADS' || q.source === 'CRM') where.source = q.source;
+    const sources = sourcesOf(c);
+    where.source = q.source === 'ADS' || q.source === 'CRM' ? (sources.includes(q.source) ? q.source : '__none__') : { in: sources };
     if (q.mode === 'REAL' || q.mode === 'DEMO') where.mode = q.mode;
     const rows = await this.prisma.opportunity.findMany({ where, orderBy: { lastSeenAt: 'desc' }, take: 200 });
     // Lo real va antes que lo de demostración; dentro, más grave y con más evidencia primero
@@ -120,7 +132,7 @@ export class OpportunitiesService {
   /** Contactos de una oportunidad de seguimiento (solo de la misma empresa). */
   async contacts(user: AuthUser, id: string, companyId?: string) {
     const c = await this.companyOf(user, companyId);
-    const o = await this.opp(c.id, id);
+    const o = await this.opp(c, id);
     const action = parseJson<OppAction>(o.actionJson, { type: 'NONE', risk: 'LOW', reversible: true });
     const ids = action.contactIds ?? [];
     if (!ids.length) return [];
@@ -136,7 +148,7 @@ export class OpportunitiesService {
 
   async move(user: AuthUser, id: string, dto: { to?: string; note?: string; snoozeDays?: number }, companyId?: string) {
     const c = await this.companyOf(user, companyId);
-    const o = await this.opp(c.id, id);
+    const o = await this.opp(c, id);
     const to = String(dto?.to ?? '');
     if (!canMove(o.status, to)) throw new BadRequestException('Ese cambio de estado no está permitido');
     const now = this.now();
@@ -167,7 +179,7 @@ export class OpportunitiesService {
    */
   async act(user: AuthUser, id: string, dto: { confirm?: boolean; note?: string }, companyId?: string) {
     const c = await this.companyOf(user, companyId);
-    const o = await this.opp(c.id, id);
+    const o = await this.opp(c, id);
     if (!OPEN.includes(o.status as any)) throw new ConflictException('Esta oportunidad ya no está abierta');
     if (dto?.confirm !== true) throw new BadRequestException('Confirma la acción');
     const action = parseJson<OppAction>(o.actionJson, { type: 'NONE', risk: 'LOW', reversible: true });
@@ -247,7 +259,7 @@ export class OpportunitiesService {
   /** La persona anota el resultado (p. ej. "cerré 2 ventas"). Queda como dato declarado, no medido. */
   async noteResult(user: AuthUser, id: string, dto: { note?: string }, companyId?: string) {
     const c = await this.companyOf(user, companyId);
-    const o = await this.opp(c.id, id);
+    const o = await this.opp(c, id);
     if (!['OBSERVING', 'RESULT'].includes(o.status)) throw new BadRequestException('Primero registra que actuaste');
     const note = String(dto?.note ?? '').trim().slice(0, 400);
     if (!note) throw new BadRequestException('Escribe qué pasó');
@@ -270,8 +282,11 @@ export class OpportunitiesService {
       await this.observe();
       // Detección del CRM una vez al día por empresa (a la hora 6 de Bogotá ≈ 11 UTC)
       if (this.now().getUTCHours() === 11) {
-        const companies = await this.prisma.company.findMany({ where: { planId: { not: null }, status: { in: ['ACTIVE', 'TRIAL', 'ONBOARDING'] } }, select: { id: true }, take: 500 });
-        for (const c of companies) await this.detectCrm(c.id).catch((err) => this.logger.warn(`CRM ${c.id}: ${err.message}`));
+        const companies = await this.prisma.company.findMany({
+          where: { status: { in: ['ACTIVE', 'TRIAL', 'ONBOARDING'] }, OR: [{ planId: { not: null } }, { productsJson: { contains: '"enabled":true' } }] },
+          select: { id: true, planId: true, productsJson: true }, take: 500,
+        });
+        for (const c of companies.filter((x) => hasProduct(x, 'AUTOMATION'))) await this.detectCrm(c.id).catch((err) => this.logger.warn(`CRM ${c.id}: ${err.message}`));
       }
     } finally {
       this.busy = false;
@@ -281,7 +296,7 @@ export class OpportunitiesService {
   /* ── Contexto del negocio ── */
 
   async context(user: AuthUser, companyId?: string) {
-    const c = await this.companyOf(user, companyId);
+    const c = await this.companyOf(user, companyId, false);
     const ctx = await this.prisma.companyContext.findUnique({ where: { companyId: c.id } });
     const overrides = parseJson<Record<string, { value: string; at: string; by: string }>>(ctx?.overridesJson, {});
     const progress = parseJson<Record<string, any>>(ctx?.progressJson, {});
@@ -363,7 +378,7 @@ export class OpportunitiesService {
   }
 
   async correct(user: AuthUser, key: string, dto: { value?: string | null }, companyId?: string) {
-    const c = await this.companyOf(user, companyId);
+    const c = await this.companyOf(user, companyId, false);
     if (!(key in EDITABLE)) throw new BadRequestException('Ese dato no se puede editar aquí');
     const ctx = await this.prisma.companyContext.findUnique({ where: { companyId: c.id } });
     const overrides = parseJson<Record<string, any>>(ctx?.overridesJson, {});
@@ -379,7 +394,7 @@ export class OpportunitiesService {
 
   /** Eventos de uso para medir tiempo al primer valor y abandonos (sin datos personales). */
   async event(user: AuthUser, dto: { type?: string; intent?: string; step?: string }, companyId?: string) {
-    const c = await this.companyOf(user, companyId);
+    const c = await this.companyOf(user, companyId, false);
     const type = String(dto?.type ?? '');
     if (!EVENTS.includes(type)) throw new BadRequestException('Evento desconocido');
     const ctx = await this.prisma.companyContext.findUnique({ where: { companyId: c.id } });
@@ -403,6 +418,8 @@ export class OpportunitiesService {
   }
 }
 
+// Radar compartido: cada fuente se filtra por producto en el servicio (ADS → Ads Intelligence, CRM → Automation)
+@Products('AUTOMATION', 'CREATIVE', 'ADS')
 @Controller()
 export class OpportunitiesController {
   constructor(private readonly s: OpportunitiesService) {}

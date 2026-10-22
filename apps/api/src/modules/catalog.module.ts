@@ -23,6 +23,7 @@ import {
   NOT_DELETED,
 } from '../common/constants';
 import { AuditService } from './audit.module';
+import { Products } from '../auth/products.guard';
 
 /**
  * Catálogo del módulo de pedidos: productos, áreas de producción y empresas
@@ -275,6 +276,7 @@ export class CatalogController {
   }
 }
 
+@Products('AUTOMATION')
 @Controller('customers')
 export class CustomersController {
   constructor(private readonly catalog: CatalogService) {}

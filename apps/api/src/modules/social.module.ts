@@ -44,6 +44,8 @@ import { extractJson } from '../ai/types';
 import { AuditService } from './audit.module';
 import { EmailsModule, EmailsService } from './emails.module';
 import { usdCopRate } from '../common/trm';
+import { Products } from '../auth/products.guard';
+import { hasProduct } from '../common/products';
 
 /**
  * Extra "Redes sociales con IA": imágenes generadas (las paga BackOffice, con
@@ -452,7 +454,10 @@ No inventes precios ni promociones que no estén en los datos.`,
         },
         take: 20,
       });
-      for (const p of due) await this.publishPiece(p.id).catch((err) => this.logger.warn(`publicar ${p.id}: ${err.message}`));
+      const owners = due.length ? await this.prisma.company.findMany({ where: { id: { in: [...new Set(due.map((p) => p.companyId))] } }, select: { id: true, planId: true, productsJson: true } }) : [];
+      const active = new Set(owners.filter((c) => hasProduct(c, 'CREATIVE')).map((c) => c.id));
+      // Sin Creative activo lo programado espera (no se publica ni se pierde)
+      for (const p of due.filter((x) => active.has(x.companyId))) await this.publishPiece(p.id).catch((err) => this.logger.warn(`publicar ${p.id}: ${err.message}`));
     } catch (err: any) {
       this.logger.warn(`cron de publicación: ${err.message}`);
     }
@@ -607,6 +612,7 @@ export function nextSlots(start: Date, weekdays: number[], time: string, count: 
 const WRITE = [ROLES.SUPER_ADMIN, ROLES.DEV, ROLES.COMPANY_ADMIN] as const;
 const READ = [...WRITE, ROLES.COMPANY_VIEWER] as const;
 
+@Products('CREATIVE')
 @Controller()
 export class SocialController {
   constructor(private readonly social: SocialService) {}

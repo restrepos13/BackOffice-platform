@@ -279,7 +279,8 @@ export default function CompanyDetail() {
                 </p>
               </div>
             </Card>
-            <Card kicker="Panel del cliente" title="Módulos habilitados">
+            <CompanyProducts company={company} />
+            <Card kicker="Panel del cliente" title="Secciones habilitadas">
               <div className="space-y-2">
                 {ALL_MODULES.map((module) => (
                   <div key={module} className="flex items-center justify-between border-b border-line pb-2">
@@ -499,5 +500,48 @@ function ConfigForm({
         </Button>
       </div>
     </div>
+  );
+}
+
+/**
+ * Productos de la empresa (Automation, Creative, Ads Intelligence). El servidor
+ * los exige en cada endpoint. Apagar uno no borra datos: corta el acceso y sus
+ * procesos automáticos. No cambia el cobro (eso sigue con plan y complementos).
+ */
+function CompanyProducts({ company }: { company: Company }) {
+  const queryClient = useQueryClient();
+  const save = useMutation({
+    mutationFn: (body: Record<string, boolean>) => api.put(`/platform/companies/${company.id}/products`, body),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['company', company.id] });
+      queryClient.invalidateQueries({ queryKey: ['companies'] });
+      toast.success('Productos actualizados');
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+  const states = company.productStates ?? [];
+  return (
+    <Card kicker="Lo que contrató" title="Productos">
+      <div className="space-y-2">
+        {states.map((p) => (
+          <div key={p.key} className="flex items-start justify-between gap-3 border-b border-line pb-2">
+            <div className="min-w-0">
+              <p className="text-sm font-medium">{p.name}</p>
+              <p className="text-xs text-ink-3">
+                {p.enabled ? (p.since ? `Activo desde ${fmtDate(p.since)}` : 'Activo') : p.until ? `Inactivo desde ${fmtDate(p.until)}` : 'Inactivo'}
+                {!p.enabled && p.requestedAt ? ` · lo pidió ${p.requestedBy ?? 'la empresa'} el ${fmtDate(p.requestedAt)}` : ''}
+              </p>
+            </div>
+            <Switch checked={p.enabled} disabled={save.isPending} onChange={(on) => save.mutate({ [p.key]: on })} label={p.name} />
+          </div>
+        ))}
+        <p className="pt-1 text-xs text-ink-3">
+          {company.productsExplicit
+            ? 'Elección guardada para esta empresa.'
+            : 'Sigue la regla anterior (Automation siempre; Creative y Ads Intelligence con plan). Al cambiar un interruptor queda guardada la elección.'}
+          {' '}Apagar un producto no borra datos ni cambia el cobro.
+        </p>
+      </div>
+    </Card>
   );
 }

@@ -41,6 +41,7 @@ import { EventsService } from './events.module';
 import { notifyOrderDispatched } from '../common/customer-notify';
 import { newTrackingToken, orderCode, publicWebUrl, trackingUrl } from '../common/tracking';
 import { isLatLng, pickCourier } from '../common/geo';
+import { Products } from '../auth/products.guard';
 
 /* ═══ Utilidades puras (exportadas para tests) ═══════════════════════ */
 
@@ -1043,6 +1044,7 @@ export class OrdersService {
 
 /* ═══ Controllers ════════════════════════════════════════════════════ */
 
+@Products('AUTOMATION')
 @Controller('orders')
 export class OrdersController {
   constructor(private readonly orders: OrdersService) {}
@@ -1133,6 +1135,7 @@ export class OrdersController {
   }
 }
 
+@Products('AUTOMATION')
 @Controller('reminders')
 export class RemindersController {
   constructor(

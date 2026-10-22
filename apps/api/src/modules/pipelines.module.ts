@@ -18,6 +18,7 @@ import { CurrentUser, Roles } from '../auth/decorators';
 import { AuthUser, ROLES, isPlatformRole, parseJson, scopeCompanyId } from '../common/constants';
 import { DEFAULT_STAGES, PipelineStage, sanitizeStages } from '../common/pipelines';
 import { AuditService } from './audit.module';
+import { Products } from '../auth/products.guard';
 
 /** Embudos de venta configurables por empresa (CRM de contactos). */
 @Injectable()
@@ -106,6 +107,7 @@ export class PipelinesService {
   }
 }
 
+@Products('AUTOMATION')
 @Controller('pipelines')
 export class PipelinesController {
   constructor(private readonly pipelines: PipelinesService) {}

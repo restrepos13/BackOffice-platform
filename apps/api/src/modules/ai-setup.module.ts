@@ -18,6 +18,7 @@ import { AI_PROVIDER, AiProvider, extractJson } from '../ai/types';
 import { DeepInfraProvider } from '../ai/deepinfra.provider';
 import { AGENT_PRESETS } from '../ai/agent/tools';
 import { AuditService } from './audit.module';
+import { Products } from '../auth/products.guard';
 
 /**
  * "Arma tu negocio con IA": el dueño describe su negocio (o pega su menú) y la
@@ -252,6 +253,7 @@ export async function applySetupProposal(
   };
 }
 
+@Products('AUTOMATION')
 @Controller('ai-setup')
 export class AiSetupController {
   constructor(private readonly setup: AiSetupService) {}

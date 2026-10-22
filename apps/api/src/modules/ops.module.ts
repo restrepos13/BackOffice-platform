@@ -21,6 +21,7 @@ import {
   scopeCompanyId,
 } from '../common/constants';
 import { AuditService } from './audit.module';
+import { Products } from '../auth/products.guard';
 
 function startOfDay(d = new Date()): Date {
   const x = new Date(d);
@@ -386,6 +387,7 @@ export class ExecutiveService {
 
 /* ─── Controllers ────────────────────────────────────────────────────── */
 
+@Products('AUTOMATION')
 @Controller('appointments')
 export class AppointmentsController {
   constructor(private readonly appointments: AppointmentsService) {}
@@ -420,6 +422,7 @@ export class AppointmentsController {
   }
 }
 
+@Products('AUTOMATION')
 @Controller('followups')
 export class FollowUpsController {
   constructor(private readonly followUps: FollowUpsService) {}
@@ -452,6 +455,7 @@ export class FollowUpsController {
   }
 }
 
+@Products('AUTOMATION')
 @Controller('ops')
 export class OpsController {
   constructor(private readonly executive: ExecutiveService) {}

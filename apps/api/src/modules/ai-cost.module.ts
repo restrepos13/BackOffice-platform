@@ -5,6 +5,7 @@ import { AuthUser, NOT_DELETED, isPlatformRole, parseJson } from '../common/cons
 import { CostModel, REFERENCE_MODELS, estimateAiCosts } from '../common/ai-cost';
 import { AI_RESALE_MARKUP } from '../common/offer';
 import { usdCopRate } from '../common/trm';
+import { Products } from '../auth/products.guard';
 
 /**
  * "¿Cuánto me cuesta la IA?" para cada empresa, con SUS números: tamaño de las
@@ -87,6 +88,7 @@ export class AiCostService {
   }
 }
 
+@Products('AUTOMATION')
 @Controller('ai-costs')
 export class AiCostController {
   constructor(private readonly costs: AiCostService) {}

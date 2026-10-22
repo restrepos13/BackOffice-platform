@@ -125,6 +125,7 @@ export function createMockPrisma() {
     creativeDesignVersion: [] as Doc[],
     creativeDesign: [] as Doc[],
     brandAsset: [] as Doc[],
+    adAssetLink: [] as Doc[],
     brandProfile: [] as Doc[],
     socialUsage: [] as Doc[],
     invoice: [] as Doc[],
@@ -209,6 +210,7 @@ export function createMockPrisma() {
     adActionLog: ['idempotencyKey'],
     adSettings: ['companyId'],
     adAccount: ['companyId+provider+externalId'],
+    adAssetLink: ['assetId+adEntityId'],
   };
   const model = (name: keyof typeof db, defaults: Doc = {}) => {
     // matches + filtros por relación y claves compuestas (companyId_date)
@@ -391,6 +393,7 @@ export function createMockPrisma() {
     creativeDesignVersion: model('creativeDesignVersion'),
     creativeDesign: model('creativeDesign', { status: 'ACTIVE', schemaVersion: 1, version: 1 }),
     brandAsset: model('brandAsset'),
+    adAssetLink: model('adAssetLink'),
     brandProfile: model('brandProfile', { version: 1, logosJson: '[]', colorsJson: '[]', fontsJson: '[]', vocabularyJson: '[]', avoidWordsJson: '[]', productsJson: '[]', ctasJson: '[]', offersJson: '[]', restrictionsJson: '[]', formatsJson: '[]', protectedJson: '{}', policyJson: '{}' }),
     planOrder: model('planOrder', { status: 'REQUESTED', aiPackageAmount: 0, currency: 'COP', billingCycle: 'MONTHLY' }),
     socialUsage: model('socialUsage', { images: 0, videos: 0, credits: 0, costUsd: 0 }),

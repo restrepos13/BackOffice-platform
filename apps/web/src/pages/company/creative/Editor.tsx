@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { clsx } from 'clsx';
 import type Konva from 'konva';
 import {
-  ArrowDown, ArrowLeft, ArrowUp, Bold, Circle, Copy, Download, Eye, EyeOff, ImagePlus, Italic, Lock, Minus, Redo2,
+  ArrowDown, ArrowLeft, ArrowUp, Bold, Circle, Copy, Download, Eye, EyeOff, FolderOpen, ImagePlus, Italic, Lock, Minus, Redo2,
   Save, Send, Square, Trash2, Type, Undo2, Unlock,
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -239,6 +239,25 @@ export default function Editor() {
     onError: (e) => toast.error(e instanceof Error ? e.message : 'Error al exportar'),
   });
 
+  // Biblioteca compartida: guarda ESTA versión como recurso (la anterior queda intacta) sin descargar nada
+  const toLibrary = useMutation({
+    mutationFn: async () => {
+      if (saveState !== 'saved') await save();
+      const r = await api.post<{ blocking: boolean }>(`/creative/designs/${id}/check`, { doc, forExport: true });
+      if (r.blocking) throw new Error('Hay problemas por corregir (usa «Revisar y exportar» para verlos).');
+      const blob = await renderBlob('image/png');
+      await uploadFile(withScope(`/creative/designs/${id}/export`, q), 'file', new File([blob], 'export.png', { type: 'image/png' }));
+      return api.post<{ created: boolean }>(withScope(`/library/from-design/${id}`, q));
+    },
+    onSuccess: (r) => {
+      queryClient.invalidateQueries({ queryKey: ['library'] });
+      toast.success(r.created ? 'Esta versión quedó en la Biblioteca' : 'Esta versión ya estaba en la Biblioteca', {
+        action: { label: 'Ver', onClick: () => navigate('/app/biblioteca') },
+      });
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : 'No se pudo llevar a la Biblioteca'),
+  });
+
   const adapt = useMutation({
     mutationFn: async (to: FormatKey) => {
       if (saveState !== 'saved') await save();
@@ -325,6 +344,7 @@ export default function Editor() {
         <Button size="sm" variant="ghost" disabled={!history.current.canRedo} onClick={redo} aria-label="Rehacer"><Redo2 size={14} /></Button>
         {canWrite && <Button size="sm" variant="outline" disabled={saveState === 'saving'} onClick={() => void save()}><Save size={14} /> Guardar</Button>}
         <Button size="sm" variant="outline" disabled={openReview.isPending || exportMut.isPending} onClick={() => openReview.mutate()}><Download size={14} /> {openReview.isPending ? 'Revisando…' : 'Revisar y exportar'}</Button>
+        {canWrite && <Button size="sm" variant="outline" disabled={toLibrary.isPending} onClick={() => toLibrary.mutate()} title="Guarda esta versión como recurso para tus anuncios"><FolderOpen size={14} /> {toLibrary.isPending ? 'Guardando…' : 'A la biblioteca'}</Button>}
         {canWrite && <Button size="sm" onClick={() => setToCalendar(true)}><Send size={14} /> Al calendario</Button>}
       </header>
 

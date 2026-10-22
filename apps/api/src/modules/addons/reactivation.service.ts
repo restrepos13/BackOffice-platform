@@ -8,6 +8,7 @@ import {
   ReactivationConfig, addonAutoSend, addonEnabled, approvedTemplates, fillText, firstName, localClock, reactivationConfig,
 } from '../../common/addon-config';
 import { sendToContact, whatsappLine } from './engine-support';
+import { hasProduct } from '../../common/products';
 
 /**
  * Reactivación de clientes dormidos.
@@ -180,6 +181,7 @@ export class ReactivationService {
   async hourly() {
     const companies = await this.prisma.company.findMany({ where: { status: 'ACTIVE', OR: [{ planId: { not: null } }, { addonsJson: { contains: 'reactivation' } }] } }).catch(() => []);
     for (const company of companies as any[]) {
+      if (!hasProduct(company, 'AUTOMATION')) continue; // complemento de Automation
       if (!addonAutoSend(company, 'reactivation')) continue; // solo si la empresa encendió los envíos automáticos
       try {
         await this.updateResults(company.id);

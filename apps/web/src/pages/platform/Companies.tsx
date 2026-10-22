@@ -18,6 +18,12 @@ export default function Companies() {
     queryFn: () => api.get<Company[]>('/companies'),
   });
 
+  // Empresas que pidieron activar un producto (lo activa el equipo en la ficha)
+  const { data: requests } = useQuery({
+    queryKey: ['product-requests'],
+    queryFn: () => api.get<Array<{ companyId: string; companyName: string; product: string; name: string; requestedAt: string; requestedBy: string | null }>>('/platform/product-requests'),
+  });
+
   const filtered = (data ?? []).filter(
     (c) =>
       (!status || c.status === status) &&
@@ -38,6 +44,20 @@ export default function Companies() {
           </Link>
         }
       />
+
+      {!!requests?.length && (
+        <div className="mb-4 border-2 border-ink bg-info-soft px-4 py-3 text-sm">
+          <p className="kicker mb-1 !text-info">Solicitudes de producto</p>
+          <ul className="space-y-0.5">
+            {requests.map((r) => (
+              <li key={`${r.companyId}-${r.product}`}>
+                <Link to={`/platform/companies/${r.companyId}`} className="font-semibold underline">{r.companyName}</Link>
+                {' '}pidió {r.name}{r.requestedBy ? ` (${r.requestedBy})` : ''} · {fmtDate(r.requestedAt)}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       <div className="mb-4 flex flex-wrap gap-3">
         <Input
@@ -68,6 +88,9 @@ export default function Companies() {
                 <p className="font-semibold">{c.name}</p>
                 <p className="text-xs text-ink-3">
                   {[c.industry, c.country].filter(Boolean).join(' · ')}
+                </p>
+                <p className="text-[11px] text-ink-3">
+                  {(c.productStates ?? []).filter((p) => p.enabled).map((p) => p.short).join(' · ') || 'Sin productos activos'}
                 </p>
               </td>
               <td className="px-4 py-3">

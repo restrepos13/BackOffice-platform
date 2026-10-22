@@ -22,6 +22,7 @@ import { issueEinvoice, sealToken, serializeEinvoiceConfig } from '../common/ein
 import { orderCode } from '../common/tracking';
 import { AuditService } from './audit.module';
 import { OrdersModule, OrdersService } from './orders.module';
+import { Products } from '../auth/products.guard';
 
 export const EXTERNAL_SOURCES = ['RAPPI', 'UBER_EATS', 'DIDI', 'IFOOD', 'WEB', 'POS', 'OTRO'];
 
@@ -245,6 +246,7 @@ export class InboundOrdersService {
   }
 }
 
+@Products('AUTOMATION')
 @Controller()
 export class InboundOrdersController {
   constructor(private readonly inbound: InboundOrdersService) {}

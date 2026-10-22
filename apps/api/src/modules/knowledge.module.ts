@@ -25,6 +25,7 @@ import { CurrentUser, Roles } from '../auth/decorators';
 import { AuthUser, ROLES, isPlatformRole, scopeCompanyId } from '../common/constants';
 import { chunkText, fetchPublicPage, searchChunks } from '../common/knowledge';
 import { AuditService } from './audit.module';
+import { Products } from '../auth/products.guard';
 
 const UPLOADS_DIR = resolve(process.cwd(), 'uploads');
 const MAX_DOCS = 50;
@@ -158,6 +159,7 @@ export class KnowledgeService {
   }
 }
 
+@Products('AUTOMATION')
 @Controller('knowledge')
 export class KnowledgeController {
   constructor(private readonly knowledge: KnowledgeService) {}

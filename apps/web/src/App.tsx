@@ -4,6 +4,7 @@ import AppShell from './layouts/AppShell';
 import { useAuth } from './lib/auth';
 import { Loading } from './components/ui';
 import Login from './pages/Login';
+import { ProductHome, ProductPage, RequireProduct } from './lib/products';
 const PlatformOverview = lazy(() => import('./pages/platform/Overview'));
 const Companies = lazy(() => import('./pages/platform/Companies'));
 const CompanyNew = lazy(() => import('./pages/platform/CompanyNew'));
@@ -66,6 +67,7 @@ const PublicMenu = lazy(() => import('./pages/public/Menu'));
 const Landing = lazy(() => import('./pages/public/Landing'));
 const Signup = lazy(() => import('./pages/public/Signup'));
 const Onboarding = lazy(() => import('./pages/company/Onboarding'));
+const Library = lazy(() => import('./pages/company/Library'));
 
 function RequireAuth({ children }: { children: ReactNode }) {
   const { user, loading } = useAuth();
@@ -152,38 +154,40 @@ export default function App() {
         <Route path="/platform/dev" element={<RequirePlatform><DevTools /></RequirePlatform>} />
 
         {/* Panel de empresa (admin/viewer; plataforma con empresa activa) */}
-        <Route path="/app" element={<BlockArea><Dashboard /></BlockArea>} />
-        <Route path="/app/inbox" element={<BlockArea><Inbox /></BlockArea>} />
+        <Route path="/app" element={<BlockArea><ProductHome><Dashboard /></ProductHome></BlockArea>} />
+        <Route path="/app/inbox" element={<RequireProduct any={['AUTOMATION']}><BlockArea><Inbox /></BlockArea></RequireProduct>} />
         {/* Módulo de pedidos (empresas con el módulo "orders") */}
-        <Route path="/app/orders" element={<BlockArea><Orders /></BlockArea>} />
-        <Route path="/app/orders/settings" element={<BlockArea><OrdersSettings /></BlockArea>} />
-        <Route path="/app/orders/reports" element={<BlockArea><OrdersReports /></BlockArea>} />
-        <Route path="/app/orders/:id" element={<BlockArea><OrderDetail /></BlockArea>} />
-        <Route path="/app/customers" element={<BlockArea><Customers /></BlockArea>} />
-        <Route path="/app/deliveries" element={<BlockArea><Deliveries /></BlockArea>} />
-        <Route path="/app/marketing" element={<BlockArea><Marketing /></BlockArea>} />
-        <Route path="/app/creative" element={<BlockArea><CreativeHome /></BlockArea>} />
-        <Route path="/app/ads" element={<BlockArea><AdsHome /></BlockArea>} />
-        <Route path="/app/creative/editor/:id" element={<BlockArea><CreativeEditor /></BlockArea>} />
-        <Route path="/app/area" element={<AreaView />} />
-        <Route path="/app/contacts" element={<Contacts />} />
-        <Route path="/app/campaigns" element={<BlockArea><Campaigns /></BlockArea>} />
+        <Route path="/app/orders" element={<RequireProduct any={['AUTOMATION']}><BlockArea><Orders /></BlockArea></RequireProduct>} />
+        <Route path="/app/orders/settings" element={<RequireProduct any={['AUTOMATION']}><BlockArea><OrdersSettings /></BlockArea></RequireProduct>} />
+        <Route path="/app/orders/reports" element={<RequireProduct any={['AUTOMATION']}><BlockArea><OrdersReports /></BlockArea></RequireProduct>} />
+        <Route path="/app/orders/:id" element={<RequireProduct any={['AUTOMATION']}><BlockArea><OrderDetail /></BlockArea></RequireProduct>} />
+        <Route path="/app/customers" element={<RequireProduct any={['AUTOMATION']}><BlockArea><Customers /></BlockArea></RequireProduct>} />
+        <Route path="/app/deliveries" element={<RequireProduct any={['AUTOMATION']}><BlockArea><Deliveries /></BlockArea></RequireProduct>} />
+        <Route path="/app/marketing" element={<RequireProduct any={['CREATIVE']}><BlockArea><Marketing /></BlockArea></RequireProduct>} />
+        <Route path="/app/creative" element={<RequireProduct any={['CREATIVE']}><BlockArea><CreativeHome /></BlockArea></RequireProduct>} />
+        <Route path="/app/producto/:key" element={<BlockArea><ProductPage /></BlockArea>} />
+        <Route path="/app/biblioteca" element={<BlockArea><RequireProduct any={['CREATIVE', 'ADS']}><Library /></RequireProduct></BlockArea>} />
+        <Route path="/app/ads" element={<RequireProduct any={['ADS']}><BlockArea><AdsHome /></BlockArea></RequireProduct>} />
+        <Route path="/app/creative/editor/:id" element={<RequireProduct any={['CREATIVE']}><BlockArea><CreativeEditor /></BlockArea></RequireProduct>} />
+        <Route path="/app/area" element={<RequireProduct any={['AUTOMATION']}><AreaView /></RequireProduct>} />
+        <Route path="/app/contacts" element={<RequireProduct any={['AUTOMATION']}><Contacts /></RequireProduct>} />
+        <Route path="/app/campaigns" element={<RequireProduct any={['AUTOMATION']}><BlockArea><Campaigns /></BlockArea></RequireProduct>} />
         <Route path="/app/bienvenida" element={<BlockArea><Onboarding /></BlockArea>} />
-        <Route path="/app/bots" element={<Bots />} />
-        <Route path="/app/bots/:id" element={<BotDetail />} />
-        <Route path="/app/automations" element={<Automations />} />
-        <Route path="/app/integrations" element={<Integrations />} />
-        <Route path="/app/lines/:id" element={<LineDetail />} />
-        <Route path="/app/media" element={<Media />} />
+        <Route path="/app/bots" element={<RequireProduct any={['AUTOMATION']}><Bots /></RequireProduct>} />
+        <Route path="/app/bots/:id" element={<RequireProduct any={['AUTOMATION']}><BotDetail /></RequireProduct>} />
+        <Route path="/app/automations" element={<RequireProduct any={['AUTOMATION']}><Automations /></RequireProduct>} />
+        <Route path="/app/integrations" element={<RequireProduct any={['AUTOMATION']}><Integrations /></RequireProduct>} />
+        <Route path="/app/lines/:id" element={<RequireProduct any={['AUTOMATION']}><LineDetail /></RequireProduct>} />
+        <Route path="/app/media" element={<RequireProduct any={['AUTOMATION']}><Media /></RequireProduct>} />
         <Route path="/app/usage" element={<Usage />} />
-        <Route path="/app/costos-ia" element={<AiCosts />} />
+        <Route path="/app/costos-ia" element={<RequireProduct any={['AUTOMATION']}><AiCosts /></RequireProduct>} />
         <Route path="/app/mi-plan" element={<MyPlan />} />
-        <Route path="/app/reactivacion" element={<Reactivation />} />
-        <Route path="/app/cobranza" element={<Collections />} />
-        <Route path="/app/auditor" element={<SalesAudit />} />
-        <Route path="/app/agenda" element={<Agenda />} />
-        <Route path="/app/gerencia" element={<Gerencia />} />
-        <Route path="/app/analytics" element={<Analytics />} />
+        <Route path="/app/reactivacion" element={<RequireProduct any={['AUTOMATION']}><Reactivation /></RequireProduct>} />
+        <Route path="/app/cobranza" element={<RequireProduct any={['AUTOMATION']}><Collections /></RequireProduct>} />
+        <Route path="/app/auditor" element={<RequireProduct any={['AUTOMATION']}><SalesAudit /></RequireProduct>} />
+        <Route path="/app/agenda" element={<RequireProduct any={['AUTOMATION']}><Agenda /></RequireProduct>} />
+        <Route path="/app/gerencia" element={<RequireProduct any={['AUTOMATION']}><Gerencia /></RequireProduct>} />
+        <Route path="/app/analytics" element={<RequireProduct any={['AUTOMATION']}><Analytics /></RequireProduct>} />
         <Route path="/app/billing" element={<Billing />} />
         <Route path="/app/team" element={<Team />} />
         <Route path="/app/settings" element={<CompanySettings />} />

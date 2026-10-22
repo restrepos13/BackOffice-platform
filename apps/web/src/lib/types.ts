@@ -129,6 +129,11 @@ export interface Company {
   brandColor?: string | null;
   notes?: string | null;
   modules: string[];
+  /** Productos activos (Automation, Creative, Ads Intelligence); el servidor también los exige */
+  products?: Array<'AUTOMATION' | 'CREATIVE' | 'ADS'>;
+  productStates?: Array<{ key: 'AUTOMATION' | 'CREATIVE' | 'ADS'; name: string; short: string; home: string; summary: string; enabled: boolean; since?: string | null; until?: string | null; requestedAt?: string | null; requestedBy?: string | null }>;
+  /** false = regla anterior (Automation siempre; Creative y Ads con plan) */
+  productsExplicit?: boolean;
   limits: Record<string, number>;
   /** Configuración del módulo de pedidos (agenda, reglas, plantillas, FAQs) */
   orderConfig?: Record<string, any>;

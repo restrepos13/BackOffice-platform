@@ -44,6 +44,7 @@ import { OrdersModule, OrdersService } from './orders.module';
 import { Inject, Optional } from '@nestjs/common';
 import type { Queue } from 'bullmq';
 import { WA_OUTBOUND_QUEUE } from '../queue/queue.module';
+import { Products } from '../auth/products.guard';
 
 /**
  * Domicilios (tipo Rappi, con la marca de cada empresa):
@@ -669,6 +670,7 @@ export class DeliveryService {
   }
 }
 
+@Products('AUTOMATION')
 @Controller('delivery')
 export class DeliveryController {
   constructor(private readonly delivery: DeliveryService) {}
@@ -774,6 +776,7 @@ export class DeliveryController {
 
 /** Seguimiento público del cliente final (sin login). */
 @Public()
+@Products('AUTOMATION')
 @Controller('public/track')
 export class PublicTrackingController {
   constructor(private readonly delivery: DeliveryService) {}

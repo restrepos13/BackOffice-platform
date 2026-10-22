@@ -25,6 +25,7 @@ import { ensureTrackingLink, orderCode, publicWebUrl } from '../common/tracking'
 import { AuditService } from './audit.module';
 import { EventsService } from './events.module';
 import { usdCopRate } from '../common/trm';
+import { Products } from '../auth/products.guard';
 
 /**
  * Pagos con Wompi (Colombia):
@@ -440,24 +441,28 @@ export class PaymentsController {
     return this.payments.handleCompanyWompiEvent(slug, body);
   }
 
+  @Products('AUTOMATION')
   @Get('config')
   @Roles(ROLES.SUPER_ADMIN, ROLES.DEV, ROLES.COMPANY_ADMIN, ROLES.COMPANY_VIEWER)
   config(@CurrentUser() user: AuthUser, @Query('companyId') companyId?: string) {
     return this.payments.getCompanyConfig(user, companyId);
   }
 
+  @Products('AUTOMATION')
   @Patch('config')
   @Roles(ROLES.SUPER_ADMIN, ROLES.DEV, ROLES.COMPANY_ADMIN)
   updateConfig(@CurrentUser() user: AuthUser, @Body() dto: any, @Query('companyId') companyId?: string) {
     return this.payments.updateCompanyConfig(user, dto, companyId);
   }
 
+  @Products('AUTOMATION')
   @Post('orders/:id/link')
   @Roles(ROLES.SUPER_ADMIN, ROLES.DEV, ROLES.COMPANY_ADMIN)
   orderLink(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.payments.createOrderPaymentLink(id, user);
   }
 
+  @Products('AUTOMATION')
   @Post('orders/:id/mark-paid')
   @Roles(ROLES.SUPER_ADMIN, ROLES.DEV, ROLES.COMPANY_ADMIN)
   markPaid(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: any) {

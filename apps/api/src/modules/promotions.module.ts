@@ -18,6 +18,7 @@ import { CurrentUser, Roles } from '../auth/decorators';
 import { AuthUser, ROLES, isPlatformRole, parseJson, scopeCompanyId } from '../common/constants';
 import { normalizeCode, validatePromotionInput } from '../common/promotions';
 import { AuditService } from './audit.module';
+import { Products } from '../auth/products.guard';
 
 /**
  * Promociones y cupones (CRUD). El agente las aplica en armar_pedido y las
@@ -124,6 +125,7 @@ export class PromotionsService {
   }
 }
 
+@Products('AUTOMATION')
 @Controller()
 export class PromotionsController {
   constructor(private readonly promos: PromotionsService) {}

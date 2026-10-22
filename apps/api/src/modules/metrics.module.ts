@@ -14,6 +14,7 @@ import {
   isPlatformRole,
   scopeCompanyId,
 } from '../common/constants';
+import { Products } from '../auth/products.guard';
 
 function daysAgo(n: number): Date {
   const d = new Date();
@@ -237,6 +238,7 @@ export class MetricsService {
   }
 }
 
+@Products('AUTOMATION')
 @Controller('metrics')
 export class MetricsController {
   constructor(private readonly metrics: MetricsService) {}

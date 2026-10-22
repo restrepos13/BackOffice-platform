@@ -6,6 +6,7 @@ import { addonEnabled, salesAuditConfig } from '../../common/addon-config';
 import { AI_PROVIDER, type AiProvider, extractJson } from '../../ai/types';
 import { AiSession, recordAiUsage, resolveAiAccess } from '../../ai/ai-access';
 import { EmailsService } from '../emails.module';
+import { hasProduct } from '../../common/products';
 
 /**
  * Auditor de ventas con IA (informe semanal).
@@ -235,6 +236,7 @@ export class SalesAuditService {
   async weekly() {
     const companies = await this.prisma.company.findMany({ where: { status: 'ACTIVE', OR: [{ planId: { not: null } }, { addonsJson: { contains: 'salesAudit' } }] } }).catch(() => []);
     for (const company of companies as any[]) {
+      if (!hasProduct(company, 'AUTOMATION')) continue; // complemento de Automation
       if (!addonEnabled(company, 'salesAudit')) continue;
       try {
         await this.generate(company);

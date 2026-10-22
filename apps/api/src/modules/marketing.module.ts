@@ -33,6 +33,7 @@ import { AiSession, recordAiUsage, resolveAiAccess } from '../ai/ai-access';
 import {
   CREDIT_COST, PROVIDER_COST_USD, addSocialCost, refundCredits, reserveCredits, socialAddon, socialDefaults,
 } from '../common/social-addon';
+import { Products } from '../auth/products.guard';
 
 /**
  * MARKETING (extra por empresa, módulo "marketing"): campañas, calendario de
@@ -461,6 +462,7 @@ Brief: ${piece.brief ?? 'sin brief — proponlo tú a partir del título'}`,
 const WRITE_ROLES = [ROLES.SUPER_ADMIN, ROLES.DEV, ROLES.COMPANY_ADMIN] as const;
 const READ_ROLES = [...WRITE_ROLES, ROLES.COMPANY_VIEWER] as const;
 
+@Products('CREATIVE')
 @Controller('marketing')
 export class MarketingController {
   constructor(private readonly marketing: MarketingService) {}

@@ -32,6 +32,8 @@ import { AGENT_PRESETS } from '../ai/agent/tools';
 import { AuditService } from './audit.module';
 import { COMPANY_TEMPLATES, findTemplate } from './company-templates';
 import { DEMO_COMPANY_SLUG } from '../demo/demo-company';
+import { activeProducts } from '../common/products';
+import { productsView } from './products.module';
 
 /** Payload del wizard de aprovisionamiento (crear empresa sin tocar código). */
 interface ProvisionCompanyDto {
@@ -146,6 +148,10 @@ export class CompaniesService {
       // Reactivación, cobranza y auditor vienen con cualquier plan
       modules: modulesWithAddons(parseJson<string[]>(company.modulesJson, []), readAddonStates(company), hasPlan(company)),
       limits: parseJson<Record<string, number>>(company.limitsJson, {}),
+      // Productos activos (Automation, Creative, Ads Intelligence) — el servidor también los exige
+      products: activeProducts(company),
+      productStates: productsView(company).products,
+      productsExplicit: productsView(company).explicit,
       // La llave de DeepInfra jamás sale completa del API
       hasDeepinfraKey: !!deepinfraApiKey,
       deepinfraKeyMasked: maskCompanyKey(deepinfraApiKey),

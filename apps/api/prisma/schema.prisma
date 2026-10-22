@@ -142,6 +142,9 @@ model Company {
   modulesJson           String    @default("[\"inbox\",\"contacts\",\"bots\",\"automations\",\"analytics\",\"billing\",\"team\"]")
   // Overrides de límites del plan (JSON {maxBots?, maxUsers?, maxWorkspaces?})
   limitsJson            String    @default("{}")
+  /// Productos activos (Automation, Creative, Ads Intelligence): {KEY:{enabled,since,until,requestedAt}}.
+  /// null = regla anterior (Automation siempre; Creative y Ads con plan). Ver common/products.ts
+  productsJson          String?
   trialEndsAt           DateTime?
   createdAt             DateTime  @default(now())
   updatedAt             DateTime  @updatedAt
@@ -1552,20 +1555,56 @@ model BrandProfile {
 
 /// Recurso de marca subido por la empresa (logo, imagen, referencia).
 /// Archivo privado: solo se sirve por un endpoint con autorización.
+/// Biblioteca de recursos de la empresa, compartida por Creative y Ads Intelligence.
+/// Los campos opcionales nuevos son null en los recursos anteriores (= subidos en Creative).
 model BrandAsset {
-  id        String   @id @default(cuid()) @map("_id")
-  companyId String
-  kind      String   @default("IMAGE") // LOGO | IMAGE | REFERENCE
-  name      String
-  fileName  String
-  mimeType  String
-  sizeBytes Int
-  width     Int?
-  height    Int?
-  createdBy String?
-  createdAt DateTime @default(now())
+  id            String   @id @default(cuid()) @map("_id")
+  companyId     String
+  kind          String   @default("IMAGE") // LOGO | IMAGE | REFERENCE | VIDEO
+  name          String
+  fileName      String
+  mimeType      String
+  sizeBytes     Int
+  width         Int?
+  height        Int?
+  createdBy     String?
+  createdAt     DateTime @default(now())
+  /// Procedencia: UPLOAD | CATALOG | DESIGN (null = UPLOAD, los anteriores)
+  source        String?
+  /// Producto desde el que entró: CREATIVE | ADS (null = CREATIVE)
+  originModule  String?
+  /// Si salió de un diseño de Creative: cuál y en qué versión (cada versión es un recurso aparte)
+  designId      String?
+  designVersion Int?
+  /// Versión anterior de la que deriva (el original nunca se pisa)
+  derivedFromId String?
+  /// Huella del contenido para no guardar dos veces el mismo archivo
+  sha256        String?
+  /// Video: duración en segundos (si se pudo leer del archivo)
+  durationSec   Float?
 
   @@index([companyId, kind])
+  @@index([companyId, sha256])
+}
+
+/// Un recurso de la biblioteca usado en una campaña, conjunto o anuncio.
+/// Mientras exista el vínculo, el recurso no se puede borrar.
+/// Es un registro interno de BackOffice: NO sube nada a la plataforma publicitaria.
+model AdAssetLink {
+  id         String   @id @default(cuid()) @map("_id")
+  companyId  String
+  assetId    String
+  adEntityId String
+  /// Copia para mostrar aunque la entidad cambie: META | GOOGLE | TIKTOK y CAMPAIGN | ADSET | AD
+  provider   String
+  level      String
+  entityName String
+  createdBy  String?
+  createdAt  DateTime @default(now())
+
+  @@unique([assetId, adEntityId])
+  @@index([companyId, assetId])
+  @@index([companyId, adEntityId])
 }
 
 /// Diseño editable por capas (documento validado y versionado, no una imagen plana).

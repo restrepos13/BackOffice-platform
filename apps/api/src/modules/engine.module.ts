@@ -51,6 +51,8 @@ import {
   extractJson,
   validateEngineOutput,
 } from '../ai/types';
+import { Products } from '../auth/products.guard';
+import { hasProduct } from '../common/products';
 
 const UPLOADS_DIR = resolve(process.cwd(), 'uploads');
 
@@ -189,6 +191,11 @@ export class EngineService {
 
     // Modo humano: la IA no toca la conversación
     if (conversation.botPaused) return null;
+
+    // Sin BackOffice Automation activo la IA no atiende: pasa a una persona (nunca se queda sin respuesta)
+    if (company && !hasProduct(company, 'AUTOMATION')) {
+      return this.escalate(conversation, null, 'BackOffice Automation no está activo para esta empresa');
+    }
 
     const bot = conversation.botId
       ? await this.prisma.bot.findUnique({ where: { id: conversation.botId } })
@@ -952,6 +959,7 @@ export class EngineService {
   }
 }
 
+@Products('AUTOMATION')
 @Controller('engine')
 export class EngineController {
   constructor(private readonly engine: EngineService) {}

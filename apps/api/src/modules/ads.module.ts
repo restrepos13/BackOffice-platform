@@ -23,6 +23,8 @@ import { adIdOf, revenueFunnel } from '../common/ads/revenue';
 import { Brief, buildProposal, validateBrief } from '../common/ads/proposal';
 import { OPEN, OppDraft, storeDetected } from '../common/opportunities/store';
 import { AuditModule, AuditService } from './audit.module';
+import { Products } from '../auth/products.guard';
+import { ProductInactiveError, hasProduct } from '../common/products';
 
 /**
  * BackOffice Creative Ads: cuentas publicitarias de cada empresa, sincronización,
@@ -61,7 +63,7 @@ export class AdsService {
     if (!id) throw new ForbiddenException('Falta companyId');
     const company = await this.prisma.company.findUnique({ where: { id } });
     if (!company) throw new NotFoundException('Empresa no encontrada');
-    if (!company.planId && !isPlatformRole(user.role)) throw new ForbiddenException('Publicidad viene con tu plan: elige uno en Mi plan');
+    if (!isPlatformRole(user.role) && !hasProduct(company, 'ADS')) throw new ForbiddenException(ProductInactiveError.body(['ADS'], company));
     return company;
   }
 
@@ -831,15 +833,20 @@ export class AdsService {
         where: { mode: 'REAL', status: 'CONNECTED', OR: [{ lastSyncAt: null }, { lastSyncAt: { lt: new Date(this.now().getTime() - SYNC_EVERY_H * 36e5) } }] },
         take: 20,
       });
-      for (const a of due) await this.sync(null, a.id, a.companyId, 'CRON').catch((err) => this.logger.warn(`sync ${a.id}: ${err.message}`));
-      const companies = await this.prisma.adRule.findMany({ where: { active: true }, select: { companyId: true }, take: 500 });
-      for (const companyId of new Set(companies.map((r) => r.companyId))) await this.runRules(companyId).catch((err) => this.logger.warn(`reglas ${companyId}: ${err.message}`));
+      // Sin Ads Intelligence activo no se sincroniza ni corren reglas (los datos se conservan)
+      const ruleRows = await this.prisma.adRule.findMany({ where: { active: true }, select: { companyId: true }, take: 500 });
+      const ids = [...new Set([...due.map((a) => a.companyId), ...ruleRows.map((r) => r.companyId)])];
+      const owners = ids.length ? await this.prisma.company.findMany({ where: { id: { in: ids } }, select: { id: true, planId: true, productsJson: true } }) : [];
+      const withAds = new Set(owners.filter((c) => hasProduct(c, 'ADS')).map((c) => c.id));
+      for (const a of due.filter((x) => withAds.has(x.companyId))) await this.sync(null, a.id, a.companyId, 'CRON').catch((err) => this.logger.warn(`sync ${a.id}: ${err.message}`));
+      for (const companyId of new Set(ruleRows.map((r) => r.companyId).filter((id) => withAds.has(id)))) await this.runRules(companyId).catch((err) => this.logger.warn(`reglas ${companyId}: ${err.message}`));
     } finally {
       this.cronBusy = false;
     }
   }
 }
 
+@Products('ADS')
 @Controller('ads')
 export class AdsController {
   constructor(private readonly ads: AdsService) {}
@@ -883,6 +890,7 @@ export class AdsController {
   createFromBrief(@CurrentUser() u: AuthUser, @Param('id') id: string, @Body() dto: any, @Query('companyId') c?: string) { return this.ads.createFromBrief(u, id, dto, c); }
 }
 
+@Products('ADS')
 @Controller('public/ads')
 export class AdsPublicController {
   constructor(private readonly ads: AdsService) {}

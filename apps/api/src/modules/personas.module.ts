@@ -22,6 +22,7 @@ import {
   scopeCompanyId,
 } from '../common/constants';
 import { AuditService } from './audit.module';
+import { Products } from '../auth/products.guard';
 
 @Injectable()
 export class PersonasService {
@@ -119,6 +120,7 @@ export class PersonasService {
   }
 }
 
+@Products('AUTOMATION')
 @Controller('personas')
 export class PersonasController {
   constructor(private readonly personas: PersonasService) {}
