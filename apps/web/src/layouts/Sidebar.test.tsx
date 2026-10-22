@@ -152,15 +152,40 @@ describe('Equipo BackOffice (plataforma): su panel no cambia', () => {
     return render(<MemoryRouter initialEntries={[path]}><PlatformSidebar {...base} {...props} userRole="DEV" /></MemoryRouter>);
   }
 
-  it('lista de Plataforma completa, selector de empresa y el panel de la empresa como antes; sin selector de productos ni contraer', () => {
+  it('Plataforma agrupada por tarea, con todas sus opciones a la vista', () => {
     renderPlatform('/platform');
+    for (const t of ['Atender hoy', 'Clientes y ventas', 'Oferta e IA', 'Control']) expect(screen.getByRole('button', { name: new RegExp(t) }).getAttribute('aria-expanded')).toBe('true');
     const names = screen.getAllByRole('link').map((a) => a.textContent);
-    for (const n of ['Resumen', 'Incidentes 24/7', 'Empresas', 'Registros', 'Citas', 'Salud', 'Ventas', 'Publicidad', 'Planes', 'Personalidades', 'Modelos IA', 'Consumo IA', 'Usuarios', 'Correos', 'Términos', 'Auditoría', 'Dev Tools']) expect(names).toContain(n);
-    expect(screen.getByLabelText('Empresa activa')).toBeTruthy();
-    expect(screen.getByText(/Viendo: Café Aurora/)).toBeTruthy();
-    for (const n of ['Dashboard', 'Conversaciones', 'Creative', 'Biblioteca', 'Configuración']) expect(names).toContain(n);
+    for (const n of ['Resumen', 'Incidentes 24/7', 'Salud', 'Empresas', 'Registros', 'Citas', 'Ventas', 'Correos', 'Planes', 'Personalidades', 'Modelos IA', 'Consumo IA', 'Términos', 'Publicidad de BackOffice', 'Usuarios', 'Auditoría', 'Dev Tools']) expect(names).toContain(n);
     expect(screen.queryByRole('navigation', { name: 'Productos' })).toBeNull();
-    expect(screen.queryByRole('button', { name: /Contraer menú|Expandir menú/ })).toBeNull();
+  });
+
+  it('la empresa elegida muestra su ficha y su panel por producto; se abre solo el bloque donde estás', () => {
+    renderPlatform('/app/inbox');
+    expect(screen.getByLabelText('Empresa activa')).toBeTruthy();
+    expect(screen.getByRole('link', { name: 'Café Aurora' }).getAttribute('href')).toBe('/platform/companies/c1');
+    expect(screen.getByText(/Automation ✓ · Creative ✓ · Ads Intelligence ✓/)).toBeTruthy();
+    expect(screen.getByRole('button', { name: /^Automation/ }).getAttribute('aria-expanded')).toBe('true');
+    // Dentro de una empresa, Plataforma queda plegada para que su panel se vea sin bajar
+    expect(screen.getByRole('button', { name: /Clientes y ventas/ }).getAttribute('aria-expanded')).toBe('false');
+    expect(link('Conversaciones')).toBeTruthy();
+    const creative = screen.getByRole('button', { name: /^Creative/ });
+    expect(creative.getAttribute('aria-expanded')).toBe('false');
+    expect(link('Creative')).toBeNull();
+    fireEvent.click(creative);
+    expect(link('Creative')).toBeTruthy();
+  });
+
+  it('lo que la empresa no tiene aparece como "No lo tiene"; plegar una sección deja ver sus pendientes', () => {
+    renderPlatform('/platform', { company: company(['AUTOMATION']), badges: { registros: 4 } });
+    expect(screen.getByRole('link', { name: /Ads Intelligence.*No lo tiene/ })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: /Clientes y ventas/ }));
+    expect(screen.getByLabelText('4 pendientes')).toBeTruthy();
+  });
+
+  it('sin empresa elegida pide elegir una', () => {
+    renderPlatform('/platform', { company: undefined, companyId: null, companies: [] });
+    expect(screen.getByText(/Elige una empresa para ver su panel/)).toBeTruthy();
   });
 });
 

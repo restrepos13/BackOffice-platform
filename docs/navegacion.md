@@ -2,7 +2,25 @@
 
 Estado al 22-oct-2026, en local y sin desplegar.
 
-**Alcance: solo usuarios de empresa (clientes).** El equipo BackOffice (SUPER_ADMIN/DEV) conserva su panel de siempre (`layouts/PlatformSidebar.tsx`): lista de Plataforma, selector de empresa y el panel de la empresa en una lista, con las pestañas internas de Creative y Publicidad.
+**Alcance:** la navegación por producto es para los usuarios de empresa (clientes). El equipo BackOffice (SUPER_ADMIN/DEV) tiene su propia barra, `layouts/PlatformSidebar.tsx`, pensada para operar y dar soporte:
+
+- **Plataforma**, en secciones plegables por tarea:
+  - Atender hoy: Resumen, Incidentes, Salud.
+  - Clientes y ventas: Empresas, Registros, Citas, Ventas, Correos.
+  - Oferta e IA: Planes, Personalidades, Modelos IA, Consumo IA, Términos, Publicidad de BackOffice.
+  - Control: Usuarios, Auditoría, Dev Tools.
+
+  Plegada, cada sección muestra la suma de sus pendientes.
+- **Panel de una empresa:**
+  - Arriba, el selector de empresa.
+  - Una ficha con el estado de la empresa y sus productos (con enlace a la ficha completa).
+  - Su panel en bloques plegables: Automation, Creative, Ads Intelligence, Biblioteca y Cuenta de la empresa.
+  - Lo que la empresa no tiene aparece como "No lo tiene".
+- **Qué se abre por defecto:**
+  - En `/platform` se abren las secciones de Plataforma.
+  - Dentro de una empresa, Plataforma se pliega y se abre el bloque donde estás.
+  - Lo que abras o cierres a mano se recuerda.
+- **Creative y Publicidad** conservan sus pestañas internas para el equipo.
 
 - La configuración del menú vive en `apps/web/src/layouts/navigation.ts`. Es lógica pura y tiene sus propias pruebas.
 - El componente es `apps/web/src/layouts/Sidebar.tsx`.
