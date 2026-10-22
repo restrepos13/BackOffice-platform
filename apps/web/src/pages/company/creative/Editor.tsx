@@ -250,7 +250,11 @@ export default function Editor() {
       a.click();
       await uploadFile(withScope(`/creative/designs/${id}/export`, ''), 'file', new File([blob], `export.${ext}`, { type: mime }));
     },
-    onSuccess: () => toast.success('Imagen exportada'),
+    onSuccess: () => {
+      toast.success('Imagen exportada');
+      // Primer resultado útil (para medir el tiempo hasta el primer valor)
+      if (canWrite) api.post(withScope('/creative/events', q), { type: 'first_value' }).catch(() => undefined);
+    },
     onError: (e) => toast.error(e instanceof Error ? e.message : 'Error al exportar'),
   });
 

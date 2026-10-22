@@ -322,7 +322,7 @@ export class OpportunitiesService {
     ];
     // ¿Qué necesitas hoy? Ordenado por lo que hay en los datos de esta empresa
     const intents = [
-      { key: 'followup', label: 'Tengo consultas pero no cierro ventas', hint: convs ? 'Revisamos tus conversaciones del CRM' : 'Necesita conversaciones en el CRM', href: '/app/creative?tab=inicio&focus=CRM', available: convs > 0, needs: convs ? null : 'Conectar WhatsApp', score: opps && convs ? 3 : convs ? 2 : 0 },
+      { key: 'followup', label: 'Tengo consultas pero no cierro ventas', hint: convs ? 'Revisamos tus conversaciones del CRM' : 'Necesita conversaciones en el CRM', href: '/app/creative?tab=oportunidades&source=CRM', available: convs > 0, needs: convs ? null : 'Conectar WhatsApp', score: opps && convs ? 3 : convs ? 2 : 0 },
       { key: 'post', label: 'Necesito una publicación', hint: 'Plantillas con tu marca, sin conectar nada', href: '/app/creative?tab=disenos&nuevo=1', available: true, needs: null, score: designs ? 1 : 3 },
       { key: 'review_ads', label: 'Revisa mis anuncios', hint: adReal ? 'Auditamos tu cuenta conectada' : 'Te pedimos acceso solo para esto', href: adReal ? '/app/ads?tab=oportunidades' : '/app/ads?tab=cuentas', available: true, needs: adReal ? null : 'Conectar cuenta publicitaria', score: adReal ? 3 : 1 },
       { key: 'more_clients', label: 'Quiero conseguir más clientes', hint: 'Armamos una propuesta de campaña con lo que ya sabemos', href: '/app/ads?tab=nueva', available: true, needs: null, score: 2 },

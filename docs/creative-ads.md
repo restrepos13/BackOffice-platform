@@ -1,0 +1,119 @@
+# BackOffice Creative · Publicidad y Radar comercial
+
+Documento operativo. Sin secretos: los valores reales viven solo en el `.env` de cada entorno.
+
+## 1. Arquitectura
+
+```
+Creative (web)                    API (NestJS)                              Datos (Mongo · Prisma)
+─────────────────                 ─────────────────────────────────         ─────────────────────────
+Inicio (Radar + intenciones)  ─►  opportunities.module   ─┬─► common/opportunities/*  Opportunity, CompanyContext
+Oportunidades                      (CRM + contexto)        │   (detectores, estados, observación)
+Diseños / Marca / Calendario  ─►  creative.module          │                          CreativeDesign, BrandProfile…
+Publicidad (7 pestañas)       ─►  ads.module  ─────────────┴─► common/ads/*              AdAccount, AdEntity,
+                                   (cuentas, sync, auditoría,     provider.ts (contrato)   AdInsightDaily, AdSyncRun,
+                                    Autopilot, revenue, briefs)   meta-ads-provider.ts     AdSettings, AdRule,
+                                                                  demo-provider.ts         AdActionLog, AdBrief
+                                                                  registry.ts (Google/TikTok pendientes)
+```
+
+- **Código determinista** para todo lo crítico: métricas, comparaciones, umbrales, permisos, límites, estados, idempotencia, auditoría.
+- **IA**: no se usa en estos flujos. Los textos de las oportunidades son plantillas deterministas con los datos reales.
+- **Aislamiento**: la empresa sale siempre de la sesión. Las plataformas pueden pasar `companyId`. Toda consulta filtra por `companyId` y los ids que llegan se verifican contra la empresa.
+
+## 2. Reutilizado (no duplicado)
+
+| Pieza existente | Uso |
+| --- | --- |
+| `common/crypto` (AES-256-GCM) | Tokens de cuentas publicitarias |
+| `common/meta-publish.ts` (`oauthUrl`, `exchangeCode`, `signState`) | OAuth de Meta Ads (con `scopes` propios) |
+| `AuditService` | Registro de conexiones, acciones y correcciones |
+| `Contact.originJson` (`chat-origin.ts`) | Atribución directa anuncio → contacto (ID del anuncio en el referral de clic a WhatsApp) |
+| `ReactivationService.candidates` | Clientes inactivos para el Radar |
+| Embudos (`pipelines.ts`), `Order` (`PAID` / `entregado`) | Etapas y ventas confirmadas |
+| `@nestjs/schedule` | Sincronización cada 6 h, reglas, observación de resultados |
+
+## 3. Modelos nuevos (Prisma, Mongo)
+
+`AdAccount`, `AdEntity`, `AdInsightDaily`, `AdSyncRun`, `AdSettings`, `AdRule`, `AdActionLog`, `AdBrief`, `Opportunity`, `CompanyContext`.
+
+No hay migraciones destructivas: Mongo crea las colecciones al primer uso. **Hay que correr `npx prisma db push --skip-generate`** para crear los índices únicos (`dedupeKey`, `idempotencyKey`, `companyId+provider+externalId`, `accountId+level+externalId(+date)`). Sin ellos, el código igual evita duplicados consultando antes, pero el índice es la garantía final.
+
+## 4. Variables de entorno
+
+```
+META_APP_ID=""                 # ya existía (también se puede guardar desde DevTools)
+META_APP_SECRET=""
+META_ADS_API_VERSION="v24.0"   # Meta retira versiones: revisar cada año
+ADS_CRON_DISABLED=""           # "1" apaga la sincronización y las reglas automáticas
+OPPORTUNITIES_CRON_DISABLED="" # "1" apaga la observación y la detección diaria del CRM
+```
+
+## 5. Conectar Meta Ads
+
+1. En la app de Meta (developers.facebook.com) agregar el producto **Marketing API** y pedir en App Review: `ads_read`, `ads_management`, `business_management`.
+2. Agregar como URI de redirección OAuth válida: `https://<dominio-web>/api/public/ads/meta/callback`.
+3. Con `META_APP_ID` y `META_APP_SECRET` configurados, en *Publicidad → Cuentas* aparece **Continuar con Facebook**. El cliente elige sus cuentas publicitarias y las conecta.
+4. Alternativa sin App Review: **conexión con token** (usuario del sistema de Business Manager con `ads_read`). Se valida que el token tenga acceso a esa cuenta.
+5. Una cuenta publicitaria solo puede estar conectada en una empresa a la vez.
+
+La creación de campañas usa `name`, `objective` (OUTCOME_*), `status=PAUSED`, `special_ad_categories=[]` e `is_adset_budget_sharing_enabled=false`. COP no lleva decimales (offset 1) y USD sí (offset 100). Esto se verificó en la documentación oficial de Meta en octubre de 2026.
+
+## 6. Google Ads y TikTok Ads (pendientes)
+
+Ya existe el contrato (`AdsProvider`) y un adaptador que **declara qué falta**, sin endpoints inventados.
+
+- **Google Ads**: developer token aprobado, cliente OAuth con el alcance de Google Ads, MCC si aplica. Adaptador: GAQL para reportes y `mutate` para pausar.
+- **TikTok Ads**: app aprobada en TikTok for Business Developers (Marketing API), OAuth del anunciante (`advertiser_id`). Adaptador: reportes integrados y actualización de estado.
+
+## 7. Controles de dinero y autonomía
+
+- **Autonomía** (por empresa): `ANALYSIS` (por defecto, solo alertas), `RECOMMEND` (propone; una persona aprueba) o `AUTHORIZED` (ejecuta solo **pausar**, si el admin lo habilitó).
+- El Autopilot **nunca** activa campañas ni sube presupuestos.
+- Reanudar, revertir una pausa y crear campañas exigen `confirm: true` de una persona. Las campañas se crean **en pausa**.
+- La **pausa global** detiene todo el Autopilot.
+- Antes de ejecutar solo, se verifican: datos frescos (`maxDataAgeHours`), token vigente, que el elemento esté activo, que pertenezca a la empresa y que no se haya ejecutado ya (idempotencia por regla + elemento + día).
+- **Tope diario** (`maxDailyBudget`): BackOffice no crea propuestas por encima de él.
+
+## 8. Radar comercial (Oportunidades)
+
+| Regla | Fuente | Acción |
+| --- | --- | --- |
+| `FOLLOW_UP_PENDING` (≥3 chats con el último mensaje del cliente, entre 24 h y 30 días) | CRM | Lista de seguimiento (sin envíos automáticos) |
+| `STALLED_LEADS` (≥5 contactos en la 1.ª etapa, 7 a 60 días, sin actividad hace 7) | CRM | Lista de seguimiento |
+| `DORMANT_CUSTOMERS` (≥3 que compraron y no volvieron) | CRM | Ir a Reactivación |
+| `PRODUCT_GROWTH` (+40 %, ≥10 unidades) | CRM | Hipótesis: crear publicación |
+| `MEASUREMENT`, `CPR_UP`, `SPEND_NO_RESULTS`, `SPEND_CONCENTRATION`, `AD_ISSUES`, `SPEND_SPIKE`, `LEAD_TRACKING`, `LEAD_QUALITY` | Anuncios (+ CRM) | Pausar o revisar |
+
+**Estados:** `NEW` → `REVIEWING` → `PREPARED` / `NEEDS_APPROVAL` → (actuar) → `OBSERVING` → `RESULT`. También `SNOOZED` y `DISMISSED`.
+
+- Un clic **no** registra un resultado. El resultado lo mide el sistema días después: 3 días para pausas, 7 para métricas y seguimientos, 21 para inactivos. Siempre lleva la aclaración de que muestra lo ocurrido después, sin probar causalidad.
+- La persona puede anotar un resultado, que queda como **dato declarado**, separado de lo medido.
+- Si la condición desaparece sola, queda registrada como «ya no se detecta», no como «resuelta».
+- La evidencia se etiqueta como **suficiente**, **indicio inicial** o **faltan datos**. No hay porcentajes de confianza ni dinero «perdido» o «recuperable».
+
+## 9. Pruebas
+
+`apps/api/test/ads.spec.ts` (32) y `apps/api/test/opportunities.spec.ts` (13) cubren:
+
+- Adaptador de Meta: paginación, errores, monedas y creación en pausa.
+- Sincronización sin duplicados y actualización por atribución tardía.
+- Separación entre datos REAL y DEMO.
+- Aislamiento entre empresas en cuentas, entidades, reglas, acciones, briefs, oportunidades y contactos.
+- Guardia del Autopilot, idempotencia, fallos del proveedor, confirmaciones y tope de presupuesto.
+- Atribución sin coincidencias débiles.
+- API de conversiones: consentimiento y hash.
+- Estados del Radar, observación de resultados y contexto.
+
+## 10. Despliegue y reversión
+
+- **Despliegue**: `prisma db push`, configurar variables y desplegar la API y la web.
+- **Reversión**: `ADS_CRON_DISABLED=1` y `OPPORTUNITIES_CRON_DISABLED=1` apagan todo lo automático sin tocar datos. Revertir el commit quita las pantallas. Las colecciones nuevas no afectan a las existentes.
+- **Recuperación**: las sincronizaciones quedan en `AdSyncRun`. Una que quedó en `RUNNING` más de 15 minutos no bloquea la siguiente.
+- **Observabilidad**: `AdSyncRun` (errores de sincronización), `AdActionLog` (todo cambio con la respuesta del proveedor) y el `AuditLog` general.
+
+## 11. Costos operativos
+
+- Meta Marketing API: sin costo directo; tiene límites de solicitudes, que se manejan como `RATE_LIMIT` y se reintentan en la siguiente vuelta.
+- Base de datos: unas 60 filas diarias por anuncio y día sincronizado (aproximadamente 1 KB cada una).
+- No se usa IA en estos flujos, así que no consumen créditos.

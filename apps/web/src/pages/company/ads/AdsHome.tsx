@@ -7,6 +7,7 @@ import { api } from '../../../lib/api';
 import { AdsSpendChart } from '../../../components/charts';
 import { Badge, Button, Card, EmptyState, Field, Input, Loading, Modal, PageHeader, Select, Stat, Switch, Tabs } from '../../../components/ui';
 import { PickCompany, useCompanyScope, withScope } from '../shared';
+import { OpportunityList } from '../../../components/opportunities/Opportunities';
 
 /**
  * Publicidad (BackOffice Creative Ads): resultados, cuentas, campañas,
@@ -385,77 +386,14 @@ function Campaigns({ q, mode, currency }: { q: string; mode: Mode; currency: str
   );
 }
 
-/* ── Oportunidades (auditoría) ── */
-
-interface Finding {
-  id: string; ruleKey: string; severity: string; title: string; entityName: string | null; confidence: string; status: string; lastSeenAt: string;
-  explanation: { facts: string[]; interpretation: string; assumptions: string[]; missing: string[]; action: string; expected: string; uncertainty: string };
-  action: { type?: string; risk?: string; reversible?: boolean }; period: any;
-}
+/* ── Oportunidades: el mismo Radar, filtrado a anuncios ── */
 
 function Findings({ q, mode }: { q: string; mode: Mode }) {
-  const queryClient = useQueryClient();
   const { canWrite } = useCompanyScope();
-  const [show, setShow] = useState('NEW,REVIEWED');
-  const [exec, setExec] = useState<Finding | null>(null);
-  const { data, isLoading } = useQuery({ queryKey: ['ads-findings', q, mode, show], queryFn: () => api.get<Finding[]>(`/ads/findings${qs(q, { mode, status: show })}`) });
-  const refresh = () => { queryClient.invalidateQueries({ queryKey: ['ads-findings'] }); queryClient.invalidateQueries({ queryKey: ['ads-overview'] }); };
-  const err = (e: unknown) => toast.error(e instanceof Error ? e.message : 'Error');
-  const run = useMutation({ mutationFn: () => api.post(withScope('/ads/audit', q)), onSuccess: () => { refresh(); toast.success('Auditoría actualizada'); }, onError: err });
-  const setStatus = useMutation({ mutationFn: ({ id, status }: { id: string; status: string }) => api.patch(withScope(`/ads/findings/${id}`, q), { status }), onSuccess: refresh, onError: err });
-  const execute = useMutation({ mutationFn: () => api.post<{ demo?: boolean }>(withScope(`/ads/findings/${exec!.id}/execute`, q), { confirm: true }), onSuccess: (r) => { refresh(); setExec(null); toast.success(r.demo ? 'Pausado (simulado)' : 'Pausado en la plataforma'); }, onError: err });
-  if (isLoading || !data) return <Loading />;
-  const SEV: Record<string, ['bad' | 'warn' | 'neutral', string]> = { HIGH: ['bad', 'Alta'], MEDIUM: ['warn', 'Media'], LOW: ['neutral', 'Baja'] };
   return (
     <>
-      <div className="mb-4 flex flex-wrap items-center gap-2">
-        <Select value={show} onChange={(e) => setShow(e.target.value)} className="!w-56">
-          <option value="NEW,REVIEWED">Por atender</option><option value="EXECUTED,RESOLVED">Ejecutadas o resueltas</option><option value="DISMISSED">Descartadas</option>
-        </Select>
-        {canWrite && <Button size="sm" variant="outline" disabled={run.isPending} onClick={() => run.mutate()}>{run.isPending ? 'Auditando…' : 'Volver a auditar'}</Button>}
-        <p className="text-xs text-ink-3">Reglas con evidencia numérica. No se juzgan los últimos 2 días (retraso de atribución).</p>
-      </div>
-      {!data.length ? <EmptyState title="Nada por atender" hint="Cuando la auditoría encuentre algo, aparecerá aquí con sus números y lo que conviene hacer." /> : (
-        <div className="space-y-4">
-          {data.map((f) => (
-            <Card key={f.id} kicker={`${f.entityName ?? ''} · confianza ${f.confidence.toLowerCase()}`} title={f.title}>
-              <div className="mb-2 flex flex-wrap gap-1"><Badge tone={SEV[f.severity]?.[0] ?? 'neutral'}>Prioridad {SEV[f.severity]?.[1] ?? f.severity}</Badge>{f.status !== 'NEW' && <Badge tone="neutral">{f.status === 'REVIEWED' ? 'Revisado' : f.status === 'EXECUTED' ? 'Ejecutado' : f.status === 'RESOLVED' ? 'Resuelto' : 'Descartado'}</Badge>}</div>
-              <div className="grid gap-4 text-sm md:grid-cols-2">
-                <div>
-                  <p className="kicker mb-1">Lo que vemos (hechos)</p>
-                  <ul className="list-disc space-y-0.5 pl-5">{f.explanation.facts.map((x) => <li key={x}>{x}</li>)}</ul>
-                  <p className="kicker mb-1 mt-3">Qué puede significar</p>
-                  <p>{f.explanation.interpretation}</p>
-                </div>
-                <div>
-                  <p className="kicker mb-1">Qué conviene hacer</p>
-                  <p className="font-semibold">{f.explanation.action}</p>
-                  <p className="text-ink-2">Resultado esperado: {f.explanation.expected}</p>
-                  {f.action.type === 'PAUSE' && <p className="text-xs text-ink-3">Riesgo: {f.action.risk === 'MEDIUM' ? 'medio' : 'bajo'} · {f.action.reversible ? 'se puede revertir' : 'no se puede revertir'}</p>}
-                  <details className="mt-2 text-xs text-ink-2">
-                    <summary className="cursor-pointer">Supuestos, datos faltantes e incertidumbre</summary>
-                    {f.explanation.assumptions.length > 0 && <p className="mt-1"><b>Supuestos:</b> {f.explanation.assumptions.join(' · ')}</p>}
-                    {f.explanation.missing.length > 0 && <p className="mt-1"><b>Falta saber:</b> {f.explanation.missing.join(' · ')}</p>}
-                    <p className="mt-1"><b>Incertidumbre:</b> {f.explanation.uncertainty}</p>
-                  </details>
-                </div>
-              </div>
-              {canWrite && ['NEW', 'REVIEWED'].includes(f.status) && (
-                <div className="mt-3 flex flex-wrap gap-2">
-                  {f.action.type === 'PAUSE' && <Button size="sm" onClick={() => setExec(f)}>Pausar ahora</Button>}
-                  {f.status === 'NEW' && <Button size="sm" variant="outline" onClick={() => setStatus.mutate({ id: f.id, status: 'REVIEWED' })}>Marcar revisado</Button>}
-                  <Button size="sm" variant="outline" onClick={() => setStatus.mutate({ id: f.id, status: 'RESOLVED' })}>Ya lo resolví</Button>
-                  <Button size="sm" variant="ghost" onClick={() => setStatus.mutate({ id: f.id, status: 'DISMISSED' })}>Descartar</Button>
-                </div>
-              )}
-            </Card>
-          ))}
-        </div>
-      )}
-      <Confirm open={!!exec} title="Pausar anuncio" cta="Sí, pausar" busy={execute.isPending} onClose={() => setExec(null)} onConfirm={() => execute.mutate()}>
-        <p><b>{exec?.entityName}</b> dejará de entregarse. Se puede reanudar desde Campañas o desde el registro del Autopilot.</p>
-        {mode === 'DEMO' && <p className="text-info">Es una demostración: no se toca ninguna cuenta real.</p>}
-      </Confirm>
+      <p className="mb-3 text-xs text-ink-3">Reglas con evidencia numérica sobre tus anuncios. No juzgamos los últimos 2 días (retraso de atribución) ni culpamos a una campaña si la medición no funciona.</p>
+      <OpportunityList scope={(p) => withScope(p, q)} query={{ source: 'ADS', mode }} canWrite={canWrite} emptyHint="Cuando la auditoría de tus anuncios encuentre algo que merezca tu atención, aparecerá aquí con sus números." />
     </>
   );
 }

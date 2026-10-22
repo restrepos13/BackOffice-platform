@@ -10,6 +10,8 @@ import { CATEGORY_LABELS, FONTS, FORMATS, type FormatKey, STATUS_LABELS, authedB
 import { Badge, Button, Card, EmptyState, Field, Input, Loading, Modal, PageHeader, Select, Stat, Switch, Tabs, Textarea } from '../../../components/ui';
 import { PickCompany, useCompanyScope, withScope } from '../shared';
 import { AssetThumb } from './Editor';
+import CreativeStart from './CreativeStart';
+import { OpportunityList } from '../../../components/opportunities/Opportunities';
 
 /**
  * BackOffice Creative: diseños editables, identidad de marca, recursos,
@@ -32,22 +34,24 @@ interface Piece {
 }
 
 const TABS = [
-  { id: 'disenos', label: 'Diseños' }, { id: 'marca', label: 'Marca' }, { id: 'recursos', label: 'Recursos' },
+  { id: 'inicio', label: 'Inicio' }, { id: 'oportunidades', label: 'Oportunidades' }, { id: 'disenos', label: 'Diseños' }, { id: 'marca', label: 'Marca' }, { id: 'recursos', label: 'Recursos' },
   { id: 'calendario', label: 'Calendario' }, { id: 'reglas', label: 'Reglas' }, { id: 'creditos', label: 'Créditos' },
 ];
 
 export default function CreativeHome() {
-  const { ready, q } = useCompanyScope();
+  const { ready, q, canWrite } = useCompanyScope();
   const [params, setParams] = useSearchParams();
-  const tab = params.get('tab') ?? 'disenos';
+  const tab = params.get('tab') ?? 'inicio';
   const brand = useQuery({ queryKey: ['brand', q], queryFn: () => api.get<Brand>(withScope('/creative/brand', q)), enabled: ready, retry: false });
   if (!ready) return <PickCompany />;
   if (brand.error) return <Card title="Creative"><p className="text-sm">{brand.error instanceof Error ? brand.error.message : 'No disponible'} <Link to="/app/mi-plan" className="underline">Ir a Mi plan</Link></p></Card>;
   return (
     <>
-      <PageHeader kicker="Diseña, aprueba y publica" title="Creative" accent="de tu marca" />
+      <PageHeader kicker="Oportunidades, diseño y publicación" title="Creative" accent="de tu negocio" />
       <Tabs tabs={TABS} active={tab} onChange={(t) => setParams({ tab: t })} />
       <div className="mt-5">
+        {tab === 'inicio' && <CreativeStart q={q} />}
+        {tab === 'oportunidades' && <OpportunityList scope={(p) => withScope(p, q)} query={{ source: params.get('source') ?? undefined }} canWrite={canWrite} />}
         {tab === 'disenos' && <Designs q={q} />}
         {tab === 'marca' && (brand.data ? <BrandForm q={q} brand={brand.data} /> : <Loading />)}
         {tab === 'recursos' && <Assets q={q} />}
@@ -82,7 +86,8 @@ function Designs({ q }: { q: string }) {
   const { canWrite } = useCompanyScope();
   const { data, isLoading } = useQuery({ queryKey: ['designs', q], queryFn: () => api.get<DesignRow[]>(withScope('/creative/designs', q)) });
   const { data: tpl } = useQuery({ queryKey: ['creative-templates'], queryFn: () => api.get<Templates>('/creative/templates') });
-  const [creating, setCreating] = useState(false);
+  const [params] = useSearchParams();
+  const [creating, setCreating] = useState(params.get('nuevo') === '1' && canWrite);
   const [format, setFormat] = useState<FormatKey>('IG_POST');
   const create = useMutation({
     mutationFn: (templateKey: string | null) => api.post<{ id: string }>(withScope('/creative/designs', q), { format, templateKey }),
