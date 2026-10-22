@@ -49,13 +49,13 @@ model User {
   assignedContacts Contact[]  @relation("AssignedContacts")
   /// Sube al cerrar sesión, cambiar la contraseña, desactivar o cambiar el rol:
   /// los tokens emitidos antes dejan de servir (revocación real del lado servidor)
-  sessionVersion Int       @default(0)
+  sessionVersion   Int        @default(0)
   /// MFA (TOTP): secreto cifrado, activo y último paso usado (anti-repetición)
-  mfaSecretEnc   String?
-  mfaEnabled     Boolean   @default(false)
-  mfaLastStep    Int?
+  mfaSecretEnc     String?
+  mfaEnabled       Boolean    @default(false)
+  mfaLastStep      Int?
   /// Códigos de recuperación (bcrypt), de un solo uso
-  mfaRecoveryJson String?
+  mfaRecoveryJson  String?
 }
 
 // ─── Planes ──────────────────────────────────────────────────────────
@@ -80,20 +80,20 @@ model Plan {
 
   // Rubro: COMIDAS | WEBCAM | SERVICIOS | VENTAS (COP, IVA incluido, precios "desde")
   // PRO = planes viejos en USD (inactivos para clientes nuevos)
-  line          String @default("PRO")
-  currency      String @default("USD")
-  maxLines      Int    @default(1)
-  maxCouriers   Int    @default(0)
-  minTermMonths Int    @default(0) // permanencia mínima (montaje gratis)
-  setupFeeValue Float  @default(0) // valor de referencia del montaje (salida anticipada)
-  sortOrder     Int    @default(0)
+  line            String  @default("PRO")
+  currency        String  @default("USD")
+  maxLines        Int     @default(1)
+  maxCouriers     Int     @default(0)
+  minTermMonths   Int     @default(0) // permanencia mínima (montaje gratis)
+  setupFeeValue   Float   @default(0) // valor de referencia del montaje (salida anticipada)
+  sortOrder       Int     @default(0)
   /// BASICO | INTERMEDIO | MAX (línea WPP: automatización humanizada de WhatsApp)
-  tier          String?
+  tier            String?
   /// Precio mensual en modalidad "Todo incluido" (nosotros gestionamos la IA y Meta).
   /// priceMonthly es la modalidad "Tu IA" (el cliente paga su IA y Meta directo).
-  priceManaged  Float  @default(0)
+  priceManaged    Float   @default(0)
   /// US$ de mensajes de Meta (vía Twilio) incluidos al mes en "Todo incluido"
-  includedMetaUsd Float @default(10)
+  includedMetaUsd Float   @default(10)
 }
 
 // ─── Empresas (tenants) ──────────────────────────────────────────────
@@ -197,14 +197,14 @@ model Company {
   einvoiceConfigJson String    @default("{}")
   branches           Branch[]
   /// SELF = "Tu IA" (paga su IA y Meta directo) | MANAGED = "Todo incluido" (mes vencido)
-  serviceMode   String    @default("SELF")
+  serviceMode        String    @default("SELF")
   /// Código para invitar a otras empresas (programa de referidos)
-  referralCode  String?
+  referralCode       String?
   /// Empresa que la refirió y estado del premio {status, rewardedAt, adjustmentId}
-  referredById  String?
-  referralJson  String?
+  referredById       String?
+  referralJson       String?
   /// Landing de regalo de la primera suscripción {status, url, notes, deliveredAt}
-  landingJson   String?
+  landingJson        String?
 }
 
 // ─── Bots / Asistentes IA ────────────────────────────────────────────
@@ -348,7 +348,7 @@ model Contact {
   // Identificadores en otros canales (Instagram / Messenger)
   externalId String?
   /// Primer origen del contacto (anuncio, publicación o directo); no se sobreescribe
-  originJson     String?
+  originJson String?
 }
 
 // ─── Conversaciones y mensajes ───────────────────────────────────────
@@ -693,37 +693,34 @@ model MarketingCampaign {
 // Pieza de contenido: reel, post, historia o anuncio.
 // type: REEL | POST | STORY | AD — status: IDEA | BORRADOR | LISTO | PROGRAMADO | PUBLICADO
 model ContentPiece {
-  id           String             @id @default(cuid()) @map("_id")
-  companyId    String
-  company      Company            @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  campaignId   String?
-  campaign     MarketingCampaign? @relation(fields: [campaignId], references: [id], onDelete: SetNull)
-  type         String             @default("POST")
-  status       String             @default("IDEA")
-  title        String
-  brief        String? // idea/brief de entrada para la IA
-  copy         String? // caption generado o escrito
-  hashtagsJson String             @default("[]")
-  script       String? // guion (para reels/videos)
-  channel      String? // instagram | tiktok | facebook | youtube
-  scheduledAt  DateTime?
-  publishedAt  DateTime?
-  videoJobId   String?
-  assetUrl     String? // video/imagen final (cuando exista)
+  id                String             @id @default(cuid()) @map("_id")
+  companyId         String
+  company           Company            @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  campaignId        String?
+  campaign          MarketingCampaign? @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+  type              String             @default("POST")
+  status            String             @default("IDEA")
+  title             String
+  brief             String? // idea/brief de entrada para la IA
+  copy              String? // caption generado o escrito
+  hashtagsJson      String             @default("[]")
+  script            String? // guion (para reels/videos)
+  channel           String? // instagram | tiktok | facebook | youtube
+  scheduledAt       DateTime?
+  publishedAt       DateTime?
+  videoJobId        String?
+  assetUrl          String? // video/imagen final (cuando exista)
   /// Redes sociales con IA: imagen generada, destinos y resultado de la publicación
   imagePrompt       String?
   assetFile         String? // archivo en uploads/<empresa>/ (imagen o video)
   assetMime         String?
   mediaToken        String? // token público para que Meta descargue el archivo
-  targetsJson       String  @default("[]") // ["facebook","instagram"]
+  targetsJson       String             @default("[]") // ["facebook","instagram"]
   publishResultJson String? // {facebook:{id,url}, instagram:{id,containerId}}
   publishError      String?
-  publishAttempts   Int     @default(0)
-  createdAt    DateTime           @default(now())
-  updatedAt    DateTime           @updatedAt
-
-  @@index([companyId, status])
-  @@index([companyId, scheduledAt])
+  publishAttempts   Int                @default(0)
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
   /// Diseño editable del que salió la imagen (y su versión)
   designId          String?
   designVersion     Int?
@@ -734,6 +731,9 @@ model ContentPiece {
   approvedAt        DateTime?
   reviewNote        String?
   autoApproved      Boolean?
+
+  @@index([companyId, status])
+  @@index([companyId, scheduledAt])
 }
 
 // Tarea de generación de video (integración MoneyPrinterTurbo — cascarón).
@@ -868,20 +868,20 @@ model AiUsageEvent {
 // ─── Catálogo de modelos IA (DeepInfra) ──────────────────────────────
 // Costos por millón de tokens que se declaran al cliente (consumo al costo).
 model AiModel {
-  id                String   @id @default(cuid()) @map("_id")
-  provider          String   @default("DEEPINFRA")
-  modelId           String   @unique // ej. meta-llama/Llama-3.3-70B-Instruct
-  name              String
-  inputCostPerMTok  Float // USD por 1M tokens de entrada
-  outputCostPerMTok Float // USD por 1M tokens de salida
-  contextK          Int      @default(128)
-  recommended       Boolean  @default(false)
-  active            Boolean  @default(true)
-  notes             String?
+  id                     String   @id @default(cuid()) @map("_id")
+  provider               String   @default("DEEPINFRA")
+  modelId                String   @unique // ej. meta-llama/Llama-3.3-70B-Instruct
+  name                   String
+  inputCostPerMTok       Float // USD por 1M tokens de entrada
+  outputCostPerMTok      Float // USD por 1M tokens de salida
+  contextK               Int      @default(128)
+  recommended            Boolean  @default(false)
+  active                 Boolean  @default(true)
+  notes                  String?
   /// Conversaciones del paquete de IA que gasta cada conversación con este
   /// modelo (los premium gastan más para no vender a pérdida)
-  creditsPerConversation Int @default(1)
-  createdAt         DateTime @default(now())
+  creditsPerConversation Int      @default(1)
+  createdAt              DateTime @default(now())
 }
 
 // ─── Automatizaciones ────────────────────────────────────────────────
@@ -1368,34 +1368,34 @@ model Incident {
 /// por QR de Bancolombia o transferencia (el equipo contacta y confirma);
 /// Wompi queda como "próximamente".
 model PlanOrder {
-  id               String    @id @default(cuid()) @map("_id")
-  companyId        String
-  planId           String
-  planName         String
-  billingCycle     String    @default("MONTHLY")
-  planAmount       Float
-  aiPackageId      String?
-  aiPackageName    String?
-  aiPackageAmount  Float     @default(0)
-  total            Float
-  currency         String    @default("COP")
+  id                 String    @id @default(cuid()) @map("_id")
+  companyId          String
+  planId             String
+  planName           String
+  billingCycle       String    @default("MONTHLY")
+  planAmount         Float
+  aiPackageId        String?
+  aiPackageName      String?
+  aiPackageAmount    Float     @default(0)
+  total              Float
+  currency           String    @default("COP")
   /// REQUESTED → CONTACTED → AWAITING_PAYMENT → PAID → ACTIVE | CANCELLED
-  status           String    @default("REQUESTED")
+  status             String    @default("REQUESTED")
   /// QR | TRANSFER | WOMPI (el que acuerde el equipo)
-  method           String?
+  method             String?
   /// SELF ("Tu IA") | MANAGED ("Todo incluido")
-  serviceMode      String    @default("SELF")
+  serviceMode        String    @default("SELF")
   /// Complementos pedidos [{key, qty, price}]
-  addonsJson       String?
+  addonsJson         String?
   /// Lo que recomendó el sistema y por qué (JSON)
   recommendationJson String?
-  notes            String?
-  requestedBy      String?
-  handledBy        String?
-  paidAt           DateTime?
-  activatedAt      DateTime?
-  createdAt        DateTime  @default(now())
-  updatedAt        DateTime  @updatedAt
+  notes              String?
+  requestedBy        String?
+  handledBy          String?
+  paidAt             DateTime?
+  activatedAt        DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
 
   @@index([status])
   @@index([companyId])
@@ -1405,41 +1405,41 @@ model PlanOrder {
 /// quedó, qué consumió de IA y el seguimiento comercial del equipo (contacto,
 /// reunión, demo). El navegador guarda solo el token de su sesión.
 model SignupSession {
-  id            String    @id @default(cuid()) @map("_id")
-  token         String    @unique
+  id           String    @id @default(cuid()) @map("_id")
+  token        String    @unique
   /// STARTED → INTERVIEW → PREVIEW → ACCOUNT → DONE
-  step          String    @default("STARTED")
-  answers       Int       @default(0)
-  description   String?
-  businessName  String?
-  businessType  String?
-  rubro         String?
-  contactName   String?
-  email         String?
-  phone         String?
+  step         String    @default("STARTED")
+  answers      Int       @default(0)
+  description  String?
+  businessName String?
+  businessType String?
+  rubro        String?
+  contactName  String?
+  email        String?
+  phone        String?
   /// ai | guided (sin IA disponible)
-  mode          String?
-  aiCalls       Int       @default(0)
-  aiTokens      Int       @default(0)
+  mode         String?
+  aiCalls      Int       @default(0)
+  aiTokens     Int       @default(0)
   /// Últimos errores que vio la persona [{at, step, message}]
-  errorsJson    String?
-  companyId     String?
-  referrer      String?
-  userAgent     String?
+  errorsJson   String?
+  companyId    String?
+  referrer     String?
+  userAgent    String?
   /// Campaña de donde llegó (?utm_source=facebook&utm_campaign=…)
-  utmSource     String?
-  utmCampaign   String?
+  utmSource    String?
+  utmCampaign  String?
   /// Clientes que le escriben al día (lo dice en el registro; base de los cálculos de IA)
-  dailyChats    Int?
+  dailyChats   Int?
   /// Seguimiento del equipo: NEW | CONTACTED | MEETING | DEMO_DONE | WON | LOST
-  followStatus  String    @default("NEW")
-  meetingAt     DateTime?
-  followNotes   String?
-  followBy      String?
-  notifiedAt    DateTime?
-  lastSeenAt    DateTime  @default(now())
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  followStatus String    @default("NEW")
+  meetingAt    DateTime?
+  followNotes  String?
+  followBy     String?
+  notifiedAt   DateTime?
+  lastSeenAt   DateTime  @default(now())
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
 
   @@index([lastSeenAt])
   @@index([followStatus])
@@ -1479,7 +1479,7 @@ model StoredFile {
 /// Cita con un agente de BackOffice. Lo técnico (IA, WhatsApp, plantillas de
 /// Meta) lo configuramos nosotros en una llamada: el cliente nunca queda solo.
 model AgentCall {
-  id          String    @id @default(cuid()) @map("_id")
+  id          String   @id @default(cuid()) @map("_id")
   companyId   String
   userId      String?
   requestedBy String
@@ -1489,13 +1489,13 @@ model AgentCall {
   phone       String
   notes       String?
   /// REQUESTED | CONFIRMED | DONE | CANCELLED | NO_SHOW
-  status      String    @default("REQUESTED")
+  status      String   @default("REQUESTED")
   agentName   String?
   meetUrl     String?
   doneNotes   String?
   cancelledBy String?
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @default(now())
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @default(now())
 
   @@index([companyId])
   @@index([slotAt])
@@ -1515,7 +1515,9 @@ model HealthSample {
   @@index([env, at])
 }
 
-/* ═══ BackOffice Creative ═══ */
+/**
+ * ═══ BackOffice Creative ═══
+ */
 
 /// Identidad de marca de la empresa (una por empresa). Lo confirmado por la
 /// empresa vive en los campos; lo que propone la IA queda aparte en
@@ -1539,7 +1541,7 @@ model BrandProfile {
   formatsJson      String   @default("[]") // formatos que usa
   protectedJson    String   @default("{}") // {logo: bool, colors: bool}
   policyJson       String   @default("{}") // reglas de publicación y autonomía
-  suggestionsJson  String?  // propuestas de la IA pendientes de aceptar
+  suggestionsJson  String? // propuestas de la IA pendientes de aceptar
   version          Int      @default(1)
   updatedBy        String?
   createdAt        DateTime @default(now())
@@ -1569,7 +1571,7 @@ model CreativeDesign {
   id            String   @id @default(cuid()) @map("_id")
   companyId     String
   name          String
-  format        String   // IG_POST | IG_PORTRAIT | STORY | FB_POST
+  format        String // IG_POST | IG_PORTRAIT | STORY | FB_POST
   docJson       String
   schemaVersion Int      @default(1)
   /// Control de concurrencia: cada guardado sube la versión; un guardado con versión vieja se rechaza
@@ -1630,4 +1632,236 @@ model CreativeWallet {
   companyId    String   @unique
   extraCredits Int      @default(0)
   updatedAt    DateTime @default(now())
+}
+
+// ─────────────── BackOffice Creative Ads ───────────────
+// Publicidad de cada empresa (Meta / Google / TikTok). Todo va aislado por
+// companyId. mode=DEMO marca datos simulados: nunca se mezclan con REAL.
+
+/// Cuenta publicitaria conectada por una empresa.
+model AdAccount {
+  id          String    @id @default(cuid()) @map("_id")
+  companyId   String
+  /// META | GOOGLE | TIKTOK
+  provider    String
+  /// REAL | DEMO
+  mode        String    @default("REAL")
+  /// ID en la plataforma (act_123… en Meta)
+  externalId  String
+  name        String
+  currency    String    @default("COP")
+  timezone    String?
+  /// Token cifrado (enc:v1:…); nunca se devuelve por el API
+  tokenEnc    String?
+  scopesJson  String    @default("[]")
+  /// CONNECTED | EXPIRED | ERROR | DISCONNECTED
+  status      String    @default("CONNECTED")
+  lastSyncAt  DateTime?
+  lastError   String?
+  connectedBy String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @default(now())
+
+  @@unique([companyId, provider, externalId])
+  @@index([companyId, status])
+}
+
+/// Campaña, conjunto/grupo de anuncios o anuncio sincronizado (capa común).
+model AdEntity {
+  id                 String    @id @default(cuid()) @map("_id")
+  companyId          String
+  accountId          String
+  provider           String
+  mode               String    @default("REAL")
+  /// CAMPAIGN | ADSET | AD
+  level              String
+  externalId         String
+  campaignExternalId String?
+  adsetExternalId    String?
+  name               String
+  status             String?
+  effectiveStatus    String?
+  objective          String?
+  /// Presupuestos en unidades de la moneda de la cuenta (ya convertidos del offset)
+  dailyBudget        Float?
+  lifetimeBudget     Float?
+  /// Problemas de revisión o entrega reportados por la plataforma
+  issuesJson         String    @default("[]")
+  /// Datos originales de la plataforma (sin tokens)
+  rawJson            String    @default("{}")
+  providerUpdatedAt  DateTime?
+  syncedAt           DateTime  @default(now())
+
+  @@unique([accountId, level, externalId])
+  @@index([companyId, level])
+}
+
+/// Métricas diarias reportadas por la plataforma (granularidad: día de la cuenta).
+model AdInsightDaily {
+  id                 String   @id @default(cuid()) @map("_id")
+  companyId          String
+  accountId          String
+  mode               String   @default("REAL")
+  level              String
+  externalId         String
+  campaignExternalId String?
+  /// YYYY-MM-DD en la zona horaria de la cuenta publicitaria
+  date               String
+  currency           String
+  spend              Float    @default(0)
+  impressions        Int      @default(0)
+  reach              Int      @default(0)
+  clicks             Int      @default(0)
+  linkClicks         Int      @default(0)
+  leads              Int      @default(0)
+  conversations      Int      @default(0)
+  purchases          Int      @default(0)
+  purchaseValue      Float    @default(0)
+  rawJson            String   @default("{}")
+  syncedAt           DateTime @default(now())
+
+  @@unique([accountId, level, externalId, date])
+  @@index([companyId, date])
+}
+
+/// Cada sincronización (manual o programada) con su resultado.
+model AdSyncRun {
+  id         String    @id @default(cuid()) @map("_id")
+  companyId  String
+  accountId  String
+  trigger    String    @default("MANUAL")
+  /// RUNNING | OK | ERROR
+  status     String    @default("RUNNING")
+  countsJson String    @default("{}")
+  error      String?
+  startedAt  DateTime  @default(now())
+  finishedAt DateTime?
+
+  @@index([accountId, startedAt])
+}
+
+/// Hallazgo de la auditoría (regla determinista con evidencia).
+model AdFinding {
+  id              String    @id @default(cuid()) @map("_id")
+  companyId       String
+  accountId       String
+  mode            String    @default("REAL")
+  ruleKey         String
+  /// Una por regla + elemento + periodo: no se duplica al re-auditar
+  dedupeKey       String    @unique
+  level           String
+  externalId      String?
+  entityName      String?
+  severity        String    @default("MEDIUM")
+  title           String
+  /// {facts[], interpretation, assumptions[], missing[], action, expected, uncertainty}
+  explanationJson String
+  evidenceJson    String    @default("{}")
+  periodJson      String    @default("{}")
+  confidence      String    @default("MEDIA")
+  impactJson      String?
+  /// {type: PAUSE|RESUME|REVIEW|NONE, risk, reversible}
+  actionJson      String    @default("{}")
+  /// NEW | REVIEWED | APPROVED | EXECUTED | DISMISSED | RESOLVED
+  status          String    @default("NEW")
+  statusBy        String?
+  statusAt        DateTime?
+  firstSeenAt     DateTime  @default(now())
+  lastSeenAt      DateTime  @default(now())
+
+  @@index([companyId, status])
+}
+
+/// Ajustes de publicidad por empresa: autonomía, pausa global y límites.
+model AdSettings {
+  id              String   @id @default(cuid()) @map("_id")
+  companyId       String   @unique
+  /// ANALYSIS | RECOMMEND | AUTHORIZED
+  autonomy        String   @default("ANALYSIS")
+  globalPause     Boolean  @default(false)
+  /// Acciones que el administrador habilitó para ejecución automática (solo PAUSE por ahora)
+  autoActionsJson String   @default("[]")
+  /// Tope de presupuesto diario por campaña que BackOffice nunca supera
+  maxDailyBudget  Float?
+  /// Horas máximas de antigüedad de los datos para ejecutar algo automático
+  maxDataAgeHours Int      @default(6)
+  updatedBy       String?
+  updatedAt       DateTime @default(now())
+}
+
+/// Regla del Autopilot (umbral configurable por la empresa).
+model AdRule {
+  id            String    @id @default(cuid()) @map("_id")
+  companyId     String
+  name          String
+  /// SPEND | CPL | CTR | NO_RESULTS | SPEND_SPIKE | FREQUENCY
+  metric        String
+  /// CAMPAIGN | ADSET | AD
+  level         String    @default("CAMPAIGN")
+  windowDays    Int       @default(7)
+  /// GT | LT
+  operator      String    @default("GT")
+  threshold     Float
+  /// Gasto mínimo en la ventana para que la regla opine (evita ruido)
+  minSpend      Float     @default(0)
+  /// ALERT | RECOMMEND_PAUSE | PAUSE
+  action        String    @default("ALERT")
+  risk          String    @default("LOW")
+  active        Boolean   @default(true)
+  checkEveryMin Int       @default(60)
+  lastRunAt     DateTime?
+  createdBy     String?
+  createdAt     DateTime  @default(now())
+
+  @@index([companyId, active])
+}
+
+/// Ejecución de una regla o acción sobre una campaña (auditable y reversible si se puede).
+model AdActionLog {
+  id               String    @id @default(cuid()) @map("_id")
+  companyId        String
+  accountId        String
+  mode             String    @default("REAL")
+  /// RULE | USER | FINDING
+  source           String
+  ruleId           String?
+  findingId        String?
+  /// Evita ejecutar dos veces lo mismo (reintentos, doble clic)
+  idempotencyKey   String    @unique
+  level            String
+  externalId       String
+  entityName       String?
+  /// PAUSE | RESUME | ALERT | RECOMMEND_PAUSE | CREATE_CAMPAIGN | SET_BUDGET
+  action           String
+  /// PROPOSED | EXECUTED | FAILED | REJECTED | SKIPPED
+  status           String
+  dataJson         String    @default("{}")
+  beforeJson       String?
+  afterJson        String?
+  providerResponse String?
+  error            String?
+  reversible       Boolean   @default(false)
+  actor            String?
+  createdAt        DateTime  @default(now())
+  decidedAt        DateTime?
+
+  @@index([companyId, createdAt])
+}
+
+/// Brief comercial y propuesta de campaña (Campaign Studio).
+model AdBrief {
+  id                String   @id @default(cuid()) @map("_id")
+  companyId         String
+  title             String
+  dataJson          String
+  proposalJson      String?
+  /// DRAFT | PROPOSED | CREATED
+  status            String   @default("DRAFT")
+  accountId         String?
+  createdExternalId String?
+  createdBy         String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @default(now())
+
+  @@index([companyId, createdAt])
 }

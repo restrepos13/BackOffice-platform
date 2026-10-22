@@ -59,10 +59,10 @@ export function verifyState<T = Record<string, any>>(state: string, secret: stri
   }
 }
 
-export function oauthUrl(input: { appId: string; redirectUri: string; state: string }): string {
+export function oauthUrl(input: { appId: string; redirectUri: string; state: string; scopes?: string[] }): string {
   const qs = new URLSearchParams({
     client_id: input.appId, redirect_uri: input.redirectUri, state: input.state,
-    scope: META_SCOPES.join(','), response_type: 'code',
+    scope: (input.scopes ?? META_SCOPES).join(','), response_type: 'code',
   });
   return `https://www.facebook.com/v21.0/dialog/oauth?${qs}`;
 }

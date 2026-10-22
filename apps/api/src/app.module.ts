@@ -52,6 +52,7 @@ import { AddonEnginesModule } from './modules/addons/addon-engines.module';
 import { AgentCallsModule } from './modules/agent-calls.module';
 import { DataExportModule } from './modules/data-export.module';
 import { PlatformHealthModule } from './modules/platform-health.module';
+import { AdsModule } from './modules/ads.module';
 import { CreativeModule } from './modules/creative.module';
 import { InboundOrdersModule } from './modules/inbound-orders.module';
 import { AiSetupModule } from './modules/ai-setup.module';
@@ -115,6 +116,7 @@ import { ScheduleModule } from '@nestjs/schedule';
     DataExportModule,
     PlatformHealthModule,
     CreativeModule,
+    AdsModule,
     InboundOrdersModule,
     AiSetupModule,
     SignupModule,

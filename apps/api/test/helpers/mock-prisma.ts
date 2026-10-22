@@ -24,6 +24,11 @@ function matches(doc: Doc, where: Doc | undefined): boolean {
       if (!(cond as Doc[]).every((w) => matches(doc, w))) return false;
       continue;
     }
+    if (key === 'NOT') {
+      const list = Array.isArray(cond) ? (cond as Doc[]) : [cond as Doc];
+      if (list.some((w) => matches(doc, w))) return false;
+      continue;
+    }
     const value = doc[key];
     if (cond === null) {
       if (value !== null && value !== undefined) return false;
@@ -124,6 +129,15 @@ export function createMockPrisma() {
     socialUsage: [] as Doc[],
     invoice: [] as Doc[],
     usageRecord: [] as Doc[],
+    adAccount: [] as Doc[],
+    adEntity: [] as Doc[],
+    adInsightDaily: [] as Doc[],
+    adSyncRun: [] as Doc[],
+    adFinding: [] as Doc[],
+    adSettings: [] as Doc[],
+    adRule: [] as Doc[],
+    adActionLog: [] as Doc[],
+    adBrief: [] as Doc[],
   };
 
   // Filtros por relación (where: { conversation: {...} }) — resueltos por FK
@@ -188,6 +202,10 @@ export function createMockPrisma() {
     brandProfile: ['companyId'],
     creativeWallet: ['companyId'],
     socialUsage: ['companyId+period'],
+    adFinding: ['dedupeKey'],
+    adActionLog: ['idempotencyKey'],
+    adSettings: ['companyId'],
+    adAccount: ['companyId+provider+externalId'],
   };
   const model = (name: keyof typeof db, defaults: Doc = {}) => {
     // matches + filtros por relación y claves compuestas (companyId_date)
@@ -375,6 +393,15 @@ export function createMockPrisma() {
     socialUsage: model('socialUsage', { images: 0, videos: 0, credits: 0, costUsd: 0 }),
     invoice: model('invoice', { status: 'PENDING', currency: 'USD', linesJson: '[]' }),
     usageRecord: model('usageRecord'),
+    adAccount: model('adAccount', { mode: 'REAL', status: 'CONNECTED', scopesJson: '[]', lastSyncAt: null, tokenEnc: null, timezone: null }),
+    adEntity: model('adEntity', { mode: 'REAL', issuesJson: '[]', rawJson: '{}' }),
+    adInsightDaily: model('adInsightDaily', { mode: 'REAL', rawJson: '{}' }),
+    adSyncRun: model('adSyncRun', { status: 'RUNNING', countsJson: '{}' }),
+    adFinding: model('adFinding', { mode: 'REAL', status: 'NEW', evidenceJson: '{}', periodJson: '{}', actionJson: '{}' }),
+    adSettings: model('adSettings', { autonomy: 'ANALYSIS', globalPause: false, autoActionsJson: '[]', maxDailyBudget: null, maxDataAgeHours: 6 }),
+    adRule: model('adRule', { active: true, minSpend: 0, checkEveryMin: 60, lastRunAt: null, operator: 'GT', level: 'CAMPAIGN', action: 'ALERT', risk: 'LOW' }),
+    adActionLog: model('adActionLog', { mode: 'REAL', dataJson: '{}', reversible: false }),
+    adBrief: model('adBrief', { status: 'DRAFT' }),
   };
 
   return { prisma, db };
