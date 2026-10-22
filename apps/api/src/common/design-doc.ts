@@ -42,8 +42,21 @@ export interface BaseElement {
   visible: boolean;
   locked: boolean;
   /** Rol de marca: los elementos de marca protegidos no se editan si la empresa lo decide */
-  role?: 'logo' | 'cta' | 'brand-color' | 'headline' | 'body' | 'photo';
+  role?: ElementRole;
+  /** Posición dentro de su rol (p. ej. el 2.º producto de un catálogo); la usa la adaptación de formatos */
+  slot?: string;
 }
+
+/**
+ * Roles: qué función cumple cada elemento en la composición. Los primeros
+ * seis existían desde el principio; el resto se agregó con la dirección de
+ * arte (los documentos anteriores siguen siendo válidos).
+ */
+export const ELEMENT_ROLES = [
+  'logo', 'cta', 'brand-color', 'headline', 'body', 'photo',
+  'kicker', 'price', 'badge', 'validity', 'date', 'place', 'quote', 'author', 'item-name', 'item-price', 'item-photo', 'point', 'decoration', 'overlay',
+] as const;
+export type ElementRole = (typeof ELEMENT_ROLES)[number];
 
 export interface TextElement extends BaseElement {
   type: 'text';
@@ -143,7 +156,8 @@ export function validateDesignDoc(raw: unknown, expectedFormat?: FormatKey): Des
       opacity: num(e.opacity, 0, 1, 1),
       visible: e.visible !== false,
       locked: e.locked === true,
-      ...(e.role ? { role: oneOf(e.role, ['logo', 'cta', 'brand-color', 'headline', 'body', 'photo'] as const, 'body') } : {}),
+      ...(e.role ? { role: oneOf(e.role, ELEMENT_ROLES, 'body') } : {}),
+      ...(typeof e.slot === 'string' && /^[A-Za-z0-9_-]{1,20}$/.test(e.slot) ? { slot: e.slot } : {}),
     };
     if (e.type === 'text') {
       const text = str(e.text, MAX_TEXT);

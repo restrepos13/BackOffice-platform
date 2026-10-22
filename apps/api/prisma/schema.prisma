@@ -1546,6 +1546,8 @@ model BrandProfile {
   updatedBy        String?
   createdAt        DateTime @default(now())
   updatedAt        DateTime @default(now())
+  /// Identidad visual confirmada por la empresa (posicionamiento, personalidad, estilo de foto, composición, roles de color…)
+  visualJson       String?
 }
 
 /// Recurso de marca subido por la empresa (logo, imagen, referencia).
@@ -1568,22 +1570,24 @@ model BrandAsset {
 
 /// Diseño editable por capas (documento validado y versionado, no una imagen plana).
 model CreativeDesign {
-  id            String   @id @default(cuid()) @map("_id")
-  companyId     String
-  name          String
-  format        String // IG_POST | IG_PORTRAIT | STORY | FB_POST
-  docJson       String
-  schemaVersion Int      @default(1)
+  id              String   @id @default(cuid()) @map("_id")
+  companyId       String
+  name            String
+  format          String // IG_POST | IG_PORTRAIT | STORY | FB_POST
+  docJson         String
+  schemaVersion   Int      @default(1)
   /// Control de concurrencia: cada guardado sube la versión; un guardado con versión vieja se rechaza
-  version       Int      @default(1)
-  templateKey   String?
-  status        String   @default("ACTIVE") // ACTIVE | ARCHIVED
-  exportFile    String?
-  exportMime    String?
-  createdBy     String?
-  updatedBy     String?
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @default(now())
+  version         Int      @default(1)
+  templateKey     String?
+  status          String   @default("ACTIVE") // ACTIVE | ARCHIVED
+  exportFile      String?
+  exportMime      String?
+  createdBy       String?
+  updatedBy       String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @default(now())
+  /// Dirección de arte con la que se generó: {family, variant, goal, seed, content, adaptedFrom} (null en diseños anteriores)
+  compositionJson String?
 
   @@index([companyId, status, updatedAt])
 }
@@ -1891,4 +1895,18 @@ model AdBrief {
   updatedAt         DateTime @default(now())
 
   @@index([companyId, createdAt])
+}
+
+/// Eventos de diseño para medir y aprender (sin datos personales).
+model CreativeEvent {
+  id        String   @id @default(cuid()) @map("_id")
+  companyId String
+  designId  String?
+  /// composition_suggested | composition_selected | composition_rejected | manual_edit | export_completed | quality_warnings | variant_in_campaign
+  type      String
+  family    String?
+  dataJson  String   @default("{}")
+  createdAt DateTime @default(now())
+
+  @@index([companyId, type, createdAt])
 }

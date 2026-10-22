@@ -17,6 +17,12 @@ import { imageInfo } from '../common/creative-policy';
 import { CREATIVE_COSTS, grantExtraCredits } from '../common/creative-credits';
 import { socialAddon, socialUsage } from '../common/social-addon';
 import { ensureFile, removeFile, saveFile } from '../common/file-store';
+import { profileOfCompany } from '../common/business-profile';
+import { resolveIdentity, sanitizeVisual, suggestVisual, ResolvedIdentity } from '../common/creative/identity';
+import { AssetDims, Content, FAMILIES, Family, seedHash, tokensFor } from '../common/creative/compose';
+import { CATALOG as ART_CATALOG, GOALS, GOAL_LABEL, Goal, propose } from '../common/creative/art-direction';
+import { checkQuality } from '../common/creative/quality';
+import { adaptDesign, readComposition } from '../common/creative/adapt';
 import { AuditModule, AuditService } from './audit.module';
 
 /**
@@ -263,6 +269,7 @@ export class CreativeService {
     return {
       id: d.id, name: d.name, format: d.format, version: d.version, templateKey: d.templateKey, status: d.status,
       hasExport: !!d.exportFile, updatedAt: d.updatedAt, updatedBy: d.updatedBy, createdAt: d.createdAt,
+      composition: readComposition(d.compositionJson),
       ...(withDoc ? { doc: parseJson(d.docJson, null) } : {}),
     };
   }
@@ -282,7 +289,13 @@ export class CreativeService {
     const format = (dto?.format in FORMATS ? dto.format : 'IG_POST') as FormatKey;
     const tpl = TEMPLATES.find((t) => t.key === dto?.templateKey);
     let doc: DesignDoc;
-    if (tpl) {
+    // Desde una propuesta de dirección de arte: el documento llega armado y se valida igual que cualquier guardado
+    const comp = dto?.doc && dto?.composition && (FAMILIES as readonly string[]).includes(dto.composition.family)
+      ? { family: dto.composition.family as Family, variant: Number(dto.composition.variant) || 0, goal: String(dto.composition.goal ?? '').slice(0, 20), seed: Number(dto.composition.seed) || 0 }
+      : null;
+    if (comp) {
+      try { doc = validateDesignDoc(dto.doc, format); } catch (e) { throw new BadRequestException(e instanceof DesignDocError ? e.message : 'Diseño inválido'); }
+    } else if (tpl) {
       const b = await this.prisma.brandProfile.findUnique({ where: { companyId: company.id } });
       const brand = this.brandView(b, company);
       doc = buildTemplate(tpl.key as TemplateKey, format, {
@@ -297,11 +310,12 @@ export class CreativeService {
     const now = new Date();
     const d = await this.prisma.creativeDesign.create({
       data: {
-        companyId: company.id, name: clip(dto?.name, 80) || (tpl ? tpl.name : 'Diseño en blanco'), format, docJson: JSON.stringify(doc),
-        version: 1, templateKey: tpl?.key ?? null, createdBy: user.name, updatedBy: user.name, createdAt: now, updatedAt: now,
+        companyId: company.id, name: clip(dto?.name, 80) || (comp ? ART_CATALOG[comp.family].label : tpl ? tpl.name : 'Diseño en blanco'), format, docJson: JSON.stringify(doc),
+        version: 1, templateKey: tpl?.key ?? null, compositionJson: comp ? JSON.stringify(comp) : null, createdBy: user.name, updatedBy: user.name, createdAt: now, updatedAt: now,
       },
     });
     await this.prisma.creativeDesignVersion.create({ data: { designId: d.id, companyId: company.id, version: 1, docJson: d.docJson, createdBy: user.name } });
+    if (comp) await this.event(company.id, 'composition_selected', d.id, comp.family, { goal: comp.goal, variant: comp.variant, format });
     return this.designView(d, true);
   }
 
@@ -341,7 +355,7 @@ export class CreativeService {
     const d = await this.designOf(user, designId);
     const now = new Date();
     const copy = await this.prisma.creativeDesign.create({
-      data: { companyId: d.companyId, name: `${d.name} (copia)`.slice(0, 80), format: d.format, docJson: d.docJson, version: 1, templateKey: d.templateKey, createdBy: user.name, updatedBy: user.name, createdAt: now, updatedAt: now },
+      data: { companyId: d.companyId, name: `${d.name} (copia)`.slice(0, 80), format: d.format, docJson: d.docJson, version: 1, templateKey: d.templateKey, compositionJson: d.compositionJson ?? null, createdBy: user.name, updatedBy: user.name, createdAt: now, updatedAt: now },
     });
     await this.prisma.creativeDesignVersion.create({ data: { designId: copy.id, companyId: copy.companyId, version: 1, docJson: copy.docJson, createdBy: user.name } });
     return this.designView(copy);
@@ -368,6 +382,180 @@ export class CreativeService {
   }
 
   /** El editor exporta PNG/JPEG en el navegador y lo sube: se valida tipo y tamaño exacto del formato. */
+  /* ── Dirección de arte ── */
+
+  private async event(companyId: string, type: string, designId: string | null, family: string | null, data: Record<string, unknown> = {}) {
+    await this.prisma.creativeEvent.create({ data: { companyId, designId, type, family, dataJson: JSON.stringify(data).slice(0, 2000) } }).catch(() => undefined);
+  }
+
+  /** Todo lo que la dirección de arte necesita de ESTA empresa (nada de otras). */
+  private async artContext(company: any) {
+    const b = await this.prisma.brandProfile.findUnique({ where: { companyId: company.id } });
+    const brand = this.brandView(b, company);
+    const profile = profileOfCompany(parseJson(company.onboardingJson, {}));
+    const identity: ResolvedIdentity = resolveIdentity({
+      visual: b?.visualJson ? sanitizeVisual(parseJson(b.visualJson, {})) : null,
+      sector: profile.key, tone: brand.tone, colors: brand.colors.map((c: any) => c.hex), fonts: brand.fonts,
+      logoAssetId: brand.logos[0]?.assetId ?? null, restrictions: brand.restrictions,
+    });
+    const assets = await this.prisma.brandAsset.findMany({ where: { companyId: company.id }, select: { id: true, kind: true, width: true, height: true }, take: 500 });
+    const dims: AssetDims = Object.fromEntries(assets.map((a) => [a.id, { width: a.width, height: a.height }]));
+    const recentDesigns = await this.prisma.creativeDesign.findMany({ where: { companyId: company.id, compositionJson: { not: null } }, orderBy: { createdAt: 'desc' }, take: 8, select: { compositionJson: true } });
+    const recent = recentDesigns.map((d) => readComposition(d.compositionJson)?.family).filter(Boolean) as Family[];
+    return { brand, profile, identity, dims, assets, recent, companySeed: seedHash(company.id), brandName: brand.name || company.name };
+  }
+
+  artCatalog() {
+    return {
+      goals: GOALS.map((g) => ({ key: g, label: GOAL_LABEL[g] })),
+      families: FAMILIES.map((f) => ({ key: f, label: ART_CATALOG[f].label, purpose: ART_CATALOG[f].purpose, usesPhoto: ART_CATALOG[f].usesPhoto })),
+    };
+  }
+
+  async visual(user: AuthUser, companyId?: string) {
+    const company = await this.companyOf(user, companyId);
+    const ctx = await this.artContext(company);
+    const b = await this.prisma.brandProfile.findUnique({ where: { companyId: company.id } });
+    return { saved: b?.visualJson ? sanitizeVisual(parseJson(b.visualJson, {})) : null, resolved: ctx.identity, sector: ctx.profile.label, version: b?.version ?? 0 };
+  }
+
+  async suggestVisualFor(user: AuthUser, companyId?: string) {
+    const company = await this.companyOf(user, companyId);
+    const ctx = await this.artContext(company);
+    // Solo se devuelve: no se guarda nada hasta que la persona lo acepte
+    return suggestVisual(ctx.profile.key, ctx.brand.tone);
+  }
+
+  async saveVisual(user: AuthUser, dto: any, companyId?: string) {
+    const company = await this.companyOf(user, companyId);
+    const visual = sanitizeVisual(dto?.visual ?? {});
+    if (visual.references?.length) {
+      const owned = await this.prisma.brandAsset.count({ where: { id: { in: visual.references }, companyId: company.id } });
+      if (owned !== visual.references.length) throw new BadRequestException('Alguna referencia no es un recurso de tu empresa');
+    }
+    const current = await this.prisma.brandProfile.findUnique({ where: { companyId: company.id } });
+    if (current && dto?.expectedVersion !== undefined && Number(dto.expectedVersion) !== current.version) throw new ConflictException('Alguien más cambió la marca. Recarga para ver la última versión.');
+    const now = new Date();
+    if (current) await this.prisma.brandProfile.update({ where: { companyId: company.id }, data: { visualJson: JSON.stringify(visual), version: current.version + 1, updatedAt: now, updatedBy: user.name } });
+    else await this.prisma.brandProfile.create({ data: { companyId: company.id, name: company.name, visualJson: JSON.stringify(visual), version: 1, updatedAt: now, updatedBy: user.name } });
+    await this.audit.log({ actor: user, companyId: company.id, action: 'creative.visual_identity', entity: 'BrandProfile', entityId: company.id, detail: (visual.personality ?? []).join(', ') || 'estilo visual' });
+    return this.visual(user, company.id);
+  }
+
+  private content(dto: any, owned: Set<string>): Content {
+    const s = (v: unknown, n: number) => (typeof v === 'string' && v.trim() ? v.trim().slice(0, n) : undefined);
+    const photos = (Array.isArray(dto?.photos) ? dto.photos : []).filter((id: unknown) => typeof id === 'string' && owned.has(id)).slice(0, 4);
+    if (Array.isArray(dto?.photos) && photos.length !== Math.min(4, dto.photos.length)) throw new BadRequestException('Alguna foto no es un recurso de tu empresa');
+    const items = (Array.isArray(dto?.items) ? dto.items : []).slice(0, 4).map((it: any) => ({ name: s(it?.name, 60) ?? '', price: s(it?.price, 20), assetId: typeof it?.assetId === 'string' && owned.has(it.assetId) ? it.assetId : undefined })).filter((it: any) => it.name);
+    const headline = s(dto?.headline, 140) ?? s(dto?.quote, 140);
+    if (!headline) throw new BadRequestException('Escribe el mensaje principal');
+    return {
+      headline, kicker: s(dto?.kicker, 40), body: s(dto?.body, 280), price: s(dto?.price, 24), cta: s(dto?.cta, 40), validity: s(dto?.validity, 80),
+      date: s(dto?.date?.day, 6) ? { day: s(dto.date.day, 6)!, month: s(dto.date.month, 12) ?? '' } : undefined,
+      place: s(dto?.place, 100), quote: s(dto?.quote, 280), author: s(dto?.author, 60),
+      points: (Array.isArray(dto?.points) ? dto.points : []).map((x: unknown) => s(x, 120)).filter(Boolean).slice(0, 4) as string[],
+      items, photos,
+    };
+  }
+
+  async proposals(user: AuthUser, dto: any, companyId?: string) {
+    const company = await this.companyOf(user, companyId);
+    const ctx = await this.artContext(company);
+    const goal = (GOALS as readonly string[]).includes(dto?.goal) ? (dto.goal as Goal) : 'PRODUCT';
+    const format = (dto?.format in FORMATS ? dto.format : 'IG_POST') as FormatKey;
+    const content = this.content(dto?.content ?? {}, new Set(ctx.assets.map((a) => a.id)));
+    const consistentWith = (FAMILIES as readonly string[]).includes(dto?.consistentWith) ? (dto.consistentWith as Family) : null;
+    const seed = Number.isInteger(dto?.seed) ? dto.seed : seedHash(`${company.id}:${goal}:${ctx.recent.length}`);
+    const res = propose(ctx.identity, { goal, format, content, recent: ctx.recent, consistentWith, seed, companySeed: ctx.companySeed, brandName: ctx.brandName, dims: ctx.dims });
+    const brandLogoIds = ctx.brand.logos.map((l: any) => l.assetId);
+    const out = res.proposals.map((p) => ({
+      ...p,
+      composition: { family: p.family, variant: p.variant, goal, seed },
+      checks: checkQuality(p.doc, this.qualityCtx(ctx, brandLogoIds, p.family)).filter((i) => i.severity !== 'INFO'),
+    }));
+    await this.event(company.id, 'composition_suggested', null, null, { goal, format, families: out.map((p) => p.family), seed });
+    return { proposals: out, note: res.note, unavailable: res.unavailable, identity: { personality: ctx.identity.personality, photoStyle: ctx.identity.photoStyle } };
+  }
+
+  private qualityCtx(ctx: any, brandLogoIds: string[], family: Family | null) {
+    const prices = [
+      ...ctx.brand.products.map((p: any) => Number(p.price)).filter((n: number) => Number.isFinite(n) && n > 0),
+      ...ctx.brand.offers.map((o: any) => Number(o.price)).filter((n: number) => Number.isFinite(n) && n > 0),
+    ];
+    return {
+      brandLogoIds, confirmedPrices: prices, confirmedOffers: ctx.brand.offers.map((o: any) => String(o.text ?? '')),
+      assetDims: ctx.dims, ownedAssetIds: new Set<string>(ctx.assets.map((a: any) => a.id)), family, recentFamilies: ctx.recent,
+    };
+  }
+
+  /** Revisión de calidad de un diseño (del guardado o del que está en pantalla). No modifica nada. */
+  async check(user: AuthUser, designId: string, dto: any) {
+    const d = await this.designOf(user, designId);
+    const company = await this.prisma.company.findUnique({ where: { id: d.companyId } });
+    const ctx = await this.artContext(company);
+    let doc: DesignDoc;
+    try { doc = validateDesignDoc(dto?.doc ?? parseJson(d.docJson, null), d.format as FormatKey); } catch (e) { throw new BadRequestException(e instanceof DesignDocError ? e.message : 'Diseño inválido'); }
+    const measured: Record<string, number> = {};
+    if (dto?.measured && typeof dto.measured === 'object') for (const [k, v] of Object.entries(dto.measured).slice(0, 200)) if (Number.isFinite(Number(v)) && Number(v) >= 0) measured[k] = Number(v);
+    const comp = readComposition(d.compositionJson);
+    // El propio diseño no cuenta como repetición de sí mismo
+    const recent = ctx.recent.slice(comp ? 1 : 0);
+    const issues = checkQuality(doc, { ...this.qualityCtx({ ...ctx, recent }, ctx.brand.logos.map((l: any) => l.assetId), comp?.family ?? null), measured });
+    if (dto?.forExport) await this.event(d.companyId, 'quality_warnings', d.id, comp?.family ?? null, { block: issues.filter((i) => i.severity === 'BLOCK').length, warn: issues.filter((i) => i.severity === 'WARN').length, codes: [...new Set(issues.map((i) => i.code))] });
+    return { issues, blocking: issues.some((i) => i.severity === 'BLOCK') };
+  }
+
+  /** Adapta a otro formato creando una copia editable (el original no cambia). */
+  async adapt(user: AuthUser, designId: string, dto: any) {
+    const d = await this.designOf(user, designId);
+    const to = (dto?.format in FORMATS ? dto.format : null) as FormatKey | null;
+    if (!to || to === d.format) throw new BadRequestException('Elige un formato distinto');
+    const company = await this.prisma.company.findUnique({ where: { id: d.companyId } });
+    const ctx = await this.artContext(company);
+    const comp = readComposition(d.compositionJson);
+    const src = validateDesignDoc(parseJson(d.docJson, null), d.format as FormatKey);
+    const { doc, method } = adaptDesign(src, comp, to, tokensFor(ctx.identity, to, ctx.companySeed, ctx.brandName), ctx.dims);
+    const valid = validateDesignDoc(doc, to);
+    await this.assertAssetsOwned(d.companyId, valid);
+    const now = new Date();
+    const copy = await this.prisma.creativeDesign.create({
+      data: {
+        companyId: d.companyId, name: `${d.name} · ${FORMATS[to].label}`.slice(0, 80), format: to, docJson: JSON.stringify(valid), version: 1, templateKey: d.templateKey,
+        compositionJson: comp ? JSON.stringify({ ...comp, adaptedFrom: d.id }) : null, createdBy: user.name, updatedBy: user.name, createdAt: now, updatedAt: now,
+      },
+    });
+    await this.prisma.creativeDesignVersion.create({ data: { designId: copy.id, companyId: copy.companyId, version: 1, docJson: copy.docJson, createdBy: user.name } });
+    return { ...this.designView(copy), method };
+  }
+
+  /** Eventos del navegador (lista cerrada; el diseño debe ser de la empresa). */
+  async clientEvent(user: AuthUser, dto: any, companyId?: string) {
+    const company = await this.companyOf(user, companyId);
+    const type = String(dto?.type ?? '');
+    if (!['composition_rejected', 'manual_edit'].includes(type)) throw new BadRequestException('Evento desconocido');
+    let designId: string | null = null;
+    let family: string | null = (FAMILIES as readonly string[]).includes(dto?.family) ? dto.family : null;
+    if (dto?.designId) {
+      const d = await this.prisma.creativeDesign.findUnique({ where: { id: String(dto.designId) } });
+      if (!d || d.companyId !== company.id) throw new NotFoundException('Diseño no encontrado');
+      designId = d.id;
+      family = readComposition(d.compositionJson)?.family ?? family;
+    }
+    const data = { kinds: Array.isArray(dto?.kinds) ? dto.kinds.filter((k: unknown) => typeof k === 'string').slice(0, 10) : undefined, families: Array.isArray(dto?.families) ? dto.families.filter((f: unknown) => (FAMILIES as readonly string[]).includes(String(f))) : undefined };
+    await this.event(company.id, type, designId, family, data);
+    return { ok: true };
+  }
+
+  /** Resumen de uso por familia (para aprender qué se usa; no mide ventas). */
+  async artStats(user: AuthUser, companyId?: string) {
+    const company = await this.companyOf(user, companyId);
+    const since = new Date(Date.now() - 90 * 86400e3);
+    const rows = await this.prisma.creativeEvent.findMany({ where: { companyId: company.id, createdAt: { gte: since } }, select: { type: true, family: true }, take: 5000 });
+    const by: Record<string, Record<string, number>> = {};
+    for (const r of rows) { const f = r.family ?? '—'; by[f] = by[f] ?? {}; by[f][r.type] = (by[f][r.type] ?? 0) + 1; }
+    return { since: since.toISOString(), byFamily: by, note: 'Cuenta uso (sugerido, elegido, exportado, en campaña). No indica qué diseño vende más.' };
+  }
+
   async uploadExport(user: AuthUser, designId: string, file: Express.Multer.File | undefined) {
     const d = await this.designOf(user, designId);
     if (!file?.buffer?.length) throw new BadRequestException('Falta la imagen exportada');
@@ -380,6 +568,8 @@ export class CreativeService {
     await saveFile(this.prisma, d.companyId, fileName, file.buffer, info.mime);
     if (d.exportFile) await removeFile(this.prisma, d.companyId, d.exportFile);
     await this.prisma.creativeDesign.update({ where: { id: d.id }, data: { exportFile: fileName, exportMime: info.mime } });
+    // Exportar no es éxito comercial: solo se registra que se exportó
+    await this.event(d.companyId, 'export_completed', d.id, readComposition(d.compositionJson)?.family ?? null, { format: d.format, version: d.version });
     return { ok: true, version: d.version };
   }
 
@@ -407,6 +597,8 @@ export class CreativeService {
       },
     });
     await this.audit.log({ actor: user, companyId: d.companyId, action: 'creative.piece_created', entity: 'ContentPiece', entityId: piece.id, detail: `${d.name} v${d.version}` });
+    const comp = readComposition(d.compositionJson);
+    if (comp) await this.event(d.companyId, 'variant_in_campaign', d.id, comp.family, { pieceId: piece.id, campaignId: piece.campaignId ?? null });
     return { id: piece.id, status: piece.status };
   }
 
@@ -519,6 +711,60 @@ export class CreativeController {
   @Get('templates')
   templates() {
     return this.creative.templates();
+  }
+
+  @Get('art/catalog')
+  artCatalog() {
+    return this.creative.artCatalog();
+  }
+
+  @Get('art/stats')
+  artStats(@CurrentUser() user: AuthUser, @Query('companyId') companyId?: string) {
+    return this.creative.artStats(user, companyId);
+  }
+
+  @Post('art/proposals')
+  @Roles(...WRITE)
+  @Throttle({ default: { ttl: 60_000, limit: 30 } })
+  proposals(@CurrentUser() user: AuthUser, @Body() dto: any, @Query('companyId') companyId?: string) {
+    return this.creative.proposals(user, dto, companyId);
+  }
+
+  @Post('design-events')
+  @Roles(...WRITE)
+  @Throttle({ default: { ttl: 60_000, limit: 60 } })
+  designEvent(@CurrentUser() user: AuthUser, @Body() dto: any, @Query('companyId') companyId?: string) {
+    return this.creative.clientEvent(user, dto, companyId);
+  }
+
+  @Get('brand/visual')
+  visual(@CurrentUser() user: AuthUser, @Query('companyId') companyId?: string) {
+    return this.creative.visual(user, companyId);
+  }
+
+  @Put('brand/visual')
+  @Roles(...WRITE)
+  saveVisual(@CurrentUser() user: AuthUser, @Body() dto: any, @Query('companyId') companyId?: string) {
+    return this.creative.saveVisual(user, dto, companyId);
+  }
+
+  @Post('brand/visual/suggest')
+  @Roles(...WRITE)
+  suggestVisual(@CurrentUser() user: AuthUser, @Query('companyId') companyId?: string) {
+    return this.creative.suggestVisualFor(user, companyId);
+  }
+
+  @Post('designs/:id/adapt')
+  @Roles(...WRITE)
+  @Throttle({ default: { ttl: 60_000, limit: 20 } })
+  adapt(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: any) {
+    return this.creative.adapt(user, id, dto);
+  }
+
+  @Post('designs/:id/check')
+  @Throttle({ default: { ttl: 60_000, limit: 60 } })
+  check(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: any) {
+    return this.creative.check(user, id, dto);
   }
 
   @Get('brand')
