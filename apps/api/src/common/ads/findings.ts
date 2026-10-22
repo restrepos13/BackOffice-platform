@@ -64,6 +64,11 @@ export interface AuditOptions {
   minSpend?: number;
 }
 
+const STATUS_ES: Record<string, string> = { DISAPPROVED: 'rechazado', WITH_ISSUES: 'con problemas de entrega', PENDING_REVIEW: 'en revisión', ACTIVE: 'activo' };
+
+/** Nombre entre comillas, sin duplicarlas si ya las trae. */
+const quote = (name: string) => (/^[«"“]/.test(name) ? name : `«${name}»`);
+
 const money = (n: number, currency: string) => `${currency === 'COP' ? '$' : ''}${Math.round(n).toLocaleString('es-CO')}${currency === 'COP' ? '' : ` ${currency}`}`;
 
 export function audit(entities: EntityLike[], rows: InsightLike[], opts: AuditOptions, crm?: CrmAdStats): FindingDraft[] {
@@ -113,7 +118,7 @@ export function audit(entities: EntityLike[], rows: InsightLike[], opts: AuditOp
       out.push({
         ruleKey: 'CPR_UP', dedupeKey: `CPR_UP:${c.externalId}:${tag}`, level: 'CAMPAIGN', externalId: c.externalId, entityName: c.name,
         severity: change >= 60 ? 'HIGH' : 'MEDIUM',
-        title: `El costo por resultado subió ${Math.round(change)} % en «${c.name}»`,
+        title: `El costo por resultado subió ${Math.round(change)} % en ${quote(c.name)}`,
         explanation: {
           facts: [
             `Últimos 7 días: ${money(now.costPerResult!, cur)} por resultado (${now.results} resultados, gasto ${money(now.spend, cur)})`,
@@ -146,7 +151,7 @@ export function audit(entities: EntityLike[], rows: InsightLike[], opts: AuditOp
         out.push({
           ruleKey: 'SPEND_NO_RESULTS', dedupeKey: `SPEND_NO_RESULTS:${e.externalId}:${judged.since}`, level: 'AD', externalId: e.externalId, entityName: e.name,
           severity: 'HIGH',
-          title: `«${e.name}» gastó ${money(t.spend, cur)} sin resultados`,
+          title: `${quote(e.name)} gastó ${money(t.spend, cur)} sin resultados`,
           explanation: {
             facts: [
               `Gasto del ${judged.since} al ${judged.until}: ${money(t.spend, cur)} con 0 resultados reportados`,
@@ -180,7 +185,7 @@ export function audit(entities: EntityLike[], rows: InsightLike[], opts: AuditOp
         out.push({
           ruleKey: 'SPEND_CONCENTRATION', dedupeKey: `SPEND_CONCENTRATION:${x.a.externalId}:${tag}`, level: 'AD', externalId: x.a.externalId, entityName: x.a.name,
           severity: 'MEDIUM',
-          title: `«${x.a.name}» se lleva el ${Math.round((x.t.spend / campSpend) * 100)} % del gasto con peor costo`,
+          title: `${quote(x.a.name)} se lleva el ${Math.round((x.t.spend / campSpend) * 100)} % del gasto con peor costo`,
           explanation: {
             facts: [
               `Costo por resultado de este anuncio: ${money(x.t.costPerResult, cur)}`,
@@ -206,9 +211,9 @@ export function audit(entities: EntityLike[], rows: InsightLike[], opts: AuditOp
     if (st === 'DISAPPROVED' || st === 'WITH_ISSUES' || (e.issues.length && st !== 'PAUSED' && st !== 'ARCHIVED' && st !== 'DELETED')) {
       out.push({
         ruleKey: 'AD_ISSUES', dedupeKey: `AD_ISSUES:${e.externalId}:${st}`, level: 'AD', externalId: e.externalId, entityName: e.name, severity: 'HIGH',
-        title: st === 'DISAPPROVED' ? `La plataforma rechazó «${e.name}»` : `«${e.name}» tiene problemas de entrega`,
+        title: st === 'DISAPPROVED' ? `La plataforma rechazó ${quote(e.name)}` : `${quote(e.name)} tiene problemas de entrega`,
         explanation: {
-          facts: [`Estado reportado: ${st || 'con observaciones'}`, ...e.issues.map((i) => `Motivo: ${i}`)],
+          facts: [`Estado reportado por la plataforma: ${STATUS_ES[st] ?? (st || 'con observaciones')}`, ...e.issues.map((i) => `Motivo: ${i}`)],
           interpretation: 'El anuncio no se está mostrando (o se muestra con restricciones).',
           assumptions: [],
           missing: e.issues.length ? [] : ['Motivo detallado de la revisión'],

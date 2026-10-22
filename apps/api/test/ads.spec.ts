@@ -118,6 +118,20 @@ describe('Ads · cuentas, sincronización y aislamiento', () => {
     expect(ov.totals.spend).toBeGreaterThan(0);
   });
 
+  it('al re-sincronizar actualiza lo que la plataforma corrigió (atribución tardía) sin duplicar', async () => {
+    const { svc, db } = world();
+    const acc = await svc.connectDemo(A, {});
+    const last = [...db.adInsightDaily].sort((x: any, y: any) => (x.date < y.date ? 1 : -1))[0];
+    const real = last.spend;
+    last.spend = 1;
+    const before = db.adInsightDaily.length;
+    // Simula que pasaron horas: vuelve a traer los últimos días
+    db.adAccount[0].lastSyncAt = new Date();
+    await svc.sync(A, acc.id, 'coA');
+    expect(db.adInsightDaily.length).toBe(before);
+    expect(db.adInsightDaily.find((r: any) => r.id === last.id)!.spend).toBe(real);
+  });
+
   it('nunca devuelve el token y lo guarda cifrado', async () => {
     const { svc, db } = world();
     svc.fetchImpl = fakeGraph({ '/me/adaccounts': { data: [{ account_id: '123456', name: 'Real', currency: 'COP', account_status: 1 }] } }).fn as any;

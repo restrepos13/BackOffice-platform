@@ -33,7 +33,7 @@ function BrutalTooltip({ active, payload, label, formatter }: any) {
           <span className="inline-block h-2 w-2" style={{ background: p.color ?? p.fill }} />
           <span className="text-ink-2">{p.name}:</span>
           <span className="font-semibold">
-            {formatter ? formatter(p.value) : p.value}
+            {formatter ? formatter(p.value, p.name) : p.value}
           </span>
         </p>
       ))}
@@ -155,6 +155,23 @@ export function BarsChart({
         <Tooltip content={<BrutalTooltip formatter={formatter} />} />
         <Bar dataKey={dataKey} name={name} fill={INK} maxBarSize={18} />
       </BarChart>
+    </ResponsiveContainer>
+  );
+}
+
+/** Publicidad: gasto diario (área) y resultados (línea escalonada) en ejes separados. */
+export function AdsSpendChart({ data, height = 240, money }: { data: any[]; height?: number; money: (v: number) => string }) {
+  return (
+    <ResponsiveContainer width="100%" height={height}>
+      <AreaChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+        <CartesianGrid stroke={LINE} vertical={false} />
+        <XAxis dataKey="date" {...axisProps} tickFormatter={shortDate} minTickGap={28} />
+        <YAxis yAxisId="s" {...axisProps} tickFormatter={(v: number) => money(v)} width={72} />
+        <YAxis yAxisId="r" orientation="right" {...axisProps} width={36} allowDecimals={false} />
+        <Tooltip content={<BrutalTooltip formatter={(v: number, n: string) => (n === 'Gasto' ? money(v) : String(v))} />} />
+        <Area yAxisId="s" type="monotone" dataKey="spend" name="Gasto" stroke={INK} fill={INK} fillOpacity={0.12} strokeWidth={2} />
+        <Area yAxisId="r" type="stepAfter" dataKey="results" name="Resultados" stroke={OK} fill={OK} fillOpacity={0.08} strokeWidth={2} />
+      </AreaChart>
     </ResponsiveContainer>
   );
 }

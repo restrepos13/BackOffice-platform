@@ -25,6 +25,7 @@ import {
   FileText,
   Megaphone,
   Palette,
+  ChartNoAxesCombined,
   Bike,
   ListChecks,
   Store,
@@ -180,6 +181,7 @@ const MARKETING_NAV: NavItem[] = [
 /** Creative: diseños, marca y calendario (incluido en todos los planes). */
 const CREATIVE_NAV: NavItem[] = [
   { to: '/app/creative', label: 'Creative', icon: Palette },
+  { to: '/app/ads', label: 'Publicidad', icon: ChartNoAxesCombined },
 ];
 
 /** Usuario de área de producción: SOLO ve su área. */

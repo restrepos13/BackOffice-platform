@@ -12,7 +12,7 @@ import { decryptSecret, encryptSecret } from '../common/crypto';
 import { exchangeCode, oauthUrl, signState, verifyState } from '../common/meta-publish';
 import { publicWebUrl } from '../common/tracking';
 import { DEFAULT_STAGES } from '../common/pipelines';
-import { AccountRef, AdLevel, AdsProvider, AdsProviderError, FetchLike, ProviderKey, addDays, isoDay } from '../common/ads/provider';
+import { AccountRef, AdLevel, AdsProvider, AdsProviderError, FetchLike, ProviderKey, RemoteEntity, RemoteInsight, addDays, isoDay } from '../common/ads/provider';
 import { META_ADS_SCOPES } from '../common/ads/meta-ads-provider';
 import { DemoAdsProvider } from '../common/ads/demo-provider';
 import { PROVIDER_KEYS, providerFor } from '../common/ads/registry';
@@ -255,28 +255,8 @@ export class AdsService {
     try {
       const entities = await p.fetchEntities(this.ref(a), token);
       const insights = await p.fetchInsights(this.ref(a), token, since < addDays(until, -(FIRST_SYNC_DAYS - 1)) ? addDays(until, -(FIRST_SYNC_DAYS - 1)) : since, a.mode === 'DEMO' ? addDays(until, -1) : until);
-      let e = 0;
-      for (const x of entities) {
-        const key = { accountId_level_externalId: { accountId: a.id, level: x.level, externalId: x.externalId } };
-        const data = {
-          campaignExternalId: x.campaignExternalId, adsetExternalId: x.adsetExternalId, name: x.name, status: x.status, effectiveStatus: x.effectiveStatus,
-          objective: x.objective, dailyBudget: x.dailyBudget, lifetimeBudget: x.lifetimeBudget, issuesJson: JSON.stringify(x.issues),
-          rawJson: JSON.stringify(x.raw).slice(0, 20000), providerUpdatedAt: x.providerUpdatedAt ? new Date(x.providerUpdatedAt) : null, syncedAt: this.now(),
-        };
-        await this.prisma.adEntity.upsert({ where: key, update: data, create: { companyId, accountId: a.id, provider: a.provider, mode: a.mode, level: x.level, externalId: x.externalId, ...data } });
-        e++;
-      }
-      let i = 0;
-      for (const r of insights) {
-        const key = { accountId_level_externalId_date: { accountId: a.id, level: r.level, externalId: r.externalId, date: r.date } };
-        const data = {
-          campaignExternalId: r.campaignExternalId, currency: a.currency, spend: r.spend, impressions: r.impressions, reach: r.reach, clicks: r.clicks,
-          linkClicks: r.linkClicks, leads: r.leads, conversations: r.conversations, purchases: r.purchases, purchaseValue: r.purchaseValue,
-          rawJson: JSON.stringify(r.raw).slice(0, 8000), syncedAt: this.now(),
-        };
-        await this.prisma.adInsightDaily.upsert({ where: key, update: data, create: { companyId, accountId: a.id, mode: a.mode, level: r.level, externalId: r.externalId, date: r.date, ...data } });
-        i++;
-      }
+      const e = await this.saveEntities(a, entities);
+      const i = await this.saveInsights(a, insights);
       await this.prisma.adSyncRun.update({ where: { id: run.id }, data: { status: 'OK', countsJson: JSON.stringify({ entities: e, insights: i, since }), finishedAt: this.now() } });
       await this.prisma.adAccount.update({ where: { id: a.id }, data: { lastSyncAt: this.now(), lastError: null, status: 'CONNECTED' } });
       await this.runAudit(companyId).catch((err) => this.logger.warn(`auditoría ${companyId}: ${err.message}`));
@@ -289,6 +269,66 @@ export class AdsService {
       if (user) await this.audit.log({ actor: user, companyId, action: 'ads.sync.error', entity: 'AdAccount', entityId: a.id, detail: msg });
       throw this.providerHttp(err);
     }
+  }
+
+  /** Guarda en lote: una consulta para leer lo que hay, createMany para lo nuevo y update solo de lo que cambió. */
+  private async saveEntities(a: { id: string; companyId: string; provider: string; mode: string }, entities: RemoteEntity[]) {
+    const existing = await this.prisma.adEntity.findMany({ where: { accountId: a.id } });
+    const byKey = new Map(existing.map((x) => [`${x.level}:${x.externalId}`, x]));
+    const now = this.now();
+    const fresh: any[] = [];
+    let changed = 0;
+    for (const x of entities) {
+      const data = {
+        campaignExternalId: x.campaignExternalId, adsetExternalId: x.adsetExternalId, name: x.name, status: x.status, effectiveStatus: x.effectiveStatus,
+        objective: x.objective, dailyBudget: x.dailyBudget, lifetimeBudget: x.lifetimeBudget, issuesJson: JSON.stringify(x.issues),
+        rawJson: JSON.stringify(x.raw).slice(0, 20000), providerUpdatedAt: x.providerUpdatedAt ? new Date(x.providerUpdatedAt) : null,
+      };
+      const old = byKey.get(`${x.level}:${x.externalId}`);
+      if (!old) {
+        fresh.push({ companyId: a.companyId, accountId: a.id, provider: a.provider, mode: a.mode, level: x.level, externalId: x.externalId, ...data, syncedAt: now });
+        continue;
+      }
+      const differs = (Object.keys(data) as Array<keyof typeof data>).some((k) => {
+        const v1 = data[k] instanceof Date ? (data[k] as Date).getTime() : data[k] ?? null;
+        const v0 = (old as any)[k] instanceof Date ? (old as any)[k].getTime() : (old as any)[k] ?? null;
+        return v1 !== v0;
+      });
+      if (differs) {
+        await this.prisma.adEntity.update({ where: { id: old.id }, data: { ...data, syncedAt: now } });
+        changed++;
+      }
+    }
+    if (fresh.length) await this.prisma.adEntity.createMany({ data: fresh });
+    return fresh.length + changed;
+  }
+
+  private async saveInsights(a: { id: string; companyId: string; mode: string; currency: string }, rows: RemoteInsight[]) {
+    if (!rows.length) return 0;
+    const dates = rows.map((r) => r.date).sort();
+    const existing = await this.prisma.adInsightDaily.findMany({ where: { accountId: a.id, date: { gte: dates[0], lte: dates[dates.length - 1] } } });
+    const byKey = new Map(existing.map((x) => [`${x.level}:${x.externalId}:${x.date}`, x]));
+    const now = this.now();
+    const fresh: any[] = [];
+    let changed = 0;
+    const NUMS = ['spend', 'impressions', 'reach', 'clicks', 'linkClicks', 'leads', 'conversations', 'purchases', 'purchaseValue'] as const;
+    for (const r of rows) {
+      const data = {
+        campaignExternalId: r.campaignExternalId, currency: a.currency, spend: r.spend, impressions: r.impressions, reach: r.reach, clicks: r.clicks,
+        linkClicks: r.linkClicks, leads: r.leads, conversations: r.conversations, purchases: r.purchases, purchaseValue: r.purchaseValue,
+        rawJson: JSON.stringify(r.raw).slice(0, 8000),
+      };
+      const old = byKey.get(`${r.level}:${r.externalId}:${r.date}`);
+      if (!old) {
+        fresh.push({ companyId: a.companyId, accountId: a.id, mode: a.mode, level: r.level, externalId: r.externalId, date: r.date, ...data, syncedAt: now });
+      } else if (NUMS.some((k) => Number((old as any)[k]) !== Number(data[k]))) {
+        // La atribución sigue moviendo los números unos días: se actualiza solo lo que cambió
+        await this.prisma.adInsightDaily.update({ where: { id: old.id }, data: { ...data, syncedAt: now } });
+        changed++;
+      }
+    }
+    for (let k = 0; k < fresh.length; k += 1000) await this.prisma.adInsightDaily.createMany({ data: fresh.slice(k, k + 1000) });
+    return fresh.length + changed;
   }
 
   async syncNow(user: AuthUser, accountId: string, companyId?: string) {
@@ -758,7 +798,8 @@ export class AdsService {
     const brand = await this.prisma.brandProfile.findUnique({ where: { companyId: c.id } });
     const { rows } = await this.data(c.id, 'REAL');
     const hist = totals(rows.filter((r) => inRange(r.date, periods(this.lastDay(rows), 30).current)));
-    const proposal = buildProposal(brief, { currency: c.currency, brandName: brand?.name || c.name, ctas: parseJson<string[]>(brand?.ctasJson, []), historicalCostPerResult: hist.costPerResult });
+    const proposal = buildProposal(brief, { currency: c.currency, brandName: brand?.name || c.name, ctas: parseJson<string[]>(brand?.ctasJson, []), historicalCostPerResult: hist.costPerResult,
+      today: this.now().toLocaleDateString('sv-SE', { timeZone: c.timezone || 'America/Bogota' }) });
     const row = await this.prisma.adBrief.create({
       data: { companyId: c.id, title: clip(dto?.title, 80) || brief.product, dataJson: JSON.stringify(brief), proposalJson: JSON.stringify(proposal), status: 'PROPOSED', createdBy: user.name, updatedAt: this.now() },
     });

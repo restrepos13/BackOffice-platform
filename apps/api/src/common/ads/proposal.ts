@@ -45,7 +45,7 @@ export function validateBrief(b: Partial<Brief>, opts: { maxDailyBudget?: number
   return errors;
 }
 
-export function buildProposal(b: Brief, ctx: { currency: string; brandName: string; ctas: string[]; historicalCostPerResult?: number | null }) {
+export function buildProposal(b: Brief, ctx: { currency: string; brandName: string; ctas: string[]; historicalCostPerResult?: number | null; today?: string }) {
   const days = b.durationDays ?? 14;
   const total = Math.round(b.dailyBudget * days);
   const platform = 'META';
@@ -88,7 +88,7 @@ export function buildProposal(b: Brief, ctx: { currency: string; brandName: stri
       breakEvenCostPerSale: breakEven,
     },
     /** Lo único que se enviaría a la plataforma al crear (siempre en PAUSA) */
-    providerConfig: { provider: platform, objective, status: 'PAUSED', name: `${ctx.brandName} · ${b.product} · ${new Date().toISOString().slice(0, 10)}` },
+    providerConfig: { provider: platform, objective, status: 'PAUSED', name: `${ctx.brandName} · ${b.product} · ${ctx.today ?? new Date().toISOString().slice(0, 10)}` },
     risks,
     assumptions: ['Los precios y ofertas mencionados están confirmados por la empresa.', 'El destino (WhatsApp o link) funciona y está conectado a BackOffice.'],
     missing,
