@@ -20,9 +20,9 @@ interface Context {
   known: Array<{ key: string; label: string; value: string | null; source: string; confirmed: boolean; editable: boolean }>;
   connections: Array<{ key: string; label: string; connected: boolean; demo?: boolean; why: string }>;
   missing: Array<{ key: string; label: string; why: string; href?: string; editable?: boolean }>;
-  steps: Array<{ key: string; label: string; done: boolean }>;
+  steps: Array<{ key: string; label: string; done: boolean; at: string | null; href: string }>;
   intents: Array<{ key: string; label: string; hint: string; href: string; available: boolean; needs: string | null }>;
-  progress: { firstVisitAt: string | null; firstValueAt: string | null; lastIntent: string | null };
+  progress: { firstVisitAt: string | null; firstValueAt: string | null; firstIntentAt: string | null; firstActionAt: string | null; minutesToFirstValue: number | null; lastIntent: string | null };
   counts: { openOpportunities: number };
 }
 
@@ -40,7 +40,10 @@ export default function CreativeStart({ q }: { q: string }) {
     sent.current = true;
     void event({ type: 'visit' });
   }, [canWrite]);
-  const top = opps.data?.[0];
+  // Lo prioritario es solo lo REAL: una demostración nunca es «lo más importante hoy»
+  const real = (opps.data ?? []).filter((o) => o.mode === 'REAL');
+  const demoCount = (opps.data ?? []).length - real.length;
+  const top = real[0];
   useEffect(() => {
     if (top && top.mode === 'REAL' && canWrite) void event({ type: 'opportunity_opened' });
   }, [top?.id]);
@@ -52,8 +55,9 @@ export default function CreativeStart({ q }: { q: string }) {
 
   if (ctx.isLoading || opps.isLoading || !ctx.data) return <Loading />;
   const c = ctx.data;
-  const rest = (opps.data ?? []).slice(1, 4);
-  const done = c.steps.filter((s) => s.done).length;
+  const rest = real.slice(1, 4);
+  const achieved = c.steps.filter((s) => s.done);
+  const nextStep = c.steps.find((s) => !s.done);
 
   return (
     <div className="space-y-8">
@@ -65,13 +69,14 @@ export default function CreativeStart({ q }: { q: string }) {
         ) : (
           <div className="border-2 border-dashed border-line bg-paper p-5 text-sm">
             <p className="font-semibold">No encontramos nada urgente con evidencia suficiente.</p>
-            <p className="mt-1 text-ink-2">Revisamos tus conversaciones, tu embudo, tus pedidos{c.connections.find((x) => x.key === 'ads')?.connected ? ' y tus anuncios' : ''}. Preferimos no mostrarte nada antes que inventar una oportunidad.</p>
+            <p className="mt-1 text-ink-2">Revisamos tus conversaciones, tu embudo, tus pedidos{c.connections.find((x) => x.key === 'ads')?.connected ? ' y tus anuncios' : ''}. Preferimos no mostrarte nada antes que inventar una oportunidad. Mientras tanto, puedes empezar por cualquiera de las opciones de abajo.</p>
+            {demoCount > 0 && <p className="mt-1 text-xs text-info">Hay {demoCount} ejemplos con datos de demostración en <Link to="?tab=oportunidades" className="underline">Oportunidades</Link>; no cuentan como tuyos.</p>}
             {canWrite && <Button size="sm" variant="outline" className="mt-3" disabled={detect.isPending} onClick={() => detect.mutate()}>{detect.isPending ? 'Revisando…' : 'Revisar de nuevo'}</Button>}
           </div>
         )}
         {rest.length > 0 && (
           <Link to="?tab=oportunidades" className="mt-3 inline-flex items-center gap-1 text-sm font-semibold underline">
-            {c.counts.openOpportunities > 1 ? `Ver las ${opps.data!.length} oportunidades abiertas` : 'Ver todas'} <ChevronRight size={14} />
+            Ver las {real.length} oportunidades abiertas <ChevronRight size={14} />
           </Link>
         )}
       </section>
@@ -82,33 +87,41 @@ export default function CreativeStart({ q }: { q: string }) {
         <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
           {c.intents.map((i) => (
             <button
-              key={i.key} type="button" disabled={!i.available}
+              key={i.key} type="button"
               onClick={() => { if (canWrite) void event({ type: 'intent', intent: i.key }); navigate(i.href); }}
-              className={clsx('group cursor-pointer border-2 bg-paper p-3 text-left transition-colors', i.available ? 'border-ink hover:bg-bone-2' : 'cursor-not-allowed border-line opacity-60')}
+              className={clsx('group cursor-pointer border-2 bg-paper p-3 text-left transition-colors hover:bg-bone-2', i.available ? 'border-ink' : 'border-dashed border-line')}
             >
               <span className="flex items-start justify-between gap-2 font-semibold">{i.label}<ChevronRight size={16} className="mt-0.5 shrink-0 transition-transform group-hover:translate-x-0.5" /></span>
               <span className="mt-0.5 block text-xs text-ink-3">{i.hint}</span>
-              {i.needs && <span className="mt-1 block text-[11px] text-warn">Para esto: {i.needs.toLowerCase()}</span>}
+              {i.needs && <span className="mt-1 block text-[11px] text-ink-2">Primero: {i.needs.charAt(0).toLowerCase() + i.needs.slice(1)} <span className="text-ink-3">(te llevamos ahí)</span></span>}
             </button>
           ))}
         </div>
       </section>
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-        {/* 3. Avance */}
-        <Card kicker={`${done} de ${c.steps.length}`} title="Tu avance">
-          <ol className="space-y-2 text-sm">
-            {c.steps.map((s) => (
-              <li key={s.key} className="flex items-center gap-2">
-                <span className={clsx('flex h-5 w-5 items-center justify-center border-2', s.done ? 'border-ok bg-ok text-bone' : 'border-line')}>{s.done && <Check size={12} />}</span>
-                <span className={clsx(s.done ? 'text-ink' : 'text-ink-3')}>{s.label}</span>
-              </li>
-            ))}
-          </ol>
-          <div className="mt-3 h-2 w-full border-2 border-ink bg-bone"><div className="h-full bg-ink transition-all" style={{ width: `${(done / c.steps.length) * 100}%` }} /></div>
+        {/* 3. Logros (orientan; no bloquean nada) */}
+        <Card kicker={achieved.length ? `${achieved.length} logrado${achieved.length === 1 ? '' : 's'}` : 'Para empezar'} title="Tu avance">
+          {achieved.length > 0 && (
+            <ul className="mb-3 space-y-1.5 text-sm">
+              {achieved.map((s) => (
+                <li key={s.key} className="flex items-center gap-2">
+                  <span className="flex h-5 w-5 shrink-0 items-center justify-center border-2 border-ok bg-ok text-bone"><Check size={12} /></span>
+                  <span>{s.label}</span>
+                  {s.at && <span className="ml-auto text-xs text-ink-3">{new Date(s.at).toLocaleDateString('es-CO', { day: 'numeric', month: 'short' })}</span>}
+                </li>
+              ))}
+            </ul>
+          )}
+          {nextStep ? (
+            <Link to={nextStep.href} className="flex items-center justify-between gap-2 border-2 border-ink bg-bone-2 px-3 py-2 text-sm font-semibold hover:bg-paper">
+              <span><span className="block text-[10px] font-normal uppercase tracking-wider text-ink-3">Siguiente logro sugerido</span>{nextStep.label}</span>
+              <ChevronRight size={16} />
+            </Link>
+          ) : <p className="text-sm text-ink-2">Ya recorriste el ciclo completo: detectar, actuar y medir. Las nuevas oportunidades seguirán apareciendo arriba.</p>}
           {c.missing.length > 0 && (
             <div className="mt-4 space-y-2 text-sm">
-              <p className="kicker">Cuando quieras</p>
+              <p className="kicker">Opcional, cuando quieras</p>
               {c.missing.map((m) => (
                 <p key={m.key}>{m.href ? <Link to={m.href} className="font-semibold underline">{m.label}</Link> : <b>{m.label}</b>} <span className="text-ink-3">— {m.why}</span></p>
               ))}

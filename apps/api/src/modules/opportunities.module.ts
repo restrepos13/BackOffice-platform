@@ -111,7 +111,7 @@ export class OpportunitiesService {
     if (q.mode === 'REAL' || q.mode === 'DEMO') where.mode = q.mode;
     const rows = await this.prisma.opportunity.findMany({ where, orderBy: { lastSeenAt: 'desc' }, take: 200 });
     // Lo real va antes que lo de demostración; dentro, más grave y con más evidencia primero
-    return rows.map(view).sort((a: any, b: any) =>
+    return rows.map((r) => view(r, this.now())).sort((a: any, b: any) =>
       (a.mode === 'DEMO' ? 1 : 0) - (b.mode === 'DEMO' ? 1 : 0)
       || (RANK[a.severity] ?? 3) - (RANK[b.severity] ?? 3)
       || (EVIDENCE_RANK[a.evidence] ?? 3) - (EVIDENCE_RANK[b.evidence] ?? 3));
@@ -125,7 +125,11 @@ export class OpportunitiesService {
     const ids = action.contactIds ?? [];
     if (!ids.length) return [];
     const rows = await this.prisma.contact.findMany({ where: { companyId: c.id, id: { in: ids } }, select: { id: true, name: true, phone: true, stage: true, lastActivityAt: true }, take: 200 });
-    return rows;
+    // Último chat de cada uno, para abrirlo directo en Conversaciones
+    const convs = await this.prisma.conversation.findMany({ where: { companyId: c.id, contactId: { in: rows.map((r) => r.id) } }, orderBy: { lastMessageAt: 'desc' }, select: { id: true, contactId: true }, take: 1000 });
+    const last = new Map<string, string>();
+    for (const cv of convs) if (!last.has(cv.contactId)) last.set(cv.contactId, cv.id);
+    return rows.map((r) => ({ ...r, conversationId: last.get(r.id) ?? null }));
   }
 
   /* ── Decisiones del usuario ── */
@@ -148,7 +152,7 @@ export class OpportunitiesService {
       if (action.contactIds?.length) data.baselineJson = JSON.stringify(await this.contactBaseline(c.id, action.contactIds));
     }
     await this.prisma.opportunity.update({ where: { id }, data });
-    return view(await this.prisma.opportunity.findUnique({ where: { id } }));
+    return view(await this.prisma.opportunity.findUnique({ where: { id } }), this.now());
   }
 
   private async contactBaseline(companyId: string, ids: string[]) {
@@ -191,7 +195,18 @@ export class OpportunitiesService {
       where: { id },
       data: { status: 'OBSERVING', actedAt: now, baselineJson: baseline ? JSON.stringify(baseline) : null, decisionsJson: decisions },
     });
-    return { ok: true, demo: executed?.demo ?? o.mode === 'DEMO', opportunity: view(await this.prisma.opportunity.findUnique({ where: { id } })) };
+    await this.milestone(c.id, 'firstActionAt');
+    return { ok: true, demo: executed?.demo ?? o.mode === 'DEMO', opportunity: view(await this.prisma.opportunity.findUnique({ where: { id } }), this.now()) };
+  }
+
+  /** Guarda la fecha de un hito una sola vez (sin datos personales). */
+  private async milestone(companyId: string, key: string) {
+    const ctx = await this.prisma.companyContext.findUnique({ where: { companyId } });
+    const progress = parseJson<Record<string, any>>(ctx?.progressJson, {});
+    if (progress[key]) return;
+    progress[key] = this.now().toISOString();
+    if (ctx) await this.prisma.companyContext.update({ where: { companyId }, data: { progressJson: JSON.stringify(progress), updatedAt: this.now() } });
+    else await this.prisma.companyContext.create({ data: { companyId, progressJson: JSON.stringify(progress), updatedAt: this.now() } });
   }
 
   /* ── Observación de resultados ── */
@@ -244,7 +259,7 @@ export class OpportunitiesService {
         decisionsJson: addDecision(o.decisionsJson, { at: this.now().toISOString(), by: user.name, status: o.status, note: `Resultado anotado: ${note}` }),
       },
     });
-    return view(await this.prisma.opportunity.findUnique({ where: { id } }));
+    return view(await this.prisma.opportunity.findUnique({ where: { id } }), this.now());
   }
 
   @Cron('20 * * * *')
@@ -271,22 +286,26 @@ export class OpportunitiesService {
     const overrides = parseJson<Record<string, { value: string; at: string; by: string }>>(ctx?.overridesJson, {});
     const progress = parseJson<Record<string, any>>(ctx?.progressJson, {});
     const ob = parseJson<Record<string, any>>(c.onboardingJson, {});
-    const [brand, products, contacts, orders, convs, designs, exported, wa, social, adReal, adDemo, opps, acted, results] = await Promise.all([
+    const [brand, products, contacts, orders, convs, designs, exported, wa, social, adReal, adDemo, opps, acted, results, published, evidenced] = await Promise.all([
       this.prisma.brandProfile.findUnique({ where: { companyId: c.id } }),
       this.prisma.product.count({ where: { companyId: c.id, active: true, ...NOT_DELETED } }),
       this.prisma.contact.count({ where: { companyId: c.id } }),
       this.prisma.order.count({ where: { companyId: c.id, ...NOT_DELETED } }),
       this.prisma.conversation.count({ where: { companyId: c.id } }),
-      this.prisma.creativeDesign.count({ where: { companyId: c.id, status: 'ACTIVE' } }),
-      this.prisma.creativeDesign.count({ where: { companyId: c.id, exportFile: { not: null } } }),
+      this.prisma.creativeDesign.findFirst({ where: { companyId: c.id }, orderBy: { createdAt: 'asc' }, select: { createdAt: true } }),
+      this.prisma.creativeDesign.findFirst({ where: { companyId: c.id, exportFile: { not: null } }, orderBy: { updatedAt: 'asc' }, select: { updatedAt: true } }),
       this.prisma.integration.count({ where: { companyId: c.id, type: 'WHATSAPP', status: 'CONNECTED' } }),
       this.prisma.integration.count({ where: { companyId: c.id, type: 'META_SOCIAL', status: 'CONNECTED' } }),
       this.prisma.adAccount.count({ where: { companyId: c.id, mode: 'REAL', status: 'CONNECTED' } }),
       this.prisma.adAccount.count({ where: { companyId: c.id, mode: 'DEMO' } }),
       this.prisma.opportunity.count({ where: { companyId: c.id, status: { in: OPEN }, mode: 'REAL' } }),
-      this.prisma.opportunity.findFirst({ where: { companyId: c.id, actedAt: { not: null } }, orderBy: { actedAt: 'asc' } }),
-      this.prisma.opportunity.count({ where: { companyId: c.id, status: 'RESULT', actedAt: { not: null } } }),
+      this.prisma.opportunity.findFirst({ where: { companyId: c.id, mode: 'REAL', actedAt: { not: null } }, orderBy: { actedAt: 'asc' } }),
+      this.prisma.opportunity.findFirst({ where: { companyId: c.id, mode: 'REAL', status: 'RESULT', actedAt: { not: null } }, orderBy: { resultAt: 'asc' } }),
+      this.prisma.contentPiece.findFirst({ where: { companyId: c.id, status: 'PUBLICADO' }, orderBy: { publishedAt: 'asc' }, select: { publishedAt: true } }),
+      this.prisma.opportunity.findFirst({ where: { companyId: c.id, mode: 'REAL', evidence: 'SUFFICIENT' }, orderBy: { firstSeenAt: 'asc' }, select: { firstSeenAt: true } }),
     ]);
+    const designsFirst = designs;
+    const exportedFirst = exported;
     const fact = (key: string, label: string, inferred: unknown, source: string) => {
       const o = overrides[key];
       if (o) return { key, label, value: o.value, source: 'Corregido por ti', confirmed: true, editable: true };
@@ -312,26 +331,33 @@ export class OpportunitiesService {
       ...(!products ? [{ key: 'catalog', label: 'Productos', why: 'Para proponer publicaciones y detectar productos que crecen.', href: '/app/orders/settings' }] : []),
       ...(!known.find((k) => k.key === 'mainGoal')?.value ? [{ key: 'mainGoal', label: 'Objetivo principal', why: 'Para ordenar las sugerencias según lo que más te importa.', editable: true }] : []),
     ];
-    const firstValueAt = [progress.firstValueAt, acted?.actedAt?.toISOString()].filter(Boolean).sort()[0] ?? null;
+    // Logros útiles (no tareas administrativas); la fecha cuenta cuándo pasó
+    const iso = (d: Date | null | undefined) => (d ? new Date(d).toISOString() : null);
     const steps = [
-      { key: 'brand', label: 'Marca lista', done: !!brand },
-      { key: 'design', label: 'Primer diseño', done: designs > 0 },
-      { key: 'export', label: 'Primera pieza exportada', done: exported > 0 },
-      { key: 'acted', label: 'Primera oportunidad atendida', done: !!acted },
-      { key: 'result', label: 'Primer resultado medido', done: results > 0 },
-    ];
+      { key: 'design', label: 'Primera pieza creada', at: iso((designsFirst as any)?.createdAt), href: '/app/creative?tab=disenos&nuevo=1' },
+      { key: 'export', label: 'Primera pieza exportada o publicada', at: iso((exportedFirst as any)?.updatedAt ?? (published as any)?.publishedAt), href: '/app/creative?tab=disenos' },
+      { key: 'evidence', label: 'Primera mejora identificada con evidencia', at: iso((evidenced as any)?.firstSeenAt), href: '/app/creative?tab=oportunidades' },
+      { key: 'acted', label: 'Primera oportunidad atendida', at: iso(acted?.actedAt), href: '/app/creative?tab=oportunidades' },
+      { key: 'result', label: 'Primer resultado medido', at: iso(results?.resultAt), href: '/app/creative?tab=oportunidades' },
+    ].map((st) => ({ ...st, done: !!st.at }));
+    const firstValueAt = [progress.firstValueAt, iso(acted?.actedAt), iso((exportedFirst as any)?.updatedAt)].filter(Boolean).sort()[0] ?? null;
+    const minutes = (a?: string | null, b?: string | null) => (a && b ? Math.max(0, Math.round((Date.parse(b) - Date.parse(a)) / 60000)) : null);
     // ¿Qué necesitas hoy? Ordenado por lo que hay en los datos de esta empresa
     const intents = [
-      { key: 'followup', label: 'Tengo consultas pero no cierro ventas', hint: convs ? 'Revisamos tus conversaciones del CRM' : 'Necesita conversaciones en el CRM', href: '/app/creative?tab=oportunidades&source=CRM', available: convs > 0, needs: convs ? null : 'Conectar WhatsApp', score: opps && convs ? 3 : convs ? 2 : 0 },
-      { key: 'post', label: 'Necesito una publicación', hint: 'Plantillas con tu marca, sin conectar nada', href: '/app/creative?tab=disenos&nuevo=1', available: true, needs: null, score: designs ? 1 : 3 },
+      { key: 'followup', label: 'Tengo consultas pero no cierro ventas', hint: convs ? 'Revisamos tus conversaciones y tu embudo' : 'Cuando lleguen conversaciones por WhatsApp, las revisamos', href: convs ? '/app/creative?tab=oportunidades&source=CRM' : '/app/integrations', available: convs > 0, needs: convs ? null : (wa ? 'Recibir las primeras conversaciones' : 'Conectar WhatsApp'), score: opps && convs ? 3 : convs ? 2 : 0 },
+      { key: 'post', label: 'Necesito una publicación', hint: 'Plantillas con tu marca, sin conectar nada', href: '/app/creative?tab=disenos&nuevo=1', available: true, needs: null, score: designsFirst ? 1 : 3 },
       { key: 'review_ads', label: 'Revisa mis anuncios', hint: adReal ? 'Auditamos tu cuenta conectada' : 'Te pedimos acceso solo para esto', href: adReal ? '/app/ads?tab=oportunidades' : '/app/ads?tab=cuentas', available: true, needs: adReal ? null : 'Conectar cuenta publicitaria', score: adReal ? 3 : 1 },
       { key: 'more_clients', label: 'Quiero conseguir más clientes', hint: 'Armamos una propuesta de campaña con lo que ya sabemos', href: '/app/ads?tab=nueva', available: true, needs: null, score: 2 },
-      { key: 'recover', label: 'Quiero recuperar clientes que dejaron de comprar', hint: orders ? 'Usamos tus pedidos para encontrarlos' : 'Necesita pedidos registrados', href: '/app/reactivacion', available: orders > 0, needs: orders ? null : 'Registrar pedidos', score: orders ? 2 : 0 },
+      { key: 'recover', label: 'Quiero recuperar clientes que dejaron de comprar', hint: orders ? 'Usamos tus pedidos para encontrarlos' : 'Necesita pedidos registrados', href: orders ? '/app/reactivacion' : '/app/orders', available: orders > 0, needs: orders ? null : 'Registrar pedidos', score: orders ? 2 : 0 },
       { key: 'budget', label: '¿Estoy aprovechando mi presupuesto?', hint: adReal ? 'Comparamos gasto y resultados' : 'Necesita una cuenta publicitaria', href: '/app/ads', available: true, needs: adReal ? null : 'Conectar cuenta publicitaria', score: adReal ? 2 : 0 },
     ].sort((a, b) => b.score - a.score);
     return {
       known, connections, missing, steps, intents,
-      progress: { firstVisitAt: progress.firstVisitAt ?? null, firstValueAt, lastIntent: parseJson<any>(ctx?.preferencesJson, {}).intent ?? null },
+      progress: {
+        firstVisitAt: progress.firstVisitAt ?? null, firstIntentAt: progress.firstIntentAt ?? null, firstValueAt, firstActionAt: progress.firstActionAt ?? iso(acted?.actedAt),
+        minutesToFirstValue: minutes(progress.firstVisitAt, firstValueAt), abandons: (progress.abandons ?? []).length,
+        lastIntent: parseJson<any>(ctx?.preferencesJson, {}).intent ?? null,
+      },
       counts: { openOpportunities: opps },
     };
   }
@@ -365,6 +391,7 @@ export class OpportunitiesService {
     if (type === 'intent') {
       const intent = String(dto?.intent ?? '').slice(0, 40);
       progress.intents = [...(progress.intents ?? []), { intent, at }].slice(-50);
+      if (!progress.firstIntentAt) progress.firstIntentAt = at;
       prefs.intent = intent;
       prefs.lastIntentAt = at;
     }

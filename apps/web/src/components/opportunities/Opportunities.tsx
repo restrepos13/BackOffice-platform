@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { clsx } from 'clsx';
 import { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { api } from '../../lib/api';
 import { Badge, Button, EmptyState, Field, Loading, Modal, Select, Textarea } from '../ui';
@@ -20,7 +20,17 @@ export interface Opportunity {
   action: { type: 'PAUSE' | 'FOLLOW_UP' | 'REVIEW' | 'LINK' | 'NONE'; label?: string; risk: string; reversible: boolean; href?: string; contacts: number };
   decisions: Array<{ at: string; by: string; status: string; note?: string }>;
   result: { kind?: string; facts?: string[]; note?: string; metrics?: Record<string, unknown>; declared?: { note: string; by: string; at: string } } | null;
+  story: {
+    what: string; howWeKnow: string; whyItMatters: string | null;
+    next: { label: string; hint: string } | null;
+    after: { text: string; kind: 'PENDING' | 'WAITING' | 'MEASURED' | 'GONE' | 'CLOSED' | 'NONE'; measuredAt?: string } | null;
+    dataKinds: Array<'PLATFORM' | 'CALCULATED' | 'CRM' | 'DECLARED' | 'HYPOTHESIS' | 'DEMO'>;
+  };
 }
+
+const KIND_LABEL: Record<string, string> = {
+  PLATFORM: 'Reportado por la plataforma', CALCULATED: 'Calculado por BackOffice', CRM: 'Datos de tu CRM', DECLARED: 'Declarado por ti', HYPOTHESIS: 'Hipótesis por validar', DEMO: 'Demostración',
+};
 
 const EVIDENCE: Record<string, [string, 'ok' | 'info' | 'warn']> = {
   SUFFICIENT: ['Evidencia suficiente', 'ok'], INITIAL: ['Indicio inicial', 'info'], MISSING_DATA: ['Faltan datos', 'warn'],
@@ -40,7 +50,8 @@ function periodText(p: Record<string, any>) {
 
 export function OpportunityCard({ o, scope, canWrite, compact }: { o: Opportunity; scope: (path: string) => string; canWrite: boolean; compact?: boolean }) {
   const queryClient = useQueryClient();
-  const [open, setOpen] = useState(!compact);
+  const navigate = useNavigate();
+  const [open, setOpen] = useState(false);
   const [dialog, setDialog] = useState<null | 'act' | 'dismiss' | 'snooze' | 'contacts' | 'result'>(null);
   const [note, setNote] = useState('');
   const [days, setDays] = useState('7');
@@ -48,7 +59,14 @@ export function OpportunityCard({ o, scope, canWrite, compact }: { o: Opportunit
   const err = (e: unknown) => toast.error(e instanceof Error ? e.message : 'No se pudo completar');
   const move = useMutation({
     mutationFn: (body: { to: string; note?: string; snoozeDays?: number }) => api.post(scope(`/opportunities/${o.id}/move`), body),
-    onSuccess: (_r, v) => { refresh(); setDialog(null); setNote(''); toast.success(v.to === 'SNOOZED' ? 'Pospuesta: volverá a aparecer en su fecha' : v.to === 'DISMISSED' ? 'Descartada. Queda el registro de tu decisión.' : 'Listo'); },
+    onSuccess: (_r, v) => { refresh(); setDialog(null); setNote(''); toast.success(({
+      SNOOZED: 'Pospuesta: vuelve a aparecer en la fecha elegida.',
+      DISMISSED: 'Descartada. Queda el registro de tu decisión.',
+      REVIEWING: 'La dejamos pendiente para que la revises luego.',
+      PREPARED: 'Lista preparada. Escríbeles y luego marca «Ya hice el seguimiento».',
+      NEEDS_APPROVAL: 'Acción preparada. Revisa qué va a pasar y apruébala cuando quieras.',
+      NEW: 'Reabierta.',
+    } as Record<string, string>)[v.to] ?? 'Listo'); },
     onError: err,
   });
   const act = useMutation({
@@ -57,7 +75,7 @@ export function OpportunityCard({ o, scope, canWrite, compact }: { o: Opportunit
     onError: err,
   });
   const result = useMutation({ mutationFn: () => api.post(scope(`/opportunities/${o.id}/result`), { note }), onSuccess: () => { refresh(); setDialog(null); setNote(''); toast.success('Resultado anotado'); }, onError: err });
-  const contacts = useQuery({ queryKey: ['opportunity-contacts', o.id], queryFn: () => api.get<Array<{ id: string; name: string; phone: string | null; stage: string }>>(scope(`/opportunities/${o.id}/contacts`)), enabled: dialog === 'contacts' });
+  const contacts = useQuery({ queryKey: ['opportunity-contacts', o.id], queryFn: () => api.get<Array<{ id: string; name: string; phone: string | null; stage: string; conversationId: string | null }>>(scope(`/opportunities/${o.id}/contacts`)), enabled: dialog === 'contacts' });
   const isOpen = ['NEW', 'REVIEWING', 'PREPARED', 'NEEDS_APPROVAL'].includes(o.status);
   const [evLabel, evTone] = EVIDENCE[o.evidence] ?? ['—', 'info'];
   const period = periodText(o.period);
@@ -67,27 +85,66 @@ export function OpportunityCard({ o, scope, canWrite, compact }: { o: Opportunit
   let primary: { label: string; onClick: () => void } | null = null;
   if (canWrite && isOpen) {
     if (a.type === 'PAUSE') primary = o.status === 'NEEDS_APPROVAL' ? { label: 'Aprobar y pausar', onClick: () => setDialog('act') } : { label: 'Preparar la pausa', onClick: () => move.mutate({ to: 'NEEDS_APPROVAL' }) };
-    else if (a.type === 'FOLLOW_UP') primary = o.status === 'PREPARED' ? { label: 'Ya hice el seguimiento', onClick: () => setDialog('act') } : { label: a.label ?? 'Preparar lista', onClick: () => move.mutate({ to: 'PREPARED' }) };
-    else primary = { label: 'Ya lo hice', onClick: () => setDialog('act') };
+    else if (a.type === 'FOLLOW_UP') primary = o.status === 'PREPARED' ? { label: 'Ya hice el seguimiento', onClick: () => setDialog('act') } : { label: 'Ver a quiénes escribir', onClick: () => { move.mutate({ to: 'PREPARED' }); setDialog('contacts'); } };
+    else if (a.type === 'LINK' && a.href) primary = { label: a.label ?? 'Ir', onClick: () => navigate(a.href!) };
+    else primary = { label: 'Ya lo revisé', onClick: () => setDialog('act') };
   }
 
+  const busy = move.isPending || act.isPending;
+  const st = o.story;
   return (
-    <article className={clsx('border-2 bg-paper', o.severity === 'HIGH' && isOpen ? 'border-ink shadow-[4px_4px_0_0_rgba(26,26,26,0.9)]' : 'border-line')}>
-      <header className="flex flex-wrap items-start justify-between gap-2 p-4 pb-2">
-        <div className="min-w-0">
-          <div className="mb-1 flex flex-wrap gap-1">
-            <Badge tone={STATUS_TONE[o.status] ?? 'neutral'}>{o.statusLabel}</Badge>
-            <Badge tone={evTone}>{evLabel}</Badge>
-            <Badge tone="neutral">{o.source === 'ADS' ? 'Anuncios' : 'CRM'}</Badge>
-            {o.mode === 'DEMO' && <Badge tone="info">Demostración</Badge>}
-          </div>
-          <h3 className="font-semibold leading-snug">{o.title}</h3>
-          {o.summary && <p className="mt-1 text-sm text-ink-2">{o.summary}</p>}
+    <article className={clsx('border-2 bg-paper', o.severity === 'HIGH' && isOpen && o.mode === 'REAL' ? 'border-ink shadow-[4px_4px_0_0_rgba(26,26,26,0.9)]' : 'border-line')} aria-busy={busy}>
+      <header className="p-4 pb-3">
+        <div className="mb-2 flex flex-wrap gap-1">
+          <Badge tone={STATUS_TONE[o.status] ?? 'neutral'}>{o.statusLabel}</Badge>
+          <Badge tone={evTone}>{evLabel}</Badge>
+          {o.mode === 'DEMO' && <Badge tone="info">Demostración</Badge>}
         </div>
-        {compact && <button type="button" className="cursor-pointer text-xs underline" onClick={() => setOpen(!open)}>{open ? 'Ocultar detalle' : 'Ver evidencia'}</button>}
+        <h3 className="text-base font-semibold leading-snug">{o.title}</h3>
+        <p className="mt-1 text-sm text-ink-2">{st.what}</p>
       </header>
-      {open && (
-        <div className="grid gap-4 px-4 pb-3 text-sm md:grid-cols-3">
+
+      <dl className="grid gap-3 border-t border-line px-4 py-3 text-sm sm:grid-cols-2">
+        <div>
+          <dt className="kicker mb-0.5">Cómo lo sabemos</dt>
+          <dd className="text-ink-2">{st.howWeKnow}</dd>
+        </div>
+        <div>
+          <dt className="kicker mb-0.5">Por qué importa</dt>
+          <dd className="text-ink-2">{st.whyItMatters ?? 'Todavía no tenemos datos para decir cuánto importa.'}</dd>
+        </div>
+      </dl>
+
+      {st.after && (
+        <div className={clsx('mx-4 mb-3 border-l-4 px-3 py-2 text-sm', st.after.kind === 'MEASURED' ? 'border-ok bg-ok-soft/40' : st.after.kind === 'WAITING' ? 'border-info bg-info-soft/40' : 'border-line bg-bone-2/60')}>
+          <p className="kicker mb-0.5">{st.after.kind === 'MEASURED' ? 'Qué pasó después · medido por BackOffice' : st.after.kind === 'WAITING' ? 'En observación' : st.after.kind === 'GONE' ? 'Ya no se detecta' : st.after.kind === 'PENDING' ? 'Estado' : 'Cerrada'}</p>
+          {st.after.kind === 'MEASURED' && o.result?.facts?.length ? <ul className="list-disc pl-5">{o.result.facts.map((f) => <li key={f}>{f}</li>)}</ul> : null}
+          <p className={clsx(st.after.kind === 'MEASURED' && 'mt-1 text-xs text-ink-2')}>{st.after.text}</p>
+          {o.result?.declared && <p className="mt-1 text-xs"><b>Declarado por {o.result.declared.by}:</b> «{o.result.declared.note}» <span className="text-ink-3">(dato tuyo, no medido)</span></p>}
+        </div>
+      )}
+
+      {canWrite && (st.next || isOpen || ['OBSERVING', 'RESULT', 'DISMISSED', 'SNOOZED'].includes(o.status)) && (
+        <div className="flex flex-wrap items-center gap-2 border-t border-line px-4 py-3">
+          {st.next && primary && (
+            <Button size="sm" disabled={busy} onClick={primary.onClick}>{busy ? 'Un momento…' : st.next.label}</Button>
+          )}
+          {a.contacts > 0 && <Button size="sm" variant="outline" onClick={() => setDialog('contacts')}>Ver a quiénes ({a.contacts})</Button>}
+          {a.href && isOpen && a.type !== 'FOLLOW_UP' && <Link to={a.href} className="border-2 border-ink px-3 py-1.5 text-xs font-semibold uppercase tracking-wider hover:bg-bone-2">{a.type === 'LINK' ? a.label ?? 'Ir' : 'Abrir'}</Link>}
+          <span className="ml-auto flex flex-wrap gap-3 text-xs">
+            {isOpen && o.status === 'NEW' && <button type="button" className="cursor-pointer text-ink-3 underline-offset-2 hover:underline" onClick={() => move.mutate({ to: 'REVIEWING' })}>Lo reviso luego</button>}
+            {isOpen && <button type="button" className="cursor-pointer text-ink-3 underline-offset-2 hover:underline" onClick={() => setDialog('snooze')}>Posponer</button>}
+            {isOpen && <button type="button" className="cursor-pointer text-ink-3 underline-offset-2 hover:underline" onClick={() => setDialog('dismiss')}>Descartar</button>}
+            {['OBSERVING', 'RESULT'].includes(o.status) && <button type="button" className="cursor-pointer text-ink-3 underline-offset-2 hover:underline" onClick={() => setDialog('result')}>Anotar un resultado</button>}
+            {['DISMISSED', 'SNOOZED'].includes(o.status) && <button type="button" className="cursor-pointer text-ink-3 underline-offset-2 hover:underline" onClick={() => move.mutate({ to: 'NEW' })}>Reabrir</button>}
+          </span>
+          {st.next?.hint && <p className="w-full text-xs text-ink-3">{st.next.hint}</p>}
+        </div>
+      )}
+
+      <details open={open} onToggle={(e) => setOpen((e.target as HTMLDetailsElement).open)} className="border-t border-line px-4 py-2 text-sm">
+        <summary className="cursor-pointer text-xs font-semibold uppercase tracking-wider text-ink-2">Ver la evidencia completa</summary>
+        <div className="mt-3 grid gap-4 md:grid-cols-3">
           <div>
             <p className="kicker mb-1">Hechos</p>
             <ul className="list-disc space-y-0.5 pl-5">{o.explanation.facts?.map((f) => <li key={f}>{f}</li>)}</ul>
@@ -103,40 +160,17 @@ export function OpportunityCard({ o, scope, canWrite, compact }: { o: Opportunit
             <p className="mt-1 text-xs text-ink-3">{o.explanation.uncertainty}</p>
           </div>
         </div>
-      )}
-      <div className="border-t border-line px-4 py-3 text-sm">
-        <p><b>Siguiente paso:</b> {o.explanation.action} <span className="text-ink-3">Resultado esperado: {o.explanation.expected}</span></p>
-        <p className="mt-1 text-[11px] text-ink-3">Fuente: {o.sources.join(' · ') || '—'}{period ? ` · periodo ${period}` : ''} · detectada el {fmtDate(o.firstSeenAt)}</p>
-        {o.result && (
-          <div className="mt-3 border-l-4 border-ok bg-ok-soft/40 px-3 py-2">
-            <p className="kicker mb-1">{o.result.kind === 'CONDITION_GONE' ? 'Ya no se detecta' : 'Qué pasó después'}</p>
-            {o.result.facts?.length ? <ul className="list-disc pl-5">{o.result.facts.map((f) => <li key={f}>{f}</li>)}</ul> : null}
-            {o.result.note && <p className="mt-1 text-xs text-ink-2">{o.result.note}</p>}
-            {o.result.declared && <p className="mt-1 text-xs">Anotado por {o.result.declared.by}: «{o.result.declared.note}» (dato declarado, no medido)</p>}
-          </div>
-        )}
-        {o.status === 'OBSERVING' && <p className="mt-2 text-xs text-info">En observación desde el {o.actedAt ? fmtDate(o.actedAt) : '—'}: el resultado se mide solo en unos días.</p>}
-        {canWrite && (
-          <div className="mt-3 flex flex-wrap items-center gap-2">
-            {primary && <Button size="sm" disabled={move.isPending} onClick={primary.onClick}>{primary.label}</Button>}
-            {a.contacts > 0 && <Button size="sm" variant="outline" onClick={() => setDialog('contacts')}>Ver a quiénes ({a.contacts})</Button>}
-            {a.href && isOpen && <Link to={a.href} className="border-2 border-ink px-3 py-1.5 text-xs font-semibold uppercase tracking-wider hover:bg-bone-2">{a.type === 'LINK' ? a.label ?? 'Ir' : 'Abrir'}</Link>}
-            {isOpen && o.status === 'NEW' && <Button size="sm" variant="ghost" onClick={() => move.mutate({ to: 'REVIEWING' })}>Lo reviso luego</Button>}
-            {isOpen && <Button size="sm" variant="ghost" onClick={() => setDialog('snooze')}>Posponer</Button>}
-            {isOpen && <Button size="sm" variant="ghost" onClick={() => setDialog('dismiss')}>Descartar</Button>}
-            {['OBSERVING', 'RESULT'].includes(o.status) && <Button size="sm" variant="ghost" onClick={() => setDialog('result')}>Anotar resultado</Button>}
-            {['DISMISSED', 'SNOOZED'].includes(o.status) && <Button size="sm" variant="ghost" onClick={() => move.mutate({ to: 'NEW' })}>Reabrir</Button>}
-          </div>
-        )}
+        <div className="mt-3 flex flex-wrap gap-1">{st.dataKinds.map((k) => <Badge key={k} tone="neutral">{KIND_LABEL[k]}</Badge>)}</div>
+        <p className="mt-2 text-[11px] text-ink-3">Fuente: {o.sources.join(' · ') || '—'}{period ? ` · periodo ${period}` : ''} · detectada el {fmtDate(o.firstSeenAt)}</p>
         {o.decisions.length > 0 && (
-          <details className="mt-2 text-xs text-ink-3">
-            <summary className="cursor-pointer">Historial de decisiones ({o.decisions.length})</summary>
+          <div className="mt-2 text-xs text-ink-3">
+            <p className="font-semibold">Historial de decisiones</p>
             <ul className="mt-1 space-y-0.5">{o.decisions.map((d, i) => <li key={i}>{fmtDate(d.at)} · {d.by}: {d.note ?? d.status}</li>)}</ul>
-          </details>
+          </div>
         )}
-      </div>
+      </details>
 
-      <Modal open={dialog === 'act'} onClose={() => setDialog(null)} kicker="Confirmación" title={a.type === 'PAUSE' ? 'Pausar en la plataforma' : 'Registrar que actuaste'}>
+      <Modal open={dialog === 'act'} onClose={() => { setDialog(null); void api.post(scope('/creative/events'), { type: 'abandon_step', step: 'opportunity_act' }).catch(() => undefined); }} kicker="Confirmación" title={a.type === 'PAUSE' ? 'Pausar en la plataforma' : 'Registrar que actuaste'}>
         <div className="space-y-3 text-sm">
           {a.type === 'PAUSE'
             ? <p><b>{o.entityName}</b> dejará de entregarse y de gastar. Se puede reanudar desde Publicidad → Campañas. {o.mode === 'DEMO' && <span className="text-info">Es una demostración: no se toca ninguna cuenta real.</span>}</p>
@@ -167,10 +201,15 @@ export function OpportunityCard({ o, scope, canWrite, compact }: { o: Opportunit
       <Modal open={dialog === 'contacts'} onClose={() => setDialog(null)} kicker="Lista de seguimiento" title={`${a.contacts} contactos`}>
         {contacts.isLoading ? <Loading /> : (
           <ul className="max-h-80 divide-y divide-line overflow-y-auto text-sm">
-            {(contacts.data ?? []).map((c) => <li key={c.id} className="flex justify-between py-1.5"><span>{c.name}</span><span className="text-xs text-ink-3">{c.stage.toLowerCase()}</span></li>)}
+            {(contacts.data ?? []).map((c) => (
+              <li key={c.id} className="flex items-center justify-between gap-2 py-1.5">
+                <span className="min-w-0"><span className="block truncate">{c.name}</span><span className="text-xs text-ink-3">{c.stage.toLowerCase()}</span></span>
+                {c.conversationId ? <Link to={`/app/inbox?open=${c.conversationId}`} className="shrink-0 text-xs font-semibold underline">Abrir chat</Link> : <span className="text-xs text-ink-3">Sin chat</span>}
+              </li>
+            ))}
           </ul>
         )}
-        <p className="mt-3 text-xs text-ink-3">No se envía ningún mensaje automático desde aquí. Escríbeles desde Conversaciones.</p>
+        <p className="mt-3 text-xs text-ink-3">No se envía ningún mensaje automático. Abre cada chat, escribe lo que consideres y luego vuelve y marca «Ya hice el seguimiento».</p>
       </Modal>
     </article>
   );

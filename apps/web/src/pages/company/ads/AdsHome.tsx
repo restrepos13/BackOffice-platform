@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { clsx } from 'clsx';
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import { api } from '../../../lib/api';
@@ -609,6 +609,14 @@ function Studio({ q, accounts }: { q: string; accounts: Account[] }) {
   });
   const p = current?.proposal;
   const cur = accounts.find((a) => a.id === account)?.currency ?? 'COP';
+  // Abandono: empezó el brief y se fue sin ver la propuesta (solo el paso, sin datos)
+  const started = useRef(false);
+  const proposed = useRef(false);
+  started.current = !!(f.product || f.location || f.dailyBudget);
+  proposed.current = proposed.current || !!current;
+  useEffect(() => () => {
+    if (started.current && !proposed.current && canWrite) void api.post(withScope('/creative/events', q), { type: 'abandon_step', step: 'campaign_brief' }).catch(() => undefined);
+  }, []);
   const set = (k: string) => (e: any) => setF({ ...f, [k]: e.target.value });
   return (
     <div className="space-y-6">

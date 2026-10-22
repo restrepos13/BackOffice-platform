@@ -466,7 +466,10 @@ export class AdsService {
         const opps: OppDraft[] = drafts.map((d) => ({
           ...d,
           sources: d.ruleKey.startsWith('LEAD_') ? [platform, 'CRM de BackOffice'] : [platform],
-          action: { ...d.action, label: d.action.type === 'PAUSE' ? 'Pausar' : d.action.type === 'REVIEW' ? 'Revisar' : undefined, href: d.action.type === 'REVIEW' ? '/app/ads?tab=campanas' : undefined },
+          action: d.ruleKey === 'LEAD_TRACKING'
+            // Se arregla en la línea de WhatsApp, no en la campaña
+            ? { ...d.action, type: 'LINK' as const, label: 'Revisar la línea de WhatsApp', href: '/app/integrations' }
+            : { ...d.action, label: d.action.type === 'PAUSE' ? 'Pausar' : d.action.type === 'REVIEW' ? 'Revisar' : undefined, href: d.action.type === 'REVIEW' ? '/app/ads?tab=campanas' : undefined },
         }));
         await storeDetected(this.prisma, { companyId, source: 'ADS', mode, accountId: a.id, keyPrefix: a.id }, opps, this.now());
         out[a.id] = drafts.length;

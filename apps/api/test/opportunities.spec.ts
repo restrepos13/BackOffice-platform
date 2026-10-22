@@ -233,3 +233,111 @@ describe('Radar · observación', () => {
     expect(r.note).toMatch(/no prueba/);
   });
 });
+
+import { story } from '../src/common/opportunities/present';
+import { runAssist, validateOutput } from '../src/common/ai/creative-assist';
+
+describe('Radar · presentación (cinco preguntas)', () => {
+  const base = {
+    source: 'CRM', mode: 'REAL', ruleKey: 'FOLLOW_UP_PENDING', status: 'NEW', title: 'T', summary: 'Hay clientes sin respuesta.',
+    explanationJson: JSON.stringify({ facts: ['4 conversaciones donde el último mensaje es del cliente'], action: 'Revisar la lista' }),
+    sourcesJson: JSON.stringify(['CRM de BackOffice']), actionJson: JSON.stringify({ type: 'FOLLOW_UP' }), decisionsJson: '[]',
+  };
+
+  it('responde qué pasa, cómo lo sabemos, por qué importa y qué hacer, con datos reales', () => {
+    const s = story(base, NOW);
+    expect(s.what).toBe('Hay clientes sin respuesta.');
+    expect(s.howWeKnow).toMatch(/^Según tus conversaciones.*4 conversaciones/);
+    expect(s.whyItMatters).toMatch(/mostraron interés/);
+    expect(s.next!.label).toBe('Ver a quiénes escribir');
+    expect(s.next!.hint).toMatch(/no se envía nada automático/);
+    expect(s.after).toBeNull();
+    expect(s.dataKinds).toEqual(['CRM']);
+  });
+
+  it('distingue esperar, medido, «ya no se detecta», descartada y demostración', () => {
+    const waiting = story({ ...base, status: 'OBSERVING', actedAt: NOW.toISOString() }, NOW);
+    expect(waiting.after).toMatchObject({ kind: 'WAITING' });
+    expect(waiting.after!.text).toMatch(/medimos qué pasó después/);
+    expect(waiting.next).toBeNull();
+    expect(story({ ...base, status: 'RESULT', resultJson: JSON.stringify({ kind: 'FOLLOW_UP', note: 'nota' }), resultAt: NOW }, NOW).after).toMatchObject({ kind: 'MEASURED', text: 'nota' });
+    expect(story({ ...base, status: 'RESULT', resultJson: JSON.stringify({ kind: 'CONDITION_GONE' }) }, NOW).after!.kind).toBe('GONE');
+    const dismissed = story({ ...base, status: 'DISMISSED', decisionsJson: JSON.stringify([{ status: 'DISMISSED', note: 'Ya los llamé' }]) }, NOW);
+    expect(dismissed.after!.text).toMatch(/Ya los llamé/);
+    const demo = story({ ...base, source: 'ADS', mode: 'DEMO', ruleKey: 'SPEND_NO_RESULTS' }, NOW);
+    expect(demo.dataKinds).toEqual(['DEMO']);
+    expect(demo.howWeKnow).toMatch(/demostración/);
+    const growth = story({ ...base, ruleKey: 'PRODUCT_GROWTH', actionJson: JSON.stringify({ type: 'LINK', label: 'Crear una publicación' }) }, NOW);
+    expect(growth.dataKinds).toContain('HYPOTHESIS');
+  });
+
+  it('la vista de la lista incluye la historia y los contactos traen su chat para abrirlo directo', async () => {
+    const { svc, db } = world();
+    seedCrm(db);
+    await svc.detectCrm('coA');
+    const [v] = await svc.list(A, {});
+    expect(v.story.next.label).toBe('Ver a quiénes escribir');
+    const contacts = await svc.contacts(A, v.id);
+    expect(contacts.find((c: any) => c.id === 'k1')!.conversationId).toBe('cv1');
+  });
+});
+
+describe('Radar · logros e hitos de la experiencia', () => {
+  it('los logros son útiles y la primera acción y la primera intención quedan registradas una vez', async () => {
+    const { svc, db } = world();
+    const before = await svc.context(A);
+    expect(before.steps.map((s: any) => s.key)).toEqual(['design', 'export', 'evidence', 'acted', 'result']);
+    expect(before.steps.every((s: any) => !s.done)).toBe(true);
+    seedCrm(db);
+    await svc.detectCrm('coA');
+    await svc.event(A, { type: 'visit' });
+    await svc.event(A, { type: 'intent', intent: 'followup' });
+    const id = db.opportunity[0].id;
+    await svc.move(A, id, { to: 'PREPARED' });
+    await svc.act(A, id, { confirm: true });
+    const after = await svc.context(A);
+    expect(after.steps.find((s: any) => s.key === 'acted')!.done).toBe(true);
+    expect(after.progress.firstIntentAt).toBeTruthy();
+    expect(after.progress.firstActionAt).toBeTruthy();
+    expect(after.progress.minutesToFirstValue).toBe(0);
+  });
+
+  it('una intención sin datos no bloquea: lleva al paso que la habilita', async () => {
+    const { svc } = world();
+    const ctx = await svc.context(A);
+    const f = ctx.intents.find((i: any) => i.key === 'followup')!;
+    expect(f.available).toBe(false);
+    expect(f.href).toBe('/app/integrations');
+    expect(f.needs).toBe('Conectar WhatsApp');
+    expect(ctx.intents.find((i: any) => i.key === 'recover')!.href).toBe('/app/orders');
+  });
+});
+
+describe('IA · punto de integración (sin proveedor activo)', () => {
+  const company = { id: 'coA', addonsJson: null };
+  const fakeProvider = (output: unknown, fail = false) => ({ name: 'fake', model: 'm', complete: async () => { if (fail) throw new Error('caído'); return { output }; } });
+
+  it('sin proveedor responde "no activada" y no toca créditos', async () => {
+    const { prisma, db } = world();
+    const r = await runAssist(prisma, null, { company, task: 'EXPLAIN_OPPORTUNITY', key: 'k1', payload: {} });
+    expect(r).toMatchObject({ ok: false, reason: 'NOT_CONFIGURED' });
+    expect(db.creativeCreditMove).toHaveLength(0);
+  });
+
+  it('salida inválida o falla del proveedor libera la reserva; salida válida la consume una sola vez', async () => {
+    const { prisma, db } = world();
+    expect(await runAssist(prisma, fakeProvider({ text: 'corto' }), { company, task: 'EXPLAIN_OPPORTUNITY', key: 'a', payload: {} })).toMatchObject({ reason: 'INVALID_OUTPUT' });
+    expect(await runAssist(prisma, fakeProvider(null, true), { company, task: 'EXPLAIN_OPPORTUNITY', key: 'b', payload: {} })).toMatchObject({ reason: 'PROVIDER_ERROR' });
+    const ok = await runAssist(prisma, fakeProvider({ text: 'Una explicación suficientemente larga para ser útil.' }), { company, task: 'EXPLAIN_OPPORTUNITY', key: 'c', payload: {} });
+    expect(ok).toMatchObject({ ok: true });
+    const kinds = db.creativeCreditMove.map((m: any) => `${m.idempotencyKey}:${m.kind}`);
+    expect(kinds).toEqual(expect.arrayContaining(['a:RESERVE', 'a:release:RELEASE', 'b:RESERVE', 'b:release:RELEASE', 'c:RESERVE', 'c:commit:COMMIT']));
+    // Reintentar la misma clave no vuelve a procesar ni a cobrar
+    expect(await runAssist(prisma, fakeProvider({ text: 'Una explicación suficientemente larga para ser útil.' }), { company, task: 'EXPLAIN_OPPORTUNITY', key: 'c', payload: {} })).toMatchObject({ ok: false });
+  });
+
+  it('las variantes repetidas no cuentan', () => {
+    expect(validateOutput('COPY_VARIANTS', { variants: ['Hola mundo', 'hola mundo', 'HOLA MUNDO'] })).toBeNull();
+    expect(validateOutput('COPY_VARIANTS', { variants: ['Desayuno hoy', 'Café de origen', 'desayuno hoy'] })).toEqual(['Desayuno hoy', 'Café de origen']);
+  });
+});

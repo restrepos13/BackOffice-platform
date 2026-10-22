@@ -116,6 +116,9 @@ export default function Editor() {
   const sel = doc?.elements.find((e) => e.id === selected) ?? null;
   const isProtected = useCallback((e: El | null) => !!e && e.role === 'logo' && !!brand?.protected?.logo, [brand]);
   const palette = useMemo(() => brand?.colors.map((c) => c.hex) ?? [], [brand]);
+  // Edición rápida: textos y fotos editables sin tocar el lienzo (orden de lectura: de arriba hacia abajo)
+  const quickTexts = useMemo(() => (doc?.elements ?? []).filter((e) => e.type === 'text' && e.visible && !e.locked).sort((a, b) => a.y - b.y), [doc]);
+  const quickPhotos = useMemo(() => (doc?.elements ?? []).filter((e) => e.visible && !e.locked && e.role !== 'logo' && (e.type === 'image' || (e.type === 'rect' && e.role === 'photo'))), [doc]);
 
   /* ── Cambios (con historial) ── */
   const commit = useCallback((next: DesignDoc) => {
@@ -329,6 +332,12 @@ export default function Editor() {
         {canWrite && <Button size="sm" onClick={() => setToCalendar(true)}><Send size={14} /> Al calendario</Button>}
       </header>
 
+      {saveState === 'error' && (
+        <div className="flex items-center justify-between gap-2 border-b-2 border-bad bg-bad-soft px-3 py-2 text-sm">
+          No se pudo guardar. Tus cambios siguen en este navegador; revisa tu conexión y reintenta.
+          <Button size="sm" variant="outline" onClick={() => void save()}>Reintentar</Button>
+        </div>
+      )}
       {saveState === 'conflict' && (
         <div className="flex items-center justify-between gap-2 border-b-2 border-bad bg-bad-soft px-3 py-2 text-sm">
           Este diseño se guardó desde otra pestaña o por otra persona. Tus cambios siguen aquí y en un borrador local.
@@ -394,23 +403,45 @@ export default function Editor() {
         {/* Propiedades y capas */}
         <aside className="flex w-72 shrink-0 flex-col overflow-y-auto border-l-2 border-ink bg-paper text-sm">
           <section className="border-b-2 border-line p-3">
-            <p className="kicker mb-2">{sel ? sel.name : 'Fondo'}</p>
+            <p className="kicker mb-2">{sel ? sel.name : 'Edición rápida'}</p>
             {!sel && (
-              <div className="space-y-2">
-                <ColorInput value={doc.background.color} onChange={(v) => commit({ ...doc, background: { ...doc.background, color: v } })} />
-                <Select value={doc.background.assetId ?? ''} disabled={!canWrite} onChange={(e) => commit({ ...doc, background: { ...doc.background, assetId: e.target.value || null } })}>
-                  <option value="">Sin imagen de fondo</option>
-                  {(assets ?? []).map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
-                </Select>
-                <p className="text-[11px] text-ink-3">Toca un elemento del lienzo para editarlo. Atajos: Ctrl+Z, Ctrl+Shift+Z, Ctrl+D, Supr, flechas.</p>
+              <div className="space-y-3">
+                {canWrite && quickTexts.length > 0 && (
+                  <div className="space-y-2">
+                    <p className="text-[11px] text-ink-3">Cambia los textos aquí; el diseño se ajusta solo.</p>
+                    {quickTexts.map((e) => (
+                      <label key={e.id} className="block text-[11px] text-ink-3">{e.name}
+                        <Textarea rows={(e as TextEl).text.length > 40 ? 3 : 1} value={(e as TextEl).text} onChange={(ev) => update(e.id, { text: ev.target.value.slice(0, 2000) })} className="mt-0.5 !text-sm" />
+                      </label>
+                    ))}
+                  </div>
+                )}
+                {canWrite && quickPhotos.length > 0 && (
+                  <div className="flex flex-wrap gap-1">
+                    {quickPhotos.map((e) => (
+                      <Button key={e.id} size="sm" variant="outline" onClick={() => { setSelected(e.id); setImagePicker(true); }}><ImagePlus size={13} /> {e.type === 'image' ? 'Cambiar foto' : 'Poner foto'}{quickPhotos.length > 1 ? ` · ${e.name}` : ''}</Button>
+                    ))}
+                  </div>
+                )}
                 {canWrite && (
-                  <Field label="Adaptar a otro formato">
+                  <Field label="Adaptar a otro formato" hint="Crea una copia editable; este diseño no cambia">
                     <Select value="" onChange={(e) => e.target.value && adapt.mutate(e.target.value as FormatKey)}>
                       <option value="">Crear copia en…</option>
                       {(Object.keys(FORMATS) as FormatKey[]).filter((f) => f !== doc.format).map((f) => <option key={f} value={f}>{FORMATS[f].label}</option>)}
                     </Select>
                   </Field>
                 )}
+                <details className="text-sm">
+                  <summary className="cursor-pointer text-xs font-semibold uppercase tracking-wider text-ink-2">Fondo y opciones avanzadas</summary>
+                  <div className="mt-2 space-y-2">
+                    <ColorInput value={doc.background.color} onChange={(v) => commit({ ...doc, background: { ...doc.background, color: v } })} />
+                    <Select value={doc.background.assetId ?? ''} disabled={!canWrite} onChange={(e) => commit({ ...doc, background: { ...doc.background, assetId: e.target.value || null } })}>
+                      <option value="">Sin imagen de fondo</option>
+                      {(assets ?? []).map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+                    </Select>
+                    <p className="text-[11px] text-ink-3">Para mover, girar o cambiar tamaños, toca un elemento del lienzo. Atajos: Ctrl+Z, Ctrl+Shift+Z, Ctrl+D, Supr, flechas.</p>
+                  </div>
+                </details>
               </div>
             )}
             {sel && (

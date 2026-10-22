@@ -1,4 +1,5 @@
 import { parseJson } from '../constants';
+import { story } from './present';
 
 /**
  * Oportunidades (Radar comercial): estructura común para todo lo que detecta
@@ -135,12 +136,13 @@ export async function storeDetected(
   return { detected: drafts.length, created, gone };
 }
 
-export function view(o: any) {
+export function view(o: any, now = new Date()) {
   const { explanationJson, evidenceJson, sourcesJson, periodJson, impactJson, actionJson, decisionsJson, baselineJson, resultJson, ...rest } = o;
   const action = parseJson<OppAction>(actionJson, { type: 'NONE', risk: 'LOW', reversible: true });
   return {
     ...rest,
     statusLabel: STATUS_LABEL[o.status as OppStatus] ?? o.status,
+    story: story(o, now),
     explanation: parseJson(explanationJson, {}),
     evidenceData: parseJson(evidenceJson, {}),
     sources: parseJson<string[]>(sourcesJson, []),

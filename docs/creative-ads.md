@@ -92,9 +92,31 @@ Ya existe el contrato (`AdsProvider`) y un adaptador que **declara qué falta**,
 - Si la condición desaparece sola, queda registrada como «ya no se detecta», no como «resuelta».
 - La evidencia se etiqueta como **suficiente**, **indicio inicial** o **faltan datos**. No hay porcentajes de confianza ni dinero «perdido» o «recuperable».
 
-## 9. Pruebas
+## 9. Experiencia progresiva
 
-`apps/api/test/ads.spec.ts` (32) y `apps/api/test/opportunities.spec.ts` (13) cubren:
+- **Inicio de Creative:** la oportunidad más relevante (solo REAL; una demostración nunca es «lo más importante hoy»), «¿Qué necesitas hoy?», tus logros y «Lo que BackOffice sabe».
+- **Intenciones que no bloquean:** si falta algo, llevan al paso que lo habilita (por ejemplo, conectar WhatsApp o registrar pedidos).
+- **Logros útiles** (no tareas): primera pieza creada; primera pieza exportada o publicada; primera mejora identificada con evidencia; primera oportunidad atendida; primer resultado medido. No restringen nada.
+- **Tarjeta de oportunidad, cinco preguntas:**
+  - **qué pasa:** el resumen;
+  - **cómo lo sabemos:** el origen y el primer hecho;
+  - **por qué importa;**
+  - **qué hacer ahora:** una acción principal, con las secundarias discretas;
+  - **qué pasó después:** distingue lo medido por BackOffice de lo declarado por el usuario.
+  La evidencia completa queda plegada. El texto sale de `common/opportunities/present.ts` (plantillas deterministas, con pruebas).
+- **Continuidad:** desde un seguimiento se abre cada chat (`/app/inbox?open=`); los clientes inactivos llevan a Reactivación y el seguimiento de leads a Integraciones.
+- **Editor:** «Edición rápida» (textos en orden de lectura y fotos) cuando no hay nada seleccionado; las opciones avanzadas quedan plegadas. Si falla el guardado aparece «Reintentar» y los cambios se conservan en el navegador.
+- **Medición** (`CompanyContext.progressJson`, sin datos personales): primera visita, primera intención, primer valor (oportunidad real vista, primera exportación o primera acción), primera acción, minutos hasta el primer valor y abandonos (diálogo de actuar cancelado, brief de campaña sin propuesta).
+
+## 10. Integración futura de IA
+
+`common/ai/creative-assist.ts` define `AssistProvider` (tareas `EXPLAIN_OPPORTUNITY` y `COPY_VARIANTS`), la validación de la salida y `runAssist`. `runAssist` pasa siempre por el libro de créditos: reserva, y después consume si la salida es válida o libera si es inválida o hubo una falla técnica. Un reintento con la misma clave no vuelve a procesar ni a cobrar.
+
+**Hoy no hay ningún proveedor activo** (`providerFromEnv()` devuelve `null`) y ninguna pantalla depende de esto. Para activarlo hay que implementar un `AssistProvider` con el proveedor elegido, devolverlo desde `providerFromEnv` según las variables de entorno y exponer un endpoint con autorización y límite de solicitudes.
+
+## 11. Pruebas
+
+`apps/api/test/ads.spec.ts` (32) y `apps/api/test/opportunities.spec.ts` (21) cubren:
 
 - Adaptador de Meta: paginación, errores, monedas y creación en pausa.
 - Sincronización sin duplicados y actualización por atribución tardía.
@@ -104,15 +126,16 @@ Ya existe el contrato (`AdsProvider`) y un adaptador que **declara qué falta**,
 - Atribución sin coincidencias débiles.
 - API de conversiones: consentimiento y hash.
 - Estados del Radar, observación de resultados y contexto.
+- Presentación de cada oportunidad, logros, intenciones e integración de IA con créditos.
 
-## 10. Despliegue y reversión
+## 12. Despliegue y reversión
 
 - **Despliegue**: `prisma db push`, configurar variables y desplegar la API y la web.
 - **Reversión**: `ADS_CRON_DISABLED=1` y `OPPORTUNITIES_CRON_DISABLED=1` apagan todo lo automático sin tocar datos. Revertir el commit quita las pantallas. Las colecciones nuevas no afectan a las existentes.
 - **Recuperación**: las sincronizaciones quedan en `AdSyncRun`. Una que quedó en `RUNNING` más de 15 minutos no bloquea la siguiente.
 - **Observabilidad**: `AdSyncRun` (errores de sincronización), `AdActionLog` (todo cambio con la respuesta del proveedor) y el `AuditLog` general.
 
-## 11. Costos operativos
+## 13. Costos operativos
 
 - Meta Marketing API: sin costo directo; tiene límites de solicitudes, que se manejan como `RATE_LIMIT` y se reintentan en la siguiente vuelta.
 - Base de datos: unas 60 filas diarias por anuncio y día sincronizado (aproximadamente 1 KB cada una).
