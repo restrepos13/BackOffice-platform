@@ -5,11 +5,11 @@ import {
 import { FileInterceptor } from '@nestjs/platform-express';
 import { Throttle } from '@nestjs/throttler';
 import { randomBytes } from 'crypto';
-import { createReadStream } from 'fs';
+import { createReadStream, readFileSync } from 'fs';
 import type { Response } from 'express';
 import { PrismaService } from '../prisma/prisma.service';
 import { CurrentUser, Roles } from '../auth/decorators';
-import { AuthUser, ROLES, isPlatformRole, parseJson } from '../common/constants';
+import { AuthUser, NOT_DELETED, ROLES, isPlatformRole, parseJson } from '../common/constants';
 import { ALLOWED_FONTS, DesignDoc, DesignDocError, FORMATS, FormatKey, assetIdsOf, blankDoc, validateDesignDoc } from '../common/design-doc';
 import { TEMPLATES, TemplateKey, buildTemplate } from '../common/creative-templates';
 import { CATEGORIES, readPolicy, reviewDecision, scheduleProblem } from '../common/creative-policy';
@@ -22,6 +22,7 @@ import { resolveIdentity, sanitizeVisual, suggestVisual, ResolvedIdentity } from
 import { AssetDims, Content, FAMILIES, Family, seedHash, tokensFor } from '../common/creative/compose';
 import { CATALOG as ART_CATALOG, GOALS, GOAL_LABEL, Goal, propose } from '../common/creative/art-direction';
 import { checkQuality } from '../common/creative/quality';
+import { fingerprint } from '../common/creative/similarity';
 import { adaptDesign, readComposition } from '../common/creative/adapt';
 import { AuditModule, AuditService } from './audit.module';
 
@@ -217,6 +218,38 @@ export class CreativeService {
     return this.prisma.brandAsset.findMany({ where: { companyId: company.id }, orderBy: { createdAt: 'desc' }, take: 200 });
   }
 
+  /** Productos del catálogo (los de Pedidos/Menú), con si tienen foto. */
+  async catalogProducts(user: AuthUser, companyId?: string) {
+    const company = await this.companyOf(user, companyId);
+    const rows = await this.prisma.product.findMany({ where: { companyId: company.id, active: true, ...NOT_DELETED }, select: { id: true, name: true, price: true, imageFile: true }, orderBy: { name: 'asc' }, take: 300 });
+    return rows.map((r) => ({ id: r.id, name: r.name, price: r.price ?? null, hasImage: !!r.imageFile }));
+  }
+
+  /**
+   * Usa la foto de un producto del catálogo en Creative. Se COPIA como recurso
+   * (así borrar el recurso nunca rompe la foto del menú). Si ya se copió, se reutiliza.
+   */
+  async assetFromProduct(user: AuthUser, dto: any, companyId?: string) {
+    const company = await this.companyOf(user, companyId);
+    const product = await this.prisma.product.findUnique({ where: { id: String(dto?.productId ?? '') } });
+    if (!product || product.companyId !== company.id) throw new NotFoundException('Producto no encontrado');
+    if (!product.imageFile) throw new BadRequestException('Ese producto no tiene foto en el catálogo');
+    const name = `Producto · ${product.name}`.slice(0, 80);
+    const existing = await this.prisma.brandAsset.findFirst({ where: { companyId: company.id, kind: 'IMAGE', name, createdBy: 'Catálogo' } });
+    if (existing) return existing;
+    const path = await ensureFile(this.prisma, company.id, product.imageFile);
+    if (!path) throw new NotFoundException('La foto del producto no está disponible');
+    const buffer = readFileSync(path);
+    const info = imageInfo(buffer);
+    if (!info) throw new BadRequestException('La foto del producto no es PNG, JPG o WEBP');
+    const ext = info.mime === 'image/png' ? 'png' : info.mime === 'image/webp' ? 'webp' : 'jpg';
+    const fileName = `brand-${randomBytes(12).toString('hex')}.${ext}`;
+    await saveFile(this.prisma, company.id, fileName, buffer, info.mime);
+    return this.prisma.brandAsset.create({
+      data: { companyId: company.id, kind: 'IMAGE', name, fileName, mimeType: info.mime, sizeBytes: buffer.length, width: info.width, height: info.height, createdBy: 'Catálogo' },
+    });
+  }
+
   async uploadAsset(user: AuthUser, file: Express.Multer.File | undefined, dto: any, companyId?: string) {
     const company = await this.companyOf(user, companyId);
     if (!file?.buffer?.length) throw new BadRequestException('Elige una imagen');
@@ -400,9 +433,11 @@ export class CreativeService {
     });
     const assets = await this.prisma.brandAsset.findMany({ where: { companyId: company.id }, select: { id: true, kind: true, width: true, height: true }, take: 500 });
     const dims: AssetDims = Object.fromEntries(assets.map((a) => [a.id, { width: a.width, height: a.height }]));
-    const recentDesigns = await this.prisma.creativeDesign.findMany({ where: { companyId: company.id, compositionJson: { not: null } }, orderBy: { createdAt: 'desc' }, take: 8, select: { compositionJson: true } });
+    const recentDesigns = await this.prisma.creativeDesign.findMany({ where: { companyId: company.id, status: 'ACTIVE' }, orderBy: { createdAt: 'desc' }, take: 8, select: { id: true, compositionJson: true, docJson: true } });
     const recent = recentDesigns.map((d) => readComposition(d.compositionJson)?.family).filter(Boolean) as Family[];
-    return { brand, profile, identity, dims, assets, recent, companySeed: seedHash(company.id), brandName: brand.name || company.name };
+    // Huella estructural de las piezas recientes (incluye diseños hechos a mano): la repetición se mide por estructura
+    const recentPrints = recentDesigns.map((d) => { try { return { id: d.id, fp: fingerprint(JSON.parse(d.docJson)) }; } catch { return null; } }).filter(Boolean) as Array<{ id: string; fp: ReturnType<typeof fingerprint> }>;
+    return { brand, profile, identity, dims, assets, recent, recentPrints, companySeed: seedHash(company.id), brandName: brand.name || company.name };
   }
 
   artCatalog() {
@@ -465,8 +500,9 @@ export class CreativeService {
     const format = (dto?.format in FORMATS ? dto.format : 'IG_POST') as FormatKey;
     const content = this.content(dto?.content ?? {}, new Set(ctx.assets.map((a) => a.id)));
     const consistentWith = (FAMILIES as readonly string[]).includes(dto?.consistentWith) ? (dto.consistentWith as Family) : null;
-    const seed = Number.isInteger(dto?.seed) ? dto.seed : seedHash(`${company.id}:${goal}:${ctx.recent.length}`);
-    const res = propose(ctx.identity, { goal, format, content, recent: ctx.recent, consistentWith, seed, companySeed: ctx.companySeed, brandName: ctx.brandName, dims: ctx.dims });
+    // "Otras variantes" manda 1, 2…: recorre las estructuras siguientes a la preferida por la marca
+    const seed = Number.isInteger(dto?.seed) && dto.seed >= 0 ? dto.seed : 0;
+    const res = propose(ctx.identity, { goal, format, content, recent: ctx.recent, recentPrints: ctx.recentPrints.map((r) => r.fp), consistentWith, seed, alt: seed, companySeed: ctx.companySeed, brandName: ctx.brandName, dims: ctx.dims });
     const brandLogoIds = ctx.brand.logos.map((l: any) => l.assetId);
     const out = res.proposals.map((p) => ({
       ...p,
@@ -485,6 +521,7 @@ export class CreativeService {
     return {
       brandLogoIds, confirmedPrices: prices, confirmedOffers: ctx.brand.offers.map((o: any) => String(o.text ?? '')),
       assetDims: ctx.dims, ownedAssetIds: new Set<string>(ctx.assets.map((a: any) => a.id)), family, recentFamilies: ctx.recent,
+      recentPrints: (ctx.recentPrints ?? []).map((r: any) => r.fp),
     };
   }
 
@@ -500,7 +537,8 @@ export class CreativeService {
     const comp = readComposition(d.compositionJson);
     // El propio diseño no cuenta como repetición de sí mismo
     const recent = ctx.recent.slice(comp ? 1 : 0);
-    const issues = checkQuality(doc, { ...this.qualityCtx({ ...ctx, recent }, ctx.brand.logos.map((l: any) => l.assetId), comp?.family ?? null), measured });
+    const recentPrints = ctx.recentPrints.filter((r: any) => r.id !== d.id);
+    const issues = checkQuality(doc, { ...this.qualityCtx({ ...ctx, recent, recentPrints }, ctx.brand.logos.map((l: any) => l.assetId), comp?.family ?? null), measured });
     if (dto?.forExport) await this.event(d.companyId, 'quality_warnings', d.id, comp?.family ?? null, { block: issues.filter((i) => i.severity === 'BLOCK').length, warn: issues.filter((i) => i.severity === 'WARN').length, codes: [...new Set(issues.map((i) => i.code))] });
     return { issues, blocking: issues.some((i) => i.severity === 'BLOCK') };
   }
@@ -711,6 +749,18 @@ export class CreativeController {
   @Get('templates')
   templates() {
     return this.creative.templates();
+  }
+
+  @Get('catalog-products')
+  catalogProducts(@CurrentUser() user: AuthUser, @Query('companyId') companyId?: string) {
+    return this.creative.catalogProducts(user, companyId);
+  }
+
+  @Post('assets/from-product')
+  @Roles(...WRITE)
+  @Throttle({ default: { ttl: 60_000, limit: 30 } })
+  assetFromProduct(@CurrentUser() user: AuthUser, @Body() dto: any, @Query('companyId') companyId?: string) {
+    return this.creative.assetFromProduct(user, dto, companyId);
   }
 
   @Get('art/catalog')

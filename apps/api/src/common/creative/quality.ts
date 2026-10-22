@@ -2,6 +2,7 @@ import { DesignDoc, DesignElement, FORMATS, ImageElement, TextElement } from '..
 import { contrastRatio } from './identity';
 import { textHeight } from './text-fit';
 import type { Family } from './compose';
+import { Fingerprint, SAME_STRUCTURE, fingerprint, structuralSimilarity } from './similarity';
 
 /**
  * Control de calidad antes de exportar. Diferencia:
@@ -25,6 +26,8 @@ export interface QualityContext {
   ownedAssetIds: Set<string>;
   family?: Family | null;
   recentFamilies?: Family[];
+  /** Huellas estructurales de piezas recientes (la repetición se mide por estructura, no por nombre de familia) */
+  recentPrints?: Fingerprint[];
   /** Zonas de las historias que tapa la interfaz (píxeles sobre 1920 de alto) */
   storySafe?: { top: number; bottom: number };
 }
@@ -86,7 +89,8 @@ export function checkQuality(doc: DesignDoc, ctx: QualityContext): Issue[] {
     if (e.type === 'image' && !ctx.ownedAssetIds.has((e as ImageElement).assetId)) push({ code: 'FOREIGN_ASSET', severity: 'BLOCK', kind: 'VERIFIED', message: `«${name}» usa una imagen que no está en tus recursos.`, elementId: e.id, elementName: name });
 
     // Fuera del lienzo: texto cortado bloquea; decoración a sangre es intencional
-    if (textual(e)) {
+    // Lo decorativo puede salir a sangre a propósito (comillas gigantes, bloques): no es un corte
+    if (textual(e) && e.role !== 'decoration') {
       const outside = area(r) - inter(r, { x: 0, y: 0, w: W, h: H });
       if (outside > area(r) * 0.02 && area(r) > 0) push({ code: 'OFF_CANVAS', severity: e.type === 'text' ? 'BLOCK' : 'WARN', kind: 'VERIFIED', message: `«${name}» se sale del lienzo y quedaría cortado.`, elementId: e.id, elementName: name });
     }
@@ -152,11 +156,37 @@ export function checkQuality(doc: DesignDoc, ctx: QualityContext): Issue[] {
     else if (logos.some((l) => !ctx.brandLogoIds.includes(l.assetId))) push({ code: 'WRONG_LOGO', severity: 'WARN', kind: 'VERIFIED', message: 'El logo usado no es el que está en tu marca.' });
   }
 
-  // Repetición: la misma estructura muchas veces seguidas (solo una señal)
-  if (ctx.family && ctx.recentFamilies) {
+  // Repetición: misma DISTRIBUCIÓN que piezas recientes (colores y textos no cuentan)
+  if (ctx.recentPrints?.length) {
+    const fp = fingerprint(doc);
+    const same = ctx.recentPrints.slice(0, 5).filter((r) => structuralSimilarity(fp, r) >= SAME_STRUCTURE).length;
+    if (same >= 2) push({ code: 'REPETITION', severity: 'INFO', kind: 'VERIFIED', message: `Tiene la misma distribución que ${same} de tus últimas 5 piezas (cambian colores o textos, no la estructura). Si no es una campaña, prueba otra dirección.` });
+  } else if (ctx.family && ctx.recentFamilies) {
     const n = ctx.recentFamilies.slice(0, 5).filter((f) => f === ctx.family).length;
-    if (n >= 3) push({ code: 'REPETITION', severity: 'INFO', kind: 'HEURISTIC', message: `Usaste esta misma estructura en ${n} de tus últimas 5 piezas. Si no es una campaña, prueba otra dirección.` });
+    if (n >= 3) push({ code: 'REPETITION', severity: 'INFO', kind: 'HEURISTIC', message: `Usaste esta misma dirección en ${n} de tus últimas 5 piezas. Si no es una campaña, prueba otra.` });
   }
+
+  // Espacio vacío: el contenido ocupa poco del lienzo y no hay foto a sangre (heurística de composición)
+  const contentEls = visible.filter((e) => e.type === 'text' || e.type === 'image' || e.role === 'cta' || e.role === 'badge');
+  if (contentEls.length) {
+    const fullBleed = visible.some((e) => (e.type === 'image' || e.role === 'brand-color') && e.width * e.height >= W * H * 0.35);
+    const ys = contentEls.map((e) => bbox(e, ctx.measured?.[e.id]));
+    const spanY = Math.max(...ys.map((r) => r.y + r.h)) - Math.min(...ys.map((r) => r.y));
+    if (!fullBleed && spanY < H * 0.5) push({ code: 'EMPTY_SPACE', severity: 'INFO', kind: 'HEURISTIC', message: 'El contenido ocupa menos de la mitad del alto: puede verse vacío. Agranda el texto o agrega una foto.' });
+  }
+
+  // Ofertas: el precio o descuento tiene que verse más que el texto de apoyo
+  const price = visible.find((e) => e.type === 'text' && e.role === 'price') as TextElement | undefined;
+  const headlineEl = visible.find((e) => e.type === 'text' && e.role === 'headline') as TextElement | undefined;
+  if (price && headlineEl && price.fontSize < headlineEl.fontSize * 0.5 && !visible.some((e) => e.role === 'badge')) push({ code: 'PRICE_NOT_PROMINENT', severity: 'INFO', kind: 'HEURISTIC', message: `El precio (${price.text}) es mucho más pequeño que el titular: si es una oferta, dale más peso.`, elementId: price.id, elementName: price.name });
+
+  // Jerarquía: el titular debería destacar claramente sobre el resto del texto (heurística)
+  if (headlineEl) {
+    const others = visible.filter((e) => e.type === 'text' && e !== headlineEl && !['decoration', 'price', 'logo', 'cta'].includes(e.role ?? '') && !(e.role === 'headline')) as TextElement[];
+    const biggest = Math.max(0, ...others.map((e) => e.fontSize));
+    if (biggest && headlineEl.fontSize < biggest * 1.3) push({ code: 'WEAK_HIERARCHY', severity: 'INFO', kind: 'HEURISTIC', message: 'El titular casi no se distingue del resto del texto: agrándalo o acorta el texto de apoyo.', elementId: headlineEl.id, elementName: headlineEl.name });
+  }
+
 
   // Ordenar: bloqueantes primero; sin duplicar el mismo aviso para el mismo elemento
   const seen = new Set<string>();

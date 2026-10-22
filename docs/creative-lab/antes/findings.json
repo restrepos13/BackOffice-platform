@@ -1,0 +1,584 @@
+{
+  "crossBrandSame": [
+    {
+      "goal": "PROMO",
+      "a": "lumiere",
+      "b": "kiddo",
+      "family": "OFFER/OFFER",
+      "similarity": 0.801
+    },
+    {
+      "goal": "PROMO",
+      "a": "lumiere",
+      "b": "raiz",
+      "family": "OFFER/OFFER",
+      "similarity": 0.875
+    },
+    {
+      "goal": "PROMO",
+      "a": "vertice",
+      "b": "raiz",
+      "family": "OFFER/OFFER",
+      "similarity": 0.854
+    },
+    {
+      "goal": "PROMO",
+      "a": "kiddo",
+      "b": "raiz",
+      "family": "OFFER/OFFER",
+      "similarity": 0.822
+    },
+    {
+      "goal": "PRODUCT",
+      "a": "lumiere",
+      "b": "vertice",
+      "family": "EDITORIAL/EDITORIAL",
+      "similarity": 0.837
+    },
+    {
+      "goal": "PRODUCT",
+      "a": "pulso",
+      "b": "raiz",
+      "family": "HERO_PHOTO/HERO_PHOTO",
+      "similarity": 0.867
+    },
+    {
+      "goal": "PRODUCT",
+      "a": "vertice",
+      "b": "kiddo",
+      "family": "EDITORIAL/EDITORIAL",
+      "similarity": 0.801
+    },
+    {
+      "goal": "TIP",
+      "a": "aurora",
+      "b": "lumiere",
+      "family": "TIPS/TIPS",
+      "similarity": 0.852
+    },
+    {
+      "goal": "TIP",
+      "a": "vertice",
+      "b": "raiz",
+      "family": "TIPS/TIPS",
+      "similarity": 0.848
+    },
+    {
+      "goal": "TESTIMONIAL",
+      "a": "granos",
+      "b": "lumiere",
+      "family": "TESTIMONIAL/TESTIMONIAL",
+      "similarity": 0.878
+    },
+    {
+      "goal": "TESTIMONIAL",
+      "a": "pulso",
+      "b": "vertice",
+      "family": "TESTIMONIAL/TESTIMONIAL",
+      "similarity": 0.826
+    },
+    {
+      "goal": "TESTIMONIAL",
+      "a": "pulso",
+      "b": "kiddo",
+      "family": "TESTIMONIAL/TESTIMONIAL",
+      "similarity": 1
+    },
+    {
+      "goal": "TESTIMONIAL",
+      "a": "pulso",
+      "b": "raiz",
+      "family": "TESTIMONIAL/TESTIMONIAL",
+      "similarity": 0.826
+    },
+    {
+      "goal": "TESTIMONIAL",
+      "a": "vertice",
+      "b": "kiddo",
+      "family": "TESTIMONIAL/TESTIMONIAL",
+      "similarity": 0.826
+    },
+    {
+      "goal": "TESTIMONIAL",
+      "a": "vertice",
+      "b": "raiz",
+      "family": "TESTIMONIAL/TESTIMONIAL",
+      "similarity": 1
+    },
+    {
+      "goal": "TESTIMONIAL",
+      "a": "kiddo",
+      "b": "raiz",
+      "family": "TESTIMONIAL/TESTIMONIAL",
+      "similarity": 0.826
+    },
+    {
+      "goal": "INFO",
+      "a": "aurora",
+      "b": "vertice",
+      "family": "CORPORATE_INFO/CORPORATE_INFO",
+      "similarity": 0.821
+    },
+    {
+      "goal": "INFO",
+      "a": "aurora",
+      "b": "kiddo",
+      "family": "CORPORATE_INFO/CORPORATE_INFO",
+      "similarity": 0.828
+    },
+    {
+      "goal": "INFO",
+      "a": "aurora",
+      "b": "raiz",
+      "family": "CORPORATE_INFO/CORPORATE_INFO",
+      "similarity": 0.994
+    },
+    {
+      "goal": "INFO",
+      "a": "granos",
+      "b": "lumiere",
+      "family": "CORPORATE_INFO/CORPORATE_INFO",
+      "similarity": 1
+    },
+    {
+      "goal": "INFO",
+      "a": "pulso",
+      "b": "vertice",
+      "family": "CORPORATE_INFO/CORPORATE_INFO",
+      "similarity": 0.815
+    },
+    {
+      "goal": "INFO",
+      "a": "vertice",
+      "b": "raiz",
+      "family": "CORPORATE_INFO/CORPORATE_INFO",
+      "similarity": 0.817
+    },
+    {
+      "goal": "INFO",
+      "a": "kiddo",
+      "b": "raiz",
+      "family": "CORPORATE_INFO/CORPORATE_INFO",
+      "similarity": 0.831
+    }
+  ],
+  "sameSector": [
+    {
+      "goal": "PROMO",
+      "aurora": "HERO_PHOTO",
+      "granos": "OFFER",
+      "similarity": 0.283,
+      "differences": [
+        "distribución de la foto",
+        "posición del titular",
+        "estructura de fondos y formas",
+        "texto secundario",
+        "precio",
+        "proporción imagen/texto",
+        "posición del logo"
+      ]
+    },
+    {
+      "goal": "PRODUCT",
+      "aurora": "HERO_PHOTO",
+      "granos": "EDITORIAL",
+      "similarity": 0.356,
+      "differences": [
+        "distribución de la foto",
+        "estructura de fondos y formas",
+        "texto secundario",
+        "precio",
+        "proporción imagen/texto",
+        "posición del logo"
+      ]
+    },
+    {
+      "goal": "TIP",
+      "aurora": "TIPS",
+      "granos": "TIPS",
+      "similarity": 0.521,
+      "differences": [
+        "estructura de fondos y formas",
+        "texto secundario",
+        "posición del logo"
+      ]
+    },
+    {
+      "goal": "TESTIMONIAL",
+      "aurora": "TESTIMONIAL",
+      "granos": "TESTIMONIAL",
+      "similarity": 0.545,
+      "differences": [
+        "distribución de la foto",
+        "texto secundario",
+        "posición del logo"
+      ]
+    },
+    {
+      "goal": "CATALOG",
+      "aurora": "CATALOG",
+      "granos": "CATALOG",
+      "similarity": 0.288,
+      "differences": [
+        "distribución de la foto",
+        "posición del titular",
+        "estructura de fondos y formas",
+        "texto secundario",
+        "precio",
+        "posición del logo",
+        "posición del botón"
+      ]
+    },
+    {
+      "goal": "INFO",
+      "aurora": "CORPORATE_INFO",
+      "granos": "CORPORATE_INFO",
+      "similarity": 0.779,
+      "differences": []
+    }
+  ],
+  "withinProposals": [],
+  "familyMatrix": [
+    {
+      "a": "HERO_PHOTO",
+      "b": "EVENT",
+      "similarity": 0.761
+    },
+    {
+      "a": "TIPS",
+      "b": "STEPS",
+      "similarity": 0.618
+    },
+    {
+      "a": "STEPS",
+      "b": "CORPORATE_INFO",
+      "similarity": 0.617
+    },
+    {
+      "a": "TIPS",
+      "b": "CORPORATE_INFO",
+      "similarity": 0.602
+    },
+    {
+      "a": "EDITORIAL",
+      "b": "OFFER",
+      "similarity": 0.598
+    },
+    {
+      "a": "BENEFITS",
+      "b": "STEPS",
+      "similarity": 0.527
+    },
+    {
+      "a": "HERO_PHOTO",
+      "b": "EDITORIAL",
+      "similarity": 0.478
+    },
+    {
+      "a": "CATALOG",
+      "b": "CORPORATE_INFO",
+      "similarity": 0.477
+    },
+    {
+      "a": "TYPE_DOMINANT",
+      "b": "CATALOG",
+      "similarity": 0.476
+    },
+    {
+      "a": "CATALOG",
+      "b": "TIPS",
+      "similarity": 0.472
+    },
+    {
+      "a": "CATALOG",
+      "b": "STEPS",
+      "similarity": 0.471
+    },
+    {
+      "a": "TYPE_DOMINANT",
+      "b": "STEPS",
+      "similarity": 0.469
+    },
+    {
+      "a": "EDITORIAL",
+      "b": "BENEFITS",
+      "similarity": 0.451
+    },
+    {
+      "a": "OFFER",
+      "b": "BENEFITS",
+      "similarity": 0.448
+    },
+    {
+      "a": "TYPE_DOMINANT",
+      "b": "TIPS",
+      "similarity": 0.419
+    },
+    {
+      "a": "TYPE_DOMINANT",
+      "b": "CORPORATE_INFO",
+      "similarity": 0.418
+    },
+    {
+      "a": "TESTIMONIAL",
+      "b": "TIPS",
+      "similarity": 0.413
+    },
+    {
+      "a": "TESTIMONIAL",
+      "b": "CORPORATE_INFO",
+      "similarity": 0.406
+    },
+    {
+      "a": "TESTIMONIAL",
+      "b": "STEPS",
+      "similarity": 0.398
+    },
+    {
+      "a": "CATALOG",
+      "b": "BENEFITS",
+      "similarity": 0.391
+    },
+    {
+      "a": "TYPE_DOMINANT",
+      "b": "TESTIMONIAL",
+      "similarity": 0.374
+    },
+    {
+      "a": "BENEFITS",
+      "b": "CORPORATE_INFO",
+      "similarity": 0.374
+    },
+    {
+      "a": "EVENT",
+      "b": "MODULAR",
+      "similarity": 0.371
+    },
+    {
+      "a": "HERO_PHOTO",
+      "b": "MODULAR",
+      "similarity": 0.368
+    },
+    {
+      "a": "BENEFITS",
+      "b": "TESTIMONIAL",
+      "similarity": 0.363
+    },
+    {
+      "a": "HERO_PHOTO",
+      "b": "CATALOG",
+      "similarity": 0.357
+    },
+    {
+      "a": "OFFER",
+      "b": "EVENT",
+      "similarity": 0.357
+    },
+    {
+      "a": "EDITORIAL",
+      "b": "EVENT",
+      "similarity": 0.356
+    },
+    {
+      "a": "TYPE_DOMINANT",
+      "b": "EVENT",
+      "similarity": 0.353
+    },
+    {
+      "a": "CATALOG",
+      "b": "TESTIMONIAL",
+      "similarity": 0.352
+    },
+    {
+      "a": "OFFER",
+      "b": "STEPS",
+      "similarity": 0.348
+    },
+    {
+      "a": "EDITORIAL",
+      "b": "MODULAR",
+      "similarity": 0.346
+    },
+    {
+      "a": "TYPE_DOMINANT",
+      "b": "BENEFITS",
+      "similarity": 0.346
+    },
+    {
+      "a": "BENEFITS",
+      "b": "TIPS",
+      "similarity": 0.342
+    },
+    {
+      "a": "HERO_PHOTO",
+      "b": "OFFER",
+      "similarity": 0.341
+    },
+    {
+      "a": "EDITORIAL",
+      "b": "STEPS",
+      "similarity": 0.341
+    },
+    {
+      "a": "OFFER",
+      "b": "MODULAR",
+      "similarity": 0.34
+    },
+    {
+      "a": "CATALOG",
+      "b": "MODULAR",
+      "similarity": 0.339
+    },
+    {
+      "a": "HERO_PHOTO",
+      "b": "TYPE_DOMINANT",
+      "similarity": 0.338
+    },
+    {
+      "a": "CATALOG",
+      "b": "EVENT",
+      "similarity": 0.32
+    },
+    {
+      "a": "TYPE_DOMINANT",
+      "b": "OFFER",
+      "similarity": 0.279
+    },
+    {
+      "a": "BENEFITS",
+      "b": "EVENT",
+      "similarity": 0.27
+    },
+    {
+      "a": "MODULAR",
+      "b": "CORPORATE_INFO",
+      "similarity": 0.265
+    },
+    {
+      "a": "EDITORIAL",
+      "b": "CATALOG",
+      "similarity": 0.259
+    },
+    {
+      "a": "TYPE_DOMINANT",
+      "b": "MODULAR",
+      "similarity": 0.258
+    },
+    {
+      "a": "BENEFITS",
+      "b": "MODULAR",
+      "similarity": 0.251
+    },
+    {
+      "a": "CATALOG",
+      "b": "OFFER",
+      "similarity": 0.249
+    },
+    {
+      "a": "EDITORIAL",
+      "b": "TYPE_DOMINANT",
+      "similarity": 0.248
+    },
+    {
+      "a": "EVENT",
+      "b": "CORPORATE_INFO",
+      "similarity": 0.248
+    },
+    {
+      "a": "HERO_PHOTO",
+      "b": "BENEFITS",
+      "similarity": 0.247
+    },
+    {
+      "a": "TIPS",
+      "b": "MODULAR",
+      "similarity": 0.245
+    },
+    {
+      "a": "STEPS",
+      "b": "MODULAR",
+      "similarity": 0.241
+    },
+    {
+      "a": "OFFER",
+      "b": "TESTIMONIAL",
+      "similarity": 0.238
+    },
+    {
+      "a": "TESTIMONIAL",
+      "b": "MODULAR",
+      "similarity": 0.238
+    },
+    {
+      "a": "OFFER",
+      "b": "CORPORATE_INFO",
+      "similarity": 0.228
+    },
+    {
+      "a": "OFFER",
+      "b": "TIPS",
+      "similarity": 0.227
+    },
+    {
+      "a": "STEPS",
+      "b": "EVENT",
+      "similarity": 0.227
+    },
+    {
+      "a": "EDITORIAL",
+      "b": "TESTIMONIAL",
+      "similarity": 0.225
+    },
+    {
+      "a": "HERO_PHOTO",
+      "b": "CORPORATE_INFO",
+      "similarity": 0.224
+    },
+    {
+      "a": "TESTIMONIAL",
+      "b": "EVENT",
+      "similarity": 0.22
+    },
+    {
+      "a": "EDITORIAL",
+      "b": "CORPORATE_INFO",
+      "similarity": 0.218
+    },
+    {
+      "a": "TIPS",
+      "b": "EVENT",
+      "similarity": 0.209
+    },
+    {
+      "a": "EDITORIAL",
+      "b": "TIPS",
+      "similarity": 0.208
+    },
+    {
+      "a": "HERO_PHOTO",
+      "b": "TESTIMONIAL",
+      "similarity": 0.206
+    },
+    {
+      "a": "HERO_PHOTO",
+      "b": "STEPS",
+      "similarity": 0.203
+    },
+    {
+      "a": "HERO_PHOTO",
+      "b": "TIPS",
+      "similarity": 0.195
+    }
+  ],
+  "quality": {
+    "WARN:SMALL_TEXT": 6,
+    "WARN:LOW_RES": 4,
+    "WARN:STORY_SAFE_ZONE": 7,
+    "WARN:UNCONFIRMED_PRICE": 4,
+    "WARN:LOW_CONTRAST": 2
+  },
+  "coherence": [
+    "aurora-PROMO-0: una promoción quedó en HERO_PHOTO (el descuento no es protagonista)",
+    "granos-PRODUCT-0: no entró Texto"
+  ]
+}

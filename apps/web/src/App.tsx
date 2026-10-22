@@ -54,6 +54,8 @@ const AreaView = lazy(() => import('./pages/company/AreaView'));
 const Marketing = lazy(() => import('./pages/company/Marketing'));
 const CreativeHome = lazy(() => import('./pages/company/creative/CreativeHome'));
 const AdsHome = lazy(() => import('./pages/company/ads/AdsHome'));
+// Laboratorio visual: solo existe en desarrollo (no entra al build de producción)
+const CreativeLab = import.meta.env.DEV ? lazy(() => import('./pages/dev/CreativeLab')) : null;
 const CreativeEditor = lazy(() => import('./pages/company/creative/Editor'));
 const Deliveries = lazy(() => import('./pages/company/Deliveries'));
 const CourierApp = lazy(() => import('./pages/courier/CourierApp'));
@@ -116,6 +118,7 @@ export default function App() {
       <Route path="/m/:slug" element={<PublicMenu />} />
       <Route path="/registro" element={<Signup />} />
       <Route path="/terminos" element={<PublicTerms />} />
+      {CreativeLab && <Route path="/lab/creative" element={<CreativeLab />} />}
       <Route path="/print/order/:id" element={<RequireAuth><PrintOrder /></RequireAuth>} />
       {/* App móvil del domiciliario (fuera del panel) */}
       <Route path="/courier" element={<RequireAuth><RequireCourier><CourierApp /></RequireCourier></RequireAuth>} />

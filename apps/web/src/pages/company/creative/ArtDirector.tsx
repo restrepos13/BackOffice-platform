@@ -1,14 +1,15 @@
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { clsx } from 'clsx';
 import { useEffect, useRef, useState } from 'react';
-import { Ellipse, Layer, Line, Rect, Stage, Text } from 'react-konva';
+import { Layer, Stage } from 'react-konva';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { api } from '../../../lib/api';
-import { FORMATS, type DesignDoc, type FormatKey, type ImageEl, loadFonts } from '../../../lib/creative';
+import { FORMATS, type DesignDoc, type FormatKey, loadFonts } from '../../../lib/creative';
 import { Badge, Button, Field, Input, Loading, Modal, Select, Textarea } from '../../../components/ui';
 import { withScope } from '../shared';
-import { AssetThumb, Background, ImageNode } from './Editor';
+import { AssetThumb } from './Editor';
+import { Background, DocNodes } from './DocRender';
 
 /**
  * Nuevo diseño con dirección de arte: objetivo → contenido mínimo →
@@ -24,6 +25,7 @@ interface Proposal {
 }
 interface ProposalsRes { proposals: Proposal[]; note: string | null; unavailable: Array<{ family: string; label: string; why: string }> }
 interface Asset { id: string; name: string; kind: string; width: number | null; height: number | null }
+interface CatalogProduct { id: string; name: string; price: number | null; hasImage: boolean }
 interface BrandLite { products: Array<{ name: string; price: number | null }>; ctas: string[]; offers: Array<{ text: string; price: number | null; validUntil: string | null }> }
 
 /** Vista previa fiel y de solo lectura de un documento (mismo dibujo que el editor). */
@@ -36,14 +38,7 @@ export function DocPreview({ doc, q, width }: { doc: DesignDoc; q: string; width
     <Stage width={width} height={doc.height * scale} scaleX={scale} scaleY={scale} listening={false}>
       <Layer listening={false}>
         <Background doc={doc} q={q} />
-        {doc.elements.filter((e) => e.visible).map((e) => {
-          const c = { id: e.id, x: e.x, y: e.y, rotation: e.rotation, opacity: e.opacity };
-          if (e.type === 'text') return <Text key={e.id} {...c} text={e.text} width={e.width} fontFamily={e.fontFamily} fontSize={e.fontSize} fontStyle={e.fontStyle} align={e.align} lineHeight={e.lineHeight} letterSpacing={e.letterSpacing} fill={e.fill} wrap="word" />;
-          if (e.type === 'image') return <ImageNode key={e.id} el={e as ImageEl} q={q} common={c} />;
-          if (e.type === 'rect') return <Rect key={e.id} {...c} width={e.width} height={e.height} fill={e.fill} stroke={e.stroke} strokeWidth={e.strokeWidth} cornerRadius={e.cornerRadius} />;
-          if (e.type === 'ellipse') return <Ellipse key={e.id} {...c} x={e.x + e.width / 2} y={e.y + e.height / 2} radiusX={e.width / 2} radiusY={e.height / 2} fill={e.fill} />;
-          return <Line key={e.id} {...c} points={[0, 0, e.width, 0]} stroke={e.stroke} strokeWidth={e.strokeWidth} lineCap="round" />;
-        })}
+        <DocNodes doc={doc} q={q} />
       </Layer>
     </Stage>
   );
@@ -65,6 +60,7 @@ const NEEDS: Record<string, Array<'kicker' | 'body' | 'price' | 'cta' | 'validit
 
 export function ArtDirector({ open, onClose, q, initialFormat = 'IG_POST' }: { open: boolean; onClose: () => void; q: string; initialFormat?: FormatKey }) {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const [goal, setGoal] = useState<string | null>(null);
   const [format, setFormat] = useState<FormatKey>(initialFormat);
   const [f, setF] = useState<Record<string, any>>({ points: '', photos: [] as string[], items: [] as Array<{ name: string; price?: string }> });
@@ -74,7 +70,20 @@ export function ArtDirector({ open, onClose, q, initialFormat = 'IG_POST' }: { o
   const { data: catalog } = useQuery({ queryKey: ['art-catalog'], queryFn: () => api.get<Catalog>('/creative/art/catalog'), enabled: open });
   const { data: assets } = useQuery({ queryKey: ['brand-assets', q], queryFn: () => api.get<Asset[]>(withScope('/creative/assets', q)), enabled: open });
   const { data: brand } = useQuery({ queryKey: ['brand', q], queryFn: () => api.get<BrandLite>(withScope('/creative/brand', q)), enabled: open });
+  const { data: catalogProducts } = useQuery({ queryKey: ['catalog-products', q], queryFn: () => api.get<CatalogProduct[]>(withScope('/creative/catalog-products', q)), enabled: open });
   const photos = (assets ?? []).filter((a) => a.kind === 'IMAGE');
+  // Catálogo real (Pedidos/Menú) primero; si no hay, los productos guardados en la marca
+  const products: CatalogProduct[] = catalogProducts?.length ? catalogProducts : (brand?.products ?? []).map((p, i) => ({ id: `brand-${i}`, name: p.name, price: p.price, hasImage: false }));
+  const money = (n: number | null) => (n ? `$${Math.round(n).toLocaleString('es-CO')}` : undefined);
+  /** Si el producto tiene foto en el catálogo, se copia como recurso y se usa. */
+  const photoOf = async (p: CatalogProduct) => {
+    if (!p.hasImage) return undefined;
+    try {
+      const a = await api.post<{ id: string }>(withScope('/creative/assets/from-product', q), { productId: p.id });
+      void queryClient.invalidateQueries({ queryKey: ['brand-assets'] });
+      return a.id;
+    } catch { return undefined; }
+  };
 
   const reset = () => { setGoal(null); setRes(null); setSeed(undefined); setF({ points: '', photos: [], items: [] }); chosen.current = false; };
   const close = () => {
@@ -120,11 +129,16 @@ export function ArtDirector({ open, onClose, q, initialFormat = 'IG_POST' }: { o
               <button key={k} type="button" onClick={() => setFormat(k)} className={clsx('cursor-pointer border-2 px-3 py-1.5', format === k ? 'border-ink bg-ink text-bone' : 'border-line')}>{FORMATS[k].label}</button>
             ))}
           </div>
-          {(goal === 'PRODUCT' || goal === 'PROMO') && !!brand?.products?.length && (
-            <Field label="Producto (opcional)" hint="Trae el nombre y el precio confirmados de tu marca">
-              <Select value="" onChange={(e) => { const p = brand.products[Number(e.target.value)]; if (p) setF({ ...f, headline: f.headline || p.name, price: p.price ? `$${Math.round(p.price).toLocaleString('es-CO')}` : f.price }); }}>
+          {(goal === 'PRODUCT' || goal === 'PROMO') && products.length > 0 && (
+            <Field label="Producto (opcional)" hint="Trae el nombre, el precio confirmado y su foto del catálogo">
+              <Select value="" onChange={async (e) => {
+                const p = products[Number(e.target.value)];
+                if (!p) return;
+                const photo = await photoOf(p);
+                setF((cur) => ({ ...cur, headline: cur.headline || p.name, price: money(p.price) ?? cur.price, photos: photo ? [photo, ...cur.photos.filter((x: string) => x !== photo)].slice(0, 2) : cur.photos }));
+              }}>
                 <option value="">Elegir de mis productos…</option>
-                {brand.products.map((p, i) => <option key={i} value={i}>{p.name}{p.price ? ` · $${Math.round(p.price).toLocaleString('es-CO')}` : ''}</option>)}
+                {products.map((p, i) => <option key={p.id} value={i}>{p.name}{p.price ? ` · ${money(p.price)}` : ''}{p.hasImage ? ' · con foto' : ''}</option>)}
               </Select>
             </Field>
           )}
@@ -149,13 +163,19 @@ export function ArtDirector({ open, onClose, q, initialFormat = 'IG_POST' }: { o
             )}
           </div>
           {needs.includes('items') && (
-            <Field label="Productos (2 a 4)">
+            <Field label="Productos (2 a 4)" hint="Los que tienen foto en el catálogo la traen">
               <div className="flex flex-wrap gap-1.5">
-                {(brand?.products ?? []).map((p, i) => {
+                {products.map((p) => {
                   const on = f.items.some((it: any) => it.name === p.name);
-                  return <button key={i} type="button" onClick={() => setF({ ...f, items: on ? f.items.filter((it: any) => it.name !== p.name) : [...f.items, { name: p.name, price: p.price ? `$${Math.round(p.price).toLocaleString('es-CO')}` : undefined }].slice(0, 4) })} className={clsx('cursor-pointer border-2 px-2.5 py-1 text-xs', on ? 'border-ink bg-ink text-bone' : 'border-line')}>{p.name}</button>;
+                  return (
+                    <button key={p.id} type="button" onClick={async () => {
+                      if (on) return setF((cur) => ({ ...cur, items: cur.items.filter((it: any) => it.name !== p.name) }));
+                      const assetId = await photoOf(p);
+                      setF((cur) => ({ ...cur, items: [...cur.items, { name: p.name, price: money(p.price), assetId }].slice(0, 4) }));
+                    }} className={clsx('cursor-pointer border-2 px-2.5 py-1 text-xs', on ? 'border-ink bg-ink text-bone' : 'border-line')}>{p.name}{p.hasImage ? ' · foto' : ''}</button>
+                  );
                 })}
-                {!brand?.products?.length && <p className="text-xs text-ink-3">Agrega productos en tu Marca para armar un catálogo.</p>}
+                {!products.length && <p className="text-xs text-ink-3">Agrega productos en Mi negocio para armar un catálogo.</p>}
               </div>
             </Field>
           )}
@@ -166,9 +186,9 @@ export function ArtDirector({ open, onClose, q, initialFormat = 'IG_POST' }: { o
                   {photos.map((a) => {
                     const on = f.photos.includes(a.id);
                     return (
-                      <button key={a.id} type="button" onClick={() => setF({ ...f, photos: on ? f.photos.filter((x: string) => x !== a.id) : [...f.photos, a.id].slice(-2) })} className={clsx('cursor-pointer border-2', on ? 'border-ink' : 'border-transparent')}>
-                        <AssetThumb asset={a} q={q} />
-                      </button>
+                      <div key={a.id} className={clsx('border-2', on ? 'border-ink' : 'border-transparent')} aria-pressed={on}>
+                        <AssetThumb asset={a} q={q} onClick={() => setF({ ...f, photos: on ? f.photos.filter((x: string) => x !== a.id) : [...f.photos, a.id].slice(-2) })} />
+                      </div>
                     );
                   })}
                 </div>

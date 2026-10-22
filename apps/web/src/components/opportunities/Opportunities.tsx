@@ -91,7 +91,8 @@ export function OpportunityCard({ o, scope, canWrite, compact }: { o: Opportunit
   }
 
   const busy = move.isPending || act.isPending;
-  const st = o.story;
+  // Respuesta de un servidor anterior sin «story»: se arma una mínima en vez de romper la pantalla
+  const st = o.story ?? { what: o.summary ?? o.title, howWeKnow: o.sources?.join(' · ') ?? '', whyItMatters: null, next: null, after: null, dataKinds: [] };
   return (
     <article className={clsx('border-2 bg-paper', o.severity === 'HIGH' && isOpen && o.mode === 'REAL' ? 'border-ink shadow-[4px_4px_0_0_rgba(26,26,26,0.9)]' : 'border-line')} aria-busy={busy}>
       <header className="p-4 pb-3">

@@ -16,6 +16,7 @@ import {
 } from '../../../lib/creative';
 import { Badge, Button, Field, Input, Loading, Modal, Select, Textarea } from '../../../components/ui';
 import { useCompanyScope, withScope } from '../shared';
+import { Background, DocNodes, useAssetImage } from './DocRender';
 
 /**
  * Editor visual por capas de BackOffice Creative. Todo lo determinista
@@ -30,37 +31,7 @@ interface Asset { id: string; name: string; kind: string; width: number | null; 
 
 type SaveState = 'saved' | 'dirty' | 'saving' | 'error' | 'conflict';
 
-function useAssetImage(assetId: string | null | undefined, q: string) {
-  const [img, setImg] = useState<HTMLImageElement | null>(null);
-  const [failed, setFailed] = useState(false);
-  useEffect(() => {
-    let alive = true;
-    setFailed(false);
-    if (!assetId) { setImg(null); return; }
-    loadAsset(assetId, q).then((i) => alive && setImg(i)).catch(() => alive && setFailed(true));
-    return () => { alive = false; };
-  }, [assetId, q]);
-  return { img, failed };
-}
-
-export function ImageNode({ el, q, common }: { el: ImageEl; q: string; common: Record<string, any> }) {
-  const { img, failed } = useAssetImage(el.assetId, q);
-  if (!img) {
-    // Recurso faltante: caja visible para no perder la capa
-    return <Rect {...common} width={el.width} height={el.height} fill={failed ? '#F2DCDA' : '#ECE8E2'} stroke={failed ? '#B42318' : '#BBB'} strokeWidth={2} dash={[12, 8]} cornerRadius={el.cornerRadius} />;
-  }
-  return <KImage {...common} image={img} width={el.width} height={el.height} crop={el.crop ?? undefined} cornerRadius={el.cornerRadius} />;
-}
-
-export function Background({ doc, q }: { doc: DesignDoc; q: string }) {
-  const { img } = useAssetImage(doc.background.assetId, q);
-  return (
-    <>
-      <Rect x={0} y={0} width={doc.width} height={doc.height} fill={doc.background.color} listening={false} name="__bg" />
-      {img && <KImage image={img} x={0} y={0} width={doc.width} height={doc.height} crop={coverCrop(img, doc.width, doc.height)} listening={false} />}
-    </>
-  );
-}
+export { Background, ImageNode } from './DocRender';
 
 export default function Editor() {
   const { id = '' } = useParams();
@@ -411,14 +382,7 @@ export default function Editor() {
             >
               <Layer>
                 <Background doc={doc} q={q} />
-                {doc.elements.filter((e) => e.visible).map((e) => {
-                  const c = common(e);
-                  if (e.type === 'text') return <Text key={e.id} {...c} text={e.text} width={e.width} fontFamily={e.fontFamily} fontSize={e.fontSize} fontStyle={e.fontStyle} align={e.align} lineHeight={e.lineHeight} letterSpacing={e.letterSpacing} fill={e.fill} textDecoration={e.textDecoration} wrap="word" />;
-                  if (e.type === 'image') return <ImageNode key={e.id} el={e} q={q} common={c} />;
-                  if (e.type === 'rect') return <Rect key={e.id} {...c} width={e.width} height={e.height} fill={e.fill} stroke={e.stroke} strokeWidth={e.strokeWidth} cornerRadius={e.cornerRadius} />;
-                  if (e.type === 'ellipse') return <Ellipse key={e.id} {...c} x={e.x + e.width / 2} y={e.y + e.height / 2} radiusX={e.width / 2} radiusY={e.height / 2} fill={e.fill} stroke={e.stroke} strokeWidth={e.strokeWidth} />;
-                  return <Line key={e.id} {...c} points={[0, 0, e.width, 0]} stroke={e.stroke} strokeWidth={e.strokeWidth} hitStrokeWidth={Math.max(20, e.strokeWidth)} lineCap="round" />;
-                })}
+                <DocNodes doc={doc} q={q} common={common} />
                 <Transformer ref={trRef} rotateEnabled flipEnabled={false} boundBoxFunc={(o, n) => (n.width < 5 || n.height < 5 ? o : n)} anchorSize={10} borderStroke="#3F6B3A" anchorStroke="#3F6B3A" />
               </Layer>
             </Stage>

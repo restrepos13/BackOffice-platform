@@ -1,5 +1,6 @@
 import { FormatKey } from '../design-doc';
-import { AssetDims, Content, FAMILIES, Family, compose, composeWithReport, seedHash, tokensFor } from './compose';
+import { AssetDims, Content, FAMILIES, Family, LAYOUTS, compose, composeWithReport, moodOf, preferredLayout, tokensFor } from './compose';
+import { Fingerprint, SAME_STRUCTURE, fingerprint, structuralSimilarity } from './similarity';
 import { Personality, ResolvedIdentity } from './identity';
 
 /**
@@ -43,6 +44,37 @@ export const CATALOG: Record<Family, FamilyMeta> = {
   CORPORATE_INFO: { label: 'Informativo corporativo', purpose: 'Información clara con barras de marca y viñetas.', goals: { INFO: 3, BENEFITS: 2, NEWS: 1 }, affinity: { PROFESIONAL: 2, MINIMALISTA: 1 }, needs: {}, variants: 1, usesPhoto: 'none' },
 };
 
+/** Qué campos del contenido muestra cada familia (lo demás se informa como "no entró"). */
+const RENDERS: Record<Family, Array<keyof Content>> = {
+  HERO_PHOTO: ['kicker', 'headline', 'body', 'validity', 'price', 'cta'],
+  EDITORIAL: ['kicker', 'headline', 'body', 'points', 'price', 'cta'],
+  TYPE_DOMINANT: ['kicker', 'headline', 'body', 'cta'],
+  CATALOG: ['kicker', 'headline', 'items', 'cta'],
+  OFFER: ['kicker', 'headline', 'price', 'validity', 'cta'],
+  BENEFITS: ['kicker', 'headline', 'points', 'cta'],
+  TESTIMONIAL: ['quote', 'author', 'headline'],
+  TIPS: ['kicker', 'headline', 'body'],
+  STEPS: ['kicker', 'headline', 'points', 'cta'],
+  EVENT: ['headline', 'date', 'place', 'body', 'cta'],
+  MODULAR: ['kicker', 'headline', 'price', 'body', 'cta'],
+  CORPORATE_INFO: ['kicker', 'headline', 'points', 'body', 'cta'],
+};
+const FIELD_LABEL: Partial<Record<keyof Content, string>> = { points: 'puntos clave', items: 'productos', price: 'precio', quote: 'testimonio', date: 'fecha', body: 'texto de apoyo', validity: 'vigencia', place: 'lugar', kicker: 'etiqueta', cta: 'llamada a la acción', author: 'autor' };
+const IMPORTANT: Array<keyof Content> = ['points', 'items', 'price', 'quote', 'date'];
+const KEY_FIELDS: Partial<Record<Goal, Array<keyof Content>>> = {
+  PROMO: ['price'], PRODUCT: ['price'], CATALOG: ['items'], TESTIMONIAL: ['quote'], EVENT: ['date'],
+  INFO: ['points'], BENEFITS: ['points'], STEPS: ['points'], TIP: ['points'],
+};
+
+export function droppedFields(family: Family, c: Content): Array<keyof Content> {
+  const given = (Object.keys(FIELD_LABEL) as Array<keyof Content>).filter((k) => {
+    const v = c[k];
+    return Array.isArray(v) ? v.length > 0 : v !== undefined && v !== null && v !== '';
+  });
+  // El precio puede vivir dentro del titular (p. ej. "2x1 en…"): entonces no se pierde
+  return given.filter((k) => !RENDERS[family].includes(k) && !(k === 'price' && c.price && c.headline.includes(c.price)));
+}
+
 export interface ProposalRequest {
   goal: Goal;
   format: FormatKey;
@@ -52,6 +84,10 @@ export interface ProposalRequest {
   /** Mantener la estructura de una campaña (consistencia por encima de variedad) */
   consistentWith?: Family | null;
   seed: number;
+  /** "Otras variantes": 0 = la estructura preferida para la marca; 1, 2… = las siguientes */
+  alt?: number;
+  /** Huella estructural de las piezas recientes de la empresa (más nueva primero) */
+  recentPrints?: Fingerprint[];
   companySeed: number;
   brandName: string;
   dims: AssetDims;
@@ -97,6 +133,14 @@ export function rank(id: ResolvedIdentity, req: ProposalRequest): Ranked[] {
       score -= uses * 6;
       if (uses >= 2) reasons.push(`la usaste ${uses} veces en tus últimas piezas`);
     } else if (req.recent.length >= 2) reasons.push('no la usaste últimamente');
+    // Contenido que esta familia no mostraría: se penaliza y se dice
+    const dropped = droppedFields(family, req.content);
+    // Solo pesa lo que es central para ESTE objetivo (los puntos en un informativo, el precio en una oferta…)
+    const lost = dropped.filter((k) => IMPORTANT.includes(k) && (KEY_FIELDS[req.goal] ?? []).includes(k));
+    score -= lost.length * 8 + Math.min(3, dropped.length - lost.length) * 0.5;
+    if (lost.length) reasons.push(`no mostraría: ${lost.map((k) => FIELD_LABEL[k]).join(', ')}`);
+    // Promociones: el precio o descuento tiene que verse
+    if (req.goal === 'PROMO' && req.content.price && ['EDITORIAL', 'MODULAR'].includes(family)) score -= 6;
     const blockedBy = missing(meta, req.content) ?? undefined;
     return { family, score: blockedBy ? -Infinity : score, reasons, blockedBy };
   }).sort((a, b) => b.score - a.score);
@@ -122,16 +166,32 @@ export function propose(id: ResolvedIdentity, req: ProposalRequest): { proposals
   const ranked = rank(id, req);
   const fitting = ranked.filter((r) => r.score > 0 && Number.isFinite(r.score) && (CATALOG[r.family].goals[req.goal] ?? 0) >= 2 || (req.consistentWith === r.family && Number.isFinite(r.score)));
   const chosen = (fitting.length ? fitting : ranked.filter((r) => Number.isFinite(r.score)).slice(0, 1)).slice(0, req.consistentWith ? 1 : 3);
-  const proposals = chosen.map((r, i) => {
+  const mood = moodOf(id);
+  const tokens = tokensFor(id, req.format, req.companySeed, req.brandName);
+  const recent = req.recentPrints ?? [];
+  const proposals = chosen.map((r) => {
     const meta = CATALOG[r.family];
-    // La variante sale de la semilla: misma petición → mismo resultado; "otra opción" cambia la semilla
-    const variant = (seedHash(`${req.seed}:${r.family}`) + i) % meta.variants;
-    const tokens = tokensFor(id, req.format, req.companySeed, req.brandName);
-    const { doc, omitted } = composeWithReport(r.family, tokens, req.content, variant, req.dims);
+    const count = LAYOUTS[r.family].count;
+    // La estructura sale del carácter de la marca; "otras variantes" recorre las siguientes
+    const order = Array.from({ length: count }, (_, k) => (preferredLayout(r.family, mood, req.companySeed) + (req.alt ?? 0) + k) % count);
+    let pick = order[0];
+    let built = composeWithReport(r.family, tokens, req.content, pick, req.dims);
+    let repeated = false;
+    if (!req.consistentWith && recent.length) {
+      // Si la estructura es igual a una pieza reciente, prueba otra estructura de la misma familia
+      for (const v of order) {
+        const cand = v === pick ? built : composeWithReport(r.family, tokens, req.content, v, req.dims);
+        const same = recent.slice(0, 6).some((fp) => structuralSimilarity(fingerprint(cand.doc), fp) >= SAME_STRUCTURE);
+        if (!same) { pick = v; built = cand; repeated = false; break; }
+        repeated = true;
+      }
+    }
+    const reasons = [...r.reasons, ...(repeated ? ['se parece a una pieza reciente (no hay otra estructura de esta familia)'] : [])];
+    const dropped = droppedFields(r.family, req.content).map((k) => FIELD_LABEL[k] ?? String(k));
     return {
-      family: r.family, label: meta.label, purpose: meta.purpose, variant,
-      reason: r.reasons.length ? `Recomendada porque ${r.reasons.slice(0, 3).join('; ')}.` : meta.purpose,
-      doc, omitted,
+      family: r.family, label: meta.label, purpose: meta.purpose, variant: pick,
+      reason: (() => { const shown = reasons.filter((x) => !x.startsWith('no mostraría')).slice(0, 3); return shown.length ? `Recomendada porque ${shown.join('; ')}.` : meta.purpose; })(),
+      doc: built.doc, omitted: [...new Set([...built.omitted.map((x) => x.toLowerCase()), ...dropped])],
     };
   });
   const note = req.consistentWith ? 'Mantuvimos la estructura de tu campaña; solo cambia el contenido.'

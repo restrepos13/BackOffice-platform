@@ -300,3 +300,185 @@ describe('Servicio de Creative con dirección de arte', () => {
     expect(Object.keys(JSON.parse(ev.dataJson)).sort()).toEqual(['block', 'codes', 'warn']);
   });
 });
+
+import { emphasisSplit, moodOf, LAYOUTS } from '../src/common/creative/compose';
+import { droppedFields } from '../src/common/creative/art-direction';
+import { fingerprint, structuralSimilarity, SAME_STRUCTURE } from '../src/common/creative/similarity';
+
+describe('Laboratorio visual · mejoras respaldadas por hallazgos', () => {
+  const sim = (a: any, b: any) => structuralSimilarity(fingerprint(a), fingerprint(b));
+  const testimonialContent: Content = { headline: 'Bajé 8 kilos', quote: 'Bajé 8 kilos y gané fuerza en tres meses.', author: 'Camilo T.', photos: ['p1'] };
+
+  it('el énfasis va a la oferta y nunca deja una preposición colgando', () => {
+    expect(emphasisSplit('2x1 en croissants de la tarde')).toEqual({ first: true, a: 'en croissants de la tarde', emph: '2x1' });
+    expect(emphasisSplit('Ritual de noche con 20 % menos')).toEqual({ first: false, a: 'Ritual de noche con', emph: '20 % menos' });
+    expect(emphasisSplit('Inscripción gratis este mes').emph).toBe('gratis este mes');
+    expect(emphasisSplit('Diagnóstico financiero sin costo').emph).toBe('sin costo');
+    const plain = emphasisSplit('Para acompañar tu tarde de domingo');
+    expect(plain.a.split(' ').at(-1)).not.toMatch(/^(de|la|tu|en|con)$/i);
+  });
+
+  it('cada carácter de marca recibe una ESTRUCTURA de testimonio distinta (no solo otro color)', () => {
+    const ids = {
+      CLEAR: ident({ visual: sanitizeVisual({ personality: ['PROFESIONAL'] }) }),
+      REFINED: ident({ visual: sanitizeVisual({ personality: ['ELEGANTE'] }) }),
+      WARM: ident({ visual: sanitizeVisual({ personality: ['CALIDA'] }) }),
+      BOLD: ident({ visual: sanitizeVisual({ personality: ['ENERGICA'] }) }),
+    };
+    const docs = Object.entries(ids).map(([mood, id]) => {
+      expect(moodOf(id)).toBe(mood);
+      // Semilla de empresa 0: la estructura preferida de cada carácter (sin desempates)
+      return propose(id, { goal: 'TESTIMONIAL', format: 'IG_POST', content: testimonialContent, recent: [], seed: 1, companySeed: 0, brandName: 'X', dims }).proposals[0].doc;
+    });
+    for (let i = 0; i < docs.length; i++) for (let j = i + 1; j < docs.length; j++) expect(sim(docs[i], docs[j])).toBeLessThan(SAME_STRUCTURE);
+  });
+
+  it('dos marcas con el MISMO carácter pueden recibir estructuras distintas (desempate por empresa, reproducible)', () => {
+    const warm = ident({ visual: sanitizeVisual({ personality: ['CALIDA'] }) });
+    const info: Content = { headline: 'Así trabajamos', points: ['Uno', 'Dos', 'Tres'], cta: 'Escríbenos', photos: [] };
+    const run = (companySeed: number) => propose(warm, { goal: 'INFO', format: 'IG_POST', content: info, recent: [], seed: 1, companySeed, brandName: 'X', dims }).proposals[0];
+    const a = run(0);
+    const b = run(1);
+    expect(a.family).toBe(b.family);
+    expect(sim(a.doc, b.doc)).toBeLessThan(SAME_STRUCTURE);
+    expect(run(0)).toEqual(a);
+  });
+
+  it('las estructuras de oferta, testimonio, consejo e informativo son distintas entre sí', () => {
+    const t = tokensFor(ident(), 'IG_POST', 7, 'X');
+    for (const fam of ['OFFER', 'TESTIMONIAL', 'TIPS', 'CORPORATE_INFO'] as const) {
+      const docs = Array.from({ length: LAYOUTS[fam].count }, (_, v) => compose(fam, t, full, v, dims));
+      for (let i = 0; i < docs.length; i++) for (let j = i + 1; j < docs.length; j++) {
+        // Las dos bandas del consejo (lateral/superior) son variantes menores del mismo esquema
+        if (fam === 'TIPS' && i === 0 && j === 1) continue;
+        expect({ fam, i, j, s: sim(docs[i], docs[j]) < SAME_STRUCTURE }).toEqual({ fam, i, j, s: true });
+      }
+    }
+  });
+
+  it('no se pierde contenido en silencio: Editorial muestra los puntos y lo que no entra se informa', () => {
+    const info: Content = { headline: 'Cómo trabajamos', points: ['Uno', 'Dos', 'Tres'], cta: 'Conversemos', photos: [] };
+    const doc = compose('EDITORIAL', tokensFor(ident(), 'IG_POST', 7, 'X'), info, 0, dims);
+    expect(doc.elements.filter((e) => e.role === 'point')).toHaveLength(3);
+    expect(droppedFields('TYPE_DOMINANT', info)).toEqual(['points']);
+    const r = propose(ident(), { goal: 'INFO', format: 'IG_POST', content: info, recent: [], seed: 1, companySeed: 7, brandName: 'X', dims });
+    expect(r.proposals.map((p) => p.family)).not.toContain('TYPE_DOMINANT');
+  });
+
+  it('en una promoción con foto, el precio va en un sello visible', () => {
+    const doc = compose('HERO_PHOTO', tokensFor(ident(), 'IG_POST', 7, 'X'), { headline: '2x1 en croissants', price: '2x1', photos: ['p1'] }, 0, dims);
+    expect(doc.elements.some((e) => e.role === 'badge')).toBe(true);
+    expect((doc.elements.find((e) => e.role === 'price') as any).fontSize).toBeGreaterThan(60);
+  });
+
+  it('catálogo de 3 productos en cuadrado: una fila de tarjetas altas (sin celda vacía)', () => {
+    const doc = compose('CATALOG', tokensFor(ident(), 'IG_POST', 7, 'X'), full, 0, dims);
+    const cards = doc.elements.filter((e) => e.name === 'Tarjeta');
+    expect(cards).toHaveLength(3);
+    expect(new Set(cards.map((c) => c.y)).size).toBe(1);
+    expect(cards[0].height).toBeGreaterThan(cards[0].width);
+  });
+
+  it('si la estructura preferida repite una pieza reciente, elige otra estructura de la misma familia', () => {
+    const id = ident({ visual: sanitizeVisual({ personality: ['ELEGANTE'] }) });
+    const base = { goal: 'TESTIMONIAL' as const, format: 'IG_POST' as FormatKey, content: testimonialContent, recent: [] as Family[], seed: 1, companySeed: 7, brandName: 'X', dims };
+    const first = propose(id, base).proposals[0];
+    const again = propose(id, { ...base, recent: ['TESTIMONIAL'], recentPrints: [fingerprint(first.doc)] }).proposals[0];
+    expect(again.family).toBe('TESTIMONIAL');
+    expect(again.variant).not.toBe(first.variant);
+    expect(sim(first.doc, again.doc)).toBeLessThan(SAME_STRUCTURE);
+  });
+
+  it('calidad: repetición medida por estructura, espacio vacío y precio poco visible', () => {
+    const t = tokensFor(ident(), 'IG_POST', 7, 'X');
+    const d = compose('EDITORIAL', t, full, 0, dims);
+    const fp = fingerprint(d);
+    const rep = checkQuality(d, qctx({ recentPrints: [fp, fp, fp] })).find((i) => i.code === 'REPETITION')!;
+    expect(rep).toMatchObject({ severity: 'INFO', kind: 'VERIFIED' });
+    const sparse = compose('TYPE_DOMINANT', t, { headline: 'Hola', photos: [] }, 0, dims);
+    sparse.elements = sparse.elements.filter((e) => e.role !== 'decoration' || e.type === 'text');
+    const h = sparse.elements.find((e) => e.role === 'headline')!;
+    h.y = 100;
+    (sparse.elements.find((e) => e.role === 'logo') as any).y = 90;
+    expect(checkQuality(sparse, qctx()).map((i) => i.code)).toContain('EMPTY_SPACE');
+    const small = compose('EDITORIAL', t, { headline: 'Una oferta muy buena', price: '$9.500', photos: [] }, 0, dims);
+    (small.elements.find((e) => e.role === 'price') as any).fontSize = 20;
+    expect(checkQuality(small, qctx()).map((i) => i.code)).toContain('PRICE_NOT_PROMINENT');
+  });
+});
+
+describe('Fotos del catálogo en Creative', () => {
+  it('copia la foto de un producto como recurso (sin duplicar) y no deja usar productos ajenos', async () => {
+    const fs = require('fs');
+    const path = require('path');
+    const { prisma, db } = createMockPrisma();
+    db.company.push({ id: 'coA', name: 'A', planId: 'p1' }, { id: 'coB', name: 'B', planId: 'p1' });
+    const svc = new CreativeService(prisma as any, audit as any);
+    // PNG mínimo real en la carpeta de la empresa
+    const dir = path.join(process.env.UPLOADS_DIR ?? path.join(process.cwd(), 'uploads'), 'coA');
+    fs.mkdirSync(dir, { recursive: true });
+    const png = Buffer.alloc(64); png.writeUInt32BE(0x89504e47, 0); png.writeUInt32BE(0x0d0a1a0a, 4); png.writeUInt32BE(13, 8); png.write('IHDR', 12, 'ascii'); png.writeUInt32BE(800, 16); png.writeUInt32BE(800, 20);
+    fs.writeFileSync(path.join(dir, 'prod-test.png'), png);
+    db.product.push({ id: 'pr1', companyId: 'coA', name: 'Latte', price: 9500, active: true, deletedAt: null, imageFile: 'prod-test.png' }, { id: 'pr2', companyId: 'coB', name: 'Ajeno', active: true, deletedAt: null, imageFile: 'x.png' });
+    expect((await svc.catalogProducts(A)).map((p: any) => [p.name, p.hasImage])).toEqual([['Latte', true]]);
+    const a1 = await svc.assetFromProduct(A, { productId: 'pr1' });
+    const a2 = await svc.assetFromProduct(A, { productId: 'pr1' });
+    expect(a1.id).toBe(a2.id);
+    expect(a1).toMatchObject({ width: 800, height: 800, kind: 'IMAGE' });
+    expect(a1.fileName).not.toBe('prod-test.png'); // es una copia: borrar el recurso no rompe el menú
+    await expect(svc.assetFromProduct(A, { productId: 'pr2' })).rejects.toThrow(/no encontrado/);
+    for (const f of fs.readdirSync(dir)) if (f === 'prod-test.png' || f === a1.fileName) fs.unlinkSync(path.join(dir, f));
+  });
+});
+
+describe('Laboratorio visual · segunda ronda', () => {
+  it('nunca parte una palabra a la mitad (achica el texto hasta que la palabra más larga entra)', () => {
+    const { fitSize, wrap } = require('../src/common/creative/text-fit');
+    const f = fitSize('ENTRENADORES CERTIFICADOS', { width: 340, maxHeight: 900, font: 'Anton', lineHeight: 1, max: 160, min: 54, upper: true });
+    const lines: string[] = wrap('ENTRENADORES CERTIFICADOS', f.size, 340, 'Anton', false, true);
+    expect(lines).toEqual(['ENTRENADORES', 'CERTIFICADOS']);
+  });
+
+  it('las tarjetas del catálogo miden lo que su contenido (sin blanco sobrante)', () => {
+    const doc = compose('CATALOG', tokensFor(ident(), 'IG_POST', 7, 'X'), full, 0, dims);
+    const card = doc.elements.find((e) => e.name === 'Tarjeta')!;
+    const inside = doc.elements.filter((e) => e.slot === '0' && e.name !== 'Tarjeta' && e.type !== 'rect' || (e.role === 'item-price' && e.slot === '0'));
+    const bottom = Math.max(...inside.map((e) => e.y + e.height));
+    expect(card.y + card.height - bottom).toBeLessThan(doc.height * 0.06);
+  });
+
+  it('en la oferta refinada el precio pesa más que el titular', () => {
+    const doc = compose('OFFER', tokensFor(ident({ visual: sanitizeVisual({ personality: ['ELEGANTE'] }) }), 'IG_POST', 7, 'X'), { headline: 'Ritual de noche con 20 % menos', price: '20 %', validity: 'Hasta el 30', cta: 'Descúbrelo', photos: ['p1'] }, 3, dims);
+    const price = doc.elements.find((e) => e.role === 'price') as any;
+    const head = doc.elements.find((e) => e.role === 'headline') as any;
+    expect(price.fontSize).toBeGreaterThan(head.fontSize);
+  });
+});
+
+describe('Laboratorio visual · tercera ronda', () => {
+  it('un precio como "$15.000" no se parte dentro del sello', () => {
+    const id = ident({ visual: sanitizeVisual({ personality: ['ENERGICA'] }), fonts: ['Anton', 'Inter'] });
+    const doc = compose('HERO_PHOTO', tokensFor(id, 'IG_POST', 7, 'X'), { headline: 'Funcional de 45 minutos', price: '$15.000', photos: ['p1'] }, 1, dims);
+    const price = doc.elements.find((e) => e.role === 'price') as any;
+    const { wrap } = require('../src/common/creative/text-fit');
+    expect(wrap(price.text, price.fontSize, price.width, price.fontFamily, false, false)).toHaveLength(1);
+  });
+});
+
+describe('Laboratorio visual · cuarta ronda', () => {
+  it('editorial con mucho texto: la foto cede alto y el titular conserva su jerarquía', () => {
+    const id = ident({ visual: sanitizeVisual({ personality: ['DIVERTIDA'] }), fonts: ['Poppins', 'Nunito'] });
+    const c: Content = { headline: 'Bloques de madera natural', body: 'Pintura al agua, sin tóxicos. Desde los 2 años.', price: '$69.000', cta: 'Pídelo ya', photos: ['p1'] };
+    const doc = compose('EDITORIAL', tokensFor(id, 'IG_POST', 7, 'X'), c, 0, dims);
+    const h = doc.elements.find((e) => e.role === 'headline') as any;
+    const others = doc.elements.filter((e) => e.type === 'text' && e.role === 'body') as any[];
+    expect(h.fontSize).toBeGreaterThan(Math.max(...others.map((e) => e.fontSize)) * 1.3);
+    expect(checkQuality(doc, qctx()).map((i) => i.code)).not.toContain('WEAK_HIERARCHY');
+  });
+
+  it('avisa (como heurística) cuando el titular no se distingue del resto', () => {
+    const doc = compose('EDITORIAL', tokensFor(ident(), 'IG_POST', 7, 'X'), { headline: 'Titular', body: 'Texto de apoyo', photos: [] }, 0, dims);
+    (doc.elements.find((e) => e.role === 'headline') as any).fontSize = 30;
+    expect(checkQuality(doc, qctx()).find((i) => i.code === 'WEAK_HIERARCHY')).toMatchObject({ severity: 'INFO', kind: 'HEURISTIC' });
+  });
+});
