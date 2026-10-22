@@ -13,7 +13,8 @@ import { ROLE_LABELS } from '../lib/format';
 import type { Company } from '../lib/types';
 import { Button, Field, Input, Loading, Modal } from '../components/ui';
 import Tour from '../components/Tour';
-import Sidebar from './Sidebar';
+import Sidebar, { type SidebarProps } from './Sidebar';
+import PlatformSidebar from './PlatformSidebar';
 
 function ChangePasswordModal({ open, onClose }: { open: boolean; onClose: () => void }) {
   const [current, setCurrent] = useState('');
@@ -202,30 +203,34 @@ export default function AppShell() {
       )}
 
       {/* ─── Sidebar ─── */}
-      <Sidebar
-        isPlatform={!!isPlatform}
-        isArea={isArea}
-        company={activeCompany}
-        companyName={isPlatform ? (activeCompany?.name ?? 'Sin empresa') : (user?.company?.name ?? activeCompany?.name ?? 'Mi empresa')}
-        companies={companies}
-        companyId={companyId}
-        onPickCompany={(id) => { setCompanyId(id); navigate('/app'); }}
-        badges={{
-          registros: signupSummary?.pendingFollow,
-          salud: (health?.crit ?? 0) + (health?.warn ?? 0) || undefined,
-          adsFindings: adsOverview?.openFindings || undefined,
-          adsPending: adsOverview?.pendingActions || undefined,
-        }}
-        collapsed={collapsed}
-        onToggleCollapse={toggleCollapsed}
-        mobileOpen={mobileOpen}
-        onCloseMobile={() => setMobileOpen(false)}
-        userName={user?.name ?? ''}
-        roleLabel={ROLE_LABELS[user?.role ?? ''] ?? ''}
-        viewer={user?.role === 'COMPANY_VIEWER'}
-        onSecurity={() => setChangingPassword(true)}
-        onLogout={logout}
-      />
+      {(() => {
+        const sidebarProps: SidebarProps = {
+          isPlatform: !!isPlatform,
+          isArea,
+          company: activeCompany,
+          companyName: isPlatform ? (activeCompany?.name ?? 'Sin empresa') : (user?.company?.name ?? activeCompany?.name ?? 'Mi empresa'),
+          companies,
+          companyId,
+          onPickCompany: (id) => { setCompanyId(id); navigate('/app'); },
+          badges: {
+            registros: signupSummary?.pendingFollow,
+            salud: (health?.crit ?? 0) + (health?.warn ?? 0) || undefined,
+            adsFindings: adsOverview?.openFindings || undefined,
+            adsPending: adsOverview?.pendingActions || undefined,
+          },
+          collapsed,
+          onToggleCollapse: toggleCollapsed,
+          mobileOpen,
+          onCloseMobile: () => setMobileOpen(false),
+          userName: user?.name ?? '',
+          roleLabel: ROLE_LABELS[user?.role ?? ''] ?? '',
+          viewer: user?.role === 'COMPANY_VIEWER',
+          onSecurity: () => setChangingPassword(true),
+          onLogout: logout,
+        };
+        // El equipo BackOffice conserva su panel de siempre; la navegación por producto es para los clientes
+        return isPlatform ? <PlatformSidebar {...sidebarProps} userRole={user?.role ?? ''} /> : <Sidebar {...sidebarProps} />;
+      })()}
 
       <ChangePasswordModal open={changingPassword} onClose={() => setChangingPassword(false)} />
       <Tour />

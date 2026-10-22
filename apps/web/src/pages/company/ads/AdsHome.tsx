@@ -5,7 +5,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import { api } from '../../../lib/api';
 import { AdsSpendChart } from '../../../components/charts';
-import { Badge, Button, Card, EmptyState, Field, Input, Loading, Modal, PageHeader, Select, Stat, Switch } from '../../../components/ui';
+import { Badge, Button, Card, EmptyState, Field, Input, Loading, Modal, PageHeader, Select, Stat, Switch, Tabs } from '../../../components/ui';
 import { PickCompany, useCompanyScope, withScope } from '../shared';
 import { OpportunityList } from '../../../components/opportunities/Opportunities';
 
@@ -24,6 +24,13 @@ interface Overview {
   daily: Array<{ date: string; spend: number; results: number }>; campaigns: Array<Totals & { id: string; externalId: string; name: string; status: string | null; objective: string | null; dailyBudget: number | null }>;
   configuredDailyBudget: number; openFindings: number; pendingActions: number; executedActions: number;
 }
+
+/** Pestañas de la vista del equipo BackOffice (como siempre). */
+const TABS = [
+  { id: 'resumen', label: 'Resultados' }, { id: 'cuentas', label: 'Cuentas' }, { id: 'campanas', label: 'Campañas' },
+  { id: 'oportunidades', label: 'Oportunidades' }, { id: 'autopilot', label: 'Autopilot' }, { id: 'leads', label: 'Leads y ventas' },
+  { id: 'nueva', label: 'Nueva campaña' },
+];
 
 /** Secciones de Ads Intelligence (el menú lateral las lista; aquí solo se titula la pantalla). */
 const SECTIONS: Record<string, { kicker: string; title: string }> = {
@@ -83,8 +90,8 @@ function Confirm({ open, title, children, cta, danger, onClose, onConfirm, busy 
 }
 
 export default function AdsHome() {
-  const { ready, q } = useCompanyScope();
-  const [params] = useSearchParams();
+  const { ready, q, isPlatform } = useCompanyScope();
+  const [params, setParams] = useSearchParams();
   const tab = (params.get('tab') ?? 'resumen') in SECTIONS ? (params.get('tab') ?? 'resumen') : 'resumen';
   const [mode, setMode] = useState<Mode | undefined>(undefined);
   const overview = useQuery({
@@ -98,7 +105,9 @@ export default function AdsHome() {
   const effective = o?.mode ?? 'REAL';
   return (
     <>
-      <PageHeader kicker={`Ads Intelligence · ${SECTIONS[tab].kicker}`} title={SECTIONS[tab].title} />
+      {isPlatform
+        ? <PageHeader kicker="Anuncios conectados a tus ventas" title="Publicidad" accent="que se entiende" />
+        : <PageHeader kicker={`Ads Intelligence · ${SECTIONS[tab].kicker}`} title={SECTIONS[tab].title} />}
       {o && o.modes.real > 0 && o.modes.demo > 0 && (
         <div className="mb-4 flex items-center gap-2 text-sm">
           <span className="text-ink-3">Ver:</span>
@@ -107,7 +116,8 @@ export default function AdsHome() {
           ))}
         </div>
       )}
-      <div>
+      {isPlatform && <Tabs tabs={TABS.map((t) => ({ ...t, badge: t.id === 'oportunidades' ? o?.openFindings || undefined : t.id === 'autopilot' ? o?.pendingActions || undefined : undefined }))} active={tab} onChange={(t) => setParams({ tab: t })} />}
+      <div className={isPlatform ? 'mt-5' : undefined}>
         {tab !== 'cuentas' && tab !== 'nueva' && o && <DemoBanner mode={effective} />}
         {tab === 'resumen' && (o ? <Summary q={q} mode={effective} base={o} /> : <Loading />)}
         {tab === 'cuentas' && <Accounts q={q} />}

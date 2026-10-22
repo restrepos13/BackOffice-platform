@@ -82,7 +82,7 @@ function Preview({ asset, q, className, controls }: { asset: Asset; q: string; c
 }
 
 export default function Library() {
-  const { q, ready, canWrite } = useCompanyScope();
+  const { q, ready, canWrite, isPlatform } = useCompanyScope();
   const qc = useQueryClient();
   const [kind, setKind] = useState('');
   const [origin, setOrigin] = useState('');
@@ -92,7 +92,8 @@ export default function Library() {
   const [fromCreative, setFromCreative] = useState(false);
   const { pathname } = useLocation();
   const ws = activeWorkspace(pathname, ['CREATIVE', 'ADS'], rememberedWorkspace());
-  const context = ws === 'ADS' || ws === 'CREATIVE' ? ws : null;
+  // El equipo BackOffice ve la biblioteca sin contexto de producto (su panel no lo tiene)
+  const context = !isPlatform && (ws === 'ADS' || ws === 'CREATIVE') ? ws : null;
   const { data, isLoading } = useQuery({
     queryKey: ['library', q, kind, origin],
     queryFn: () => api.get<ListResponse>(withScope(`/library/assets?${new URLSearchParams({ ...(kind ? { kind } : {}), ...(origin ? { origin } : {}) })}`, q)),

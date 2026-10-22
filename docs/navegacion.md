@@ -2,6 +2,8 @@
 
 Estado al 22-oct-2026, en local y sin desplegar.
 
+**Alcance: solo usuarios de empresa (clientes).** El equipo BackOffice (SUPER_ADMIN/DEV) conserva su panel de siempre (`layouts/PlatformSidebar.tsx`): lista de Plataforma, selector de empresa y el panel de la empresa en una lista, con las pestañas internas de Creative y Publicidad.
+
 - La configuración del menú vive en `apps/web/src/layouts/navigation.ts`. Es lógica pura y tiene sus propias pruebas.
 - El componente es `apps/web/src/layouts/Sidebar.tsx`.
 - El acceso lo sigue exigiendo el servidor (`ProductsGuard`) y cada ruta (`RequireProduct`). Ver [productos-y-arquitectura.md](productos-y-arquitectura.md).
@@ -9,7 +11,7 @@ Estado al 22-oct-2026, en local y sin desplegar.
 ## Estructura
 
 1. **Selector de producto** (arriba): Automation, Creative y Ads Intelligence, cada uno con
-   nombre, ícono y descripción. El equipo BackOffice ve además "Plataforma".
+   nombre, ícono y descripción.
    - El activo se marca con fondo invertido, check, `aria-current` y el texto accesible
      "(producto activo)". No depende solo del color.
    - Un producto no contratado aparece como "No activo · ver opciones" (borde punteado
@@ -38,7 +40,6 @@ Una sola lista de unos 30 ítems:
 - Asistentes IA, Automatizaciones, Integraciones, Galería, Analytics, Costos de IA, Gerencia.
 - Consumo IA, Mi plan, Facturación, Equipo, Configuración.
 
-Plataforma tenía 17 ítems sin agrupar.
 
 ### Ahora
 
@@ -64,12 +65,6 @@ Plataforma tenía 17 ítems sin agrupar.
 - **Inteligencia y oportunidades:** Oportunidades, con contador.
 - **Automatización publicitaria:** Autopilot y reglas, con contador.
 - **Leads, ventas y atribución:** Leads y ventas.
-
-**Plataforma:**
-- **Operación:** Resumen, Incidentes, Salud, Auditoría.
-- **Clientes:** Empresas, Registros, Citas, Ventas, Usuarios, Correos.
-- **Oferta e IA:** Planes, Personalidades, Modelos IA, Consumo IA, Términos, Publicidad de BackOffice.
-- **Desarrollo:** Dev Tools.
 
 ## Decisiones
 - **Conversaciones en "Atención y canales":** son el canal de atención. La venta se trabaja
@@ -101,5 +96,6 @@ El menú contraído es la otra vista en íconos, y es la misma navegación.
 - Que cada opción del menú apunte a una ruta existente.
 - El selector: cambio, retomar la última pantalla y rutas globales.
 - Combinaciones de productos.
-- Rol de área, solo lectura y plataforma con y sin empresa.
+- Rol de área y solo lectura.
+- Que el panel de plataforma siga igual que antes.
 - Menú contraído y expandido, y celular.

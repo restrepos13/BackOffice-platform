@@ -3,7 +3,7 @@ import { resolve } from 'path';
 import { describe, expect, it } from 'vitest';
 import {
   type NavContext, accountItems, activeWorkspace, adsGroups, automationGroups, creativeGroups, groupsFor, isItemActive,
-  platformGroups, productOfPath,
+  productOfPath,
 } from './navigation';
 
 const ALL: NavContext = {
@@ -48,9 +48,6 @@ describe('Arquitectura de información', () => {
     expect(accountItems({ onboarding: true })[0].label).toBe('Primeros pasos');
   });
 
-  it('Plataforma separa operación, clientes, oferta y desarrollo', () => {
-    expect(platformGroups().map((g) => g.title)).toEqual(['Operación', 'Clientes', 'Oferta e IA', 'Desarrollo']);
-  });
 });
 
 describe('Producto activo según la ruta', () => {
@@ -98,7 +95,7 @@ describe('Rutas', () => {
     const routes = [...app.matchAll(/<Route path="([^"]+)"/g)].map((m) => m[1]);
     const matches = (path: string) => routes.some((r) => r === path || new RegExp(`^${r.replace(/:[^/]+/g, '[^/]+')}$`).test(path));
     const items = [
-      ...automationGroups(ALL), ...creativeGroups(ALL), ...adsGroups(ALL), ...platformGroups(),
+      ...automationGroups(ALL), ...creativeGroups(ALL), ...adsGroups(ALL),
       { id: 'cuenta', title: '', items: accountItems({ onboarding: true }) },
     ].flatMap((g) => g.items);
     for (const i of items) expect([i.to, matches(i.to.split('?')[0])]).toEqual([i.to, true]);

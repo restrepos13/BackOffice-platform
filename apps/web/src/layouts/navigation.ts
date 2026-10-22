@@ -1,17 +1,13 @@
 import {
-  Activity, BarChart3, Bike, Bot, Building2, Calculator, CalendarDays, ChartNoAxesCombined, CircleDollarSign, ClipboardCheck,
-  Contact, Cpu, CreditCard, Factory, FileSearch, FileSignature, FileText, FolderOpen, Gem, HandCoins, Headset, HeartPulse,
-  Images, Inbox, Layers, LayoutDashboard, ListChecks, Mail, Megaphone, Package, Palette, Plug, Radar, RefreshCcw, Rocket,
-  ScrollText, Send, Settings, ShieldCheck, Siren, Sparkles, Store, SwatchBook, Target, Terminal, TrendingUp, UserPlus, UserRound, Users,
-  Wallet, Workflow, type LucideIcon,
+  Activity, BarChart3, Bike, Bot, Calculator, CalendarDays, ChartNoAxesCombined, ClipboardCheck, Contact, CreditCard, Factory, FileSearch, FileText, FolderOpen, Gem, HandCoins, Images, Inbox, Layers, LayoutDashboard, ListChecks, Megaphone, Package, Palette, Plug, Radar, RefreshCcw, Rocket, Send, Settings, ShieldCheck, Sparkles, Store, SwatchBook, Target, TrendingUp, UserRound, Wallet, Workflow, type LucideIcon,
 } from 'lucide-react';
 import type { ProductKey } from '../lib/products';
 
 /**
- * Arquitectura de información del panel (sin React: se prueba sola).
+ * Arquitectura de información del panel del CLIENTE (sin React: se prueba sola).
+ * El equipo BackOffice conserva su barra de siempre (PlatformSidebar).
  *
- *  - Espacios de trabajo: los tres productos de la empresa y, solo para el
- *    equipo BackOffice, "Plataforma".
+ *  - Espacios de trabajo: los tres productos de la empresa.
  *  - Cada producto tiene su propio menú secundario, agrupado por tareas.
  *  - "Empresa y cuenta" es global: está igual en los tres productos.
  *
@@ -171,43 +167,6 @@ export function accountItems(ctx: Pick<NavContext, 'onboarding'>): NavItem[] {
 /** Rutas globales: no cambian el producto activo (se queda el último que usaste). */
 export const GLOBAL_PATHS = ['/app/settings', '/app/team', '/app/mi-plan', '/app/billing', '/app/usage', '/app/bienvenida', '/app/producto'];
 
-/* ── Plataforma (solo SUPER_ADMIN / DEV) ── */
-
-export function platformGroups(badges: { registros?: number; salud?: number } = {}): NavGroup[] {
-  return [
-    {
-      id: 'operacion', title: 'Operación', items: [
-        { to: '/platform', label: 'Resumen', icon: LayoutDashboard, end: true },
-        { to: '/platform/incidentes', label: 'Incidentes 24/7', icon: Siren },
-        { to: '/platform/salud', label: 'Salud', icon: HeartPulse, badge: badges.salud },
-        { to: '/platform/audit', label: 'Auditoría', icon: ScrollText },
-      ],
-    },
-    {
-      id: 'clientes', title: 'Clientes', items: [
-        { to: '/platform/companies', label: 'Empresas', icon: Building2 },
-        { to: '/platform/registros', label: 'Registros', icon: UserPlus, badge: badges.registros },
-        { to: '/platform/citas', label: 'Citas', icon: Headset },
-        { to: '/platform/ventas', label: 'Ventas', icon: Wallet },
-        { to: '/platform/users', label: 'Usuarios', icon: Users },
-        { to: '/platform/emails', label: 'Correos', icon: Mail },
-      ],
-    },
-    {
-      id: 'oferta', title: 'Oferta e IA', items: [
-        { to: '/platform/plans', label: 'Planes', icon: CircleDollarSign },
-        { to: '/platform/personas', label: 'Personalidades', icon: Sparkles },
-        { to: '/platform/models', label: 'Modelos IA', icon: Cpu },
-        { to: '/platform/usage', label: 'Consumo IA', icon: Activity },
-        { to: '/platform/terminos', label: 'Términos', icon: FileSignature },
-        // Anuncios del propio BackOffice (no los de los clientes)
-        { to: '/platform/publicidad', label: 'Publicidad de BackOffice', icon: Megaphone },
-      ],
-    },
-    { id: 'desarrollo', title: 'Desarrollo', items: [{ to: '/platform/dev', label: 'Dev Tools', icon: Terminal }] },
-  ];
-}
-
 /* ── Qué producto corresponde a una ruta ── */
 
 /** Producto dueño de una ruta, o null si es global o compartida (biblioteca). */
@@ -249,7 +208,8 @@ export const WORKSPACE_HOME: Record<Workspace, string> = {
 
 /** Grupos del menú secundario de un espacio. */
 export function groupsFor(ws: Workspace, ctx: NavContext, badges: { registros?: number; salud?: number; adsFindings?: number; adsPending?: number } = {}): NavGroup[] {
-  if (ws === 'PLATFORM') return platformGroups(badges);
+  // Plataforma tiene su propia barra (PlatformSidebar), sin esta navegación
+  if (ws === 'PLATFORM') return [];
   if (!ctx.products.includes(ws)) return [];
   if (ws === 'AUTOMATION') return automationGroups(ctx);
   if (ws === 'CREATIVE') return creativeGroups(ctx);

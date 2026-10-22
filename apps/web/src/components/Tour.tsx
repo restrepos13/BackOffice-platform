@@ -19,8 +19,7 @@ const PLATFORM_STEPS: TourStep[] = [
   { target: '', title: 'Bienvenido a BackOffice', body: 'Este es el panel de plataforma: desde aquí administras TODAS las empresas del estudio. Te mostramos lo esencial en 30 segundos.' },
   { target: 'nav-platform', title: 'Panel de plataforma', body: 'Empresas, planes, personalidades, modelos IA, consumo global, correos y auditoría. Todo lo del estudio vive aquí.' },
   { target: 'company-picker', title: 'Entrar a cualquier empresa', body: 'Elige una empresa y verás SU panel tal como lo ve el cliente — ideal para soporte y configuración.' },
-  { target: 'product-switcher', title: 'Plataforma y productos', body: 'Arriba cambias entre Plataforma y los productos de la empresa que elegiste: Automation, Creative y Ads Intelligence. Lo que la empresa no tiene aparece como «No activo».' },
-  { target: 'nav-company', title: 'El panel del cliente', body: 'El menú cambia según el producto activo y lo que la empresa tiene contratado — tal como lo ve el cliente.' },
+  { target: 'nav-company', title: 'El panel del cliente', body: 'Bandeja con IA, CRM, pedidos (si la empresa tiene el módulo), reportes y configuración. Cambia según los módulos contratados.' },
 ];
 
 const COMPANY_STEPS: TourStep[] = [

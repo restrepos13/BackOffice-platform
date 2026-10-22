@@ -7,7 +7,7 @@ import { toast } from 'sonner';
 import { api, uploadFile } from '../../../lib/api';
 import type { SocialStatus } from '../../../lib/types';
 import { CATEGORY_LABELS, FONTS, FORMATS, type FormatKey, STATUS_LABELS, authedBlobUrl } from '../../../lib/creative';
-import { Badge, Button, Card, EmptyState, Field, Input, Loading, Modal, PageHeader, Select, Stat, Switch, Textarea } from '../../../components/ui';
+import { Badge, Button, Card, EmptyState, Field, Input, Loading, Modal, PageHeader, Select, Stat, Switch, Tabs, Textarea } from '../../../components/ui';
 import { PickCompany, useCompanyScope, withScope } from '../shared';
 import { AssetThumb } from './Editor';
 import CreativeStart from './CreativeStart';
@@ -35,6 +35,12 @@ interface Piece {
   targets: string[]; reviewNote: string | null; approvedBy: string | null; autoApproved: boolean | null; publishError: string | null; designId: string | null;
 }
 
+/** Pestañas de la vista del equipo BackOffice (como siempre). */
+const TABS = [
+  { id: 'inicio', label: 'Inicio' }, { id: 'oportunidades', label: 'Oportunidades' }, { id: 'disenos', label: 'Diseños' }, { id: 'marca', label: 'Marca' }, { id: 'recursos', label: 'Recursos' },
+  { id: 'calendario', label: 'Calendario' }, { id: 'reglas', label: 'Reglas' }, { id: 'creditos', label: 'Créditos' },
+];
+
 /** Secciones de Creative (el menú lateral las lista; aquí solo se titula la pantalla). */
 const SECTIONS: Record<string, { kicker: string; title: string }> = {
   inicio: { kicker: 'BackOffice Creative', title: 'Inicio' },
@@ -47,23 +53,29 @@ const SECTIONS: Record<string, { kicker: string; title: string }> = {
 };
 
 export default function CreativeHome() {
-  const { ready, q, canWrite } = useCompanyScope();
-  const [params] = useSearchParams();
+  const { ready, q, canWrite, isPlatform } = useCompanyScope();
+  const [params, setParams] = useSearchParams();
   const raw = params.get('tab') ?? 'inicio';
   const tab = raw in SECTIONS ? raw : raw === 'recursos' ? raw : 'inicio';
   const brand = useQuery({ queryKey: ['brand', q], queryFn: () => api.get<Brand>(withScope('/creative/brand', q)), enabled: ready, retry: false });
   // Los recursos viven en la Biblioteca compartida (antes había una lista aparte aquí)
-  if (tab === 'recursos') return <Navigate to="/app/biblioteca" replace />;
+  if (tab === 'recursos' && !isPlatform) return <Navigate to="/app/biblioteca" replace />;
   if (!ready) return <PickCompany />;
   if (brand.error) return <Card title="Creative"><p className="text-sm">{brand.error instanceof Error ? brand.error.message : 'No disponible'} <Link to="/app/mi-plan" className="underline">Ir a Mi plan</Link></p></Card>;
   return (
     <>
-      <PageHeader kicker={SECTIONS[tab].kicker} title={SECTIONS[tab].title} />
-      <div>
+      {isPlatform ? (
+        <>
+          <PageHeader kicker="Oportunidades, diseño y publicación" title="Creative" accent="de tu negocio" />
+          <Tabs tabs={TABS} active={tab} onChange={(t) => setParams({ tab: t })} />
+        </>
+      ) : <PageHeader kicker={SECTIONS[tab].kicker} title={SECTIONS[tab].title} />}
+      <div className={isPlatform ? 'mt-5' : undefined}>
         {tab === 'inicio' && <CreativeStart q={q} />}
         {tab === 'oportunidades' && <OpportunityList scope={(p) => withScope(p, q)} query={{ source: params.get('source') ?? undefined }} canWrite={canWrite} />}
         {tab === 'disenos' && <Designs q={q} />}
         {tab === 'marca' && (brand.data ? <div className="space-y-6"><BrandForm q={q} brand={brand.data} /><VisualIdentityCard q={q} colors={brand.data.colors} /></div> : <Loading />)}
+        {tab === 'recursos' && isPlatform && <Assets q={q} />}
         {tab === 'calendario' && <Calendar q={q} />}
         {tab === 'reglas' && (brand.data ? <Rules q={q} policy={brand.data.policy} /> : <Loading />)}
         {tab === 'creditos' && <Credits q={q} />}
@@ -251,6 +263,49 @@ function BrandForm({ q, brand }: { q: string; brand: Brand }) {
 }
 
 /* ── Recursos ── */
+
+function Assets({ q }: { q: string }) {
+  const queryClient = useQueryClient();
+  const { canWrite } = useCompanyScope();
+  const [kind, setKind] = useState('IMAGE');
+  const { data, isLoading } = useQuery({ queryKey: ['brand-assets', q], queryFn: () => api.get<Asset[]>(withScope('/creative/assets', q)) });
+  const upload = useMutation({
+    mutationFn: (file: File) => uploadFile(withScope('/creative/assets', q), 'file', file, { kind, name: file.name }),
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ['brand-assets'] }); toast.success('Recurso subido'); },
+    onError: (e) => toast.error(e instanceof Error ? e.message : 'No se pudo subir'),
+  });
+  const del = useMutation({
+    mutationFn: (id: string) => api.delete(`/creative/assets/${id}`),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['brand-assets'] }),
+  });
+  if (isLoading || !data) return <Loading />;
+  return (
+    <>
+      {canWrite && (
+        <div className="mb-4 flex flex-wrap items-center gap-2">
+          <Select value={kind} onChange={(e) => setKind(e.target.value)} className="!w-40">
+            <option value="IMAGE">Imagen</option><option value="LOGO">Logo</option><option value="REFERENCE">Referencia</option>
+          </Select>
+          <label className="inline-flex cursor-pointer items-center gap-2 border-2 border-ink bg-paper px-3 py-2 text-sm">
+            <ImagePlus size={14} /> {upload.isPending ? 'Subiendo…' : 'Subir (PNG, JPG, WEBP · máx. 8 MB)'}
+            <input type="file" accept="image/png,image/jpeg,image/webp" className="hidden" onChange={(e) => e.target.files?.[0] && upload.mutate(e.target.files[0])} />
+          </label>
+          <p className="text-xs text-ink-3">Sube solo imágenes que tengas derecho a usar. Son privadas de tu empresa.</p>
+        </div>
+      )}
+      {!data.length ? <EmptyState title="Sin recursos" hint="Sube tu logo y fotos de tus productos." /> : (
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-6">
+          {data.map((a) => (
+            <div key={a.id} className="relative">
+              <AssetThumb asset={a} q={q} />
+              {canWrite && <button type="button" aria-label="Borrar" className="absolute right-1 top-1 cursor-pointer border-2 border-ink bg-paper p-0.5" onClick={() => { if (confirm('¿Borrar este recurso? Los diseños que lo usan mostrarán un espacio vacío.')) del.mutate(a.id); }}><Trash2 size={12} /></button>}
+            </div>
+          ))}
+        </div>
+      )}
+    </>
+  );
+}
 
 /* ── Calendario y aprobaciones ── */
 

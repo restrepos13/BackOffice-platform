@@ -2,6 +2,7 @@ import { cleanup, fireEvent, render, screen, within } from '@testing-library/rea
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import Sidebar, { type SidebarProps } from './Sidebar';
+import PlatformSidebar from './PlatformSidebar';
 
 type Key = 'AUTOMATION' | 'CREATIVE' | 'ADS';
 const NAMES: Record<Key, [string, string]> = { AUTOMATION: ['BackOffice Automation', 'Automation'], CREATIVE: ['BackOffice Creative', 'Creative'], ADS: ['BackOffice Ads Intelligence', 'Ads Intelligence'] };
@@ -141,22 +142,25 @@ describe('Según lo contratado', () => {
   });
 });
 
-describe('Plataforma', () => {
-  it('sin empresa elegida: Plataforma activa, productos en espera y Dev Tools en Desarrollo', () => {
-    renderAt('/platform', { isPlatform: true, company: undefined, companyId: null, companies: [] });
-    const buttons = within(switcher()).getAllByRole('button');
-    expect(buttons).toHaveLength(1);
-    expect(buttons[0].textContent).toMatch(/Plataforma/);
-    expect(link('Dev Tools')).toBeTruthy();
-    expect(link('Configuración')).toBeNull();
-  });
+describe('Equipo BackOffice (plataforma): su panel no cambia', () => {
+  function renderPlatform(path: string, props: Partial<SidebarProps> = {}) {
+    const base: SidebarProps = {
+      isPlatform: true, isArea: false, company: company(['AUTOMATION', 'CREATIVE', 'ADS']), companyName: 'Café Aurora', companyId: 'c1',
+      companies: [company(['AUTOMATION', 'CREATIVE', 'ADS'])], onPickCompany: vi.fn(), collapsed: true, onToggleCollapse: vi.fn(),
+      mobileOpen: false, onCloseMobile: vi.fn(), userName: 'Santiago', roleLabel: 'Dev', viewer: false, onSecurity: vi.fn(), onLogout: vi.fn(),
+    };
+    return render(<MemoryRouter initialEntries={[path]}><PlatformSidebar {...base} {...props} userRole="DEV" /></MemoryRouter>);
+  }
 
-  it('con empresa elegida puede pasar a sus productos y volver', () => {
-    renderAt('/platform/companies', { isPlatform: true });
-    fireEvent.click(within(switcher()).getByText('Automation'));
-    expect(where).toBe('/app');
-    fireEvent.click(within(switcher()).getByText('Plataforma'));
-    expect(where).toBe('/platform/companies');
+  it('lista de Plataforma completa, selector de empresa y el panel de la empresa como antes; sin selector de productos ni contraer', () => {
+    renderPlatform('/platform');
+    const names = screen.getAllByRole('link').map((a) => a.textContent);
+    for (const n of ['Resumen', 'Incidentes 24/7', 'Empresas', 'Registros', 'Citas', 'Salud', 'Ventas', 'Publicidad', 'Planes', 'Personalidades', 'Modelos IA', 'Consumo IA', 'Usuarios', 'Correos', 'Términos', 'Auditoría', 'Dev Tools']) expect(names).toContain(n);
+    expect(screen.getByLabelText('Empresa activa')).toBeTruthy();
+    expect(screen.getByText(/Viendo: Café Aurora/)).toBeTruthy();
+    for (const n of ['Dashboard', 'Conversaciones', 'Creative', 'Biblioteca', 'Configuración']) expect(names).toContain(n);
+    expect(screen.queryByRole('navigation', { name: 'Productos' })).toBeNull();
+    expect(screen.queryByRole('button', { name: /Contraer menú|Expandir menú/ })).toBeNull();
   });
 });
 
