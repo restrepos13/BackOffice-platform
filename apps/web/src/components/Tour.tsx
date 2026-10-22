@@ -19,11 +19,13 @@ const PLATFORM_STEPS: TourStep[] = [
   { target: '', title: 'Bienvenido a BackOffice', body: 'Este es el panel de plataforma: desde aquí administras TODAS las empresas del estudio. Te mostramos lo esencial en 30 segundos.' },
   { target: 'nav-platform', title: 'Panel de plataforma', body: 'Empresas, planes, personalidades, modelos IA, consumo global, correos y auditoría. Todo lo del estudio vive aquí.' },
   { target: 'company-picker', title: 'Entrar a cualquier empresa', body: 'Elige una empresa y verás SU panel tal como lo ve el cliente — ideal para soporte y configuración.' },
-  { target: 'nav-company', title: 'El panel del cliente', body: 'Bandeja con IA, CRM, pedidos (si la empresa tiene el módulo), reportes y configuración. Cambia según los módulos contratados.' },
+  { target: 'product-switcher', title: 'Plataforma y productos', body: 'Arriba cambias entre Plataforma y los productos de la empresa que elegiste: Automation, Creative y Ads Intelligence. Lo que la empresa no tiene aparece como «No activo».' },
+  { target: 'nav-company', title: 'El panel del cliente', body: 'El menú cambia según el producto activo y lo que la empresa tiene contratado — tal como lo ve el cliente.' },
 ];
 
 const COMPANY_STEPS: TourStep[] = [
   { target: '', title: '¡Bienvenido!', body: 'Este es el panel de tu empresa. En 30 segundos te mostramos dónde está todo.' },
+  { target: 'product-switcher', title: 'Tus productos', body: 'BackOffice tiene tres productos: Automation (ventas, atención y operación con IA), Creative (diseños y marca) y Ads Intelligence (publicidad). Aquí cambias de uno a otro; el menú de abajo muestra solo lo del producto activo.' },
   { target: 'nav-inbox', title: 'Conversaciones', body: 'Aquí ves TODO lo que conversa tu asistente IA por WhatsApp, en vivo. Puedes intervenir como humano cuando quieras — la IA se pausa sola en esa conversación.' },
   { target: 'nav-orders', title: 'Pedidos', body: 'Los pedidos que toma la IA (o tu equipo) con su trazabilidad completa: confirmación, áreas de producción, recordatorios y entrega.' },
   { target: 'nav-reports', title: 'Reportes', body: 'El reporte diario con alertas, comparativos, la precisión real de la IA y una pestaña para preguntarle a tus datos en lenguaje natural.' },

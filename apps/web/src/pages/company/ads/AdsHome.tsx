@@ -5,7 +5,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import { api } from '../../../lib/api';
 import { AdsSpendChart } from '../../../components/charts';
-import { Badge, Button, Card, EmptyState, Field, Input, Loading, Modal, PageHeader, Select, Stat, Switch, Tabs } from '../../../components/ui';
+import { Badge, Button, Card, EmptyState, Field, Input, Loading, Modal, PageHeader, Select, Stat, Switch } from '../../../components/ui';
 import { PickCompany, useCompanyScope, withScope } from '../shared';
 import { OpportunityList } from '../../../components/opportunities/Opportunities';
 
@@ -25,11 +25,16 @@ interface Overview {
   configuredDailyBudget: number; openFindings: number; pendingActions: number; executedActions: number;
 }
 
-const TABS = [
-  { id: 'resumen', label: 'Resultados' }, { id: 'cuentas', label: 'Cuentas' }, { id: 'campanas', label: 'Campañas' },
-  { id: 'oportunidades', label: 'Oportunidades' }, { id: 'autopilot', label: 'Autopilot' }, { id: 'leads', label: 'Leads y ventas' },
-  { id: 'nueva', label: 'Nueva campaña' },
-];
+/** Secciones de Ads Intelligence (el menú lateral las lista; aquí solo se titula la pantalla). */
+const SECTIONS: Record<string, { kicker: string; title: string }> = {
+  resumen: { kicker: 'Resumen publicitario', title: 'Resultados' },
+  campanas: { kicker: 'Campañas y cuentas', title: 'Campañas' },
+  nueva: { kicker: 'Campañas y cuentas', title: 'Nueva campaña' },
+  cuentas: { kicker: 'Campañas y cuentas', title: 'Cuentas publicitarias' },
+  oportunidades: { kicker: 'Inteligencia y oportunidades', title: 'Oportunidades' },
+  autopilot: { kicker: 'Automatización publicitaria', title: 'Autopilot y reglas' },
+  leads: { kicker: 'Leads, ventas y atribución', title: 'Leads y ventas' },
+};
 
 const PROVIDER: Record<string, string> = { META: 'Meta Ads', GOOGLE: 'Google Ads', TIKTOK: 'TikTok Ads' };
 const OBJECTIVE: Record<string, string> = { MESSAGES: 'conversaciones por WhatsApp', LEADS: 'formularios de contacto', SALES: 'ventas', TRAFFIC: 'visitas a la web', AWARENESS: 'reconocimiento de marca' };
@@ -79,8 +84,8 @@ function Confirm({ open, title, children, cta, danger, onClose, onConfirm, busy 
 
 export default function AdsHome() {
   const { ready, q } = useCompanyScope();
-  const [params, setParams] = useSearchParams();
-  const tab = params.get('tab') ?? 'resumen';
+  const [params] = useSearchParams();
+  const tab = (params.get('tab') ?? 'resumen') in SECTIONS ? (params.get('tab') ?? 'resumen') : 'resumen';
   const [mode, setMode] = useState<Mode | undefined>(undefined);
   const overview = useQuery({
     queryKey: ['ads-overview', q, mode],
@@ -93,7 +98,7 @@ export default function AdsHome() {
   const effective = o?.mode ?? 'REAL';
   return (
     <>
-      <PageHeader kicker="Anuncios conectados a tus ventas" title="Publicidad" accent="que se entiende" />
+      <PageHeader kicker={`Ads Intelligence · ${SECTIONS[tab].kicker}`} title={SECTIONS[tab].title} />
       {o && o.modes.real > 0 && o.modes.demo > 0 && (
         <div className="mb-4 flex items-center gap-2 text-sm">
           <span className="text-ink-3">Ver:</span>
@@ -102,8 +107,7 @@ export default function AdsHome() {
           ))}
         </div>
       )}
-      <Tabs tabs={TABS.map((t) => ({ ...t, badge: t.id === 'oportunidades' ? o?.openFindings || undefined : t.id === 'autopilot' ? o?.pendingActions || undefined : undefined }))} active={tab} onChange={(t) => setParams({ tab: t })} />
-      <div className="mt-5">
+      <div>
         {tab !== 'cuentas' && tab !== 'nueva' && o && <DemoBanner mode={effective} />}
         {tab === 'resumen' && (o ? <Summary q={q} mode={effective} base={o} /> : <Loading />)}
         {tab === 'cuentas' && <Accounts q={q} />}

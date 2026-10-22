@@ -1,7 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
-import { Film, Link2, Lock, Trash2, Upload } from 'lucide-react';
+import { Link, useLocation } from 'react-router-dom';
+import { activeWorkspace, rememberedWorkspace } from '../../layouts/navigation';
+import { Film, Layers, Link2, Lock, Trash2, Upload } from 'lucide-react';
 import { toast } from 'sonner';
 import { api, uploadFile } from '../../lib/api';
 import { authedBlobUrl } from '../../lib/creative';
@@ -87,13 +88,19 @@ export default function Library() {
   const [origin, setOrigin] = useState('');
   const [text, setText] = useState('');
   const [open, setOpen] = useState<string | null>(null);
+  const [uploadKind, setUploadKind] = useState('IMAGE');
+  const [fromCreative, setFromCreative] = useState(false);
+  const { pathname } = useLocation();
+  const ws = activeWorkspace(pathname, ['CREATIVE', 'ADS'], rememberedWorkspace());
+  const context = ws === 'ADS' || ws === 'CREATIVE' ? ws : null;
   const { data, isLoading } = useQuery({
     queryKey: ['library', q, kind, origin],
     queryFn: () => api.get<ListResponse>(withScope(`/library/assets?${new URLSearchParams({ ...(kind ? { kind } : {}), ...(origin ? { origin } : {}) })}`, q)),
     enabled: ready,
   });
   const upload = useMutation({
-    mutationFn: (file: File) => uploadFile<{ duplicate: boolean; asset: Asset }>(withScope('/library/assets', q), 'file', file, { name: file.name.replace(/\.[^.]+$/, '') }),
+    // Entra como recurso del producto desde el que se abrió la biblioteca
+    mutationFn: (file: File) => uploadFile<{ duplicate: boolean; asset: Asset }>(withScope('/library/assets', q), 'file', file, { name: file.name.replace(/\.[^.]+$/, ''), kind: uploadKind, ...(context ? { module: context } : {}) }),
     onSuccess: (r) => {
       qc.invalidateQueries({ queryKey: ['library'] });
       toast.success(r.duplicate ? 'Ese archivo ya estaba en tu biblioteca' : 'Recurso agregado');
@@ -113,17 +120,26 @@ export default function Library() {
   return (
     <div>
       <PageHeader
-        kicker="Recursos compartidos"
+        kicker={context === 'ADS' ? 'Ads Intelligence · Creatividades y recursos' : context === 'CREATIVE' ? 'Creative · Biblioteca creativa' : 'Recursos compartidos'}
         title="Biblioteca"
         actions={canWrite && (
+          <div className="flex flex-wrap items-center gap-2">
+          {products.creative && products.ads && (
+            <Button variant="outline" onClick={() => setFromCreative(true)}><Layers size={14} /> Traer un diseño de Creative</Button>
+          )}
+          <Select value={uploadKind} onChange={(e) => setUploadKind(e.target.value)} aria-label="Tipo de imagen al subir" className="!w-36" title="Los videos se detectan solos">
+            <option value="IMAGE">Imagen</option><option value="LOGO">Logo</option><option value="REFERENCE">Referencia</option>
+          </Select>
           <label className="inline-flex cursor-pointer items-center gap-2 border-2 border-ink bg-ink px-4 py-2 text-xs font-semibold uppercase tracking-[0.08em] text-bone hover:bg-transparent hover:text-ink">
             <Upload size={14} /> {upload.isPending ? 'Subiendo…' : 'Subir imagen o video'}
             <input type="file" className="hidden" accept="image/png,image/jpeg,image/webp,video/mp4,video/quicktime" disabled={upload.isPending}
               onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) upload.mutate(f); }} />
           </label>
+          </div>
         )}
       />
-      <p className="mb-4 max-w-3xl text-sm text-ink-2">{intro}</p>
+      <p className="mb-1 max-w-3xl text-sm text-ink-2">{intro}</p>
+      <p className="mb-4 text-xs text-ink-3">Sube solo archivos que tengas derecho a usar. Son privados de tu empresa.</p>
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <Input placeholder="Buscar por nombre" value={text} onChange={(e) => setText(e.target.value)} className="max-w-xs" aria-label="Buscar recursos" />
         <Select value={kind} onChange={(e) => setKind(e.target.value)} aria-label="Tipo" className="max-w-[200px]">
@@ -169,6 +185,7 @@ export default function Library() {
         </div>
       )}
       {open && <AssetDetail id={open} q={q} canWrite={canWrite} ads={products.ads} onClose={() => setOpen(null)} />}
+      {fromCreative && <FromCreative q={q} onClose={() => setFromCreative(false)} />}
     </div>
   );
 }
@@ -256,7 +273,7 @@ function AssetDetail({ id, q, canWrite, ads, onClose }: { id: string; q: string;
                   <Input value={name ?? a.name} onChange={(e) => setName(e.target.value)} aria-label="Nombre del recurso" />
                   <Button size="sm" variant="outline" disabled={name === null || !name.trim() || rename.isPending} onClick={() => rename.mutate()}>Renombrar</Button>
                 </div>
-                <Button size="sm" variant="danger" disabled={a.locked || remove.isPending} onClick={() => { if (confirm('¿Borrar este recurso? No se puede deshacer.')) remove.mutate(); }}>
+                <Button size="sm" variant="danger" disabled={a.locked || remove.isPending} onClick={() => { if (confirm('¿Borrar este recurso? No se puede deshacer. Los diseños que lo usan mostrarán un espacio vacío.')) remove.mutate(); }}>
                   <Trash2 size={14} /> Borrar
                 </Button>
                 {a.locked && <p className="text-[11px] text-ink-3">Está vinculado a una campaña o anuncio: quítalo de ahí antes de borrarlo.</p>}
@@ -265,6 +282,38 @@ function AssetDetail({ id, q, canWrite, ads, onClose }: { id: string; q: string;
           </div>
         </div>
       )}
+    </Modal>
+  );
+}
+
+/** Con Creative y Ads: lleva a la biblioteca la última exportación de un diseño (cada versión es un recurso aparte). */
+function FromCreative({ q, onClose }: { q: string; onClose: () => void }) {
+  const qc = useQueryClient();
+  const { data, isLoading } = useQuery({
+    queryKey: ['designs-for-library', q],
+    queryFn: () => api.get<Array<{ id: string; name: string; format: string; version: number; hasExport: boolean; updatedAt: string }>>(withScope('/creative/designs', q)),
+  });
+  const add = useMutation({
+    mutationFn: (id: string) => api.post<{ created: boolean }>(withScope(`/library/from-design/${id}`, q)),
+    onSuccess: (r) => { qc.invalidateQueries({ queryKey: ['library'] }); toast.success(r.created ? 'Diseño agregado a la biblioteca' : 'Esa versión ya estaba en la biblioteca'); },
+    onError: (e: Error) => toast.error(e.message),
+  });
+  const ready = (data ?? []).filter((d) => d.hasExport);
+  return (
+    <Modal open onClose={onClose} kicker="Desde Creative" title="Traer un diseño">
+      {isLoading ? <Loading /> : !ready.length ? (
+        <p className="text-sm text-ink-2">Ningún diseño está exportado todavía. En el editor de Creative usa «Revisar y exportar» o «A la biblioteca».</p>
+      ) : (
+        <ul className="space-y-1 text-sm">
+          {ready.map((d) => (
+            <li key={d.id} className="flex items-center justify-between gap-2 border-2 border-line px-2 py-1.5">
+              <span className="min-w-0 truncate">{d.name} · v{d.version} <span className="text-ink-3">· {fmtDate(d.updatedAt)}</span></span>
+              <Button size="sm" variant="outline" disabled={add.isPending} onClick={() => add.mutate(d.id)}>Agregar</Button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <p className="mt-3 text-[11px] text-ink-3">Se agrega la última exportación de cada diseño. Si después lo cambias, la versión que ya está en la biblioteca no se modifica.</p>
     </Modal>
   );
 }

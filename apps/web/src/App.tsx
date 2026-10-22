@@ -68,6 +68,7 @@ const Landing = lazy(() => import('./pages/public/Landing'));
 const Signup = lazy(() => import('./pages/public/Signup'));
 const Onboarding = lazy(() => import('./pages/company/Onboarding'));
 const Library = lazy(() => import('./pages/company/Library'));
+const AutomationOpportunities = lazy(() => import('./pages/company/Opportunities'));
 
 function RequireAuth({ children }: { children: ReactNode }) {
   const { user, loading } = useAuth();
@@ -170,6 +171,7 @@ export default function App() {
         <Route path="/app/ads" element={<RequireProduct any={['ADS']}><BlockArea><AdsHome /></BlockArea></RequireProduct>} />
         <Route path="/app/creative/editor/:id" element={<RequireProduct any={['CREATIVE']}><BlockArea><CreativeEditor /></BlockArea></RequireProduct>} />
         <Route path="/app/area" element={<RequireProduct any={['AUTOMATION']}><AreaView /></RequireProduct>} />
+        <Route path="/app/oportunidades" element={<RequireProduct any={['AUTOMATION']}><BlockArea><AutomationOpportunities /></BlockArea></RequireProduct>} />
         <Route path="/app/contacts" element={<RequireProduct any={['AUTOMATION']}><Contacts /></RequireProduct>} />
         <Route path="/app/campaigns" element={<RequireProduct any={['AUTOMATION']}><BlockArea><Campaigns /></BlockArea></RequireProduct>} />
         <Route path="/app/bienvenida" element={<BlockArea><Onboarding /></BlockArea>} />

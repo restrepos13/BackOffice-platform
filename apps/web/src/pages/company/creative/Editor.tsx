@@ -373,16 +373,16 @@ export default function Editor() {
       <div className="flex min-h-0 flex-1">
         {/* Herramientas */}
         {canWrite && (
-          <aside className="flex w-14 shrink-0 flex-col items-center gap-1 border-r-2 border-ink bg-paper py-2">
+          <aside role="toolbar" aria-label="Herramientas del lienzo" aria-orientation="vertical" className="flex w-16 shrink-0 flex-col items-center gap-1 border-r-2 border-ink bg-paper py-2">
             {[
-              { icon: Type, label: 'Texto', run: () => addEl({ id: newId('t'), type: 'text', name: 'Texto', text: 'Escribe aquí', x: doc.width * 0.1, y: doc.height * 0.4, width: doc.width * 0.8, height: 120, rotation: 0, opacity: 1, visible: true, locked: false, fontFamily: 'Montserrat', fontSize: Math.round(doc.width * 0.06), fontStyle: 'bold', align: 'center', lineHeight: 1.15, letterSpacing: 0, fill: '#111111', textDecoration: '' }) },
-              { icon: Square, label: 'Rectángulo', run: () => addEl({ id: newId('r'), type: 'rect', name: 'Rectángulo', x: doc.width * 0.3, y: doc.height * 0.3, width: doc.width * 0.4, height: doc.width * 0.25, rotation: 0, opacity: 1, visible: true, locked: false, fill: palette[0] ?? '#DDDDDD', stroke: '#00000000', strokeWidth: 0, cornerRadius: 0 }) },
-              { icon: Circle, label: 'Círculo', run: () => addEl({ id: newId('c'), type: 'ellipse', name: 'Círculo', x: doc.width * 0.35, y: doc.height * 0.35, width: doc.width * 0.3, height: doc.width * 0.3, rotation: 0, opacity: 1, visible: true, locked: false, fill: palette[1] ?? '#DDDDDD', stroke: '#00000000', strokeWidth: 0, cornerRadius: 0 }) },
-              { icon: Minus, label: 'Línea', run: () => addEl({ id: newId('l'), type: 'line', name: 'Línea', x: doc.width * 0.2, y: doc.height * 0.5, width: doc.width * 0.6, height: 0, rotation: 0, opacity: 1, visible: true, locked: false, fill: '#00000000', stroke: '#111111', strokeWidth: 6, cornerRadius: 0 }) },
-              { icon: ImagePlus, label: 'Imagen', run: () => setImagePicker(true) },
+              { icon: Type, label: 'Texto', short: 'Texto', run: () => addEl({ id: newId('t'), type: 'text', name: 'Texto', text: 'Escribe aquí', x: doc.width * 0.1, y: doc.height * 0.4, width: doc.width * 0.8, height: 120, rotation: 0, opacity: 1, visible: true, locked: false, fontFamily: 'Montserrat', fontSize: Math.round(doc.width * 0.06), fontStyle: 'bold', align: 'center', lineHeight: 1.15, letterSpacing: 0, fill: '#111111', textDecoration: '' }) },
+              { icon: Square, label: 'Rectángulo', short: 'Forma', run: () => addEl({ id: newId('r'), type: 'rect', name: 'Rectángulo', x: doc.width * 0.3, y: doc.height * 0.3, width: doc.width * 0.4, height: doc.width * 0.25, rotation: 0, opacity: 1, visible: true, locked: false, fill: palette[0] ?? '#DDDDDD', stroke: '#00000000', strokeWidth: 0, cornerRadius: 0 }) },
+              { icon: Circle, label: 'Círculo', short: 'Círculo', run: () => addEl({ id: newId('c'), type: 'ellipse', name: 'Círculo', x: doc.width * 0.35, y: doc.height * 0.35, width: doc.width * 0.3, height: doc.width * 0.3, rotation: 0, opacity: 1, visible: true, locked: false, fill: palette[1] ?? '#DDDDDD', stroke: '#00000000', strokeWidth: 0, cornerRadius: 0 }) },
+              { icon: Minus, label: 'Línea', short: 'Línea', run: () => addEl({ id: newId('l'), type: 'line', name: 'Línea', x: doc.width * 0.2, y: doc.height * 0.5, width: doc.width * 0.6, height: 0, rotation: 0, opacity: 1, visible: true, locked: false, fill: '#00000000', stroke: '#111111', strokeWidth: 6, cornerRadius: 0 }) },
+              { icon: ImagePlus, label: 'Imagen de la biblioteca', short: 'Imagen', run: () => setImagePicker(true) },
             ].map((t) => (
-              <button key={t.label} type="button" title={t.label} aria-label={t.label} onClick={t.run} className="flex h-10 w-10 cursor-pointer flex-col items-center justify-center border-2 border-transparent text-[9px] hover:border-ink">
-                <t.icon size={16} />{t.label.slice(0, 6)}
+              <button key={t.label} type="button" title={`Agregar ${t.label.toLowerCase()}`} aria-label={`Agregar ${t.label.toLowerCase()}`} onClick={t.run} className="flex h-11 w-12 cursor-pointer flex-col items-center justify-center gap-0.5 border-2 border-transparent text-[10px] leading-none hover:border-ink">
+                <t.icon size={16} aria-hidden />{t.short}
               </button>
             ))}
           </aside>
