@@ -12,7 +12,7 @@ import { toast } from 'sonner';
 import { api, uploadFile } from '../../../lib/api';
 import {
   CATEGORY_LABELS, type DesignDoc, type El, FONTS, FORMATS, type FormatKey, History, type ImageEl, type ShapeEl, type TextEl,
-  adaptDoc, coverCrop, loadAsset, loadFonts, newId,
+  coverCrop, loadAsset, loadFonts, newId,
 } from '../../../lib/creative';
 import { Badge, Button, Field, Input, Loading, Modal, Select, Textarea } from '../../../components/ui';
 import { useCompanyScope, withScope } from '../shared';
@@ -23,7 +23,8 @@ import { useCompanyScope, withScope } from '../shared';
  * IA aquí. El documento se valida de nuevo en el servidor al guardar.
  */
 
-interface DesignRes { id: string; name: string; format: FormatKey; version: number; doc: DesignDoc }
+interface DesignRes { id: string; name: string; format: FormatKey; version: number; doc: DesignDoc; composition?: { family: string } | null }
+interface Issue { code: string; severity: 'BLOCK' | 'WARN' | 'INFO'; kind: 'VERIFIED' | 'HEURISTIC'; message: string; elementId?: string }
 interface Brand { name: string; colors: Array<{ hex: string; label: string }>; logos: Array<{ assetId: string; label: string }>; protected: { logo?: boolean; colors?: boolean }; ctas: string[] }
 interface Asset { id: string; name: string; kind: string; width: number | null; height: number | null }
 
@@ -42,7 +43,7 @@ function useAssetImage(assetId: string | null | undefined, q: string) {
   return { img, failed };
 }
 
-function ImageNode({ el, q, common }: { el: ImageEl; q: string; common: Record<string, any> }) {
+export function ImageNode({ el, q, common }: { el: ImageEl; q: string; common: Record<string, any> }) {
   const { img, failed } = useAssetImage(el.assetId, q);
   if (!img) {
     // Recurso faltante: caja visible para no perder la capa
@@ -51,7 +52,7 @@ function ImageNode({ el, q, common }: { el: ImageEl; q: string; common: Record<s
   return <KImage {...common} image={img} width={el.width} height={el.height} crop={el.crop ?? undefined} cornerRadius={el.cornerRadius} />;
 }
 
-function Background({ doc, q }: { doc: DesignDoc; q: string }) {
+export function Background({ doc, q }: { doc: DesignDoc; q: string }) {
   const { img } = useAssetImage(doc.background.assetId, q);
   return (
     <>
@@ -121,6 +122,7 @@ export default function Editor() {
   const quickPhotos = useMemo(() => (doc?.elements ?? []).filter((e) => e.visible && !e.locked && e.role !== 'logo' && (e.type === 'image' || (e.type === 'rect' && e.role === 'photo'))), [doc]);
 
   /* ── Cambios (con historial) ── */
+  const editSent = useRef(false);
   const commit = useCallback((next: DesignDoc) => {
     setDoc((cur) => {
       if (cur) history.current.push(cur);
@@ -128,7 +130,12 @@ export default function Editor() {
     });
     setSaveState('dirty');
     force((n) => n + 1);
-  }, []);
+    // Primer cambio manual sobre una propuesta de dirección de arte (una vez por sesión)
+    if (!editSent.current && loaded?.composition && canWrite) {
+      editSent.current = true;
+      void api.post(withScope('/creative/design-events', q), { type: 'manual_edit', designId: id }).catch(() => undefined);
+    }
+  }, [loaded, canWrite, q, id]);
   const update = useCallback((elId: string, patch: Partial<El>) => {
     if (!doc) return;
     commit({ ...doc, elements: doc.elements.map((e) => (e.id === elId ? ({ ...e, ...patch } as El) : e)) });
@@ -263,12 +270,31 @@ export default function Editor() {
 
   const adapt = useMutation({
     mutationFn: async (to: FormatKey) => {
-      const created = await api.post<DesignRes>(withScope('/creative/designs', q), { format: to, name: `${name} · ${FORMATS[to].label}` });
-      await api.put(`/creative/designs/${created.id}`, { doc: adaptDoc(doc!, to), expectedVersion: created.version });
-      return created.id;
+      if (saveState !== 'saved') await save();
+      return api.post<{ id: string; method: 'RECOMPOSED' | 'SCALED' }>(`/creative/designs/${id}/adapt`, { format: to });
     },
-    onSuccess: (newId2) => { queryClient.invalidateQueries({ queryKey: ['designs'] }); toast.success('Copia adaptada creada'); navigate(`/app/creative/editor/${newId2}`); },
+    onSuccess: (r) => {
+      queryClient.invalidateQueries({ queryKey: ['designs'] });
+      toast.success(r.method === 'RECOMPOSED' ? 'Copia recompuesta para el nuevo formato, con tus textos y fotos.' : 'Copia escalada (diseño anterior a la dirección de arte): revisa los avisos al exportar.');
+      navigate(`/app/creative/editor/${r.id}`);
+    },
     onError: (e) => toast.error(e instanceof Error ? e.message : 'Error'),
+  });
+
+  /* ── Revisión antes de exportar (vista previa fiel + control de calidad) ── */
+  const [review, setReview] = useState<{ url: string; issues: Issue[]; blocking: boolean } | null>(null);
+  const openReview = useMutation({
+    mutationFn: async () => {
+      if (saveState !== 'saved') await save();
+      const blob = await renderBlob('image/png');
+      // Altura real de cada texto tal como lo dibuja el lienzo (manda sobre la estimación del servidor)
+      const measured: Record<string, number> = {};
+      stageRef.current?.find('Text').forEach((n) => { if (n.id()) measured[n.id()] = Math.round(n.height()); });
+      const r = await api.post<{ issues: Issue[]; blocking: boolean }>(`/creative/designs/${id}/check`, { doc, measured, forExport: true });
+      return { url: URL.createObjectURL(blob), ...r };
+    },
+    onSuccess: setReview,
+    onError: (e) => toast.error(e instanceof Error ? e.message : 'No se pudo revisar'),
   });
 
   if (isLoading) return <Loading label="Abriendo tu diseño…" />;
@@ -327,8 +353,7 @@ export default function Editor() {
         <Button size="sm" variant="ghost" disabled={!history.current.canUndo} onClick={undo} aria-label="Deshacer"><Undo2 size={14} /></Button>
         <Button size="sm" variant="ghost" disabled={!history.current.canRedo} onClick={redo} aria-label="Rehacer"><Redo2 size={14} /></Button>
         {canWrite && <Button size="sm" variant="outline" disabled={saveState === 'saving'} onClick={() => void save()}><Save size={14} /> Guardar</Button>}
-        <Button size="sm" variant="outline" disabled={exportMut.isPending} onClick={() => exportMut.mutate('image/png')}><Download size={14} /> PNG</Button>
-        <Button size="sm" variant="outline" disabled={exportMut.isPending} onClick={() => exportMut.mutate('image/jpeg')}>JPG</Button>
+        <Button size="sm" variant="outline" disabled={openReview.isPending || exportMut.isPending} onClick={() => openReview.mutate()}><Download size={14} /> {openReview.isPending ? 'Revisando…' : 'Revisar y exportar'}</Button>
         {canWrite && <Button size="sm" onClick={() => setToCalendar(true)}><Send size={14} /> Al calendario</Button>}
       </header>
 
@@ -532,6 +557,40 @@ export default function Editor() {
         </aside>
       </div>
 
+      <Modal open={!!review} onClose={() => setReview(null)} kicker="Antes de exportar" title="Así quedará tu archivo" wide>
+        {review && (
+          <div className="grid gap-4 text-sm md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+            <div className="flex items-start justify-center bg-bone-2 p-2"><img src={review.url} alt="Vista previa de la exportación" className="max-h-[60vh] w-auto border border-line" /></div>
+            <div className="space-y-3">
+              {!review.issues.length && <p className="text-ok">No encontramos problemas verificables.</p>}
+              {(['BLOCK', 'WARN', 'INFO'] as const).map((sev) => {
+                const list = review.issues.filter((i) => i.severity === sev);
+                if (!list.length) return null;
+                return (
+                  <div key={sev}>
+                    <p className={clsx('kicker mb-1', sev === 'BLOCK' ? 'text-bad' : sev === 'WARN' ? 'text-warn' : 'text-ink-3')}>{sev === 'BLOCK' ? 'Hay que corregir' : sev === 'WARN' ? 'Conviene revisar' : 'Para tener en cuenta'}</p>
+                    <ul className="space-y-1">
+                      {list.map((i, n) => (
+                        <li key={n} className="flex items-start justify-between gap-2">
+                          <span>{i.message}{i.kind === 'HEURISTIC' && <span className="ml-1 text-[11px] text-ink-3">(estimación)</span>}</span>
+                          {i.elementId && <button type="button" className="shrink-0 cursor-pointer text-xs underline" onClick={() => { setSelected(i.elementId!); setReview(null); }}>Ir</button>}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                );
+              })}
+              <p className="text-[11px] text-ink-3">Revisamos lo que se puede medir (bordes, tamaños, contraste, resolución, precios confirmados). La estética final la decides tú. Nada se cambia sin que lo hagas.</p>
+              <div className="flex flex-wrap gap-2">
+                <Button disabled={review.blocking || exportMut.isPending} onClick={() => { exportMut.mutate('image/png'); setReview(null); }}>Descargar PNG</Button>
+                <Button variant="outline" disabled={review.blocking || exportMut.isPending} onClick={() => { exportMut.mutate('image/jpeg'); setReview(null); }}>Descargar JPG</Button>
+              </div>
+              {review.blocking && <p className="text-xs text-bad">Corrige lo marcado como «Hay que corregir»: así el archivo saldría cortado o con recursos que no son tuyos.</p>}
+            </div>
+          </div>
+        )}
+      </Modal>
+
       <ImagePicker
         open={imagePicker}
         q={q}
@@ -553,7 +612,13 @@ export default function Editor() {
       />
 
       <ToCalendar open={toCalendar} onClose={() => setToCalendar(false)} designId={id} name={name}
-        beforeSend={async () => { await exportMut.mutateAsync('image/png'); }} />
+        beforeSend={async () => {
+          // Mismo control que al exportar: lo bloqueante no pasa al calendario
+          if (saveState !== 'saved') await save();
+          const r = await api.post<{ blocking: boolean }>(`/creative/designs/${id}/check`, { doc, forExport: true });
+          if (r.blocking) throw new Error('Hay problemas por corregir (usa «Revisar y exportar» para verlos).');
+          await exportMut.mutateAsync('image/png');
+        }} />
     </div>
   );
 }

@@ -88,7 +88,8 @@ const SECTOR: Record<string, { personality: Personality[]; photoStyle: PhotoStyl
 
 /** Señales del tono de comunicación que la empresa escribió. */
 function fromTone(tone: string): { personality: Personality[]; positioning: Positioning | null } {
-  const t = tone.toLowerCase();
+  // "nunca técnico", "sin formalismos", "no infantil": lo negado no cuenta como rasgo
+  const t = tone.toLowerCase().replace(/\b(nunca|no|sin|evitar|evita|jamás|jamas|nada de)\s+(\S+)(\s+(y|ni|o)\s+\S+)?/g, ' ');
   const p: Personality[] = [];
   if (/elegan|sofistic|lujo|exclusiv|refinad/.test(t)) p.push('ELEGANTE');
   if (/energ|intens|motiva|fuerza|dinámic|dinamic/.test(t)) p.push('ENERGICA');

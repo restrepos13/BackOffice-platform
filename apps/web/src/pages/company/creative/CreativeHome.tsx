@@ -11,6 +11,8 @@ import { Badge, Button, Card, EmptyState, Field, Input, Loading, Modal, PageHead
 import { PickCompany, useCompanyScope, withScope } from '../shared';
 import { AssetThumb } from './Editor';
 import CreativeStart from './CreativeStart';
+import { ArtDirector } from './ArtDirector';
+import { VisualIdentityCard } from './VisualIdentity';
 import { OpportunityList } from '../../../components/opportunities/Opportunities';
 
 /**
@@ -53,7 +55,7 @@ export default function CreativeHome() {
         {tab === 'inicio' && <CreativeStart q={q} />}
         {tab === 'oportunidades' && <OpportunityList scope={(p) => withScope(p, q)} query={{ source: params.get('source') ?? undefined }} canWrite={canWrite} />}
         {tab === 'disenos' && <Designs q={q} />}
-        {tab === 'marca' && (brand.data ? <BrandForm q={q} brand={brand.data} /> : <Loading />)}
+        {tab === 'marca' && (brand.data ? <div className="space-y-6"><BrandForm q={q} brand={brand.data} /><VisualIdentityCard q={q} colors={brand.data.colors} /></div> : <Loading />)}
         {tab === 'recursos' && <Assets q={q} />}
         {tab === 'calendario' && <Calendar q={q} />}
         {tab === 'reglas' && (brand.data ? <Rules q={q} policy={brand.data.policy} /> : <Loading />)}
@@ -85,7 +87,6 @@ function Designs({ q }: { q: string }) {
   const queryClient = useQueryClient();
   const { canWrite } = useCompanyScope();
   const { data, isLoading } = useQuery({ queryKey: ['designs', q], queryFn: () => api.get<DesignRow[]>(withScope('/creative/designs', q)) });
-  const { data: tpl } = useQuery({ queryKey: ['creative-templates'], queryFn: () => api.get<Templates>('/creative/templates') });
   const [params] = useSearchParams();
   const [creating, setCreating] = useState(params.get('nuevo') === '1' && canWrite);
   const [format, setFormat] = useState<FormatKey>('IG_POST');
@@ -105,9 +106,17 @@ function Designs({ q }: { q: string }) {
   if (isLoading || !data) return <Loading />;
   return (
     <>
-      {canWrite && <Button className="mb-4" onClick={() => setCreating(true)}><Plus size={14} /> Nuevo diseño</Button>}
+      {canWrite && (
+        <div className="mb-4 flex flex-wrap items-center gap-2">
+          <Button onClick={() => setCreating(true)}><Plus size={14} /> Nuevo diseño</Button>
+          <Button variant="ghost" disabled={create.isPending} onClick={() => create.mutate(null)}>Empezar en blanco</Button>
+          <Select value={format} onChange={(e) => setFormat(e.target.value as FormatKey)} className="!w-48" aria-label="Formato">
+            {(Object.keys(FORMATS) as FormatKey[]).map((k) => <option key={k} value={k}>{FORMATS[k].label}</option>)}
+          </Select>
+        </div>
+      )}
       {!data.length ? (
-        <EmptyState title="Aún no tienes diseños" hint="Empieza con una plantilla: ya viene con tus colores, fuentes y logo." />
+        <EmptyState title="Aún no tienes diseños" hint="Cuéntanos qué quieres comunicar y te proponemos composiciones con tu marca. Todo queda editable." />
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {data.map((d) => (
@@ -129,28 +138,7 @@ function Designs({ q }: { q: string }) {
           ))}
         </div>
       )}
-      <Modal open={creating} onClose={() => setCreating(false)} kicker="Nuevo diseño" title="Elige formato y plantilla" wide>
-        <div className="space-y-4">
-          <div className="flex flex-wrap gap-2">
-            {(tpl?.formats ?? []).map((f) => (
-              <button key={f.key} type="button" onClick={() => setFormat(f.key)} className={clsx('cursor-pointer border-2 px-3 py-1.5 text-sm', format === f.key ? 'border-ink bg-ink text-bone' : 'border-line hover:border-ink')}>
-                {f.label} <span className="text-xs opacity-70">{f.width}×{f.height}</span>
-              </button>
-            ))}
-          </div>
-          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-            {(tpl?.templates ?? []).map((t) => (
-              <button key={t.key} type="button" disabled={create.isPending} onClick={() => create.mutate(t.key)} className="cursor-pointer border-2 border-ink bg-paper p-3 text-left hover:bg-bone-2">
-                <span className="block font-semibold">{t.name}</span>
-                <span className="block text-xs text-ink-3">{t.hint}</span>
-              </button>
-            ))}
-            <button type="button" disabled={create.isPending} onClick={() => create.mutate(null)} className="cursor-pointer border-2 border-dashed border-ink-3 p-3 text-left hover:border-ink">
-              <span className="block font-semibold">En blanco</span><span className="block text-xs text-ink-3">Empieza desde cero.</span>
-            </button>
-          </div>
-        </div>
-      </Modal>
+      <ArtDirector open={creating} onClose={() => setCreating(false)} q={q} initialFormat={format} />
     </>
   );
 }

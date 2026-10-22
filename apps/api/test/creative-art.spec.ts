@@ -53,6 +53,8 @@ describe('Identidad visual', () => {
     expect(v.personality).toEqual(['ELEGANTE', 'ENERGICA', 'AUDAZ']);
     expect(v.colorRoles).toEqual({ primary: undefined, accent: '#00FF00', background: undefined, text: undefined });
     expect(v.references).toEqual(['ok_1']);
+    // Lo negado no cuenta: "nunca técnico" no vuelve profesional a la marca
+    expect(suggestVisual('COMIDA', 'Cálido y cercano, nunca técnico ni formal').values.personality).not.toContain('PROFESIONAL');
     const s = suggestVisual('BELLEZA', 'elegante y cercano');
     expect(s.values.personality).toEqual(expect.arrayContaining(['ELEGANTE', 'CALIDA']));
     expect(s.reasons.at(-1)).toMatch(/punto de partida/);

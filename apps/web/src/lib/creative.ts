@@ -21,7 +21,7 @@ export const FONTS = [
 export type ElementType = 'text' | 'image' | 'rect' | 'ellipse' | 'line';
 export interface BaseEl {
   id: string; type: ElementType; name: string; x: number; y: number; width: number; height: number;
-  rotation: number; opacity: number; visible: boolean; locked: boolean; role?: string;
+  rotation: number; opacity: number; visible: boolean; locked: boolean; role?: string; slot?: string;
 }
 export interface TextEl extends BaseEl {
   type: 'text'; text: string; fontFamily: string; fontSize: number; fontStyle: 'normal' | 'bold' | 'italic' | 'bold italic';
