@@ -33,6 +33,17 @@ Con 0-2 puntos es SIMPLE, con 3-6 INTERMEDIATE y con 7 o más COMPLEX. Papel, cu
 
 ## Autoservicio (`/registro`)
 
+Desde el 23-oct-2026 la pantalla tiene 4 pasos: **Tu negocio → Propuesta → Productos → Revisión y cuenta**. Los componentes viven en `apps/web/src/pages/public/signup/`; las API y el motor de entrevista no cambiaron.
+
+- **Tu negocio:** una pregunta a la vez, con respuestas sugeridas y avance aproximado (sin número fijo de preguntas). El historial permite «Corregir» una respuesta: la conversación se retoma desde esa pregunta y la propuesta se vuelve a armar.
+- **Propuesta:** muestra el negocio detectado, lo que se propone resolver y las funciones agrupadas por estado real (disponible, en parte, en desarrollo), con sus límites. Se puede ajustar el perfil, corregir respuestas o volver a generar.
+- **Productos:** Automation, Ads Intelligence y Creative, en ese orden. Lo recomendado viene marcado y se dice por qué; ninguno es obligatorio. Debajo está la configuración inicial editable.
+- **Revisión y cuenta:** resumen con «Editar» por sección, integraciones que se conectan después (WhatsApp, Google Calendar si hay agenda, cuenta de Meta si hay Ads, otros programas) y los datos de acceso.
+- El botón Atrás del navegador cambia de paso. Los borradores del registro anterior (3 pasos) se migran solos.
+- Primeros pasos (`/app/bienvenida`) muestra «Tu siguiente paso» según productos y capacidades. Los negocios con agenda tienen el paso «Tus reservas».
+
+Flujo de la entrevista:
+
 1. **Entrevista.**
    - Las dos primeras preguntas son fijas.
    - Después la IA pregunta solo lo que falta. Ahora también cubre: tareas a mano y las que más tiempo quitan, personas, etapas y sistemas, qué debe aprobar una persona, y si necesita contenido o publicidad. El prompt le pide no volverlo un cuestionario en negocios sencillos.

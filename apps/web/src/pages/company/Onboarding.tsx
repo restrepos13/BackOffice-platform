@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { clsx } from 'clsx';
-import { Check, Send, Sparkles } from 'lucide-react';
+import { ArrowRight, Check, Send, Sparkles } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { toast } from 'sonner';
@@ -32,6 +32,75 @@ interface OnboardingStatus {
 }
 
 type Msg = { role: 'user' | 'assistant'; content: string };
+type ChecklistItem = OnboardingStatus['checklist']['items'][number];
+
+/** Qué conviene hacer primero, según lo contratado (el checklist ya viene filtrado por producto y negocio). */
+const NEXT_PRIORITY = ['reservas', 'catalogo', 'asistente', 'horario', 'preguntas', 'domicilios', 'whatsapp', 'publicidad', 'marca', 'pagos', 'datos'];
+const NEXT_WHY: Record<string, string> = {
+  reservas: 'Define tus espacios (por ejemplo, Cancha 1 y Cancha 2), los servicios y el horario. Con eso tu asistente puede reservar solo, sin cruces.',
+  catalogo: 'Carga lo que vendes con sus precios: tu asistente lo usa para responder y tomar pedidos.',
+  asistente: 'Dale a tu asistente nombre, tono y saludo para que atienda como tú.',
+  horario: 'Así tu asistente sabe cuándo atiendes y qué responder fuera de horario.',
+  preguntas: 'Agrega al menos tres preguntas frecuentes para que la IA responda con tus datos.',
+  domicilios: 'Indica desde dónde despachas y cuánto cobras por domicilio.',
+  whatsapp: 'Conectar tu número con Meta lo hacemos contigo en una llamada corta.',
+  publicidad: 'Conecta tu cuenta publicitaria de Meta para ver gasto, resultados y oportunidades.',
+  marca: 'Guarda tus colores, logo y tono para que tus diseños salgan con tu marca.',
+  pagos: 'Cuenta cómo te pagan (Nequi, transferencia, Wompi) para que el asistente lo diga.',
+  datos: 'Completa el nombre, el teléfono y el color de tu empresa.',
+};
+
+export function nextSteps(items: ChecklistItem[]): ChecklistItem[] {
+  const rank = (k: string) => (NEXT_PRIORITY.includes(k) ? NEXT_PRIORITY.indexOf(k) : NEXT_PRIORITY.length);
+  return items.filter((i) => !i.done && i.key !== 'plan').sort((a, b) => rank(a.key) - rank(b.key));
+}
+
+function NextStep({ items, q, setup }: { items: ChecklistItem[]; q: string; setup?: SetupProfile | null }) {
+  const [next, ...later] = nextSteps(items);
+  const hasAgenda = !!setup?.capabilities.some((c) => c.key === 'AGENDA' && c.included);
+  if (!next) {
+    return (
+      <section className="border-2 border-ok bg-ok-soft p-5">
+        <p className="kicker">Tu siguiente paso</p>
+        <p className="mt-1 text-lg font-semibold">Tu configuración está completa.</p>
+        <p className="text-sm text-ink-2">Prueba tu asistente o elige tu plan cuando quieras.</p>
+      </section>
+    );
+  }
+  return (
+    <section className="border-2 border-ink bg-paper" aria-labelledby="next-step-title">
+      <div className="p-5">
+        <p className="kicker">Tu siguiente paso</p>
+        <h2 id="next-step-title" className="mt-1 text-xl font-semibold">{next.label}</h2>
+        <p className="mt-1 max-w-xl text-sm text-ink-2">{NEXT_WHY[next.key] ?? ''}</p>
+        <div className="mt-4">
+          {next.key === 'whatsapp'
+            ? <ScheduleCall q={q} topic="WHATSAPP" label="Agendar la conexión" />
+            : <Link to={next.link}><Button>Empezar <ArrowRight size={14} /></Button></Link>}
+        </div>
+      </div>
+      {(later.length > 0 || hasAgenda) && (
+        <div className="border-t-2 border-line px-5 py-3">
+          <p className="kicker mb-1">Después</p>
+          <ul className="space-y-1 text-sm">
+            {later.slice(0, 3).map((i) => (
+              <li key={i.key} className="flex items-center justify-between gap-3">
+                <span>{i.label}</span>
+                {i.key !== 'whatsapp' && <Link to={i.link} className="shrink-0 text-xs font-semibold underline">Ir</Link>}
+              </li>
+            ))}
+            {hasAgenda && (
+              <li className="flex items-center justify-between gap-3 text-ink-2">
+                <span>Opcional: conectar Google Calendar para ver tus reservas allá</span>
+                <Link to="/app/integrations" className="shrink-0 text-xs font-semibold underline">Ver</Link>
+              </li>
+            )}
+          </ul>
+        </div>
+      )}
+    </section>
+  );
+}
 
 function GuideChat({ q, name, chatLeft }: { q: string; name: string; chatLeft: number }) {
   const [messages, setMessages] = useState<Msg[]>([
@@ -129,6 +198,8 @@ export default function Onboarding() {
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_400px]">
         <div className="space-y-6">
+          <NextStep items={checklist.items} q={q} setup={st.setup} />
+
           <section className="border-2 border-ink bg-paper p-5">
             <div className="flex flex-wrap items-end justify-between gap-2">
               <div>

@@ -294,3 +294,18 @@ describe('Provisión sin empresas huérfanas', () => {
     expect(db.user).toHaveLength(0);
   });
 });
+
+describe('Primeros pasos según el negocio', () => {
+  const base = { rubro: 'SERVICIOS', company: { name: 'Canchas', contactPhone: '1', orderConfigJson: '{}' }, products: 0, bots: 1, connectedLines: 0, hasPayments: false, requestedPlan: false, contracted: ['AUTOMATION'] };
+  it('un negocio con agenda tiene el paso de reservas (hecho cuando las activa); los demás no', () => {
+    const conAgenda = onboardingChecklist({ ...base, capabilities: ['ATENCION_IA', 'AGENDA'] });
+    expect(conAgenda.items.find((i) => i.key === 'reservas')).toMatchObject({ done: false, link: '/app/agenda?tab=reservas' });
+    const activas = onboardingChecklist({ ...base, company: { ...base.company, orderConfigJson: JSON.stringify({ bookings: { enabled: true } }) }, capabilities: ['AGENDA'] });
+    expect(activas.items.find((i) => i.key === 'reservas')!.done).toBe(true);
+    expect(onboardingChecklist({ ...base, capabilities: ['PEDIDOS'] }).items.some((i) => i.key === 'reservas')).toBe(false);
+    expect(onboardingChecklist({ ...base }).items.some((i) => i.key === 'reservas')).toBe(false); // empresas anteriores, sin perfil
+  });
+  it('sin Automation no aparece aunque el perfil tenga agenda', () => {
+    expect(onboardingChecklist({ ...base, contracted: ['ADS'], capabilities: ['AGENDA'] }).items.some((i) => i.key === 'reservas')).toBe(false);
+  });
+});

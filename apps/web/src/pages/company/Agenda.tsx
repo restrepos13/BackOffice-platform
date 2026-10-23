@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import { api } from '../../lib/api';
 import { STAGE_LABELS, fmtDateTime, timeAgo } from '../../lib/format';
@@ -200,7 +200,8 @@ export function FollowUpModal({
 export default function Agenda() {
   const { ready, q, canWrite } = useCompanyScope();
   const queryClient = useQueryClient();
-  const [tab, setTab] = useState('citas');
+  const [params] = useSearchParams();
+  const [tab, setTab] = useState(() => (['citas', 'pasadas', 'seguimientos', 'reservas'].includes(params.get('tab') ?? '') ? params.get('tab')! : 'citas'));
   const [creatingAppointment, setCreatingAppointment] = useState(false);
   const [creatingFollowUp, setCreatingFollowUp] = useState(false);
   const [newBooking, setNewBooking] = useState(false);

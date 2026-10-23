@@ -1,189 +1,60 @@
 import { clsx } from 'clsx';
-import {
-  AlertTriangle, ArrowLeft, ArrowRight, Check, ChevronDown, Eye, EyeOff, HardHat, Mic, MicOff, Plus, RotateCcw,
-  Send, Shirt, Sparkles, Stethoscope, Trash2, Utensils, X,
-} from 'lucide-react';
-import SetupProgress from '../../components/SetupProgress';
-import SetupEditor from '../../components/setup/SetupEditor';
-import type { SetupProfile } from '../../lib/setup';
-import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import { ArrowLeft, ArrowRight, Eye, EyeOff, Lock, RotateCcw } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { Link, Navigate, useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { ApiError, postWithRetry } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
 import { fmtMoney } from '../../lib/format';
-import type { AuthUser, BusinessBlueprint, InterviewTurn, SetupProposal } from '../../lib/types';
-import { Button, Field, Input, Select, Textarea } from '../../components/ui';
+import type { SetupProfile } from '../../lib/setup';
+import type { AuthUser, InterviewTurn } from '../../lib/types';
+import { Button, Field, Input } from '../../components/ui';
 import {
   ACCOUNT_FIELDS, type AccountForm, type FieldErrors, type Msg, type Preview, clearDraft, emailSuggestion, formatPhone,
   loadDraft, passwordStrength, referralCode, saveDraft, sessionToken, speechSupported, startDictation, track, validateAll, validateField,
 } from './signup-helpers';
+import InterviewStep from './signup/InterviewStep';
+import ProductsStep from './signup/ProductsStep';
+import ProposalStep from './signup/ProposalStep';
+import ReviewSummary from './signup/ReviewSummary';
+import { Notice, StepActions, StepTitle, Stepper, type StepNumber } from './signup/parts';
 
 /**
- * Registro en 3 pasos, pensado para que cualquiera lo use sin ayuda:
- *  1. Cuéntanos: una conversación corta (se puede hablar por voz).
- *  2. Revisa: lo que armamos, en tarjetas; cambiar es opcional.
- *  3. Tus datos: con avisos claros campo por campo.
- * Nunca se pierde lo escrito: el avance queda guardado en el navegador, los
- * errores dicen qué hacer, y si la IA no responde siguen preguntas fijas.
+ * Registro autoservicio en 4 pasos:
+ *  1. Tu negocio: entrevista adaptativa (IA o preguntas fijas), una pregunta a la vez.
+ *  2. Propuesta: lo que entendimos, lo que resolvemos y el estado real de cada función.
+ *  3. Productos: qué activar (ninguno es obligatorio) y la configuración inicial.
+ *  4. Revisión y cuenta: resumen editable y datos de acceso.
+ * Nunca se pierde lo escrito: el avance queda en el navegador (sin la contraseña),
+ * el botón Atrás del navegador vuelve de paso, y el servidor valida y recalcula todo.
  */
 
-const RUBRO_LABELS: Record<string, string> = {
-  COMIDAS: 'Comidas y domicilios',
-  SERVICIOS: 'Servicios, citas y cursos',
-  VENTAS: 'Tiendas, ventas y comercio',
-  WEBCAM: 'Webcam y creadores',
-};
-
-const TOOLS: Record<string, { title: string; desc: string }> = {
-  orders: { title: 'Pedidos y catálogo', desc: 'Tus productos o servicios con precio, pedidos y ventas.' },
-  agenda: { title: 'Agenda', desc: 'Citas, cupos o visitas organizados en tu panel.' },
-  campaigns: { title: 'Mensajes a tus clientes', desc: 'Envíos por WhatsApp y recordatorio a quien no responde.' },
-  production: { title: 'Cocina o taller', desc: 'Cada área ve lo que tiene que preparar, con comandas.' },
-  delivery: { title: 'Domicilios en vivo', desc: 'Tus domiciliarios con GPS y link de seguimiento.' },
-  menu: { title: 'Menú con QR', desc: 'Tu menú o catálogo para pedir por WhatsApp.' },
-  media: { title: 'Galería con precios', desc: 'Fotos o contenido que el asistente vende por el chat.' },
-  gerencia: { title: 'Resumen para el dueño', desc: 'Cómo va el negocio, en un vistazo.' },
-  analytics: { title: 'Números', desc: 'Conversaciones, ventas y tiempos de respuesta.' },
-  automations: { title: 'Conexiones', desc: 'Conectar con tus otros programas.' },
-  marketing: { title: 'Contenido para redes', desc: 'Ideas y piezas para tus redes sociales.' },
-};
-
-const STARTERS = [
-  { icon: Utensils, text: 'Tengo un restaurante de almuerzos con domicilios' },
-  { icon: Shirt, text: 'Vendo ropa por Instagram y WhatsApp' },
-  { icon: HardHat, text: 'Doy cursos de trabajo seguro en alturas' },
-  { icon: Stethoscope, text: 'Tengo un consultorio y agendo citas' },
-];
-
 const OPENING = '¡Hola! Te voy a hacer unas preguntas cortas para armar tu cuenta. Para empezar: ¿qué hace tu negocio?';
-const EXPECTED_ANSWERS = 6;
-
-const BUILD_STEPS = ['Entendiendo tu negocio', 'Eligiendo tus herramientas', 'Armando tu catálogo', 'Creando tu asistente', 'Últimos detalles'];
-
+const DRAFT_VERSION = 3;
 const EMPTY_FORM: AccountForm = { companyName: '', city: '', name: '', email: '', phone: '', password: '', accept: false };
 
 function messageOf(e: unknown, fallback: string) {
   return e instanceof Error && e.message ? e.message : fallback;
 }
 
-/* ── Piezas ─────────────────────────────────────────────────────── */
-
-function Steps({ step }: { step: 1 | 2 | 3 }) {
-  const labels = ['Cuéntanos', 'Revisa', 'Tus datos'];
-  return (
-    <ol className="mb-6 flex gap-2 sm:grid sm:grid-cols-3" aria-label="Pasos">
-      {labels.map((label, i) => {
-        const n = (i + 1) as 1 | 2 | 3;
-        return (
-          <li
-            key={label}
-            aria-current={step === n ? 'step' : undefined}
-            className={clsx(
-              'flex items-center gap-2 border-2 px-3 py-2 text-xs font-semibold uppercase tracking-[0.08em] sm:text-sm',
-              step === n ? 'min-w-0 flex-1' : 'shrink-0',
-              step === n ? 'border-ink bg-ink text-bone' : step > n ? 'border-ink bg-paper' : 'border-line text-ink-3',
-            )}
-          >
-            <span className={clsx('flex h-6 w-6 shrink-0 items-center justify-center border-2', step === n ? 'border-bone' : step > n ? 'border-ink bg-ok text-white' : 'border-line')}>
-              {step > n ? <Check size={13} /> : n}
-            </span>
-            <span className={clsx('truncate', step !== n && 'hidden sm:inline')}>{label}</span>
-          </li>
-        );
-      })}
-    </ol>
-  );
-}
-
-function Notice({ tone = 'info', children, action }: { tone?: 'info' | 'warn' | 'bad'; children: ReactNode; action?: ReactNode }) {
-  return (
-    <div
-      role={tone === 'bad' ? 'alert' : 'status'}
-      className={clsx(
-        'flex flex-wrap items-center justify-between gap-3 border-2 px-4 py-3 text-sm',
-        tone === 'bad' ? 'border-bad bg-bad-soft text-bad' : tone === 'warn' ? 'border-warn bg-warn-soft text-ink' : 'border-ink bg-paper',
-      )}
-    >
-      <span className="flex items-start gap-2">
-        {tone !== 'info' && <AlertTriangle size={16} className="mt-0.5 shrink-0" />}
-        <span>{children}</span>
-      </span>
-      {action}
-    </div>
-  );
-}
-
-function Card({ title, summary, open, onToggle, children }: { title: string; summary: ReactNode; open: boolean; onToggle: () => void; children: ReactNode }) {
-  return (
-    <section className={clsx('border-2 border-ink bg-paper', open && 'shadow-[6px_6px_0_0_rgba(26,26,26,0.9)]')}>
-      <button type="button" onClick={onToggle} aria-expanded={open} className="flex w-full cursor-pointer items-start justify-between gap-3 p-4 text-left">
-        <span className="min-w-0">
-          <span className="kicker block">{title}</span>
-          <span className="mt-1 block text-[15px]">{summary}</span>
-        </span>
-        <span className="flex shrink-0 items-center gap-1 text-xs font-semibold uppercase tracking-[0.08em]">
-          {open ? 'Listo' : 'Cambiar'} <ChevronDown size={14} className={clsx('transition-transform', open && 'rotate-180')} />
-        </span>
-      </button>
-      {open && <div className="border-t-2 border-line p-4">{children}</div>}
-    </section>
-  );
-}
-
-function Chips({ items, onChange, placeholder }: { items: string[]; onChange: (v: string[]) => void; placeholder: string }) {
-  const [draft, setDraft] = useState('');
-  const add = () => {
-    const v = draft.trim();
-    if (v && !items.includes(v)) onChange([...items, v]);
-    setDraft('');
-  };
-  return (
-    <div className="flex flex-wrap items-center gap-1.5">
-      {items.map((it) => (
-        <span key={it} className="inline-flex items-center gap-1 border-2 border-ink bg-bone px-2 py-1 text-xs font-semibold">
-          {it}
-          <button type="button" aria-label={`Quitar ${it}`} className="cursor-pointer text-ink-3 hover:text-bad" onClick={() => onChange(items.filter((x) => x !== it))}>
-            <X size={11} />
-          </button>
-        </span>
-      ))}
-      <input
-        className="min-w-[140px] flex-1 border-b-2 border-line bg-transparent px-1 py-1 text-sm outline-none focus:border-ink"
-        placeholder={placeholder}
-        value={draft}
-        onChange={(e) => setDraft(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter') {
-            e.preventDefault();
-            add();
-          }
-        }}
-        onBlur={add}
-      />
-    </div>
-  );
-}
-
-/* ── Página ─────────────────────────────────────────────────────── */
-
 export default function Signup() {
   const { user, loading, adopt } = useAuth();
   const navigate = useNavigate();
   const saved = useMemo(() => loadDraft(), []);
   const [resumeOffer, setResumeOffer] = useState(!!saved && (saved.step > 1 || saved.messages.length > 1));
-  const [step, setStep] = useState<1 | 2 | 3>(1);
+  const [step, setStep] = useState<StepNumber>(1);
   const [messages, setMessages] = useState<Msg[]>([{ role: 'assistant', content: OPENING }]);
   const [draft, setDraft] = useState('');
   const [thinking, setThinking] = useState(false);
   const [waking, setWaking] = useState(false);
   const [chatError, setChatError] = useState<string | null>(null);
   const [interviewDone, setInterviewDone] = useState(false);
+  const [correcting, setCorrecting] = useState(false);
   const [building, setBuilding] = useState(false);
   const [buildError, setBuildError] = useState<string | null>(null);
   const [preview, setPreview] = useState<Preview | null>(null);
-  const [open, setOpen] = useState<string | null>(null);
   const [nameError, setNameError] = useState<string | null>(null);
+  const [productError, setProductError] = useState<string | null>(null);
   const [form, setForm] = useState<AccountForm>(EMPTY_FORM);
   const [touched, setTouched] = useState<Partial<Record<keyof AccountForm, boolean>>>({});
   const [errors, setErrors] = useState<FieldErrors>({});
@@ -193,44 +64,70 @@ export default function Signup() {
   const [listening, setListening] = useState(false);
   const stopDictation = useRef<(() => void) | null>(null);
   const dictationBase = useRef('');
-  const scroll = useRef<HTMLDivElement>(null);
   const input = useRef<HTMLTextAreaElement>(null);
   const fieldRefs = useRef<Partial<Record<keyof AccountForm, HTMLElement | null>>>({});
+  const previewRef = useRef<Preview | null>(null);
+  previewRef.current = preview;
+  const firstRender = useRef(true);
 
   useEffect(() => {
     document.title = 'Crea tu empresa · BackOffice';
     track('view', { step: 'STARTED' });
     referralCode(); // guarda el ?ref= antes de que la URL cambie
-    return () => stopDictation.current?.();
+    // El botón Atrás del navegador cambia de paso en vez de salir del registro
+    window.history.replaceState({ ...(window.history.state ?? {}), signupStep: 1 }, '');
+    const onPop = (e: PopStateEvent) => {
+      const n = Number(e.state?.signupStep) as StepNumber;
+      if (n >= 1 && n <= 4) setStep(n > 1 && !previewRef.current ? 1 : n);
+    };
+    window.addEventListener('popstate', onPop);
+    return () => {
+      window.removeEventListener('popstate', onPop);
+      stopDictation.current?.();
+    };
   }, []);
-  useEffect(() => {
-    scroll.current?.scrollTo({ top: scroll.current.scrollHeight, behavior: 'smooth' });
-  }, [messages.length, thinking, building]);
   // Se guarda el avance (nunca la contraseña)
   useEffect(() => {
     if (resumeOffer) return;
     if (messages.length < 2 && step === 1) return;
     const { password: _p, ...safeForm } = form;
-    saveDraft({ step, messages, interviewDone, preview, form: safeForm });
+    saveDraft({ v: DRAFT_VERSION, step, messages, interviewDone, preview, form: safeForm });
   }, [step, messages, interviewDone, preview, form, resumeOffer]);
   useEffect(() => {
-    if (step > 1) track('view', { step: step === 2 ? 'PREVIEW' : 'ACCOUNT' });
+    if (firstRender.current) {
+      firstRender.current = false;
+      return;
+    }
+    if (step > 1) track('view', { step: step === 4 ? 'ACCOUNT' : 'PREVIEW' });
     window.scrollTo({ top: 0, behavior: 'smooth' });
+    // El foco va al título del paso (teclado y lectores de pantalla)
+    setTimeout(() => document.getElementById('step-title')?.focus({ preventScroll: true }), 60);
   }, [step]);
 
   if (!loading && user) return <Navigate to="/" replace />;
 
-  const answers = messages.filter((m) => m.role === 'user' && !m.failed).length;
   const transcript = (list = messages) => list.filter((m) => !m.failed).map(({ role, content }) => ({ role, content }));
-  const lastAssistant = [...messages].reverse().find((m) => m.role === 'assistant');
+  const setup = preview?.setup ?? null;
+  const setSetup = (next: SetupProfile) => setPreview((prev) => (prev ? { ...prev, setup: next } : prev));
+
+  function goTo(n: StepNumber) {
+    if (n === step) return;
+    setStep(n);
+    window.history.pushState({ ...(window.history.state ?? {}), signupStep: n }, '');
+  }
+  const reachable = (n: StepNumber) => n === 1 || (!!preview && !correcting && !building);
 
   function resume() {
     if (!saved) return;
+    // Borradores de antes (3 pasos): su paso 3 era «Tus datos», que ahora es el 4
+    const savedStep = (saved.v ?? 2) < DRAFT_VERSION && saved.step === 3 ? 4 : saved.step;
     setMessages(saved.messages.filter((m) => !m.failed));
     setInterviewDone(saved.interviewDone);
     setPreview(saved.preview);
     setForm({ ...EMPTY_FORM, ...saved.form, password: '' });
-    setStep(saved.preview ? saved.step : 1);
+    const n = (saved.preview ? savedStep : 1) as StepNumber;
+    setStep(n);
+    window.history.replaceState({ ...(window.history.state ?? {}), signupStep: n }, '');
     setResumeOffer(false);
   }
 
@@ -239,6 +136,10 @@ export default function Signup() {
     setMessages([{ role: 'assistant', content: OPENING }]);
     setPreview(null);
     setInterviewDone(false);
+    setCorrecting(false);
+    setBuildError(null);
+    setChatError(null);
+    setDraft('');
     setForm(EMPTY_FORM);
     setStep(1);
     setResumeOffer(false);
@@ -284,14 +185,14 @@ export default function Signup() {
       );
       const withNote = next.map((m, i) => (i === next.length - 1 && turn.understood ? { ...m, note: turn.understood } : m));
       if (turn.done) {
-        setMessages([...withNote, { role: 'assistant', content: '¡Listo! Ya entendí cómo funciona tu negocio. Ahora armo tu cuenta.' }]);
+        setMessages([...withNote, { role: 'assistant', content: '¡Listo! Ya entendí cómo funciona tu negocio. Ahora armo tu propuesta.' }]);
         setInterviewDone(true);
         void build(transcript(withNote));
       } else {
         setMessages([...withNote, { role: 'assistant', content: turn.question, options: turn.options }]);
       }
     } catch (e) {
-      // El mensaje no se pierde: queda marcado para reintentar con un toque
+      // La respuesta no se pierde: queda marcada para reintentar
       setMessages(next.map((m, i) => (i === next.length - 1 ? { ...m, failed: true } : m)));
       const msg = messageOf(e, 'No pudimos enviar tu respuesta.');
       setChatError(msg);
@@ -310,23 +211,45 @@ export default function Signup() {
     void answer(failed.content);
   }
 
+  /** Corregir una respuesta: la conversación sigue desde esa pregunta (el motor vuelve a preguntar lo siguiente). */
+  function correct(index: number) {
+    const target = messages[index];
+    if (!target || target.role !== 'user') return;
+    stopDictation.current?.();
+    setMessages(messages.slice(0, index));
+    setDraft(target.content);
+    setInterviewDone(false);
+    setCorrecting(true);
+    setBuildError(null);
+    setChatError(null);
+    if (step !== 1) goTo(1);
+    setTimeout(() => {
+      input.current?.focus();
+      input.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 80);
+  }
+
   async function build(history = transcript()) {
+    setInterviewDone(true);
     setBuilding(true);
     setBuildError(null);
     try {
       const r = await postWithRetry<Preview>('/public/signup/preview', { session: sessionToken(), messages: history }, { onRetry: () => setWaking(true) });
       setPreview(r);
+      setCorrecting(false);
       setForm((f) => ({ ...f, companyName: f.companyName || r.company.name, city: f.city || r.company.city }));
       setStep(2);
+      window.history.pushState({ ...(window.history.state ?? {}), signupStep: 2 }, '');
     } catch (e) {
-      const msg = messageOf(e, 'No pudimos armar tu cuenta.');
+      const msg = messageOf(e, 'No pudimos armar tu propuesta.');
       setBuildError(msg);
       track('error', { step: 'PREVIEW', message: msg });
-      // Si faltó contar más, se vuelve a la conversación para seguir
+      // Si faltó contar más, se vuelve a la entrevista para seguir
       if (e instanceof ApiError && e.code === 'TOO_SHORT') {
         setInterviewDone(false);
         setMessages((list) => [...list, { role: 'assistant', content: 'Cuéntame un poquito más: ¿qué vendes y a quién?' }]);
         setBuildError(null);
+        setStep(1);
       }
     } finally {
       setBuilding(false);
@@ -334,17 +257,26 @@ export default function Signup() {
     }
   }
 
-  function goToAccount() {
+  function toProducts() {
     if (!form.companyName.trim()) {
       setNameError('Escribe el nombre de tu negocio para seguir');
       document.getElementById('company-name')?.focus();
       return;
     }
     setNameError(null);
-    setStep(3);
+    goTo(3);
   }
 
-  /* ── Paso 3: validación amable ── */
+  function toReview() {
+    if (setup && !setup.products.selected.length) {
+      setProductError('Elige al menos un producto para seguir.');
+      return;
+    }
+    setProductError(null);
+    goTo(4);
+  }
+
+  /* ── Paso 4: validación amable ── */
 
   function setField<K extends keyof AccountForm>(field: K, value: AccountForm[K]) {
     const next = { ...form, [field]: value };
@@ -423,611 +355,258 @@ export default function Signup() {
     }
   }
 
-  const p = preview?.proposal;
-  const bp = preview?.blueprint;
-  const setP = (next: Partial<SetupProposal>) => preview && setPreview({ ...preview, proposal: { ...preview.proposal, ...next } });
-  const setBp = (next: Partial<BusinessBlueprint>) => preview && setPreview({ ...preview, blueprint: { ...preview.blueprint, ...next } });
-  // Perfil y productos (el servidor recalcula y valida todo al crear la cuenta)
-  const setup = preview?.setup ?? null;
-  const setSetup = (next: SetupProfile) => setPreview((prev) => (prev ? { ...prev, setup: next } : prev));
-  const automation = !setup || setup.products.selected.includes('AUTOMATION');
-  const toggle = (key: string) => setOpen((o) => (o === key ? null : key));
   const strength = passwordStrength(form.password);
   const suggestion = emailSuggestion(form.email);
   const invalid = (f: keyof AccountForm) => (errors[f] ? true : undefined);
 
   return (
     <div className="min-h-screen bg-bone text-ink">
-      <header className="mx-auto flex max-w-6xl items-center justify-between px-4 py-5 md:px-6">
-        <Link to="/" className="display text-2xl leading-none">
-          BackOffice<span className="text-ok">.</span>
-        </Link>
-        <Link to="/login" className="text-xs font-semibold uppercase tracking-[0.08em] hover:underline">
-          Ya tengo cuenta
-        </Link>
+      <header className="border-b-2 border-line">
+        <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-4 md:px-6">
+          <Link to="/" className="display text-2xl leading-none">
+            BackOffice<span className="text-ok">.</span>
+          </Link>
+          <p className="text-sm text-ink-2">
+            ¿Ya tienes cuenta? <Link to="/login" className="font-semibold text-ink underline-offset-2 hover:underline">Entrar</Link>
+          </p>
+        </div>
       </header>
 
-      <main className="mx-auto max-w-6xl px-4 pb-24 md:px-6">
-        <Steps step={step} />
+      <main className="mx-auto max-w-6xl px-4 pb-24 pt-8 md:px-6">
+        {!resumeOffer && <Stepper step={step} reachable={reachable} onGo={goTo} />}
 
         {resumeOffer && saved && (
-          <div className="mb-5">
-            <Notice
-              action={
-                <span className="flex gap-2">
-                  <Button size="sm" variant="outline" onClick={restart}><RotateCcw size={13} /> Empezar de nuevo</Button>
-                  <Button size="sm" onClick={resume}>Seguir donde iba <ArrowRight size={13} /></Button>
-                </span>
-              }
-            >
-              <b>Tienes un registro a medias{saved.form.companyName ? ` de ${saved.form.companyName}` : ''}.</b> ¿Quieres seguir donde ibas?
-            </Notice>
+          <div className="mx-auto max-w-2xl border-2 border-ink bg-paper p-6">
+            <p className="kicker">Registro guardado</p>
+            <h1 className="mt-1 text-2xl font-semibold">Tienes un registro a medias{saved.form.companyName ? ` de ${saved.form.companyName}` : ''}</h1>
+            <p className="mt-2 text-sm text-ink-2">Guardamos tus respuestas en este navegador. Puedes seguir donde ibas o empezar desde cero.</p>
+            <div className="mt-5 flex flex-wrap gap-2">
+              <Button onClick={resume}>Seguir donde iba <ArrowRight size={14} /></Button>
+              <Button variant="outline" onClick={restart}><RotateCcw size={13} /> Empezar de nuevo</Button>
+            </div>
           </div>
         )}
 
         {waking && (
           <div className="mb-5">
-            <Notice tone="warn">Estamos encendiendo el sistema. Esto pasa a veces y tarda unos segundos; no cierres la página.</Notice>
+            <Notice tone="warn">Estamos encendiendo el sistema. A veces tarda unos segundos; no cierres la página.</Notice>
           </div>
         )}
 
-        {/* ── 1. Cuéntanos ── */}
         {step === 1 && !resumeOffer && (
-          <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_300px]">
-            <section className="flex h-[min(700px,calc(100dvh-190px))] min-h-[460px] flex-col border-2 border-ink bg-paper shadow-[8px_8px_0_0_rgba(26,26,26,0.9)]">
-              <header className="border-b-2 border-ink px-5 py-3">
-                <div className="flex items-center justify-between gap-3">
-                  <p className="flex items-center gap-2 text-sm font-semibold"><Sparkles size={15} /> Tu asesora de BackOffice</p>
-                  <span className="text-xs text-ink-3">{answers === 0 ? 'Unas 6 preguntas cortas' : `Pregunta ${Math.min(answers + 1, EXPECTED_ANSWERS)} de ~${EXPECTED_ANSWERS}`}</span>
-                </div>
-                <div className="mt-2 h-1.5 w-full bg-bone-2" aria-hidden>
-                  <div className="h-full bg-ink transition-all duration-500" style={{ width: `${Math.min(100, (answers / EXPECTED_ANSWERS) * 100)}%` }} />
-                </div>
-              </header>
+          <InterviewStep
+            messages={messages}
+            draft={draft}
+            setDraft={setDraft}
+            thinking={thinking}
+            building={building}
+            buildError={buildError}
+            chatError={chatError}
+            interviewDone={interviewDone}
+            correcting={correcting}
+            listening={listening}
+            speech={speechSupported()}
+            inputRef={input}
+            hasProposal={!!preview && !correcting}
+            onAnswer={answer}
+            onRetryFailed={retryFailed}
+            onBuild={() => void build()}
+            onCorrect={correct}
+            onToggleDictation={toggleDictation}
+            onRestart={restart}
+            onReturnToProposal={() => goTo(2)}
+          />
+        )}
 
-              <div ref={scroll} className="flex-1 space-y-4 overflow-y-auto bg-bone p-4 sm:p-5" aria-live="polite">
-                {messages.map((m, i) => (
-                  <div key={i} className={clsx('flex flex-col', m.role === 'user' ? 'items-end' : 'items-start')}>
-                    <p
-                      className={clsx(
-                        'max-w-[88%] whitespace-pre-wrap border-2 px-4 py-3 text-base leading-snug',
-                        m.role === 'user' ? (m.failed ? 'border-bad bg-bad-soft text-ink' : 'border-ink bg-ink text-bone') : 'border-ink bg-paper',
-                      )}
-                    >
-                      {m.content}
-                    </p>
-                    {m.failed && (
-                      <button type="button" onClick={retryFailed} disabled={thinking} className="mt-1 flex cursor-pointer items-center gap-1 text-xs font-semibold text-bad hover:underline">
-                        <RotateCcw size={12} /> No se envió. Toca para reintentar
-                      </button>
-                    )}
-                    {m.note && !m.failed && <p className="mt-1 max-w-[88%] text-right text-xs italic text-ink-3">Entendí: {m.note}</p>}
-                  </div>
-                ))}
-                {thinking && (
-                  <p className="flex items-center gap-2 text-sm text-ink-3">
-                    <span className="inline-flex gap-1" aria-hidden>
-                      <span className="h-2 w-2 animate-bounce bg-ink-3 [animation-delay:-0.2s]" />
-                      <span className="h-2 w-2 animate-bounce bg-ink-3 [animation-delay:-0.1s]" />
-                      <span className="h-2 w-2 animate-bounce bg-ink-3" />
-                    </span>
-                    Pensando…
-                  </p>
-                )}
-                {building && (
-                  <SetupProgress title="Armando tu cuenta" steps={BUILD_STEPS} running={building} expectedMs={22000} hint="Esto toma entre 10 y 40 segundos." />
-                )}
-                {buildError && !building && (
-                  <Notice tone="bad" action={<Button size="sm" onClick={() => build()}><RotateCcw size={13} /> Intentar otra vez</Button>}>
-                    {buildError}
+        {step === 2 && preview && (
+          <ProposalStep
+            preview={preview}
+            companyName={form.companyName}
+            onCompanyName={(v) => {
+              setForm({ ...form, companyName: v });
+              if (v.trim()) setNameError(null);
+            }}
+            nameError={nameError}
+            setup={setup}
+            onSetup={setSetup}
+            building={building}
+            buildError={buildError}
+            onRegenerate={() => void build()}
+            onCorrectAnswers={() => goTo(1)}
+            onNext={toProducts}
+          />
+        )}
+
+        {step === 3 && preview && (
+          <ProductsStep
+            preview={preview}
+            setPreview={setPreview}
+            setup={setup}
+            onSetup={(s) => {
+              setSetup(s);
+              if (s.products.selected.length) setProductError(null);
+            }}
+            error={productError}
+            onBack={() => goTo(2)}
+            onNext={toReview}
+          />
+        )}
+
+        {step === 4 && preview && (
+          <div>
+            <StepTitle kicker="Paso 4 · Revisión y cuenta" title="Revisa y crea tu cuenta">
+              Confirma que todo esté bien y pon tus datos de acceso. Con esto entras a tu panel.
+            </StepTitle>
+            <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_360px]">
+              <form noValidate onSubmit={create} className="order-2 space-y-5 self-start border-2 border-ink bg-paper p-5 sm:p-6 lg:order-1" aria-labelledby="account-title">
+                <h2 id="account-title" className="text-lg font-semibold">Tus datos</h2>
+
+                {serverError && (
+                  <Notice
+                    tone="bad"
+                    action={serverError.code === 'EMAIL_TAKEN' ? <Link to="/login" className="text-sm font-semibold underline">Entrar con ese correo</Link> : undefined}
+                  >
+                    {serverError.message}
                   </Notice>
                 )}
-              </div>
 
-              {!interviewDone && (
-                <div className="border-t-2 border-ink p-3">
-                  {chatError && <p role="alert" className="mb-2 text-sm font-semibold text-bad">{chatError}</p>}
-                  {answers === 0 ? (
-                    <div className="mb-3 grid gap-2 sm:grid-cols-2">
-                      {STARTERS.map(({ icon: Icon, text }) => (
-                        <button
-                          key={text}
-                          type="button"
-                          onClick={() => {
-                            setDraft(text);
-                            input.current?.focus();
-                          }}
-                          className="flex cursor-pointer items-center gap-2 border-2 border-line bg-bone px-3 py-2.5 text-left text-sm hover:border-ink"
-                        >
-                          <Icon size={16} className="shrink-0" /> {text}
-                        </button>
-                      ))}
-                    </div>
-                  ) : (
-                    !!lastAssistant?.options?.length && (
-                      <div className="mb-3 flex flex-wrap gap-2">
-                        {lastAssistant.options.map((o) => (
-                          <button
-                            key={o}
-                            type="button"
-                            disabled={thinking}
-                            onClick={() => answer(o)}
-                            className="cursor-pointer border-2 border-ink bg-paper px-3 py-2 text-sm font-semibold hover:bg-ink hover:text-bone disabled:opacity-40"
-                          >
-                            {o}
-                          </button>
-                        ))}
-                      </div>
-                    )
-                  )}
-                  <form
-                    className="flex items-end gap-2"
-                    onSubmit={(e) => {
-                      e.preventDefault();
-                      answer(draft);
-                    }}
-                  >
-                    <Textarea
-                      ref={input}
-                      rows={2}
-                      value={draft}
-                      maxLength={1200}
-                      disabled={thinking}
-                      aria-label="Tu respuesta"
-                      className="!text-base"
-                      placeholder={listening ? 'Te escucho… habla con calma' : answers === 0 ? 'Escríbelo como se lo contarías a una persona' : 'Escribe tu respuesta o toca una opción'}
-                      onChange={(e) => setDraft(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter' && !e.shiftKey) {
-                          e.preventDefault();
-                          answer(draft);
-                        }
-                      }}
-                    />
-                    <div className="flex flex-col gap-2">
-                      {speechSupported() && (
-                        <Button
-                          type="button"
-                          variant={listening ? 'danger' : 'outline'}
-                          onClick={toggleDictation}
-                          aria-label={listening ? 'Dejar de escuchar' : 'Hablar en vez de escribir'}
-                          title={listening ? 'Dejar de escuchar' : 'Hablar en vez de escribir'}
-                        >
-                          {listening ? <MicOff size={16} /> : <Mic size={16} />}
-                        </Button>
-                      )}
-                      <Button type="submit" disabled={!draft.trim() || thinking} aria-label="Enviar"><Send size={16} /></Button>
-                    </div>
-                  </form>
-                </div>
-              )}
-            </section>
-
-            <aside className="space-y-4">
-              <h1 className="display text-5xl leading-none">
-                Crea tu empresa <span className="serif-accent normal-case">en 3 pasos.</span>
-              </h1>
-              <ol className="space-y-2 text-sm text-ink-2">
-                <li><b>1.</b> Respondes unas preguntas cortas, escribiendo o hablando.</li>
-                <li><b>2.</b> Revisas lo que armamos. Cambiar es opcional.</li>
-                <li><b>3.</b> Pones tus datos y listo.</li>
-              </ol>
-              <p className="text-xs text-ink-3">Tu avance se guarda solo: si cierras la página, sigues donde ibas.</p>
-              {answers >= 3 && !interviewDone && (
-                <Button variant="outline" className="w-full" disabled={thinking || building} onClick={() => { setInterviewDone(true); void build(); }}>
-                  <Sparkles size={14} /> Ya te conté suficiente, armarlo
-                </Button>
-              )}
-              {messages.length > 1 && (
-                <button type="button" onClick={restart} className="cursor-pointer text-xs text-ink-3 underline hover:text-ink">
-                  Empezar de nuevo
-                </button>
-              )}
-            </aside>
-          </div>
-        )}
-
-        {/* ── 2. Revisa ── */}
-        {step === 2 && preview && p && bp && (
-          <div className="mx-auto max-w-3xl space-y-4">
-            {preview.mode === 'guided' && (
-              <Notice tone="warn">
-                Nuestra IA está muy ocupada en este momento, así que te armamos una base sencilla. No te preocupes: te escribimos por WhatsApp y la dejamos perfecta contigo.
-              </Notice>
-            )}
-
-            <section className="border-2 border-ink bg-paper p-5 shadow-[8px_8px_0_0_rgba(26,26,26,0.9)]">
-              <p className="kicker">Así quedaría tu cuenta</p>
-              <label className="mt-3 block">
-                <span className="text-xs font-semibold uppercase tracking-[0.08em] text-ink-3">Nombre de tu negocio</span>
-                <input
-                  id="company-name"
-                  className={clsx('display mt-1 w-full border-b-2 bg-transparent pb-1 text-4xl outline-none md:text-5xl', nameError ? 'border-bad' : 'border-line focus:border-ink')}
-                  value={form.companyName}
-                  placeholder="Escribe el nombre"
-                  aria-invalid={nameError ? true : undefined}
-                  onChange={(e) => {
-                    setForm({ ...form, companyName: e.target.value });
-                    if (e.target.value.trim()) setNameError(null);
-                  }}
-                />
-              </label>
-              {nameError && <p role="alert" className="mt-1 text-sm font-semibold text-bad">{nameError}</p>}
-              {bp.businessType && <p className="serif-accent mt-2 text-xl text-ink-2">{bp.businessType}</p>}
-              {bp.needs.length > 0 && (
-                <ul className="mt-4 space-y-2">
-                  {bp.needs.slice(0, 4).map((n, i) => (
-                    <li key={i} className="flex gap-2 text-sm">
-                      <Check size={16} className="mt-0.5 shrink-0 text-ok" />
-                      <span><b>{n.title}.</b> {n.solution}</span>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </section>
-
-            {setup && (
-              <section className="border-2 border-ink bg-paper p-5">
-                <p className="kicker">Lo que necesitas</p>
-                <p className="mb-4 mt-1 text-sm text-ink-2">Esto es lo que entendimos de tu negocio. Corrige lo que no sea así y elige qué vas a usar: solo pagas por lo que eliges.</p>
-                <SetupEditor value={setup} onChange={setSetup} mode="client" endpoint="/public/setup/evaluate" />
-              </section>
-            )}
-            {!automation && (
-              <Notice>No elegiste Automation: no armamos asistente de WhatsApp, embudo ni respuestas rápidas. Tu catálogo sí queda, para usarlo en tus diseños.</Notice>
-            )}
-
-            <p className="pt-2 text-sm text-ink-2">Toca cualquier tarjeta si quieres cambiar algo. Si todo se ve bien, sigue al final.</p>
-
-            {automation && (<>
-            <Card
-              title="Tu asistente de WhatsApp"
-              open={open === 'assistant'}
-              onToggle={() => toggle('assistant')}
-              summary={p.assistant ? <>Se llama <b>{p.assistant.name}</b> y saluda así: “{p.assistant.welcome}”</> : 'Te creamos uno después'}
-            >
-              {p.assistant && (
-                <div className="space-y-3">
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <Field label="Nombre"><Input value={p.assistant.name} onChange={(e) => setP({ assistant: { ...p.assistant!, name: e.target.value } })} /></Field>
-                    <Field label="Cómo habla"><Input value={p.assistant.tone} onChange={(e) => setP({ assistant: { ...p.assistant!, tone: e.target.value } })} /></Field>
-                  </div>
-                  <Field label="Saludo"><Textarea rows={2} value={p.assistant.welcome} onChange={(e) => setP({ assistant: { ...p.assistant!, welcome: e.target.value } })} /></Field>
-                  <Field label="Datos que le pide al cliente" hint="Escribe uno y presiona Enter">
-                    <Chips items={bp.clientData} onChange={(clientData) => setBp({ clientData })} placeholder="+ agregar dato" />
-                  </Field>
-                  <Field label="Cómo atiende, paso a paso" hint="Un paso por línea">
-                    <Textarea rows={5} value={bp.assistantFlow.join('\n')} onChange={(e) => setBp({ assistantFlow: e.target.value.split('\n').slice(0, 10) })} />
-                  </Field>
-                </div>
-              )}
-            </Card>
-
-            <Card
-              title="Tus herramientas"
-              open={open === 'tools'}
-              onToggle={() => toggle('tools')}
-              summary={bp.modules.length ? bp.modules.map((m) => TOOLS[m]?.title).filter(Boolean).join(' · ') : 'Solo lo básico: conversaciones, contactos y asistente'}
-            >
-              <p className="mb-3 text-xs text-ink-3">Conversaciones, contactos, asistente, equipo y facturación siempre van incluidos.</p>
-              <div className="grid gap-2 sm:grid-cols-2">
-                {Object.entries(TOOLS).filter(([key]) => !preview.profile?.hide.includes(key) || bp.modules.includes(key)).map(([key, t]) => {
-                  const on = bp.modules.includes(key);
-                  const needsOrders = ['production', 'delivery', 'menu'].includes(key) && !bp.modules.includes('orders');
-                  return (
-                    <button
-                      key={key}
-                      type="button"
-                      aria-pressed={on}
-                      onClick={() => setBp({ modules: on ? bp.modules.filter((m) => m !== key) : [...bp.modules, key, ...(needsOrders ? ['orders'] : [])] })}
-                      className={clsx('flex cursor-pointer items-start gap-3 border-2 p-3 text-left transition-colors', on ? 'border-ink bg-ink text-bone' : 'border-line bg-bone hover:border-ink')}
-                    >
-                      <span className={clsx('mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center border-2', on ? 'border-bone bg-bone text-ink' : 'border-ink')}>
-                        {on && <Check size={12} />}
-                      </span>
-                      <span>
-                        <span className="block text-sm font-semibold">{t.title}</span>
-                        <span className={clsx('block text-xs', on ? 'text-line' : 'text-ink-3')}>{t.desc}</span>
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
-            </Card>
-            </>)}
-
-            <Card
-              title={preview.rubro === 'SERVICIOS' ? 'Tus servicios' : preview.rubro === 'COMIDAS' ? 'Tu menú' : 'Tu catálogo'}
-              open={open === 'catalog'}
-              onToggle={() => toggle('catalog')}
-              summary={p.products.length ? `${p.products.length} ${p.products.length === 1 ? 'producto' : 'productos'}: ${p.products.slice(0, 3).map((x) => x.name).filter(Boolean).join(', ')}${p.products.length > 3 ? '…' : ''}` : 'Vacío por ahora: lo llenas después en tu panel'}
-            >
-              <ul className="space-y-2">
-                {p.products.map((prod, i) => (
-                  <li key={i} className="grid grid-cols-[minmax(0,1fr)_120px_auto] items-center gap-2">
-                    <Input value={prod.name} placeholder="Nombre" aria-label="Nombre del producto" onChange={(e) => setP({ products: p.products.map((x, j) => (j === i ? { ...x, name: e.target.value } : x)) })} />
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <Field label="Nombre de tu negocio" required error={errors.companyName}>
                     <Input
-                      inputMode="numeric"
-                      value={prod.price ?? ''}
-                      placeholder="Precio"
-                      aria-label="Precio"
+                      ref={(el) => { fieldRefs.current.companyName = el; }}
+                      value={form.companyName}
+                      maxLength={80}
+                      aria-invalid={invalid('companyName')}
+                      onChange={(e) => setField('companyName', e.target.value)}
+                      onBlur={() => blur('companyName')}
+                    />
+                  </Field>
+                  <Field label="Ciudad" hint="Opcional">
+                    <Input value={form.city} maxLength={60} autoComplete="address-level2" onChange={(e) => setField('city', e.target.value)} />
+                  </Field>
+                  <Field label="Tu nombre" required error={errors.name}>
+                    <Input
+                      ref={(el) => { fieldRefs.current.name = el; }}
+                      autoComplete="name"
+                      value={form.name}
+                      maxLength={80}
+                      aria-invalid={invalid('name')}
+                      onChange={(e) => setField('name', e.target.value)}
+                      onBlur={() => blur('name')}
+                    />
+                  </Field>
+                  <Field label="Tu WhatsApp" required error={errors.phone} hint="Por aquí te escribimos para dejar todo listo">
+                    <Input
+                      ref={(el) => { fieldRefs.current.phone = el; }}
+                      type="tel"
+                      inputMode="tel"
+                      autoComplete="tel"
+                      placeholder="300 123 4567"
+                      value={form.phone}
+                      aria-invalid={invalid('phone')}
+                      onChange={(e) => setField('phone', formatPhone(e.target.value))}
+                      onBlur={() => blur('phone')}
+                    />
+                  </Field>
+                  <Field label="Tu correo" required error={errors.email} hint={suggestion ? undefined : 'Con este correo entras a tu cuenta'}>
+                    <Input
+                      ref={(el) => { fieldRefs.current.email = el; }}
+                      type="email"
+                      inputMode="email"
+                      autoComplete="email"
+                      autoCapitalize="none"
+                      placeholder="nombre@gmail.com"
+                      value={form.email}
+                      aria-invalid={invalid('email')}
+                      onChange={(e) => setField('email', e.target.value.replace(/\s/g, ''))}
+                      onBlur={() => blur('email')}
+                    />
+                  </Field>
+                  <Field label="Crea una contraseña" required error={errors.password} hint="Mínimo 8 caracteres">
+                    <span className="relative block">
+                      <Input
+                        ref={(el) => { fieldRefs.current.password = el; }}
+                        type={showPassword ? 'text' : 'password'}
+                        autoComplete="new-password"
+                        value={form.password}
+                        aria-invalid={invalid('password')}
+                        className="!pr-11"
+                        onChange={(e) => setField('password', e.target.value)}
+                        onBlur={() => blur('password')}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowPassword((v) => !v)}
+                        aria-label={showPassword ? 'Ocultar contraseña' : 'Ver contraseña'}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 cursor-pointer p-1 text-ink-3 hover:text-ink"
+                      >
+                        {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                      </button>
+                    </span>
+                    {form.password && !errors.password && (
+                      <span className={clsx('mt-1 block text-xs font-semibold', strength.tone === 'ok' ? 'text-ok' : strength.tone === 'warn' ? 'text-warn' : 'text-bad')}>
+                        {strength.label}
+                      </span>
+                    )}
+                  </Field>
+                </div>
+
+                {suggestion && (
+                  <button type="button" onClick={() => setField('email', suggestion)} className="cursor-pointer text-sm font-semibold underline">
+                    ¿Quisiste decir {suggestion}? Toca para corregir
+                  </button>
+                )}
+
+                <div>
+                  <label className={clsx('flex cursor-pointer items-start gap-3 border-2 p-3 text-sm', errors.accept ? 'border-bad bg-bad-soft' : 'border-line')}>
+                    <input
+                      ref={(el) => { fieldRefs.current.accept = el; }}
+                      type="checkbox"
+                      className="mt-0.5 h-5 w-5 shrink-0 cursor-pointer accent-[#1a1a1a]"
+                      checked={form.accept}
+                      aria-invalid={invalid('accept')}
                       onChange={(e) => {
-                        const n = e.target.value.replace(/\D/g, '');
-                        setP({ products: p.products.map((x, j) => (j === i ? { ...x, price: n ? Number(n) : null } : x)) });
+                        setField('accept', e.target.checked);
+                        if (e.target.checked) setErrors((x) => ({ ...x, accept: undefined }));
                       }}
                     />
-                    <button type="button" aria-label="Quitar" className="cursor-pointer p-1 text-ink-3 hover:text-bad" onClick={() => setP({ products: p.products.filter((_, j) => j !== i) })}>
-                      <Trash2 size={15} />
-                    </button>
-                  </li>
-                ))}
-              </ul>
-              <Button size="sm" variant="outline" className="mt-3" onClick={() => setP({ products: [...p.products, { name: '', category: null, price: null, description: null, presentations: [] }] })}>
-                <Plus size={13} /> Agregar
-              </Button>
-            </Card>
+                    <span>
+                      Acepto los{' '}
+                      <Link to="/terminos" target="_blank" className="font-semibold underline" onClick={(e) => e.stopPropagation()}>términos y condiciones</Link>{' '}
+                      y autorizo el tratamiento de mis datos para crear y operar mi cuenta.
+                    </span>
+                  </label>
+                  {errors.accept && <p role="alert" className="mt-1 text-xs font-semibold text-bad">{errors.accept}</p>}
+                </div>
 
-            {automation && (<>
-            <Card
-              title="Cómo avanza cada cliente"
-              open={open === 'pipeline'}
-              onToggle={() => toggle('pipeline')}
-              summary={bp.pipeline ? bp.pipeline.stages.map((s) => s.label).join(' → ') : 'Curioso → Interesado → Listo para comprar → Cliente'}
-            >
-              {bp.pipeline ? (
-                <>
-                  <ol className="space-y-2">
-                    {bp.pipeline.stages.map((s, i) => (
-                      <li key={i} className="flex items-center gap-2">
-                        <span className="w-5 text-right text-xs tabular-nums text-ink-3">{i + 1}</span>
-                        <Input value={s.label} aria-label={`Etapa ${i + 1}`} onChange={(e) => setBp({ pipeline: { ...bp.pipeline!, stages: bp.pipeline!.stages.map((x, j) => (j === i ? { ...x, label: e.target.value } : x)) } })} />
-                        <Select
-                          value={s.kind}
-                          className="!w-32"
-                          aria-label="Tipo de etapa"
-                          onChange={(e) => setBp({ pipeline: { ...bp.pipeline!, stages: bp.pipeline!.stages.map((x, j) => (j === i ? { ...x, kind: e.target.value as 'OPEN' } : x)) } })}
-                        >
-                          <option value="OPEN">En camino</option>
-                          <option value="WON">Compró</option>
-                          <option value="LOST">No compró</option>
-                        </Select>
-                        <button type="button" aria-label="Quitar etapa" className="cursor-pointer p-1 text-ink-3 hover:text-bad" onClick={() => setBp({ pipeline: { ...bp.pipeline!, stages: bp.pipeline!.stages.filter((_, j) => j !== i) } })}>
-                          <Trash2 size={15} />
-                        </button>
-                      </li>
-                    ))}
-                  </ol>
-                  {bp.pipeline.stages.length < 10 && (
-                    <Button size="sm" variant="outline" className="mt-3" onClick={() => setBp({ pipeline: { ...bp.pipeline!, stages: [...bp.pipeline!.stages, { key: '', label: 'Nueva etapa', kind: 'OPEN' }] } })}>
-                      <Plus size={13} /> Etapa
+                <StepActions
+                  back={<Button type="button" variant="outline" onClick={() => goTo(3)}><ArrowLeft size={14} /> Atrás</Button>}
+                  next={
+                    <Button type="submit" disabled={busy} className="!px-5 !py-2.5">
+                      {busy ? 'Creando tu empresa…' : <>Crear mi empresa <ArrowRight size={15} /></>}
                     </Button>
-                  )}
-                </>
-              ) : (
-                <p className="text-sm text-ink-3">Usarás estas etapas. Las puedes cambiar después en tu panel.</p>
-              )}
-            </Card>
+                  }
+                />
+                <p className="flex items-start gap-2 text-xs text-ink-3">
+                  <Lock size={13} className="mt-0.5 shrink-0" aria-hidden />
+                  No te pedimos tarjeta. Tu contraseña no se guarda en el navegador; el resto del avance sí, para que no lo pierdas.
+                </p>
+              </form>
 
-            <Card
-              title="Más detalles (opcional)"
-              open={open === 'more'}
-              onToggle={() => toggle('more')}
-              summary={`${bp.quickReplies.length} respuestas rápidas · ${p.faqs.length} preguntas frecuentes · ${bp.followUps.length} recordatorios`}
-            >
-              <div className="space-y-5">
-                <Field label="Tus precios de BackOffice son de" hint="Solo cambia los planes que te mostramos">
-                  <Select value={preview.rubro} onChange={(e) => setPreview({ ...preview, rubro: e.target.value, rubroLabel: RUBRO_LABELS[e.target.value] })}>
-                    {Object.entries(RUBRO_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
-                  </Select>
-                </Field>
-                <div>
-                  <p className="kicker mb-2">Respuestas rápidas para tu equipo</p>
-                  {bp.quickReplies.length === 0 && <p className="text-sm text-ink-3">Las creas después.</p>}
-                  <ul className="space-y-1.5 text-sm">
-                    {bp.quickReplies.map((r, i) => (
-                      <li key={r.shortcut} className="flex items-start justify-between gap-2">
-                        <span><span className="font-mono text-xs text-ink-3">/{r.shortcut}</span> {r.title}</span>
-                        <button type="button" aria-label="Quitar" className="cursor-pointer text-ink-3 hover:text-bad" onClick={() => setBp({ quickReplies: bp.quickReplies.filter((_, j) => j !== i) })}><X size={14} /></button>
-                      </li>
-                    ))}
-                  </ul>
+              <aside className="order-1 space-y-4 lg:sticky lg:top-6 lg:order-2 lg:self-start">
+                <ReviewSummary preview={preview} setup={setup} companyName={form.companyName} city={form.city} onEdit={goTo} />
+                <div className="space-y-2 text-sm">
+                  <p className="kicker">Qué pasa después</p>
+                  <ol className="space-y-2 text-ink-2">
+                    <li className="border-l-2 border-ink pl-3"><b className="text-ink">Entras a tu panel</b> con lo que armamos.</li>
+                    <li className="border-l-2 border-ink pl-3"><b className="text-ink">Te escribimos por WhatsApp</b> para conectar lo que falte.</li>
+                    <li className="border-l-2 border-ink pl-3"><b className="text-ink">Eliges tu plan</b> cuando todo esté funcionando.</li>
+                  </ol>
+                  <p className="text-xs text-ink-3">Desde {fmtMoney(preview.rubro === 'SERVICIOS' ? 129000 : preview.rubro === 'COMIDAS' ? 149000 : preview.rubro === 'WEBCAM' ? 390000 : 199000)} al mes, IVA incluido.</p>
                 </div>
-                <div>
-                  <p className="kicker mb-2">Si el cliente deja de responder</p>
-                  {bp.followUps.length === 0 && <p className="text-sm text-ink-3">Sin recordatorios por ahora.</p>}
-                  <ul className="space-y-1.5 text-sm">
-                    {bp.followUps.map((f, i) => (
-                      <li key={i} className="flex items-start justify-between gap-2">
-                        <span><span className="text-xs text-ink-3">A las {f.afterHours} h:</span> {f.message}</span>
-                        <button type="button" aria-label="Quitar" className="cursor-pointer text-ink-3 hover:text-bad" onClick={() => setBp({ followUps: bp.followUps.filter((_, j) => j !== i) })}><X size={14} /></button>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-                <div>
-                  <p className="kicker mb-2">Preguntas que ya sabe responder</p>
-                  {p.faqs.length === 0 && <p className="text-sm text-ink-3">Las agregas después.</p>}
-                  <ul className="space-y-1.5 text-sm">
-                    {p.faqs.map((f, i) => (
-                      <li key={i} className="flex items-start justify-between gap-2">
-                        <span>{f.question}</span>
-                        <button type="button" aria-label="Quitar" className="cursor-pointer text-ink-3 hover:text-bad" onClick={() => setP({ faqs: p.faqs.filter((_, j) => j !== i) })}><X size={14} /></button>
-                      </li>
-                    ))}
-                  </ul>
-                  {p.schedule && (
-                    <p className="mt-3 text-xs text-ink-3">
-                      Horario: {p.schedule.days.map((d) => ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'][d]).join(', ')} · {p.schedule.open}–{p.schedule.close}
-                    </p>
-                  )}
-                </div>
-              </div>
-            </Card>
-            </>)}
-
-            <div className="sticky bottom-0 -mx-4 flex flex-wrap items-center justify-between gap-3 border-t-2 border-ink bg-bone/95 px-4 py-3 backdrop-blur md:mx-0 md:border-2 md:px-5">
-              <Button variant="outline" onClick={() => { setStep(1); setInterviewDone(false); }}>
-                <ArrowLeft size={14} /> Volver a la conversación
-              </Button>
-              <Button onClick={goToAccount} className="!px-6 !py-3 !text-sm">
-                Todo bien, sigamos <ArrowRight size={15} />
-              </Button>
+              </aside>
             </div>
           </div>
-        )}
-
-        {/* ── 3. Tus datos ── */}
-        {step === 3 && preview && (
-          <section className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_320px]">
-            <form noValidate onSubmit={create} className="space-y-5 border-2 border-ink bg-paper p-5 shadow-[8px_8px_0_0_rgba(26,26,26,0.9)] sm:p-6">
-              <div>
-                <h1 className="display text-4xl">Tus datos</h1>
-                <p className="mt-1 text-sm text-ink-2">Último paso. Con esto entras a tu panel.</p>
-              </div>
-
-              {serverError && (
-                <Notice
-                  tone="bad"
-                  action={serverError.code === 'EMAIL_TAKEN' ? <Link to="/login" className="text-sm font-semibold underline">Entrar con ese correo</Link> : undefined}
-                >
-                  {serverError.message}
-                </Notice>
-              )}
-
-              <div className="grid gap-4 sm:grid-cols-2">
-                <Field label="Nombre de tu negocio" required error={errors.companyName}>
-                  <Input
-                    ref={(el) => { fieldRefs.current.companyName = el; }}
-                    value={form.companyName}
-                    maxLength={80}
-                    aria-invalid={invalid('companyName')}
-                    onChange={(e) => setField('companyName', e.target.value)}
-                    onBlur={() => blur('companyName')}
-                  />
-                </Field>
-                <Field label="Ciudad" hint="Opcional">
-                  <Input value={form.city} maxLength={60} autoComplete="address-level2" onChange={(e) => setField('city', e.target.value)} />
-                </Field>
-                <Field label="Tu nombre" required error={errors.name}>
-                  <Input
-                    ref={(el) => { fieldRefs.current.name = el; }}
-                    autoComplete="name"
-                    value={form.name}
-                    maxLength={80}
-                    aria-invalid={invalid('name')}
-                    onChange={(e) => setField('name', e.target.value)}
-                    onBlur={() => blur('name')}
-                  />
-                </Field>
-                <Field label="Tu WhatsApp" required error={errors.phone} hint="Por aquí te escribimos para dejar todo listo">
-                  <Input
-                    ref={(el) => { fieldRefs.current.phone = el; }}
-                    type="tel"
-                    inputMode="tel"
-                    autoComplete="tel"
-                    placeholder="300 123 4567"
-                    value={form.phone}
-                    aria-invalid={invalid('phone')}
-                    onChange={(e) => setField('phone', formatPhone(e.target.value))}
-                    onBlur={() => blur('phone')}
-                  />
-                </Field>
-                <Field
-                  label="Tu correo"
-                  required
-                  error={errors.email}
-                  hint={suggestion ? undefined : 'Con este correo entras a tu cuenta'}
-                >
-                  <Input
-                    ref={(el) => { fieldRefs.current.email = el; }}
-                    type="email"
-                    inputMode="email"
-                    autoComplete="email"
-                    autoCapitalize="none"
-                    placeholder="nombre@gmail.com"
-                    value={form.email}
-                    aria-invalid={invalid('email')}
-                    onChange={(e) => setField('email', e.target.value.replace(/\s/g, ''))}
-                    onBlur={() => blur('email')}
-                  />
-                </Field>
-                <Field label="Crea una contraseña" required error={errors.password}>
-                  <span className="relative block">
-                    <Input
-                      ref={(el) => { fieldRefs.current.password = el; }}
-                      type={showPassword ? 'text' : 'password'}
-                      autoComplete="new-password"
-                      value={form.password}
-                      aria-invalid={invalid('password')}
-                      className="!pr-11"
-                      onChange={(e) => setField('password', e.target.value)}
-                      onBlur={() => blur('password')}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowPassword((v) => !v)}
-                      aria-label={showPassword ? 'Ocultar contraseña' : 'Ver contraseña'}
-                      className="absolute right-2 top-1/2 -translate-y-1/2 cursor-pointer p-1 text-ink-3 hover:text-ink"
-                    >
-                      {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
-                    </button>
-                  </span>
-                  {form.password && !errors.password && (
-                    <span className={clsx('mt-1 block text-xs font-semibold', strength.tone === 'ok' ? 'text-ok' : strength.tone === 'warn' ? 'text-warn' : 'text-bad')}>
-                      {strength.label}
-                    </span>
-                  )}
-                </Field>
-              </div>
-
-              {suggestion && (
-                <button type="button" onClick={() => setField('email', suggestion)} className="cursor-pointer text-sm font-semibold underline">
-                  ¿Quisiste decir {suggestion}? Toca para corregir
-                </button>
-              )}
-
-              <div>
-                <label className={clsx('flex cursor-pointer items-start gap-3 border-2 p-3 text-sm', errors.accept ? 'border-bad bg-bad-soft' : 'border-line')}>
-                  <input
-                    ref={(el) => { fieldRefs.current.accept = el; }}
-                    type="checkbox"
-                    className="mt-0.5 h-5 w-5 shrink-0 cursor-pointer accent-[#1a1a1a]"
-                    checked={form.accept}
-                    aria-invalid={invalid('accept')}
-                    onChange={(e) => {
-                      setField('accept', e.target.checked);
-                      if (e.target.checked) setErrors((x) => ({ ...x, accept: undefined }));
-                    }}
-                  />
-                  <span>
-                    Acepto los{' '}
-                    <Link to="/terminos" target="_blank" className="font-semibold underline" onClick={(e) => e.stopPropagation()}>términos y condiciones</Link>{' '}
-                    y autorizo el tratamiento de mis datos para crear y operar mi cuenta.
-                  </span>
-                </label>
-                {errors.accept && <p role="alert" className="mt-1 text-xs font-semibold text-bad">{errors.accept}</p>}
-              </div>
-
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <Button type="button" variant="outline" onClick={() => setStep(2)}><ArrowLeft size={14} /> Atrás</Button>
-                <Button type="submit" disabled={busy} className="!px-6 !py-3 !text-sm">
-                  {busy ? 'Creando tu empresa…' : <>Crear mi empresa <ArrowRight size={15} /></>}
-                </Button>
-              </div>
-              <p className="text-xs text-ink-3">
-                Guardamos tu avance mientras llenas esto, para poder ayudarte si te quedas a mitad. No te pedimos tarjeta.
-              </p>
-            </form>
-            <aside className="space-y-3 text-sm">
-              <p className="kicker">Qué pasa después</p>
-              <ol className="space-y-3">
-                <li className="border-l-2 border-ink pl-3"><b>Entras a tu panel</b> con todo lo que armamos.</li>
-                <li className="border-l-2 border-ink pl-3"><b>Te escribimos por WhatsApp</b> para conectar tu número y mostrarte cómo funciona.</li>
-                <li className="border-l-2 border-ink pl-3"><b>Eliges tu plan</b> cuando todo esté funcionando.</li>
-              </ol>
-              <p className="text-xs text-ink-3">Desde {fmtMoney(preview.rubro === 'SERVICIOS' ? 129000 : preview.rubro === 'COMIDAS' ? 149000 : preview.rubro === 'WEBCAM' ? 390000 : 199000)} al mes, IVA incluido.</p>
-            </aside>
-          </section>
         )}
       </main>
     </div>

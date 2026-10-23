@@ -58,12 +58,14 @@ function Toggle({ on, label, onClick, hint }: { on: boolean; label: string; onCl
 
 const num = (v: string) => (v.trim() === '' ? null : Math.max(1, Math.round(Number(v)) || 1));
 
-export default function SetupEditor({ value, onChange, mode, endpoint }: {
+export default function SetupEditor({ value, onChange, mode, endpoint, hide = [] }: {
   value: SetupProfile;
   onChange: (v: SetupProfile) => void;
   mode: 'client' | 'admin';
   /** /public/setup/evaluate (registro) o /platform/setup/evaluate (plataforma) */
   endpoint: string;
+  /** Secciones que muestra otra pantalla (el registro elige productos en su propio paso) */
+  hide?: Array<'products' | 'capabilities'>;
 }) {
   const { data: catalog } = useSetupCatalog();
   const latest = useRef(value);
@@ -202,7 +204,7 @@ export default function SetupEditor({ value, onChange, mode, endpoint }: {
       </section>
 
       {/* 4. Productos */}
-      <section>
+      {!hide.includes('products') && <section>
         <p className="kicker mb-2">{client ? 'Qué vas a usar de BackOffice' : 'Productos contratados'}</p>
         <div className="grid gap-2 sm:grid-cols-3">
           {catalog?.products.map((p) => {
@@ -224,10 +226,10 @@ export default function SetupEditor({ value, onChange, mode, endpoint }: {
           })}
         </div>
         {!value.products.selected.length && <p role="alert" className="mt-2 text-sm font-semibold text-bad">Elige al menos uno.</p>}
-      </section>
+      </section>}
 
       {/* 5. Capacidades */}
-      {value.capabilities.length > 0 && (
+      {value.capabilities.length > 0 && !hide.includes('capabilities') && (
         <section>
           <p className="kicker mb-2">{client ? 'Lo que vas a tener' : 'Capacidades requeridas'}</p>
           <ul className="space-y-1.5">

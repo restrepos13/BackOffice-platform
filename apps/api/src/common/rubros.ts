@@ -102,6 +102,8 @@ export function onboardingChecklist(input: {
   brandReady?: boolean;
   /** Ads Intelligence: cuentas publicitarias conectadas (reales o de demostración) */
   adAccounts?: number;
+  /** Capacidades incluidas del perfil de incorporación (null en empresas anteriores) */
+  capabilities?: string[];
 }) {
   const cfg = (() => {
     try { return JSON.parse(input.company?.orderConfigJson ?? '{}'); } catch { return {}; }
@@ -121,13 +123,17 @@ export function onboardingChecklist(input: {
     ...(rubro === 'COMIDAS'
       ? [{ key: 'domicilios', label: 'Punto de despacho y tarifas de domicilio', done: !!cfg.delivery?.origin, link: '/app/orders/settings?tab=domicilios', place: `${biz} → Domicilios` }]
       : []),
+    // Negocios con agenda: sin espacios, servicios y horario el asistente no puede reservar
+    ...(input.capabilities?.includes('AGENDA')
+      ? [{ key: 'reservas', label: 'Tus reservas: espacios, servicios y horario', done: !!cfg.bookings?.enabled, link: '/app/agenda?tab=reservas', place: 'Agenda → Reservas en línea' }]
+      : []),
     { key: 'pagos', label: 'Cómo te pagan (Nequi, transferencia, Wompi)', done: input.hasPayments, link: '/app/orders/settings?tab=pagos', place: `${biz} → Pagos` },
     { key: 'whatsapp', label: 'Conectar tu WhatsApp (lo hacemos contigo)', done: input.connectedLines > 0, link: '/app/integrations', place: 'Integraciones (te acompaña el equipo)' },
     { key: 'plan', label: 'Elegir tu plan', done: input.requestedPlan || !!input.company?.planId, link: '/app/bienvenida#planes', place: 'Primeros pasos → Elige tu plan' },
   ];
   // Solo los pasos de lo que contrató: sin Automation no hay WhatsApp, asistente ni catálogo que configurar
   const has = (p: string) => !input.contracted || input.contracted.includes(p);
-  const automationKeys = ['catalogo', 'horario', 'preguntas', 'asistente', 'domicilios', 'pagos', 'whatsapp'];
+  const automationKeys = ['catalogo', 'horario', 'preguntas', 'asistente', 'reservas', 'domicilios', 'pagos', 'whatsapp'];
   const scoped = [
     ...items.filter((i) => has('AUTOMATION') || !automationKeys.includes(i.key)),
     ...(input.contracted?.includes('CREATIVE')

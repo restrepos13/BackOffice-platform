@@ -114,7 +114,9 @@ const SESSION_KEY = 'bo_signup_session';
 const DRAFT_TTL_MS = 7 * 86400e3;
 
 export interface SignupDraft {
-  step: 1 | 2 | 3;
+  /** Desde v3 hay 4 pasos (antes el 3 era «Tus datos») */
+  v?: number;
+  step: 1 | 2 | 3 | 4;
   messages: Msg[];
   interviewDone: boolean;
   preview: Preview | null;

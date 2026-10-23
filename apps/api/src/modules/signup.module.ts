@@ -516,6 +516,7 @@ export class SignupService {
       requestedPlan: !!ob.requestedPlan,
       // Empresas anteriores (regla vieja): la lista de siempre
       contracted: productsExplicit(company) ? contracted : undefined, brandReady: !!brand, adAccounts,
+      capabilities: Array.isArray(ob.setup?.capabilities) ? ob.setup.capabilities.filter((c: any) => c?.included).map((c: any) => String(c.key)) : undefined,
     });
     const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Bogota' }).format(new Date());
     const chatUsed = ob.chat?.day === today ? Number(ob.chat.count) || 0 : 0;
