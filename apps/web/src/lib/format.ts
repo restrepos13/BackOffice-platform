@@ -165,6 +165,7 @@ export const MODULE_LABELS: Record<string, string> = {
   delivery: 'Domicilios en vivo (GPS y seguimiento)',
   menu: 'Menú digital con QR',
   agenda: 'Agenda de citas y seguimientos',
+  productions: 'Producciones (solicitudes, cotizaciones y recursos)',
   campaigns: 'Campañas por WhatsApp',
   media: 'Galería con precios (contenido)',
   gerencia: 'Reporte a gerencia',

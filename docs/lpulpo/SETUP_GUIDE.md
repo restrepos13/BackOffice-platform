@@ -83,7 +83,7 @@ Las credenciales iniciales del entorno local están en `~/.backoffice-pilot/cred
   mongosh --quiet --port 27019 --eval 'db.getSiblingDB("backoffice_lpulpo_pilot").Company.find({}, {slug: 1}).toArray()'
   ```
 
-  Debe mostrar solo `lpulpo`.
+  Antes de la reunión, la lista está vacía. Después, debe mostrar solo la empresa creada para LPulpo.
 - **Arranque del motor:** el log de la API (`~/.backoffice-pilot/logs/api.log`) dice «Worker del motor de Automation arriba».
 
 ## Pruebas
@@ -98,13 +98,19 @@ Las credenciales iniciales del entorno local están en `~/.backoffice-pilot/cred
 
 ## Configurar LPulpo
 
-1. Entra con la cuenta de administración de LPulpo. En el primer ingreso se muestran los términos y condiciones; los acepta LPulpo.
-2. **Usuarios:** en Equipo, crea a los bookers como «Consulta». En Producciones → Configuración del flujo → Usuarios y permisos, asígnales «Booker» o «Booker que aprueba cotizaciones». Finanzas recibe el perfil «Finanzas».
-3. **Configuración del flujo:** marca cada decisión según lo que confirme LPulpo:
+La base del piloto quedó **sin empresas**: solo existe la cuenta del equipo BackOffice. LPulpo se crea desde cero en la reunión.
+
+1. Entra con la cuenta del equipo BackOffice y crea la empresa desde **Nueva empresa** en el panel de plataforma.
+2. En la ficha de la empresa, activa el producto **Automation** (y Ads Intelligence si aplica). En «Secciones habilitadas», activa **Producciones**. Sin esa sección no aparece el menú.
+3. Crea el usuario administrador de LPulpo. En su primer ingreso se muestran los términos y condiciones; los acepta LPulpo.
+
+La configuración del flujo arranca con todo lo comercial pendiente; no hace falta inicializar nada más. El script `pilot-bootstrap.ts` solo sirve para rehacer el entorno sin la reunión: crea una empresa `lpulpo` con la configuración inicial.
+4. **Usuarios:** en Equipo, crea a los bookers como «Consulta». En Producciones → Configuración del flujo → Usuarios y permisos, asígnales «Booker» o «Booker que aprueba cotizaciones». Finanzas recibe el perfil «Finanzas».
+5. **Configuración del flujo:** marca cada decisión según lo que confirme LPulpo:
    - Servicios y campos del brief.
    - Tareas automáticas.
    - Parámetros comerciales.
-4. **Modelos y proveedores:** carga los recursos a mano. Las fotos se referencian con su ruta de Dropbox o un enlace https.
+6. **Modelos y proveedores:** carga los recursos a mano. Las fotos se referencian con su ruta de Dropbox o un enlace https.
 
 ## Comprobar permisos y aislamiento
 
