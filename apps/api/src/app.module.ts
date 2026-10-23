@@ -57,6 +57,7 @@ import { AdsModule } from './modules/ads.module';
 import { LibraryModule } from './modules/library.module';
 import { BookingsModule } from './modules/bookings.module';
 import { CalendarSyncModule } from './modules/calendar-sync.module';
+import { ProductionsModule } from './modules/productions/productions.module';
 import { ProductsModule } from './modules/products.module';
 import { OpportunitiesModule } from './modules/opportunities.module';
 import { CreativeModule } from './modules/creative.module';
@@ -69,7 +70,8 @@ import { ScheduleModule } from '@nestjs/schedule';
 
 @Module({
   imports: [
-    ConfigModule.forRoot({ isGlobal: true }),
+    // ENV_FILE permite levantar un entorno aislado (p. ej. el piloto) sin leer el .env de siempre
+    ConfigModule.forRoot({ isGlobal: true, envFilePath: process.env.ENV_FILE || '.env' }),
     // Rate limiting global: 200 peticiones/min por IP (el login tiene su propio límite)
     ThrottlerModule.forRoot([{ ttl: 60_000, limit: 200 }]),
     ScheduleModule.forRoot(),
@@ -126,6 +128,7 @@ import { ScheduleModule } from '@nestjs/schedule';
     LibraryModule,
     BookingsModule,
     CalendarSyncModule,
+    ProductionsModule,
     ProductsModule,
     OpportunitiesModule,
     InboundOrdersModule,

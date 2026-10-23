@@ -6,6 +6,7 @@ import { Queue } from 'bullmq';
  *  - wa-inbound:  procesar webhooks entrantes de Twilio (el webhook responde
  *    200 de inmediato y el trabajo pesado ocurre aquí).
  *  - wa-outbound: envío de mensajes con reintentos y backoff exponencial.
+ *  - workflow:    ejecuciones del motor de Automation (producciones).
  *  - engine:      procesamiento demorado de conversaciones (agrupa mensajes
  *    consecutivos vía jobs con delay y deduplicación por conversación).
  * Los workers viven en TwilioModule (inbound/outbound) y EngineModule (engine).
@@ -14,6 +15,17 @@ import { Queue } from 'bullmq';
 export const WA_INBOUND_QUEUE = 'WA_INBOUND_QUEUE';
 export const WA_OUTBOUND_QUEUE = 'WA_OUTBOUND_QUEUE';
 export const ENGINE_QUEUE = 'ENGINE_QUEUE';
+export const WORKFLOW_QUEUE = 'WORKFLOW_QUEUE';
+
+/**
+ * Prefijo de las llaves en Redis (BULLMQ_PREFIX). Sin él, el de siempre ("bull").
+ * Un entorno aislado (piloto) usa su propio prefijo para no compartir trabajos
+ * con otra API conectada al mismo Redis.
+ */
+export function queuePrefix(): { prefix?: string } {
+  const p = String(process.env.BULLMQ_PREFIX ?? '').trim();
+  return /^[\w:-]{1,40}$/.test(p) ? { prefix: p } : {};
+}
 
 /** REDIS_URL completo: redis:// o rediss:// (TLS), con usuario y clave (Render Key Value, Upstash…). */
 export function redisConnection() {
@@ -41,6 +53,7 @@ const logger = new Logger('Queues');
 function makeQueue(name: string): Queue {
   const queue = new Queue(name, {
     connection: redisConnection(),
+    ...queuePrefix(),
     defaultJobOptions: {
       removeOnComplete: 500,
       removeOnFail: 2000,
@@ -79,8 +92,16 @@ const queues: Queue[] = [];
         return q;
       },
     },
+    {
+      provide: WORKFLOW_QUEUE,
+      useFactory: () => {
+        const q = makeQueue('workflow');
+        queues.push(q);
+        return q;
+      },
+    },
   ],
-  exports: [WA_INBOUND_QUEUE, WA_OUTBOUND_QUEUE, ENGINE_QUEUE],
+  exports: [WA_INBOUND_QUEUE, WA_OUTBOUND_QUEUE, ENGINE_QUEUE, WORKFLOW_QUEUE],
 })
 export class QueueModule implements OnApplicationShutdown {
   async onApplicationShutdown() {

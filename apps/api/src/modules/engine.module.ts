@@ -15,7 +15,7 @@ import {
 import { ensureFile } from '../common/file-store';
 import { entryStageFor } from '../common/pipelines';
 import { Queue, Worker } from 'bullmq';
-import { WA_OUTBOUND_QUEUE, redisConnection } from '../queue/queue.module';
+import { WA_OUTBOUND_QUEUE, queuePrefix, redisConnection } from '../queue/queue.module';
 import { OrdersModule, OrdersService } from './orders.module';
 import { PaymentsModule } from './payments.module';
 import { KnowledgeModule, KnowledgeService } from './knowledge.module';
@@ -987,7 +987,7 @@ export class EngineQueueWorker implements OnModuleInit, OnApplicationShutdown {
     this.worker = new Worker(
       'engine',
       async (job) => this.engine.processConversation(job.data.conversationId),
-      { connection: redisConnection() },
+      { connection: redisConnection(), ...queuePrefix() },
     );
     this.worker.on('failed', (job, err) =>
       this.logger.error(`engine job ${job?.id}: ${err.message}`),

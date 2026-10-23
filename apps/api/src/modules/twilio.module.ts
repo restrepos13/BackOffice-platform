@@ -41,6 +41,7 @@ import {
   WA_INBOUND_QUEUE,
   WA_OUTBOUND_QUEUE,
   redisConnection,
+  queuePrefix,
 } from '../queue/queue.module';
 
 const UPLOADS_DIR = resolve(process.cwd(), 'uploads');
@@ -220,7 +221,7 @@ export class TwilioService implements OnModuleInit, OnApplicationShutdown {
     const inboundWorker = new Worker(
       'wa-inbound',
       async (job) => this.processInbound(job.data),
-      { connection },
+      { connection, ...queuePrefix() },
     );
     inboundWorker.on('failed', (job, err) => {
       this.logger.error(`wa-inbound job ${job?.id}: ${err.message}`);
@@ -231,7 +232,7 @@ export class TwilioService implements OnModuleInit, OnApplicationShutdown {
       new Worker(
         'wa-outbound',
         async (job) => this.processOutbound(job.data),
-        { connection },
+        { connection, ...queuePrefix() },
       ),
     );
     const outboundWorker = this.workers[1];

@@ -27,6 +27,8 @@ model User {
   jobTitle         String?
   // Rol COMPANY_AREA: usuario que solo ve los ítems de SU área de producción
   productionAreaId String?
+  /// Perfil en Producciones: ADMIN | BOOKER | BOOKER_APPROVER | FINANCE | OPERATIONS | VIEWER (null = según su rol)
+  opsProfile       String?
   active           Boolean   @default(true)
   lastLoginAt      DateTime?
   // Endurecimiento del login: bloqueo temporal por intentos fallidos
@@ -2085,4 +2087,309 @@ model CalendarEventLink {
   @@index([connectionId, externalEventId])
   @@index([companyId, appointmentId])
   @@index([companyId, origin, startsAt])
+}
+
+/* ─── Producciones (Automation · piloto LPulpo) ─────────────────────────────
+   La producción es la unidad central: brief, recursos, disponibilidad,
+   cotizaciones versionadas, tareas, incidencias e historial. Reutiliza
+   Customer, Contact, Conversation y User. Nada de tarifas ni reglas
+   comerciales por defecto: lo que falta queda pendiente de configurar. */
+
+/// Configuración del flujo por empresa (servicios, campos del brief, reglas pendientes)
+model ProductionSettings {
+  id         String   @id @default(cuid()) @map("_id")
+  companyId  String   @unique
+  configJson String   @default("{}")
+  updatedBy  String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @default(now())
+}
+
+/// Consecutivo legible por empresa (PR-0001…)
+model ProductionCounter {
+  id        String @id @default(cuid()) @map("_id")
+  companyId String @unique
+  seq       Int    @default(0)
+}
+
+model Production {
+  id                String    @id @default(cuid()) @map("_id")
+  companyId         String
+  code              String
+  title             String
+  /// Cliente o marca (Customer existente, opcional) y su nombre visible
+  customerId        String?
+  clientName        String
+  brand             String?
+  /// Persona de contacto (Contact existente, opcional) y datos sueltos
+  contactId         String?
+  contactName       String?
+  contactPhone      String?
+  contactEmail      String?
+  /// WHATSAPP | INSTAGRAM | FACEBOOK | REFERRAL | EMAIL | WEB | OTHER
+  channel           String    @default("OTHER")
+  referredBy        String?
+  conversationId    String?
+  ownerId           String?
+  status            String    @default("NUEVA")
+  /// Estado anterior a una pausa (para reanudar)
+  pausedFrom        String?
+  /// Control de concurrencia: cada cambio incrementa la versión
+  version           Int       @default(1)
+  priority          String    @default("NORMAL")
+  requestedDate     DateTime?
+  requestedDateNote String?
+  nextAction        String?
+  nextActionOwnerId String?
+  nextActionDueAt   DateTime?
+  notes             String?
+  /// Brief estructurado (objeto); los campos que faltan se calculan con la configuración
+  briefJson         String    @default("{}")
+  approvedQuoteId   String?
+  closeReason       String?
+  /// Registro de prueba (fixtures): nunca se mezcla con métricas reales
+  isTest            Boolean   @default(false)
+  createdById       String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @default(now())
+
+  @@unique([companyId, code])
+  @@index([companyId, status])
+  @@index([companyId, updatedAt])
+}
+
+/// Idempotencia de entradas (conversación, mensaje, formulario): una clave = una producción
+model ProductionSourceKey {
+  id           String   @id @default(cuid()) @map("_id")
+  companyId    String
+  key          String
+  productionId String
+  createdAt    DateTime @default(now())
+
+  @@unique([companyId, key])
+}
+
+/// Historial de solo lectura (no hay endpoint para editar ni borrar)
+model ProductionEvent {
+  id           String   @id @default(cuid()) @map("_id")
+  companyId    String
+  productionId String
+  type         String
+  /// USER | SYSTEM | AI | INTEGRATION
+  actorType    String   @default("USER")
+  actorId      String?
+  actorName    String
+  summary      String
+  dataJson     String?
+  createdAt    DateTime @default(now())
+
+  @@index([companyId, productionId, createdAt])
+}
+
+model ProductionTask {
+  id             String    @id @default(cuid()) @map("_id")
+  companyId      String
+  productionId   String
+  title          String
+  description    String?
+  /// TODO | IN_PROGRESS | BLOCKED | DONE | CANCELLED
+  status         String    @default("TODO")
+  assigneeId     String?
+  dueAt          DateTime?
+  priority       String    @default("NORMAL")
+  dependsOnJson  String    @default("[]")
+  /// MANUAL | RULE | INTEGRATION
+  origin         String    @default("MANUAL")
+  /// Regla que la creó y por qué (trazabilidad)
+  ruleKey        String?
+  reason         String?
+  /// Siempre presente: manual:<id> o rule:<regla>:<producción>:<contexto>
+  idempotencyKey String
+  overdueNotifiedAt DateTime?
+  completedAt    DateTime?
+  completedById  String?
+  createdById    String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @default(now())
+
+  @@unique([companyId, idempotencyKey])
+  @@index([companyId, productionId])
+  @@index([companyId, status, dueAt])
+}
+
+/// Catálogo: modelos, locaciones, fotógrafos y proveedores (atributos propios por tipo)
+model ProductionResource {
+  id           String   @id @default(cuid()) @map("_id")
+  companyId    String
+  /// MODEL | LOCATION | PHOTOGRAPHER | CREATIVE_DIRECTION | STYLING | ASSISTANT | CATERING | OTHER
+  kind         String
+  name         String
+  contactName  String?
+  phone        String?
+  email        String?
+  active       Boolean  @default(true)
+  /// Locación propia de la empresa (genera ingreso por alquiler)
+  owned        Boolean  @default(false)
+  notes        String?
+  /// Atributos según el tipo (ciudad, especialidad, capacidad…)
+  attrsJson    String   @default("{}")
+  /// Referencias externas [{provider: DROPBOX|URL, ref, label, verified}] (sin copiar archivos)
+  fileRefsJson String   @default("[]")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @default(now())
+
+  @@index([companyId, kind])
+}
+
+/// Tarifas configurables o históricas de un recurso (nunca por defecto)
+model ProductionRate {
+  id         String    @id @default(cuid()) @map("_id")
+  companyId  String
+  resourceId String
+  /// COST (lo que cobra el proveedor) | PRICE (lo que se cobra al cliente)
+  kind       String
+  /// HOUR | HALF_DAY | FULL_DAY | DAY | PROJECT | OTHER
+  unit       String
+  amount     Float?
+  currency   String    @default("COP")
+  /// PENDING | CONFIRMED | HISTORICAL
+  status     String    @default("PENDING")
+  validFrom  DateTime?
+  notes      String?
+  createdById String?
+  createdAt  DateTime  @default(now())
+
+  @@index([companyId, resourceId])
+}
+
+/// Recurso asignado a una producción: disponibilidad y reserva por separado
+model ProductionAssignment {
+  id                 String    @id @default(cuid()) @map("_id")
+  companyId          String
+  productionId       String
+  resourceId         String?
+  serviceType        String
+  label              String?
+  /// CANDIDATE | SELECTED
+  role               String    @default("CANDIDATE")
+  /// NOT_CHECKED | ASKED | AVAILABLE | UNAVAILABLE
+  availability       String    @default("NOT_CHECKED")
+  /// MANUAL (lo registró una persona) | CALENDAR (consultado en un calendario conectado)
+  availabilitySource String?
+  availabilityNote   String?
+  availabilityAt     DateTime?
+  availabilityById   String?
+  /// NONE | HOLD | PENDING_CONFIRMATION | CONFIRMED | RELEASED | CANCELLED
+  reservation        String    @default("NONE")
+  startsAt           DateTime?
+  endsAt             DateTime?
+  holdExpiresAt      DateTime?
+  confirmedById      String?
+  confirmedAt        DateTime?
+  notes              String?
+  version            Int       @default(1)
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @default(now())
+
+  @@index([companyId, productionId])
+  @@index([companyId, resourceId])
+}
+
+/// Candado por recurso y hora: evita que dos producciones retengan o confirmen el mismo tramo
+model ProductionSlotLock {
+  id           String    @id @default(cuid()) @map("_id")
+  companyId    String
+  resourceId   String
+  slotStart    DateTime
+  assignmentId String
+  productionId String
+  /// HOLD | PENDING_CONFIRMATION | CONFIRMED
+  kind         String
+  expiresAt    DateTime?
+  createdAt    DateTime  @default(now())
+
+  @@unique([companyId, resourceId, slotStart])
+  @@index([companyId, assignmentId])
+}
+
+/// Cotización versionada: una versión enviada a aprobación ya no se edita
+model ProductionQuote {
+  id             String    @id @default(cuid()) @map("_id")
+  companyId      String
+  productionId   String
+  version        Int
+  /// DRAFT | PENDING_APPROVAL | APPROVED | REJECTED | SUPERSEDED
+  status         String    @default("DRAFT")
+  currency       String    @default("COP")
+  linesJson      String    @default("[]")
+  totalsJson     String    @default("{}")
+  /// Diferencias con la versión de origen
+  diffJson       String?
+  basedOnId      String?
+  notes          String?
+  createdById    String?
+  submittedById  String?
+  submittedAt    DateTime?
+  decidedById    String?
+  decidedByName  String?
+  decidedAt      DateTime?
+  decisionNote   String?
+  /// Registro de envío hecho POR FUERA del sistema (BackOffice no envía cotizaciones aún)
+  sentManuallyAt DateTime?
+  sentManuallyNote String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @default(now())
+
+  @@unique([companyId, productionId, version])
+  @@index([companyId, status])
+}
+
+/// Incidencias de una producción
+model ProductionIssue {
+  id           String    @id @default(cuid()) @map("_id")
+  companyId    String
+  productionId String
+  kind         String
+  /// LOW | MEDIUM | HIGH
+  severity     String    @default("MEDIUM")
+  description  String
+  /// OPEN | RESOLVED
+  status       String    @default("OPEN")
+  resolution   String?
+  createdById  String?
+  resolvedById String?
+  resolvedAt   DateTime?
+  createdAt    DateTime  @default(now())
+
+  @@index([companyId, status])
+  @@index([companyId, productionId])
+}
+
+/// Ejecuciones reales del motor de Automation (persistidas, con reintentos)
+model WorkflowRun {
+  id             String    @id @default(cuid()) @map("_id")
+  companyId      String
+  /// Acción interna: production.status | task.overdue | hold.expire …
+  kind           String
+  productionId   String?
+  taskId         String?
+  /// Determinista: misma causa = misma ejecución
+  idempotencyKey String
+  payloadJson    String    @default("{}")
+  /// PENDING | RUNNING | COMPLETED | FAILED | RETRYABLE | CANCELLED
+  status         String    @default("PENDING")
+  attempts       Int       @default(0)
+  maxAttempts    Int       @default(5)
+  nextRetryAt    DateTime?
+  lockedUntil    DateTime?
+  startedAt      DateTime?
+  finishedAt     DateTime?
+  errorJson      String?
+  resultJson     String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @default(now())
+
+  @@unique([companyId, idempotencyKey])
+  @@index([status, nextRetryAt])
+  @@index([companyId, productionId])
 }

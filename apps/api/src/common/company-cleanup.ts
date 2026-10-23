@@ -22,4 +22,8 @@ export async function deleteCompanyLooseData(prisma: PrismaClient | any, company
   await prisma.aiCreditLot.deleteMany({ where });
   await prisma.inboundOrderKey.deleteMany({ where });
   await prisma.planOrder.deleteMany({ where });
+  // Producciones (sin relación a Company)
+  for (const m of ['workflowRun', 'productionSlotLock', 'productionAssignment', 'productionRate', 'productionResource', 'productionQuote', 'productionIssue', 'productionTask', 'productionEvent', 'productionSourceKey', 'production', 'productionCounter', 'productionSettings']) {
+    await prisma[m]?.deleteMany({ where });
+  }
 }
