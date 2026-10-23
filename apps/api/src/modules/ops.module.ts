@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -7,6 +8,7 @@ import {
   Injectable,
   Module,
   NotFoundException,
+  Optional,
   Param,
   Patch,
   Post,
@@ -22,6 +24,7 @@ import {
 } from '../common/constants';
 import { AuditService } from './audit.module';
 import { Products } from '../auth/products.guard';
+import { BookingsModule, BookingsService } from './bookings.module';
 
 function startOfDay(d = new Date()): Date {
   const x = new Date(d);
@@ -42,6 +45,7 @@ export class AppointmentsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    @Optional() private readonly bookings?: BookingsService,
   ) {}
 
   private async assertAccess(user: AuthUser, id: string) {
@@ -100,6 +104,10 @@ export class AppointmentsService {
 
   async update(user: AuthUser, id: string, dto: any) {
     const existing = await this.assertAccess(user, id);
+    // Una reserva en línea cambia de hora o espacio solo por reprogramar (así se respetan los bloqueos)
+    if (existing.resourceId && (dto.startsAt || dto.durationMin != null)) {
+      throw new BadRequestException('Esta es una reserva en línea: usa «Reprogramar» para cambiar la hora');
+    }
     const appointment = await this.prisma.appointment.update({
       where: { id },
       data: {
@@ -113,6 +121,7 @@ export class AppointmentsService {
       include: { contact: { select: { id: true, name: true, phone: true, stage: true } } },
     });
     if (dto.status && dto.status !== existing.status) {
+      if (existing.resourceId) await this.bookings?.afterStatusChange(existing, dto.status);
       await this.audit.log({
         actor: user, companyId: existing.companyId, action: 'appointment.status',
         entity: 'Appointment', entityId: id,
@@ -125,6 +134,7 @@ export class AppointmentsService {
   async remove(user: AuthUser, id: string) {
     const existing = await this.assertAccess(user, id);
     await this.prisma.appointment.delete({ where: { id } });
+    if (existing.resourceId) await this.bookings?.afterDelete(id);
     await this.audit.log({
       actor: user, companyId: existing.companyId, action: 'appointment.delete',
       entity: 'Appointment', entityId: id, detail: existing.title,
@@ -468,6 +478,7 @@ export class OpsController {
 }
 
 @Module({
+  imports: [BookingsModule],
   controllers: [AppointmentsController, FollowUpsController, OpsController],
   providers: [AppointmentsService, FollowUpsService, ExecutiveService],
   exports: [ExecutiveService],

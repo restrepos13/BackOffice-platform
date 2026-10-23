@@ -370,7 +370,8 @@ describe('plano a la medida (centro de certificación en alturas)', () => {
     const prompt = assistantPromptFromBlueprint('Atiendes el WhatsApp de Alturas Seguras.', bp);
     expect(prompt).toContain('1. Saluda y pregunta qué curso necesita');
     expect(prompt).toContain('Cédula, EPS y ARL');
-    expect(agentPresetFor(bp.modules)).toBe('solo_consultas');
+    // Cursos con cupos y agenda, sin pedidos: el asistente reserva (preset de reservas desde la Fase 2)
+    expect(agentPresetFor(bp.modules)).toBe('reservas');
     expect(agentPresetFor(['orders', 'delivery'])).toBe('domicilios');
     // Lo editado por el dueño vuelve a validarse (y puede apagar todo)
     const edited = revalidateBlueprint({ ...bp, modules: ['agenda', 'orders', 'menu', 'nope'], pipeline: { name: 'X', stages: [{ label: 'Solo una', kind: 'OPEN' }] } }, 'SERVICIOS');

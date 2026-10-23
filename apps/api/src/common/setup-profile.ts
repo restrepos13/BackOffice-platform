@@ -50,12 +50,12 @@ export const CAPABILITIES = {
   DOMICILIOS: { label: 'Domicilios con seguimiento en vivo', product: 'AUTOMATION', modules: ['delivery'], status: 'AVAILABLE', note: '' },
   PRODUCCION: { label: 'Coordinación por áreas (cocina, taller, empaque)', product: 'AUTOMATION', modules: ['production'], status: 'AVAILABLE', note: '' },
   AGENDA: {
-    label: 'Agenda de reservas, citas o turnos', product: 'AUTOMATION', modules: ['agenda'], status: 'PARTIAL',
-    note: 'Tu equipo registra y ve las reservas en la agenda del panel, y el asistente responde horarios. Que el asistente reserve solo y verifique disponibilidad llega en la próxima fase.',
+    label: 'Reservas por el chat con disponibilidad real', product: 'AUTOMATION', modules: ['agenda'], status: 'AVAILABLE',
+    note: 'El asistente consulta los turnos libres, reserva cuando el cliente confirma, y cancela o reprograma; nunca reserva dos veces el mismo espacio. Se activa al configurar tus espacios, servicios y horario en Agenda.',
   },
   RECORDATORIOS: {
     label: 'Recordatorios y seguimiento', product: 'AUTOMATION', modules: ['campaigns'], status: 'PARTIAL',
-    note: 'Hoy: seguimiento automático cuando el cliente deja de responder y campañas por WhatsApp. Recordatorios automáticos de cada reserva o cita: próxima fase.',
+    note: 'Recordatorio de cada reserva por WhatsApp. Dentro de las 24 h de la última conversación sale solo; fuera de ellas Meta exige la plantilla aprobada «recordatorio_reserva» (si no existe, queda registrado que no se envió).',
   },
   SEGUIMIENTO_VENTAS: { label: 'Embudo de ventas, seguimientos y reactivación', product: 'AUTOMATION', modules: ['campaigns'], status: 'AVAILABLE', note: '' },
   REPORTES: { label: 'Reporte diario para el dueño o gerente', product: 'AUTOMATION', modules: ['gerencia'], status: 'AVAILABLE', note: '' },

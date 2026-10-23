@@ -106,8 +106,9 @@ describe('Cada negocio recibe su configuración', () => {
     const caps = preview.setup.capabilities.map((c: any) => c.key);
     expect(caps).toEqual(expect.arrayContaining(['ATENCION_IA', 'AGENDA', 'RECORDATORIOS']));
     expect(caps).not.toEqual(expect.arrayContaining(['PEDIDOS']));
-    // Lo que aún no existe se dice: la agenda es parcial (el asistente no reserva solo todavía)
-    expect(preview.setup.capabilities.find((c: any) => c.key === 'AGENDA')).toMatchObject({ status: 'PARTIAL' });
+    // Reservas por el chat: real desde la Fase 2; los recordatorios dependen de la ventana de 24 h o la plantilla
+    expect(preview.setup.capabilities.find((c: any) => c.key === 'AGENDA')).toMatchObject({ status: 'AVAILABLE' });
+    expect(preview.setup.capabilities.find((c: any) => c.key === 'RECORDATORIOS')).toMatchObject({ status: 'PARTIAL' });
     expect(preview.blueprint.modules).toContain('agenda');
     for (const m of ['orders', 'production', 'delivery', 'menu']) expect(preview.blueprint.modules).not.toContain(m);
 
@@ -121,8 +122,10 @@ describe('Cada negocio recibe su configuración', () => {
     expect(db.productionArea.filter((a: any) => a.companyId === company.id)).toHaveLength(0);
     expect(hasProduct(company, 'CREATIVE') || hasProduct(company, 'ADS')).toBe(false);
     // El asistente no recibe herramientas de pedidos que no usaría
-    const bot = db.bot.find((b: any) => b.companyId === company.id);
-    if (bot?.toolsJson) expect(JSON.parse(bot.toolsJson).map((t: any) => t.tool)).not.toContain('armar_pedido');
+    const bot = db.bot.find((b: any) => b.companyId === company.id)!;
+    const tools = JSON.parse(bot.toolsJson).map((t: any) => t.tool);
+    expect(tools).not.toContain('armar_pedido');
+    expect(tools).toEqual(expect.arrayContaining(['ver_disponibilidad', 'crear_reserva', 'cancelar_reserva', 'reprogramar_reserva']));
   });
 
   it('un catering con procesos complejos recibe otras capacidades (y lo que no existe aún se marca como próxima fase)', () => {

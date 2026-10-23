@@ -9,6 +9,7 @@ import {
   Select, Stat, Tabs, Textarea, statusTone,
 } from '../../components/ui';
 import { PickCompany, useCompanyScope, withScope } from './shared';
+import { BookingActionsModal, BookingSettings, NewBookingModal, useBookingConfig } from './agenda/Bookings';
 
 export const APPOINTMENT_STATUS_LABELS: Record<string, string> = {
   SCHEDULED: 'Programada',
@@ -190,6 +191,10 @@ export default function Agenda() {
   const [tab, setTab] = useState('citas');
   const [creatingAppointment, setCreatingAppointment] = useState(false);
   const [creatingFollowUp, setCreatingFollowUp] = useState(false);
+  const [newBooking, setNewBooking] = useState(false);
+  const [managing, setManaging] = useState<Appointment | null>(null);
+  const bookingConfig = useBookingConfig(q, ready);
+  const bookingsOn = !!bookingConfig.data?.config.enabled;
 
   const { data: appointments, isLoading } = useQuery({
     queryKey: ['appointments', q],
@@ -204,7 +209,7 @@ export default function Agenda() {
   const { data: contacts } = useQuery({
     queryKey: ['contacts', q],
     queryFn: () => api.get<Contact[]>(withScope('/contacts', q)),
-    enabled: ready && (creatingAppointment || creatingFollowUp),
+    enabled: ready && (creatingAppointment || creatingFollowUp || newBooking),
   });
 
   const updateAppointment = useMutation({
@@ -265,7 +270,8 @@ export default function Agenda() {
           canWrite ? (
             <>
               <Button variant="outline" onClick={() => setCreatingFollowUp(true)}>+ Seguimiento</Button>
-              <Button onClick={() => setCreatingAppointment(true)}>+ Nueva cita</Button>
+              <Button variant={bookingsOn ? 'outline' : 'primary'} onClick={() => setCreatingAppointment(true)}>+ Nueva cita</Button>
+              {bookingsOn && <Button onClick={() => setNewBooking(true)}>+ Reserva</Button>}
             </>
           ) : undefined
         }
@@ -296,6 +302,7 @@ export default function Agenda() {
             { id: 'citas', label: 'Próximas citas' },
             { id: 'pasadas', label: 'Historial' },
             { id: 'seguimientos', label: 'Seguimientos', badge: pendingFollowUps.length },
+            { id: 'reservas', label: 'Reservas en línea' },
           ]}
         />
       </div>
@@ -305,7 +312,7 @@ export default function Agenda() {
           grouped.length === 0 ? (
             <EmptyState
               title="Sin citas próximas"
-              hint="Agenda la primera — cuando el motor de IA esté conectado, tu asistente las creará solo."
+              hint={bookingsOn ? 'Tu asistente reserva solo por el chat; también puedes reservar desde aquí.' : 'Agenda la primera. Si configuras las reservas en línea, tu asistente reservará solo por el chat.'}
               action={canWrite ? <Button onClick={() => setCreatingAppointment(true)}>Agendar cita</Button> : undefined}
             />
           ) : (
@@ -319,6 +326,7 @@ export default function Agenda() {
                       appointment={appointment}
                       canWrite={canWrite}
                       onStatus={(status) => updateAppointment.mutate({ id: appointment.id, status })}
+                      onManage={appointment.resourceId ? () => setManaging(appointment) : undefined}
                     />
                   ))}
                 </div>
@@ -338,12 +346,15 @@ export default function Agenda() {
                   appointment={appointment}
                   canWrite={canWrite}
                   onStatus={(status) => updateAppointment.mutate({ id: appointment.id, status })}
+                  onManage={appointment.resourceId ? () => setManaging(appointment) : undefined}
                   showDate
                 />
               ))}
             </div>
           )
         )}
+
+        {tab === 'reservas' && <BookingSettings q={q} canWrite={canWrite} />}
 
         {tab === 'seguimientos' && (
           (followUps?.length ?? 0) === 0 ? (
@@ -390,6 +401,10 @@ export default function Agenda() {
         onClose={() => setCreatingAppointment(false)}
         contacts={contacts ?? []}
       />
+      <NewBookingModal open={newBooking} onClose={() => setNewBooking(false)} q={q} contacts={contacts ?? []} />
+      {managing && (
+        <BookingActionsModal open onClose={() => setManaging(null)} q={q} canWrite={canWrite} appointment={managing} />
+      )}
       <FollowUpModal
         open={creatingFollowUp}
         onClose={() => setCreatingFollowUp(false)}
@@ -403,11 +418,14 @@ function AppointmentRow({
   appointment,
   canWrite,
   onStatus,
+  onManage,
   showDate,
 }: {
   appointment: Appointment;
   canWrite: boolean;
   onStatus: (status: string) => void;
+  /** Reserva en línea: reprogramar, cancelar e historial */
+  onManage?: () => void;
   showDate?: boolean;
 }) {
   const isActive = ['SCHEDULED', 'CONFIRMED'].includes(appointment.status);
@@ -427,7 +445,7 @@ function AppointmentRow({
           <p className="truncate text-xs text-ink-3">
             {appointment.contact.name}
             {appointment.location ? ` · ${appointment.location}` : ''} · {appointment.durationMin} min
-            {appointment.source === 'IA' ? ' · agendada por la IA' : ''}
+            {appointment.source === 'IA' ? ' · reservada por el asistente' : ''}
           </p>
         </div>
       </div>
@@ -444,6 +462,7 @@ function AppointmentRow({
             <Button size="sm" variant="ghost" onClick={() => onStatus('NO_SHOW')}>No asistió</Button>
           </>
         )}
+        {onManage && <Button size="sm" variant="outline" onClick={onManage}>{canWrite ? 'Reprogramar o cancelar' : 'Historial'}</Button>}
       </div>
     </div>
   );

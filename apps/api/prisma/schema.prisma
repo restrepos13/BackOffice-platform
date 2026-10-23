@@ -797,8 +797,61 @@ model Appointment {
   createdBy   String? // nombre del actor
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+  // ── Reservas (opcionales: las citas anteriores siguen igual) ──
+  /// Espacio o recurso reservado (orderConfig.bookings.resources[].id)
+  resourceId     String?
+  /// Servicio reservable (orderConfig.bookings.services[].key)
+  serviceKey     String?
+  /// Fin calculado (startsAt + durationMin)
+  endsAt         DateTime?
+  /// Chat donde se pidió (para confirmaciones y recordatorios)
+  conversationId String?
+  /// Cambios: [{at, by, action, from?, to?, note?}]
+  historyJson    String?
+  /// Evita crear dos veces la misma reserva por reintentos
+  idempotencyKey String?
 
   @@index([companyId, startsAt])
+  @@index([companyId, resourceId, startsAt])
+}
+
+/// Bloqueo de un tramo de un recurso: el índice único impide reservar dos veces
+/// el mismo espacio en el mismo intervalo, aunque dos pedidos lleguen a la vez.
+/// Una reserva ocupa un bloqueo por cada tramo (orderConfig.bookings.slotMinutes).
+model BookingLock {
+  id            String   @id @default(cuid()) @map("_id")
+  companyId     String
+  resourceId    String
+  slotStart     DateTime
+  appointmentId String
+  createdAt     DateTime @default(now())
+
+  @@unique([companyId, resourceId, slotStart])
+  @@index([appointmentId])
+}
+
+/// Aviso al cliente de una reserva (confirmación, recordatorio, cambio o cancelación),
+/// enviado por el canal del chat. Único por reserva + tipo + momento (no se duplica).
+model BookingNotice {
+  id            String    @id @default(cuid()) @map("_id")
+  companyId     String
+  appointmentId String
+  /// CONFIRMATION | REMINDER | RESCHEDULE | CANCELLATION
+  kind          String
+  scheduledAt   DateTime
+  /// PENDING | SENDING | SENT | SKIPPED | FAILED | CANCELLED
+  status        String    @default("PENDING")
+  attempts      Int       @default(0)
+  lastError     String?
+  /// Por qué no se envió (sin chat, fuera de 24 h sin plantilla, el cliente pidió no recibir…)
+  skipReason    String?
+  messageId     String?
+  sentAt        DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @default(now())
+
+  @@unique([appointmentId, kind, scheduledAt])
+  @@index([status, scheduledAt])
 }
 
 // ─── Seguimientos ────────────────────────────────────────────────────

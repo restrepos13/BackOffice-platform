@@ -137,6 +137,8 @@ export function assistantPromptFromBlueprint(base: string, bp: Pick<Blueprint, '
 export function agentPresetFor(modules: string[]): string {
   if (modules.includes('orders') && modules.includes('delivery')) return 'domicilios';
   if (modules.includes('orders')) return 'pedidos_programados';
+  // Agenda sin pedidos: el asistente reserva de verdad (cuando el negocio configure sus espacios y servicios)
+  if (modules.includes('agenda')) return 'reservas';
   return 'solo_consultas';
 }
 

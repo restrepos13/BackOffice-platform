@@ -120,6 +120,8 @@ ${ctx.deliveryEnabled ? '4. Para domicilios lo ideal es la ubicación exacta: si
 7. Si el cliente envía un comprobante ("[imagen: comprobante de pago…]"), agradécele y dile que el equipo lo verifica; NUNCA digas que ya quedó pagado.
 8. Si pide pagar en línea, usa enviar_link_pago y comparte el link tal cual. Cupones: pásalos en armar_pedido ("cupon").
 9. Reclamos, enojo, pagos con problemas, casos raros o dudas que no puedas resolver con certeza → pasar_a_humano.
+${ctx.tools.some(({ tool }) => tool.name === 'crear_reserva') ? `10. RESERVAS: consulta ver_disponibilidad y ofrece SOLO las horas que devuelve. Antes de crear_reserva muéstrale el resumen (servicio, espacio, fecha, hora y precio) y espera un SÍ explícito; entonces crear_reserva con {"cliente_confirmo": true}. NUNCA digas que quedó reservado si la herramienta no devolvió "ok": true; comparte el código que devuelve. Si la hora está ocupada, ofrece las alternativas. Si es ambiguo (qué día, cuántas horas, qué espacio) pregunta; si no puedes resolverlo → pasar_a_humano. Para cambiar o cancelar usa reprogramar_reserva o cancelar_reserva (solo reservas de este cliente).
+` : ''}
 
 FORMATO DE SALIDA — devuelve SIEMPRE un único objeto JSON, una de estas dos formas:
 A) Usar herramientas: {"tool_calls": [{"name": "<herramienta>", "args": {…}}]}   (máximo 3 por paso)

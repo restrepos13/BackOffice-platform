@@ -41,6 +41,7 @@ import { EventsService } from './events.module';
 import { DeepInfraProvider } from '../ai/deepinfra.provider';
 import { AiBilling, AiSession, recordAiUsage, resolveAiAccess } from '../ai/ai-access';
 import { AgentService } from '../ai/agent/agent.service';
+import { BookingsModule } from './bookings.module';
 import { buildSystemPrompt, PromptContext } from '../ai/prompt';
 import {
   AI_PROVIDER,
@@ -1000,7 +1001,7 @@ export class EngineQueueWorker implements OnModuleInit, OnApplicationShutdown {
 }
 
 @Module({
-  imports: [OrdersModule, PaymentsModule, KnowledgeModule],
+  imports: [OrdersModule, PaymentsModule, KnowledgeModule, BookingsModule],
   controllers: [EngineController],
   providers: [
     EngineService,

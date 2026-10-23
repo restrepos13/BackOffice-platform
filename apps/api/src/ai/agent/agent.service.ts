@@ -6,6 +6,7 @@ import { OrdersService } from '../../modules/orders.module';
 import { EventsService } from '../../modules/events.module';
 import { PaymentsService } from '../../modules/payments.module';
 import { KnowledgeService } from '../../modules/knowledge.module';
+import { BookingsService } from '../../modules/bookings.module';
 import { AiSession, recordAiUsage } from '../ai-access';
 import { AI_PROVIDER, AiProvider, ChatMessage, extractJson } from '../types';
 import { buildAgentPrompt, validateAgentStep } from './protocol';
@@ -62,6 +63,7 @@ export class AgentService {
     @Optional() private readonly events?: EventsService,
     @Optional() private readonly payments?: PaymentsService,
     @Optional() private readonly knowledge?: KnowledgeService,
+    @Optional() private readonly bookings?: BookingsService,
   ) {}
 
   /** Herramientas que el bot puede EJECUTAR (las de escritura exigen permiso write). */
@@ -86,6 +88,7 @@ export class AgentService {
       orders: this.orders,
       payments: this.payments,
       knowledge: this.knowledge,
+      bookings: this.bookings,
       company,
       orderConfig,
       conversation,

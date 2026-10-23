@@ -13,6 +13,11 @@ function definedOnly(data: Doc): Doc {
   return Object.fromEntries(Object.entries(data).filter(([, v]) => v !== undefined));
 }
 
+/** Igualdad como en Mongo: las fechas se comparan por valor. */
+function sameValue(a: unknown, b: unknown): boolean {
+  return a instanceof Date || b instanceof Date ? new Date(a as any).getTime() === new Date(b as any).getTime() : a === b;
+}
+
 function matches(doc: Doc, where: Doc | undefined): boolean {
   if (!where) return true;
   for (const [key, cond] of Object.entries(where)) {
@@ -126,6 +131,8 @@ export function createMockPrisma() {
     creativeDesign: [] as Doc[],
     brandAsset: [] as Doc[],
     adAssetLink: [] as Doc[],
+    bookingLock: [] as Doc[],
+    bookingNotice: [] as Doc[],
     brandProfile: [] as Doc[],
     socialUsage: [] as Doc[],
     invoice: [] as Doc[],
@@ -211,6 +218,8 @@ export function createMockPrisma() {
     adSettings: ['companyId'],
     adAccount: ['companyId+provider+externalId'],
     adAssetLink: ['assetId+adEntityId'],
+    bookingLock: ['companyId+resourceId+slotStart'],
+    bookingNotice: ['appointmentId+kind+scheduledAt'],
   };
   const model = (name: keyof typeof db, defaults: Doc = {}) => {
     // matches + filtros por relación y claves compuestas (companyId_date)
@@ -287,7 +296,7 @@ export function createMockPrisma() {
       // Índices únicos como en Mongo (P2002 si se repite)
       for (const key of UNIQUE[name as string] ?? []) {
         const fields = key.split('+');
-        if (fields.every((f) => plain[f] != null) && db[name].some((d: Doc) => fields.every((f) => d[f] === plain[f]))) {
+        if (fields.every((f) => plain[f] != null) && db[name].some((d: Doc) => fields.every((f) => sameValue(d[f], plain[f])))) {
           throw Object.assign(new Error(`Unique constraint failed on ${String(name)}.${key}`), { code: 'P2002' });
         }
       }
@@ -394,6 +403,8 @@ export function createMockPrisma() {
     creativeDesign: model('creativeDesign', { status: 'ACTIVE', schemaVersion: 1, version: 1 }),
     brandAsset: model('brandAsset'),
     adAssetLink: model('adAssetLink'),
+    bookingLock: model('bookingLock'),
+    bookingNotice: model('bookingNotice', { status: 'PENDING', attempts: 0 }),
     brandProfile: model('brandProfile', { version: 1, logosJson: '[]', colorsJson: '[]', fontsJson: '[]', vocabularyJson: '[]', avoidWordsJson: '[]', productsJson: '[]', ctasJson: '[]', offersJson: '[]', restrictionsJson: '[]', formatsJson: '[]', protectedJson: '{}', policyJson: '{}' }),
     planOrder: model('planOrder', { status: 'REQUESTED', aiPackageAmount: 0, currency: 'COP', billingCycle: 'MONTHLY' }),
     socialUsage: model('socialUsage', { images: 0, videos: 0, credits: 0, costUsd: 0 }),

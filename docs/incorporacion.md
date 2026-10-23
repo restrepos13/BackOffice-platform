@@ -25,8 +25,8 @@ Estado al 22-oct-2026, en local y sin desplegar. El código manda:
 Con 0-2 puntos es SIMPLE, con 3-6 INTERMEDIATE y con 7 o más COMPLEX. Papel, cuaderno y los propios canales de chat no cuentan como sistemas. El administrador puede ajustar el nivel, siempre con un motivo. El cliente no puede ajustarlo; se recalcula con sus respuestas.
 
 **Capacidades** (`CAPABILITIES`). Salen de las necesidades y señales. Cada una tiene su estado real:
-- **Disponible:** atención por WhatsApp con IA, pedidos, domicilios, producción por áreas, embudo y seguimiento, reporte a gerencia, contenido (Creative) y publicidad (Ads; Meta).
-- **En parte:** agenda, recordatorios e integraciones. La agenda existe en el panel, pero el asistente todavía no reserva solo; los recordatorios de cada reserva aún no existen.
+- **Disponible:** atención por WhatsApp con IA, pedidos, domicilios, producción por áreas, reservas por el chat (desde la Fase 2, ver [reservas.md](reservas.md)), embudo y seguimiento, reporte a gerencia, contenido (Creative) y publicidad (Ads; Meta).
+- **En parte:** recordatorios (fuera de la ventana de 24 h necesitan la plantilla `recordatorio_reserva`) e integraciones.
 - **Próxima fase:** procesos internos de varias etapas y aprobaciones configurables. Se registran, pero no se ejecutan.
 
 **Productos recomendados.** Son los productos de las capacidades detectadas, cada uno con sus razones. La persona elige; si no se detecta nada, se recomienda Automation.

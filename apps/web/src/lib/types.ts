@@ -748,6 +748,9 @@ export interface Appointment {
   status: 'SCHEDULED' | 'CONFIRMED' | 'COMPLETED' | 'CANCELLED' | 'NO_SHOW';
   source: string;
   createdBy?: string | null;
+  /** Reserva en línea: espacio y servicio (null en citas manuales) */
+  resourceId?: string | null;
+  serviceKey?: string | null;
 }
 
 export interface FollowUp {

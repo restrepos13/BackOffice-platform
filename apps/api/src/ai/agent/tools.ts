@@ -10,6 +10,7 @@ import {
   roundMoney,
 } from '../../common/geo';
 import { normalizeCode, pickPromotion } from '../../common/promotions';
+import { addDaysLocal, bookingCode, localParts, localToUtc } from '../../common/bookings';
 import {
   CUSTOMER_STATUS_LABEL,
   ensureTrackingLink,
@@ -41,6 +42,15 @@ export interface ToolContext {
   payments?: { createOrderPaymentLink(orderId: string, actor: null): Promise<{ url: string; reference: string }> };
   /** Base de conocimiento (KnowledgeService) */
   knowledge?: { search(companyId: string, query: string, top?: number): Promise<Array<{ text: string; doc: string; score: number }>> };
+  /** Reservas (BookingsService): disponibilidad y reservas validadas en el servidor */
+  bookings?: {
+    configOf(company: any): { cfg: import('../../common/bookings').BookingConfig; orderConfig: Record<string, any> };
+    availability(companyId: string, q: { date?: string; serviceKey?: string | null; resourceRef?: string | null }): Promise<any>;
+    book(companyId: string, input: any): Promise<any>;
+    cancel(companyId: string, appointmentId: string, opts: any): Promise<any>;
+    reschedule(companyId: string, appointmentId: string, opts: any): Promise<any>;
+    upcomingFor(companyId: string, contactId: string): Promise<any[]>;
+  };
   company: any;
   orderConfig: Record<string, any>;
   conversation: any;
@@ -286,6 +296,174 @@ async function orderSummary(ctx: ToolContext, order: any) {
 }
 
 /* ─── catálogo de herramientas ───────────────────────────────────────── */
+
+/* ─── Reservas ───────────────────────────────────────────────────────── */
+
+const tzOf = (ctx: ToolContext) => ctx.company.timezone || 'America/Bogota';
+
+/** "hoy", "mañana" o YYYY-MM-DD → fecha local del negocio. */
+function bookingDate(ctx: ToolContext, raw: unknown): string | null {
+  const v = str(raw, 20).toLowerCase();
+  const today = localParts(ctx.now, tzOf(ctx)).date;
+  if (!v || v === 'hoy') return today;
+  if (v === 'mañana' || v === 'manana') return addDaysLocal(today, 1);
+  if (v === 'pasado mañana' || v === 'pasado manana') return addDaysLocal(today, 2);
+  return /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : null;
+}
+
+function bookingTime(raw: unknown): string | null {
+  const m = /^(\d{1,2})(?::(\d{2}))?\s*(am|pm|a\.m\.|p\.m\.)?$/i.exec(str(raw, 12).replace(/\s+/g, ' '));
+  if (!m) return null;
+  let h = Number(m[1]);
+  const min = Number(m[2] ?? 0);
+  const ap = (m[3] ?? '').toLowerCase();
+  if (ap.startsWith('p') && h < 12) h += 12;
+  if (ap.startsWith('a') && h === 12) h = 0;
+  if (h > 23 || min > 59) return null;
+  return `${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}`;
+}
+
+function whenLabel(ctx: ToolContext, at: Date): string {
+  return new Intl.DateTimeFormat('es-CO', { timeZone: tzOf(ctx), weekday: 'long', day: 'numeric', month: 'long', hour: 'numeric', minute: '2-digit' }).format(at);
+}
+
+/** El nombre del contacto sirve si no es solo el número de teléfono. */
+function realName(contact: any): boolean {
+  const n = String(contact?.name ?? '').trim();
+  return n.length >= 2 && !/^[+\d\s()-]+$/.test(n);
+}
+
+const NOT_READY = { error: 'Las reservas en línea no están configuradas en este negocio. No prometas una reserva: pasar_a_humano.' };
+
+/** Reservas del cliente de ESTA conversación (nunca de otro: su número es su identidad). */
+async function ownBooking(ctx: ToolContext, code: unknown): Promise<{ booking?: any; error?: string; options?: any[] }> {
+  const list = await ctx.bookings!.upcomingFor(ctx.company.id, ctx.contact?.id ?? '__none__');
+  const wanted = str(code, 10).replace('#', '').toUpperCase();
+  if (wanted) {
+    const b = list.find((x: any) => bookingCode(x.id) === wanted);
+    return b ? { booking: b } : { error: `No encontré una reserva activa con el código ${wanted} a nombre de este cliente.` };
+  }
+  if (list.length === 1) return { booking: list[0] };
+  if (!list.length) return { error: 'Este cliente no tiene reservas activas.' };
+  return { error: 'Tiene varias reservas: pregúntale cuál (por código o fecha).', options: list.map((b: any) => ({ codigo: bookingCode(b.id), que: b.title, cuando: whenLabel(ctx, new Date(b.startsAt)) })) };
+}
+
+function failToTool(r: any) {
+  const hint = r.code === 'TAKEN'
+    ? 'Ofrece estas alternativas; si ninguna le sirve, pregunta otro día o pasar_a_humano.'
+    : ['LIMIT', 'TOO_LATE', 'NOT_BOOKING', 'NO_SERVICE', 'DISABLED'].includes(r.code)
+      ? 'No lo puedes resolver tú: explícale con calma y usa pasar_a_humano.'
+      : 'Pregúntale al cliente lo que falta o propón otra hora.';
+  return {
+    error: r.message,
+    ...(r.alternatives?.length ? { alternativas: r.alternatives.map((x: any) => ({ hora: x.local, espacio: x.resource })) } : {}),
+    siguiente_paso: hint,
+  };
+}
+
+export const BOOKING_TOOLS: AgentTool[] = [
+  {
+    name: 'ver_disponibilidad',
+    access: 'read',
+    description: 'Turnos libres REALES de un día para reservar (canchas, salas, citas…), con los espacios libres en cada hora',
+    params: '{"fecha": "YYYY-MM-DD" | "hoy" | "mañana", "servicio"?: string, "espacio"?: string}',
+    async run(ctx, args) {
+      if (!ctx.bookings || !ctx.bookings.configOf(ctx.company).cfg.enabled) return NOT_READY;
+      const date = bookingDate(ctx, args.fecha);
+      if (!date) return { error: 'Fecha no válida: usa YYYY-MM-DD, "hoy" o "mañana".' };
+      const r = await ctx.bookings.availability(ctx.company.id, { date, serviceKey: str(args.servicio, 60) || null, resourceRef: str(args.espacio, 60) || null });
+      if (!r.ok) return { error: r.message, ...(r.services ? { servicios: r.services } : {}) };
+      if (!r.slots.length) return { fecha: date, servicio: r.service, turnos: [], nota: r.note ?? 'No hay turnos libres ese día: ofrece otro día.' };
+      return {
+        fecha: date, servicio: r.service, duracion_min: r.durationMin, ...(r.price != null ? { precio: money(r.price, ctx.company.currency ?? 'COP') } : {}),
+        turnos: r.slots.slice(0, 16).map((x: any) => ({ hora: x.local, espacios: x.resources.map((y: any) => y.name) })),
+        nota: 'Ofrece solo estas horas. Para reservar necesitas el SÍ explícito del cliente.',
+      };
+    },
+  },
+  {
+    name: 'crear_reserva',
+    access: 'write',
+    description: 'Reserva un turno. SOLO después de mostrar el resumen (servicio, espacio, fecha, hora y precio) y recibir un SÍ explícito del cliente',
+    params: '{"fecha": "YYYY-MM-DD" | "hoy" | "mañana", "hora": "HH:mm", "servicio"?: string, "espacio"?: string, "nombre"?: string, "notas"?: string, "cliente_confirmo": boolean}',
+    async run(ctx, args) {
+      if (!ctx.bookings || !ctx.bookings.configOf(ctx.company).cfg.enabled) return NOT_READY;
+      if (args.cliente_confirmo !== true) {
+        return { error: 'Aún no: muéstrale el resumen (servicio, espacio, fecha, hora y precio) y espera un SÍ explícito; luego llama con "cliente_confirmo": true.' };
+      }
+      const { cfg } = ctx.bookings.configOf(ctx.company);
+      const name = str(args.nombre, 80);
+      if (cfg.requireName && !realName(ctx.contact) && !name) return { error: 'Falta el nombre del cliente: pídeselo antes de reservar.' };
+      if (name && !realName(ctx.contact) && ctx.contact?.id) {
+        await ctx.prisma.contact.update({ where: { id: ctx.contact.id }, data: { name } });
+        ctx.contact.name = name;
+      }
+      const date = bookingDate(ctx, args.fecha);
+      const time = bookingTime(args.hora);
+      if (!date || !time) return { error: 'Fecha u hora no válida: usa la fecha YYYY-MM-DD y la hora HH:mm (24 h).' };
+      const start = localToUtc(date, time, tzOf(ctx));
+      const r = await ctx.bookings.book(ctx.company.id, {
+        contactId: ctx.contact?.id ?? '__none__', serviceKey: str(args.servicio, 60) || null, resourceRef: str(args.espacio, 60) || null,
+        start, notes: str(args.notas, 300) || null, source: 'IA', by: 'Asistente IA', conversationId: ctx.conversation?.id ?? null,
+        // La misma conversación pidiendo lo mismo dos veces (reintento del modelo) no crea dos reservas
+        idempotencyKey: ctx.conversation?.id ? `ia:${ctx.conversation.id}:${start.toISOString()}:${str(args.servicio, 60).toLowerCase()}` : null,
+      });
+      if (!r.ok) return failToTool(r);
+      const a = r.appointment;
+      return {
+        ok: true, codigo: bookingCode(a.id), reserva: a.title, cuando: whenLabel(ctx, new Date(a.startsAt)),
+        ...(r.already ? { nota: 'Esta reserva ya estaba hecha en esta conversación: no se duplicó.' } : {}),
+        siguiente_paso: 'Confírmale al cliente con el código. Si cambia de idea, usa reprogramar_reserva o cancelar_reserva.',
+      };
+    },
+  },
+  {
+    name: 'mis_reservas',
+    access: 'read',
+    description: 'Reservas activas del cliente de esta conversación (código, qué y cuándo)',
+    params: '{}',
+    async run(ctx) {
+      if (!ctx.bookings) return NOT_READY;
+      const list = await ctx.bookings.upcomingFor(ctx.company.id, ctx.contact?.id ?? '__none__');
+      return { reservas: list.map((b: any) => ({ codigo: bookingCode(b.id), que: b.title, cuando: whenLabel(ctx, new Date(b.startsAt)) })) };
+    },
+  },
+  {
+    name: 'cancelar_reserva',
+    access: 'write',
+    description: 'Cancela una reserva del cliente de esta conversación, después de que confirme que quiere cancelarla',
+    params: '{"codigo"?: string, "motivo"?: string, "cliente_confirmo": boolean}',
+    async run(ctx, args) {
+      if (!ctx.bookings) return NOT_READY;
+      const own = await ownBooking(ctx, args.codigo);
+      if (!own.booking) return { error: own.error, ...(own.options ? { reservas: own.options } : {}) };
+      if (args.cliente_confirmo !== true) return { error: `Confírmale primero: ¿cancela ${own.booking.title}, ${whenLabel(ctx, new Date(own.booking.startsAt))}? Luego llama con "cliente_confirmo": true.` };
+      const r = await ctx.bookings.cancel(ctx.company.id, own.booking.id, { by: 'Asistente IA', reason: str(args.motivo, 200) || 'Cancelada por el cliente en el chat', actor: 'IA' });
+      if (!r.ok) return failToTool(r);
+      return { ok: true, codigo: bookingCode(own.booking.id), estado: 'Cancelada' };
+    },
+  },
+  {
+    name: 'reprogramar_reserva',
+    access: 'write',
+    description: 'Cambia la fecha u hora de una reserva del cliente de esta conversación (revisa disponibilidad antes y confirma con él)',
+    params: '{"codigo"?: string, "fecha": "YYYY-MM-DD" | "hoy" | "mañana", "hora": "HH:mm", "espacio"?: string, "cliente_confirmo": boolean}',
+    async run(ctx, args) {
+      if (!ctx.bookings || !ctx.bookings.configOf(ctx.company).cfg.enabled) return NOT_READY;
+      const own = await ownBooking(ctx, args.codigo);
+      if (!own.booking) return { error: own.error, ...(own.options ? { reservas: own.options } : {}) };
+      const date = bookingDate(ctx, args.fecha);
+      const time = bookingTime(args.hora);
+      if (!date || !time) return { error: 'Fecha u hora no válida: usa la fecha YYYY-MM-DD y la hora HH:mm (24 h).' };
+      if (args.cliente_confirmo !== true) return { error: 'Confírmale primero la nueva fecha y hora; luego llama con "cliente_confirmo": true.' };
+      const r = await ctx.bookings.reschedule(ctx.company.id, own.booking.id, { start: localToUtc(date, time, tzOf(ctx)), resourceRef: str(args.espacio, 60) || null, by: 'Asistente IA', actor: 'IA' });
+      if (!r.ok) return failToTool(r);
+      return { ok: true, codigo: bookingCode(r.appointment.id), reserva: r.appointment.title, cuando: whenLabel(ctx, new Date(r.appointment.startsAt)) };
+    },
+  },
+];
+
+export const BOOKING_TOOL_NAMES = BOOKING_TOOLS.map((t) => t.name);
 
 export const AGENT_TOOLS: AgentTool[] = [
   {
@@ -831,6 +1009,7 @@ export const AGENT_TOOLS: AgentTool[] = [
         : { resultados: [], nota: 'No encontré nada sobre eso: no inventes, ofrece pasar_a_humano.' };
     },
   },
+  ...BOOKING_TOOLS,
   {
     name: 'pasar_a_humano',
     access: 'read', // siempre disponible: el agente nunca queda atrapado
@@ -843,23 +1022,34 @@ export const AGENT_TOOLS: AgentTool[] = [
 ];
 
 export const TOOL_NAMES = AGENT_TOOLS.map((t) => t.name);
+/** Herramientas de pedidos y consultas (todo menos reservas). */
+const ORDER_TOOLS = AGENT_TOOLS.filter((t) => !BOOKING_TOOL_NAMES.includes(t.name));
 
 /** Plantillas de agente por tipo de negocio (preconfiguran permisos). */
 export const AGENT_PRESETS: Record<string, { label: string; description: string; tools: Array<{ tool: string; access: ToolAccess }> }> = {
+  // Las herramientas de reservas son solo del preset de reservas (un restaurante no las recibe)
   domicilios: {
     label: 'Restaurante / domicilios',
     description: 'Toma pedidos con precios, calcula el envío por ubicación, confirma y comparte el seguimiento en vivo',
-    tools: AGENT_TOOLS.map((t) => ({ tool: t.name, access: t.access })),
+    tools: ORDER_TOOLS.map((t) => ({ tool: t.name, access: t.access })),
   },
   pedidos_programados: {
     label: 'Pedidos programados (catering / almuerzos)',
     description: 'Pedidos con fecha y franja de entrega, direcciones guardadas y agenda con capacidad',
-    tools: AGENT_TOOLS.filter((t) => t.name !== 'calcular_envio').map((t) => ({ tool: t.name, access: t.access })),
+    tools: ORDER_TOOLS.filter((t) => t.name !== 'calcular_envio').map((t) => ({ tool: t.name, access: t.access })),
   },
   solo_consultas: {
     label: 'Solo consultas',
     description: 'Responde menú, horarios, envíos y estado de pedidos; no crea ni cancela nada',
-    tools: AGENT_TOOLS.filter((t) => t.access === 'read').map((t) => ({ tool: t.name, access: 'read' as ToolAccess })),
+    tools: ORDER_TOOLS.filter((t) => t.access === 'read').map((t) => ({ tool: t.name, access: 'read' as ToolAccess })),
+  },
+  reservas: {
+    label: 'Reservas (canchas, salas, citas por turnos)',
+    description: 'Consulta disponibilidad real, reserva con confirmación del cliente, y cancela o reprograma sus propias reservas',
+    tools: [
+      ...AGENT_TOOLS.filter((t) => ['ver_horarios', 'buscar_conocimiento', 'ver_promociones'].includes(t.name)).map((t) => ({ tool: t.name, access: t.access })),
+      ...BOOKING_TOOLS.map((t) => ({ tool: t.name, access: t.access })),
+    ],
   },
 };
 
