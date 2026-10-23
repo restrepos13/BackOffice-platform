@@ -20,12 +20,13 @@ export default defineConfig({
     { name: 'og-base', transformIndexHtml: (html) => html.replaceAll('%OG_BASE%', ogBase()) },
   ],
   server: {
-    port: 5173,
+    // VITE_PORT / VITE_API_TARGET permiten un entorno aislado (piloto) junto al de siempre
+    port: Number(process.env.VITE_PORT) || 5173,
     // Permite acceder al dev server a través de túneles ngrok (demos remotas)
     allowedHosts: ['.ngrok-free.app', '.ngrok-free.dev', '.ngrok.app', '.ngrok.dev', '.ngrok.io'],
     proxy: {
       '/api': {
-        target: 'http://localhost:4001',
+        target: process.env.VITE_API_TARGET || 'http://localhost:4001',
         changeOrigin: true,
       },
     },

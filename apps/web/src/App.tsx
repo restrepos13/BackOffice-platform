@@ -33,6 +33,11 @@ const PlatformUsage = lazy(() => import('./pages/platform/Usage'));
 const Media = lazy(() => import('./pages/company/Media'));
 const Usage = lazy(() => import('./pages/company/Usage'));
 const Agenda = lazy(() => import('./pages/company/Agenda'));
+const ProductionsHome = lazy(() => import('./pages/company/productions/Home'));
+const ProductionsList = lazy(() => import('./pages/company/productions/List'));
+const ProductionDetail = lazy(() => import('./pages/company/productions/Detail'));
+const ProductionResources = lazy(() => import('./pages/company/productions/Resources'));
+const ProductionSettings = lazy(() => import('./pages/company/productions/Settings'));
 const Gerencia = lazy(() => import('./pages/company/Gerencia'));
 const LineDetail = lazy(() => import('./pages/company/LineDetail'));
 const Dashboard = lazy(() => import('./pages/company/Dashboard'));
@@ -188,6 +193,11 @@ export default function App() {
         <Route path="/app/cobranza" element={<RequireProduct any={['AUTOMATION']}><Collections /></RequireProduct>} />
         <Route path="/app/auditor" element={<RequireProduct any={['AUTOMATION']}><SalesAudit /></RequireProduct>} />
         <Route path="/app/agenda" element={<RequireProduct any={['AUTOMATION']}><Agenda /></RequireProduct>} />
+        <Route path="/app/productions" element={<RequireProduct any={['AUTOMATION']}><ProductionsHome /></RequireProduct>} />
+        <Route path="/app/productions/list" element={<RequireProduct any={['AUTOMATION']}><ProductionsList /></RequireProduct>} />
+        <Route path="/app/productions/resources" element={<RequireProduct any={['AUTOMATION']}><ProductionResources /></RequireProduct>} />
+        <Route path="/app/productions/settings" element={<RequireProduct any={['AUTOMATION']}><ProductionSettings /></RequireProduct>} />
+        <Route path="/app/productions/:id" element={<RequireProduct any={['AUTOMATION']}><ProductionDetail /></RequireProduct>} />
         <Route path="/app/gerencia" element={<RequireProduct any={['AUTOMATION']}><Gerencia /></RequireProduct>} />
         <Route path="/app/analytics" element={<RequireProduct any={['AUTOMATION']}><Analytics /></RequireProduct>} />
         <Route path="/app/billing" element={<Billing />} />

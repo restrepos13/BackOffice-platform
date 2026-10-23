@@ -1,6 +1,6 @@
 import { clsx } from 'clsx';
 import {
-  Activity, BarChart3, Bike, Bot, Building2, Calculator, CalendarDays, ChartNoAxesCombined, ChevronDown, CircleDollarSign,
+  Activity, BarChart3, Bike, Bot, Building2, Calculator, CalendarDays, ChartNoAxesCombined, ChevronDown, CircleDollarSign, Clapperboard,
   ClipboardCheck, Contact, Cpu, CreditCard, Eye, Factory, FileSearch, FileSignature, FileText, FolderOpen, Gem, HandCoins,
   Headset, HeartPulse, Images, Inbox, LayoutDashboard, ListChecks, LogOut, Mail, Megaphone, Package, Palette, Plug,
   RefreshCcw, ScrollText, Send, Settings, Siren, Sparkles, Store, Terminal, UserPlus, UserRound, Users, Wallet, Workflow, X,
@@ -120,6 +120,7 @@ export function companySections(company: { modules?: string[]; status?: string; 
         ] : []),
         ...(hasDelivery ? [{ to: '/app/deliveries', label: 'Domicilios', icon: Bike }] : []),
         { to: '/app/agenda', label: 'Agenda', icon: CalendarDays, module: 'agenda' },
+        { to: '/app/productions', label: 'Producciones', icon: Clapperboard, module: 'productions' },
         { to: '/app/media', label: 'Galería', icon: Images, module: 'media' },
         { to: '/app/analytics', label: 'Analytics', icon: BarChart3, module: 'analytics' },
         { to: '/app/gerencia', label: 'Gerencia', icon: ClipboardCheck, module: 'gerencia' },

@@ -1,5 +1,5 @@
 import {
-  Activity, BarChart3, Bike, Bot, Calculator, CalendarDays, ChartNoAxesCombined, ClipboardCheck, Contact, CreditCard, Factory, FileSearch, FileText, FolderOpen, Gem, HandCoins, Images, Inbox, Layers, LayoutDashboard, ListChecks, Megaphone, Package, Palette, Plug, Radar, RefreshCcw, Rocket, Send, Settings, ShieldCheck, Sparkles, Store, SwatchBook, Target, TrendingUp, UserRound, Wallet, Workflow, type LucideIcon,
+  Activity, BarChart3, Bike, Bot, Calculator, CalendarDays, ChartNoAxesCombined, Clapperboard, ClipboardCheck, ClipboardList, Contact, CreditCard, Factory, FileSearch, FileText, FolderOpen, Gem, HandCoins, Images, Inbox, Layers, LayoutDashboard, ListChecks, Megaphone, Package, Palette, Plug, Radar, RefreshCcw, Rocket, Send, Settings, ShieldCheck, Sparkles, SlidersHorizontal, Store, SwatchBook, Target, TrendingUp, UserRound, Users, Wallet, Workflow, type LucideIcon,
 } from 'lucide-react';
 import type { ProductKey } from '../lib/products';
 
@@ -86,6 +86,15 @@ export function automationGroups(ctx: NavContext): NavGroup[] {
         { to: '/app/reactivacion', label: 'Reactivación', icon: RefreshCcw, module: 'reactivation' },
         { to: '/app/cobranza', label: 'Cobranza', icon: HandCoins, module: 'collections' },
         { to: '/app/auditor', label: 'Auditor de ventas', icon: FileSearch, module: 'salesAudit' },
+      ],
+    },
+    {
+      // Flujo de producciones (agencias y estudios): solo empresas con la sección «productions»
+      id: 'producciones', title: 'Producciones', items: [
+        { to: '/app/productions', label: 'Inicio de producciones', icon: Clapperboard, end: true, module: 'productions' },
+        { to: '/app/productions/list', label: 'Solicitudes', icon: ClipboardList, module: 'productions' },
+        { to: '/app/productions/resources', label: 'Modelos y proveedores', icon: Users, module: 'productions' },
+        { to: '/app/productions/settings', label: 'Configuración del flujo', icon: SlidersHorizontal, module: 'productions' },
       ],
     },
     {
