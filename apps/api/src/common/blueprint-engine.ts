@@ -8,6 +8,7 @@
  */
 import { BusinessProfile, ProfileKey, detectProfile } from './business-profile';
 import { Rubro } from './rubros';
+import { readOperation } from './setup-profile';
 
 type Pair = [question: string, answer: string];
 
@@ -55,6 +56,8 @@ const CITIES = [
 ];
 
 export interface Facts {
+  /** Cómo trabaja (tareas, equipo, sistemas, contenido y publicidad), leído por código */
+  operation: ReturnType<typeof readOperation>;
   profile: BusinessProfile;
   rubro: Rubro;
   name: string;
@@ -235,6 +238,7 @@ export function extractFacts(pairs: Pair[]): Facts {
   const reminders = /reentren/.test(t) ? 'el reentrenamiento' : /renovaci|mensualidad/.test(t) && /record/.test(t) ? 'la renovación' : /record/.test(t) ? 'las citas' : null;
   const daily = /(\d+)\s*a\s*(\d+)/.exec(answers[2] ?? '') ?? /(mas de)\s*(\d+)/.exec(plain(answers[2] ?? ''));
   return {
+    operation: readOperation(all),
     profile, rubro, name, city,
     businessType: businessTypeOf(answers[0] ?? '', profile),
     products: parseProducts(pairs),
@@ -293,7 +297,7 @@ const our = (noun: string) => (noun === 'menú' || noun === 'contenido' ? `nuest
 
 const NOUN: Record<ProfileKey, string> = {
   ROPA: 'prendas', COMIDA: 'menú', BELLEZA: 'servicios', SALUD: 'servicios', EDUCACION: 'cursos', INMOBILIARIA: 'inmuebles',
-  TIENDA: 'productos', TALLER: 'servicios', WEBCAM: 'contenido', SERVICIOS: 'servicios', GENERAL: 'productos',
+  TIENDA: 'productos', TALLER: 'servicios', WEBCAM: 'contenido', SERVICIOS: 'servicios', RESERVAS: 'espacios', GENERAL: 'productos',
 };
 
 type Stage = [string, 'abierta' | 'ganada' | 'perdida'];
@@ -308,6 +312,7 @@ function pipelineFor(f: Facts): Stage[] {
   if (k === 'BELLEZA') {
     return [['Contacto inicial', 'abierta'], ['Consulta de servicios', 'abierta'], ...(f.deposit ? [['Cita en proceso (anticipo pendiente)', 'abierta'] as Stage] : []), ['Cita confirmada', 'abierta'], ['Cita realizada', 'ganada'], ['No agendó', 'perdida']];
   }
+  if (k === 'RESERVAS') return [['Contacto inicial', 'abierta'], ['Consulta disponibilidad', 'abierta'], ...(f.deposit ? [['Reserva separada (anticipo)', 'abierta'] as Stage] : [['Reserva separada', 'abierta'] as Stage]), ['Reserva cumplida', 'ganada'], ['No reservó o canceló', 'perdida']];
   if (k === 'SALUD') return [['Contacto inicial', 'abierta'], ['Cita agendada', 'abierta'], ['Cita realizada', 'abierta'], ['Tratamiento iniciado', 'ganada'], ['Cita perdida', 'perdida']];
   if (k === 'EDUCACION') {
     return [['Contacto inicial', 'abierta'], ['Información enviada', 'abierta'], ...(f.documents.length ? [['Documentos solicitados', 'abierta'] as Stage] : []), ['Pago pendiente', 'abierta'], ['Inscrito y pagado', 'ganada'], ...(/certificad/.test(plain(f.wishes.join(' ') + f.documents.join(' '))) || f.reminders ? [['Certificado entregado', 'ganada'] as Stage] : []), ['No se inscribió', 'perdida']];
@@ -521,20 +526,6 @@ const TOPICS: Topic[] = [
     ask: (f) => ({ pregunta: `¿Qué ${NOUN[f.profile.key]} ofreces y a qué precio, más o menos?`, opciones: [] }),
   },
   {
-    key: 'preguntan', when: () => true, done: (f) => f.asks.length > 0,
-    ask: (f) => ({
-      pregunta: '¿Qué te preguntan primero tus clientes?',
-      opciones: ({
-        ROPA: ['Tallas y disponibilidad', 'El precio', 'Cómo es el envío', 'Cambios y devoluciones'],
-        COMIDA: ['El menú del día', 'El precio', 'Si hay domicilio', 'El horario'],
-        BELLEZA: ['Precios', 'Disponibilidad de citas', 'Cuánto dura', 'Si piden anticipo'],
-        SALUD: ['Precio de la consulta', 'Disponibilidad de citas', 'Si atienden por EPS', 'Requisitos'],
-        EDUCACION: ['Fechas y cupos', 'Precio', 'Requisitos', 'Si dan certificado'],
-        INMOBILIARIA: ['Precio', 'Zona', 'Habitaciones', 'Requisitos para arrendar'],
-      } as Partial<Record<ProfileKey, string[]>>)[f.profile.key] ?? ['El precio', 'Disponibilidad', 'Cómo pagar', 'Tiempos de entrega'],
-    }),
-  },
-  {
     key: 'entrega', when: (f) => SELLS(f) && f.profile.key !== 'WEBCAM', done: (f) => f.delivery.mentioned,
     ask: (f) => ({
       pregunta: f.profile.key === 'COMIDA' ? '¿Cómo le llega la comida a tus clientes?' : '¿Cómo le llegan los pedidos a tus clientes?',
@@ -551,16 +542,43 @@ const TOPICS: Topic[] = [
     }),
   },
   {
+    key: 'tareas', when: () => true, done: (f) => f.operation.answers.manualTasks.length + f.operation.answers.timeConsuming.length > 0,
+    ask: () => ({ pregunta: '¿Qué haces a mano que más tiempo te quita?', opciones: ['Responder lo mismo todo el día', 'Anotar reservas o pedidos a mano', 'Cobrar y confirmar pagos', 'Hacer seguimiento a clientes'] }),
+  },
+  {
+    key: 'equipo', when: () => true, done: (f) => f.operation.signals.people !== null,
+    ask: () => ({ pregunta: '¿Cuántas personas trabajan contigo?', opciones: ['Solo yo', '2 a 3 personas', '4 a 10 personas', 'Más de 10 personas'] }),
+  },
+  {
+    key: 'marketing', when: () => true, done: (f) => f.operation.answers.wantsContent !== null || f.operation.answers.wantsAds !== null,
+    ask: () => ({ pregunta: '¿También necesitas contenido para redes o manejas publicidad pagada?', opciones: ['Solo atender clientes', 'Contenido para redes', 'Publicidad pagada', 'Contenido y publicidad'] }),
+  },
+  {
     key: 'pagos', when: () => true, done: (f) => f.payments.length > 0,
     ask: () => ({ pregunta: '¿Cómo te pagan tus clientes?', opciones: ['Transferencia o Nequi', 'Efectivo', 'Tarjeta o link de pago', 'Varias formas'] }),
   },
   {
-    key: 'documentos', when: (f) => ['EDUCACION', 'INMOBILIARIA', 'SALUD'].includes(f.profile.key), done: (f) => f.documents.length > 0,
-    ask: () => ({ pregunta: '¿Qué datos o documentos le pides al cliente?', opciones: ['Cédula', 'Certificados', 'Un anticipo', 'Nada especial'] }),
+    key: 'preguntan', when: () => true, done: (f) => f.asks.length > 0,
+    ask: (f) => ({
+      pregunta: '¿Qué te preguntan primero tus clientes?',
+      opciones: ({
+        ROPA: ['Tallas y disponibilidad', 'El precio', 'Cómo es el envío', 'Cambios y devoluciones'],
+        COMIDA: ['El menú del día', 'El precio', 'Si hay domicilio', 'El horario'],
+        BELLEZA: ['Precios', 'Disponibilidad de citas', 'Cuánto dura', 'Si piden anticipo'],
+        SALUD: ['Precio de la consulta', 'Disponibilidad de citas', 'Si atienden por EPS', 'Requisitos'],
+        EDUCACION: ['Fechas y cupos', 'Precio', 'Requisitos', 'Si dan certificado'],
+        INMOBILIARIA: ['Precio', 'Zona', 'Habitaciones', 'Requisitos para arrendar'],
+        RESERVAS: ['Disponibilidad', 'El precio por hora', 'Si piden anticipo', 'Dónde queda'],
+      } as Partial<Record<ProfileKey, string[]>>)[f.profile.key] ?? ['El precio', 'Disponibilidad', 'Cómo pagar', 'Tiempos de entrega'],
+    }),
   },
   {
     key: 'horario', when: (f) => f.profile.key !== 'WEBCAM', done: (f) => !!f.schedule,
     ask: () => ({ pregunta: '¿Qué días y en qué horario atiendes?', opciones: ['Lunes a viernes de 8 am a 6 pm', 'Lunes a sábado de 9 am a 7 pm', 'Todos los días de 8 am a 8 pm'] }),
+  },
+  {
+    key: 'documentos', when: (f) => ['EDUCACION', 'INMOBILIARIA', 'SALUD'].includes(f.profile.key), done: (f) => f.documents.length > 0,
+    ask: () => ({ pregunta: '¿Qué datos o documentos le pides al cliente?', opciones: ['Cédula', 'Certificados', 'Un anticipo', 'Nada especial'] }),
   },
   {
     key: 'asistente', when: () => true, done: (f) => f.wishes.length > 0,

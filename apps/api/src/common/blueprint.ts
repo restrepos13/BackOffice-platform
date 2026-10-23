@@ -6,6 +6,7 @@
  * Todo lo que propone el modelo se valida y recorta aquí (jamás a ciegas).
  */
 import { sanitizeStages } from './pipelines';
+import { parseJson } from './constants';
 import { RUBRO_CONFIG, Rubro, guessRubro, isRubro } from './rubros';
 
 /** Siempre incluidos (sin esto no hay panel). */
@@ -164,3 +165,27 @@ export function revalidateBlueprint(bp: any, rubro: Rubro): Blueprint {
 }
 
 export { guessRubro };
+
+/**
+ * Lo que el plano crea además de la configuración: embudo propio, respuestas
+ * rápidas y seguimientos. Lo usan el autoservicio y la configuración asistida.
+ */
+export async function applyBlueprintExtras(prisma: any, companyId: string, bp: Pick<Blueprint, 'pipeline' | 'quickReplies' | 'followUps'>) {
+  if (bp.pipeline) {
+    await prisma.pipeline.create({
+      data: { companyId, name: bp.pipeline.name, stagesJson: JSON.stringify(bp.pipeline.stages), isDefault: true },
+    });
+  }
+  for (const r of bp.quickReplies) {
+    await prisma.quickReply.create({ data: { companyId, ...r } });
+  }
+  if (bp.followUps.length) {
+    const company = await prisma.company.findUniqueOrThrow({ where: { id: companyId } });
+    const cfg = parseJson<Record<string, any>>(company.orderConfigJson, {});
+    const followUps = bp.followUps.map((f, i) => ({ id: `ia${i + 1}`, enabled: true, ...f }));
+    await prisma.company.update({
+      where: { id: companyId },
+      data: { orderConfigJson: JSON.stringify({ ...cfg, followUps: [...(cfg.followUps ?? []), ...followUps] }) },
+    });
+  }
+}

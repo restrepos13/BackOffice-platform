@@ -1,3 +1,4 @@
+import type { SetupProfile } from '../../lib/setup';
 /**
  * Ayudas del registro: validación en palabras simples, avance guardado en el
  * navegador, dictado por voz y seguimiento de pasos (para que el equipo sepa
@@ -15,6 +16,8 @@ export interface Preview {
   blueprint: BusinessBlueprint;
   /** Tipo de negocio detectado y herramientas que no le aplican */
   profile?: { key: string; label: string; hide: string[] };
+  /** Perfil de incorporación propuesto (editable; el servidor lo recalcula) */
+  setup?: SetupProfile;
   mode?: 'ai' | 'guided';
 }
 

@@ -4,6 +4,8 @@ import {
   Send, Shirt, Sparkles, Stethoscope, Trash2, Utensils, X,
 } from 'lucide-react';
 import SetupProgress from '../../components/SetupProgress';
+import SetupEditor from '../../components/setup/SetupEditor';
+import type { SetupProfile } from '../../lib/setup';
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { Link, Navigate, useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
@@ -35,7 +37,7 @@ const RUBRO_LABELS: Record<string, string> = {
 
 const TOOLS: Record<string, { title: string; desc: string }> = {
   orders: { title: 'Pedidos y catálogo', desc: 'Tus productos o servicios con precio, pedidos y ventas.' },
-  agenda: { title: 'Agenda', desc: 'Citas, cupos o visitas con recordatorios automáticos.' },
+  agenda: { title: 'Agenda', desc: 'Citas, cupos o visitas organizados en tu panel.' },
   campaigns: { title: 'Mensajes a tus clientes', desc: 'Envíos por WhatsApp y recordatorio a quien no responde.' },
   production: { title: 'Cocina o taller', desc: 'Cada área ve lo que tiene que preparar, con comandas.' },
   delivery: { title: 'Domicilios en vivo', desc: 'Tus domiciliarios con GPS y link de seguimiento.' },
@@ -391,6 +393,7 @@ export default function Signup() {
           rubro: preview.rubro,
           proposal: preview.proposal,
           blueprint: preview.blueprint,
+          setup: preview.setup,
           company: { name: form.companyName, city: form.city },
           admin: { name: form.name, email: form.email.trim(), phone: form.phone, password: form.password },
           acceptTerms: form.accept,
@@ -424,6 +427,10 @@ export default function Signup() {
   const bp = preview?.blueprint;
   const setP = (next: Partial<SetupProposal>) => preview && setPreview({ ...preview, proposal: { ...preview.proposal, ...next } });
   const setBp = (next: Partial<BusinessBlueprint>) => preview && setPreview({ ...preview, blueprint: { ...preview.blueprint, ...next } });
+  // Perfil y productos (el servidor recalcula y valida todo al crear la cuenta)
+  const setup = preview?.setup ?? null;
+  const setSetup = (next: SetupProfile) => setPreview((prev) => (prev ? { ...prev, setup: next } : prev));
+  const automation = !setup || setup.products.selected.includes('AUTOMATION');
   const toggle = (key: string) => setOpen((o) => (o === key ? null : key));
   const strength = passwordStrength(form.password);
   const suggestion = emailSuggestion(form.email);
@@ -659,8 +666,20 @@ export default function Signup() {
               )}
             </section>
 
+            {setup && (
+              <section className="border-2 border-ink bg-paper p-5">
+                <p className="kicker">Lo que necesitas</p>
+                <p className="mb-4 mt-1 text-sm text-ink-2">Esto es lo que entendimos de tu negocio. Corrige lo que no sea así y elige qué vas a usar: solo pagas por lo que eliges.</p>
+                <SetupEditor value={setup} onChange={setSetup} mode="client" endpoint="/public/setup/evaluate" />
+              </section>
+            )}
+            {!automation && (
+              <Notice>No elegiste Automation: no armamos asistente de WhatsApp, embudo ni respuestas rápidas. Tu catálogo sí queda, para usarlo en tus diseños.</Notice>
+            )}
+
             <p className="pt-2 text-sm text-ink-2">Toca cualquier tarjeta si quieres cambiar algo. Si todo se ve bien, sigue al final.</p>
 
+            {automation && (<>
             <Card
               title="Tu asistente de WhatsApp"
               open={open === 'assistant'}
@@ -715,6 +734,7 @@ export default function Signup() {
                 })}
               </div>
             </Card>
+            </>)}
 
             <Card
               title={preview.rubro === 'SERVICIOS' ? 'Tus servicios' : preview.rubro === 'COMIDAS' ? 'Tu menú' : 'Tu catálogo'}
@@ -747,6 +767,7 @@ export default function Signup() {
               </Button>
             </Card>
 
+            {automation && (<>
             <Card
               title="Cómo avanza cada cliente"
               open={open === 'pipeline'}
@@ -842,6 +863,7 @@ export default function Signup() {
                 </div>
               </div>
             </Card>
+            </>)}
 
             <div className="sticky bottom-0 -mx-4 flex flex-wrap items-center justify-between gap-3 border-t-2 border-ink bg-bone/95 px-4 py-3 backdrop-blur md:mx-0 md:border-2 md:px-5">
               <Button variant="outline" onClick={() => { setStep(1); setInterviewDone(false); }}>

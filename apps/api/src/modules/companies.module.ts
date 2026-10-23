@@ -7,6 +7,7 @@ import {
   ForbiddenException,
   Get,
   Injectable,
+  Logger,
   Module,
   NotFoundException,
   Param,
@@ -33,6 +34,12 @@ import { AuditService } from './audit.module';
 import { COMPANY_TEMPLATES, findTemplate } from './company-templates';
 import { DEMO_COMPANY_SLUG } from '../demo/demo-company';
 import { activeProducts } from '../common/products';
+import { ProductKey, initialProducts } from '../common/products';
+import { SetupProfile, SetupValidationError, alignModules, modulesForCapabilities, normalizeSetup, validateProducts, withSelectedProducts } from '../common/setup-profile';
+import { agentPresetFor, applyBlueprintExtras, revalidateBlueprint } from '../common/blueprint';
+import { isRubro } from '../common/rubros';
+import { applySetupProposal, normalizeProposal } from './ai-setup.module';
+
 import { productsView } from './products.module';
 
 /** Payload del wizard de aprovisionamiento (crear empresa sin tocar código). */
@@ -83,6 +90,14 @@ interface ProvisionCompanyDto {
     welcomeMessage?: string;
   };
   channels?: string[]; // WHATSAPP, INSTAGRAM, MESSENGER, TELEGRAM, META_ADS, N8N, GOOGLE_CALENDAR
+  /** Productos contratados (AUTOMATION | CREATIVE | ADS). Sin esto y sin perfil: regla anterior. */
+  products?: string[];
+  /** Perfil de incorporación (common/setup-profile.ts): se valida y recalcula aquí */
+  setup?: unknown;
+  /** Plano y propuesta generados en la reunión (configuración asistida): mismo formato que el autoservicio */
+  blueprint?: unknown;
+  proposal?: unknown;
+  rubro?: string;
 }
 
 const CHANNEL_LABELS: Record<string, string> = {
@@ -133,6 +148,7 @@ export function buildConnectUrl(type: string, slug: string): string {
 
 @Injectable()
 export class CompaniesService {
+  private readonly logger = new Logger('Companies');
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
@@ -224,6 +240,35 @@ export class CompaniesService {
       throw new BadRequestException('La empresa a clonar no existe');
     }
 
+    // ── Todo se valida ANTES de crear nada: un error nunca deja una empresa huérfana ──
+    const adminEmail = dto.admin ? String(dto.admin.email ?? '').trim().toLowerCase() : null;
+    if (dto.admin) {
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(adminEmail ?? '')) throw new BadRequestException({ statusCode: 400, field: 'adminEmail', message: 'El correo del administrador no es válido' });
+      if (!dto.admin.name?.trim()) throw new BadRequestException({ statusCode: 400, field: 'adminName', message: 'Falta el nombre del administrador' });
+      if (!dto.admin.password) throw new BadRequestException({ statusCode: 400, field: 'adminPassword', message: 'Falta la contraseña del administrador' });
+      if (await this.prisma.user.findUnique({ where: { email: adminEmail! } })) {
+        throw new BadRequestException(`El correo ${adminEmail} ya está registrado`);
+      }
+    }
+    if (dto.personaTemplateId && !(await this.prisma.personaTemplate.findUnique({ where: { id: dto.personaTemplateId } }))) {
+      throw new BadRequestException('La personalidad elegida no existe');
+    }
+    const selfService = actor.id === 'registro-web';
+    let setup: SetupProfile | null = null;
+    let products: ProductKey[] | null = null;
+    try {
+      if (dto.setup) {
+        setup = normalizeSetup(dto.setup, { source: selfService ? 'SELF_SERVICE' : 'ASSISTED', by: actor.name, allowOverride: !selfService && isPlatformRole(actor.role) });
+      }
+      products = dto.products !== undefined ? validateProducts(dto.products) : setup?.products.selected ?? null;
+      if (setup && products) setup = withSelectedProducts(setup, products);
+    } catch (err) {
+      if (err instanceof SetupValidationError) throw new BadRequestException({ statusCode: 400, field: err.field, message: err.message });
+      throw err;
+    }
+    // Sin Automation no se preparan WhatsApp ni asistente (no los usaría)
+    const automation = !products || products.includes('AUTOMATION');
+
     // Sin prueba gratis: las empresas nacen activas (montaje gratis con permanencia)
     const trialDays = dto.trialDays ?? 0;
     const status = dto.status ?? 'ACTIVE';
@@ -245,12 +290,18 @@ export class CompaniesService {
         notes: dto.notes,
         status,
         planId: dto.planId,
-        modulesJson: JSON.stringify(
-          dto.modules
+        modulesJson: JSON.stringify((() => {
+          const base = dto.modules
             ?? template?.modules
             ?? (source ? parseJson<string[]>(source.modulesJson, []) : null)
-            ?? ['inbox', 'contacts', 'bots', 'automations', 'analytics', 'billing', 'team'],
-        ),
+            ?? ['inbox', 'contacts', 'bots', 'automations', 'analytics', 'billing', 'team'];
+          if (!setup) return base;
+          // Autoservicio: las que piden sus capacidades, sin las de pedidos que su perfil no usa.
+          // Asistido: lo que eligió el administrador manda; solo se suman las que piden las capacidades.
+          return selfService || !dto.modules
+            ? alignModules(base, setup)
+            : [...new Set([...base, ...modulesForCapabilities(setup.capabilities, setup.products.selected)])];
+        })()),
         currency: dto.currency ?? template?.currency ?? source?.currency ?? 'COP',
         // Config de agenda: plantilla o clon como base + lo editado en el wizard
         ...(template?.orderConfig || source || dto.orderConfigOverrides
@@ -270,6 +321,9 @@ export class CompaniesService {
             }
           : {}),
         limitsJson: JSON.stringify(dto.limits ?? {}),
+        // Productos elegidos: explícitos desde el día uno (null = regla anterior, solo para llamadas viejas)
+        ...(products ? { productsJson: initialProducts(products) } : {}),
+        ...(setup ? { onboardingJson: JSON.stringify({ source: selfService ? 'SIGNUP' : 'ASSISTED', setup, createdAt: new Date().toISOString() }) } : {}),
         ...(dto.billingCycle === 'ANNUAL' ? { billingCycle: 'ANNUAL', annualStartPeriod: periodOf() } : {}),
         contractStartAt: dto.planId ? new Date() : null,
         trialEndsAt:
@@ -279,19 +333,13 @@ export class CompaniesService {
       },
     });
 
+    let channels: string[] = [];
+    try {
     // Usuario administrador inicial
-    if (dto.admin?.email) {
-      const emailTaken = await this.prisma.user.findUnique({
-        where: { email: dto.admin.email.toLowerCase() },
-      });
-      if (emailTaken) {
-        throw new BadRequestException(
-          `El correo ${dto.admin.email} ya está registrado`,
-        );
-      }
+    if (dto.admin && adminEmail) {
       await this.prisma.user.create({
         data: {
-          email: dto.admin.email.toLowerCase(),
+          email: adminEmail,
           name: dto.admin.name,
           jobTitle: dto.admin.jobTitle ?? 'Administrador',
           role: ROLES.COMPANY_ADMIN,
@@ -305,9 +353,6 @@ export class CompaniesService {
     const persona = dto.personaTemplateId
       ? await this.prisma.personaTemplate.findUnique({ where: { id: dto.personaTemplateId } })
       : null;
-    if (dto.personaTemplateId && !persona) {
-      throw new BadRequestException('La personalidad elegida no existe');
-    }
 
     // Bot inicial: el del wizard, el de la plantilla, o los clonados.
     // Si la plantilla trae agente con herramientas, el bot nace en ese modo.
@@ -318,7 +363,9 @@ export class CompaniesService {
         }
       : {};
     let botId: string | undefined;
-    if (dto.bot?.name) {
+    if (!automation) {
+      // Sin Automation: ni asistente ni canales de WhatsApp
+    } else if (dto.bot?.name) {
       const bot = await this.prisma.bot.create({
         data: {
           companyId: company.id,
@@ -454,7 +501,7 @@ export class CompaniesService {
     // Canales preparados (desconectados, con link de conexión listo).
     // Con plantilla de pedidos la línea de WhatsApp nace como Twilio EN
     // SANDBOX: jamás sale un mensaje real hasta cargar credenciales y quitarlo.
-    const channels = dto.channels ?? template?.channels ?? ['WHATSAPP'];
+    channels = automation ? (dto.channels ?? template?.channels ?? ['WHATSAPP']) : [];
     const twilioSandbox = !!template?.orderConfig;
     for (const type of channels) {
       await this.prisma.integration.create({
@@ -473,7 +520,7 @@ export class CompaniesService {
         },
       });
     }
-    if (source) {
+    if (source && automation) {
       // Clon: mismas líneas (nombre/modo/overrides) SIN credenciales, en sandbox
       const sourceLines = await this.prisma.integration.findMany({
         where: { companyId: source.id, type: 'WHATSAPP' },
@@ -504,6 +551,22 @@ export class CompaniesService {
       }
     }
 
+    // Configuración asistida con propuesta de la reunión: mismo efecto que el autoservicio
+    if (dto.proposal && typeof dto.proposal === 'object') {
+      await applySetupProposal(this.prisma, this.audit, actor, company.id, normalizeProposal(dto.proposal), {
+        createAssistant: automation && !botId,
+        agentPreset: agentPresetFor(parseJson<string[]>(company.modulesJson, [])),
+      });
+    }
+    if (dto.blueprint && typeof dto.blueprint === 'object' && automation) {
+      await applyBlueprintExtras(this.prisma, company.id, revalidateBlueprint(dto.blueprint, isRubro(dto.rubro) ? dto.rubro : 'SERVICIOS'));
+    }
+    } catch (err) {
+      // Algo falló a mitad: se deshace lo creado (empresa, usuario y datos sueltos)
+      await this.discardProvisioned(company.id);
+      throw err;
+    }
+
     await this.audit.log({
       actor,
       companyId: company.id,
@@ -514,6 +577,17 @@ export class CompaniesService {
     });
 
     return this.detail(actor, company.id);
+  }
+
+  /** Deshace una provisión a medias (no deja empresas ni usuarios huérfanos). */
+  async discardProvisioned(companyId: string) {
+    try {
+      await this.prisma.user.deleteMany({ where: { companyId } });
+      await deleteCompanyLooseData(this.prisma, companyId);
+      await this.prisma.company.delete({ where: { id: companyId } });
+    } catch (err: any) {
+      this.logger.error(`No se pudo deshacer la empresa ${companyId}: ${err?.message}`);
+    }
   }
 
   private cleanUrl(value: unknown): string | null {

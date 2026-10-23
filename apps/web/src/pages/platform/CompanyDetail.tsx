@@ -9,6 +9,8 @@ import {
 } from '../../lib/format';
 import type { AuditEntry, Company, Plan } from '../../lib/types';
 import CompanyBilling from '../../components/CompanyBilling';
+import SetupEditor from '../../components/setup/SetupEditor';
+import { COMPLEXITY_LABEL, type SetupProfile } from '../../lib/setup';
 import {
   Badge, Button, Card, Field, Input, Loading, Modal, PageHeader, Select,
   Switch, Table, Tabs, Textarea, statusTone,
@@ -279,6 +281,7 @@ export default function CompanyDetail() {
                 </p>
               </div>
             </Card>
+            <CompanySetup company={company} />
             <CompanyProducts company={company} />
             <Card kicker="Panel del cliente" title="Secciones habilitadas">
               <div className="space-y-2">
@@ -542,6 +545,69 @@ function CompanyProducts({ company }: { company: Company }) {
           {' '}Apagar un producto no borra datos ni cambia el cobro.
         </p>
       </div>
+    </Card>
+  );
+}
+
+/**
+ * Configuración asistida de una empresa existente: el administrador define o
+ * corrige el MISMO perfil que arma el autoservicio (negocio, complejidad,
+ * productos y capacidades), opcionalmente ligado a la llamada con el cliente.
+ * Guardar actualiza los productos y suma las herramientas que piden sus capacidades.
+ */
+function CompanySetup({ company }: { company: Company }) {
+  const queryClient = useQueryClient();
+  const { data, isLoading } = useQuery({
+    queryKey: ['company-setup', company.id],
+    queryFn: () => api.get<{ setup: SetupProfile | null; draft: SetupProfile | null; productsExplicit: boolean; calls: Array<{ id: string; topic: string; slotAt: string; status: string }> }>(`/platform/companies/${company.id}/setup`),
+  });
+  const [editing, setEditing] = useState<SetupProfile | null>(null);
+  const save = useMutation({
+    mutationFn: () => api.put(`/platform/companies/${company.id}/setup`, { setup: editing }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['company-setup', company.id] });
+      queryClient.invalidateQueries({ queryKey: ['company', company.id] });
+      queryClient.invalidateQueries({ queryKey: ['companies'] });
+      setEditing(null);
+      toast.success('Perfil guardado: productos y herramientas actualizados');
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+  if (isLoading || !data) return <Card kicker="Incorporación" title="Perfil del negocio"><p className="text-sm text-ink-3">Cargando…</p></Card>;
+  const current = data.setup;
+  return (
+    <Card kicker="Incorporación" title="Perfil del negocio" actions={!editing && (
+      <Button size="sm" variant="outline" onClick={() => setEditing(current ?? data.draft)}>{current ? 'Editar' : 'Definir perfil'}</Button>
+    )}>
+      {!editing ? (
+        current ? (
+          <div className="space-y-1 text-sm">
+            <p><b>{current.business.label}</b> · {current.business.activity}</p>
+            <p>Complejidad: <b>{COMPLEXITY_LABEL[current.complexity.level]}</b>{current.complexity.override ? ` (ajustada: ${current.complexity.override.reason})` : ''}</p>
+            <p>Productos: {current.products.selected.join(', ')} · {current.source === 'ASSISTED' ? 'definido con un administrador' : 'definido en el registro'}</p>
+            <p className="text-xs text-ink-3">{current.capabilities.filter((c) => c.included).map((c) => c.label).join(' · ')}</p>
+          </div>
+        ) : (
+          <p className="text-sm text-ink-3">Esta empresa es anterior al perfil de incorporación{data.productsExplicit ? '' : ' y sigue la regla anterior de productos'}. Defínelo con el cliente: partimos de lo que contó en su registro.</p>
+        )
+      ) : (
+        <div className="space-y-4">
+          {data.calls.length > 0 && (
+            <Field label="Reunión con el cliente (opcional)">
+              <Select value={editing.agentCallId ?? ''} onChange={(e) => setEditing({ ...editing, agentCallId: e.target.value || null })}>
+                <option value="">Sin ligar a una llamada</option>
+                {data.calls.map((c) => <option key={c.id} value={c.id}>{fmtDate(c.slotAt)} · {c.topic} · {c.status}</option>)}
+              </Select>
+            </Field>
+          )}
+          <SetupEditor value={editing} onChange={setEditing} mode="admin" endpoint="/platform/setup/evaluate" />
+          <div className="flex gap-2">
+            <Button disabled={save.isPending || !editing.products.selected.length} onClick={() => save.mutate()}>{save.isPending ? 'Guardando…' : 'Guardar perfil'}</Button>
+            <Button variant="ghost" onClick={() => setEditing(null)}>Cancelar</Button>
+          </div>
+          <p className="text-xs text-ink-3">Guardar cambia los productos de la empresa a los elegidos y suma las herramientas que piden sus capacidades (no quita ninguna). No cambia el cobro.</p>
+        </div>
+      )}
     </Card>
   );
 }

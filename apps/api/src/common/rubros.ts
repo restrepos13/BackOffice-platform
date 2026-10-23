@@ -80,7 +80,7 @@ export function guessRubro(text: string): Rubro {
   const scores: Record<Rubro, number> = {
     COMIDAS: score(['restaurante', 'almuerzo', 'comida', 'domicilio', 'catering', 'menu', 'pizza', 'hamburguesa', 'panaderia', 'cafe', 'cocina', 'corrientazo', 'postre', 'empanada', 'arepa']),
     WEBCAM: score(['webcam', 'modelo', 'creador', 'onlyfans', 'estudio de modelos', 'contenido para adultos', 'fans', 'chaturbate', 'stripchat']),
-    SERVICIOS: score(['cita', 'consultorio', 'clinica', 'odontolog', 'salon', 'peluqueria', 'barberia', 'spa', 'taller', 'gimnasio', 'veterinari', 'psicolog', 'medico', 'unas', 'estetica']),
+    SERVICIOS: score(['cita', 'consultorio', 'clinica', 'odontolog', 'salon', 'peluqueria', 'barberia', 'spa', 'taller', 'gimnasio', 'veterinari', 'psicolog', 'medico', 'unas', 'estetica', 'cancha', 'reserva', 'alquiler', 'turno']),
     VENTAS: score(['tienda', 'ropa', 'calzado', 'zapatos', 'inmobiliaria', 'apartamento', 'curso', 'colegio', 'venta', 'productos', 'accesorios', 'joyeria', 'distribuidora']),
   };
   const best = (Object.entries(scores) as Array<[Rubro, number]>).sort((a, b) => b[1] - a[1])[0];
@@ -96,6 +96,12 @@ export function onboardingChecklist(input: {
   connectedLines: number;
   hasPayments: boolean;
   requestedPlan: boolean;
+  /** Productos contratados (AUTOMATION | CREATIVE | ADS); sin esto, como antes (todo es de Automation) */
+  contracted?: string[];
+  /** Creative: ya confirmó su marca */
+  brandReady?: boolean;
+  /** Ads Intelligence: cuentas publicitarias conectadas (reales o de demostración) */
+  adAccounts?: number;
 }) {
   const cfg = (() => {
     try { return JSON.parse(input.company?.orderConfigJson ?? '{}'); } catch { return {}; }
@@ -119,6 +125,20 @@ export function onboardingChecklist(input: {
     { key: 'whatsapp', label: 'Conectar tu WhatsApp (lo hacemos contigo)', done: input.connectedLines > 0, link: '/app/integrations', place: 'Integraciones (te acompaña el equipo)' },
     { key: 'plan', label: 'Elegir tu plan', done: input.requestedPlan || !!input.company?.planId, link: '/app/bienvenida#planes', place: 'Primeros pasos → Elige tu plan' },
   ];
-  const done = items.filter((i) => i.done).length;
-  return { items, done, total: items.length, percent: Math.round((done / items.length) * 100) };
+  // Solo los pasos de lo que contrató: sin Automation no hay WhatsApp, asistente ni catálogo que configurar
+  const has = (p: string) => !input.contracted || input.contracted.includes(p);
+  const automationKeys = ['catalogo', 'horario', 'preguntas', 'asistente', 'domicilios', 'pagos', 'whatsapp'];
+  const scoped = [
+    ...items.filter((i) => has('AUTOMATION') || !automationKeys.includes(i.key)),
+    ...(input.contracted?.includes('CREATIVE')
+      ? [{ key: 'marca', label: 'Tu marca: colores, logo y tono', done: !!input.brandReady, link: '/app/creative?tab=marca', place: 'Creative → Marca' }]
+      : []),
+    ...(input.contracted?.includes('ADS')
+      ? [{ key: 'publicidad', label: 'Conectar tu cuenta de publicidad', done: (input.adAccounts ?? 0) > 0, link: '/app/ads?tab=cuentas', place: 'Publicidad → Cuentas' }]
+      : []),
+  ];
+  // El plan siempre al final
+  const ordered = [...scoped.filter((i) => i.key !== 'plan'), ...scoped.filter((i) => i.key === 'plan')];
+  const done = ordered.filter((i) => i.done).length;
+  return { items: ordered, done, total: ordered.length, percent: Math.round((done / ordered.length) * 100) };
 }

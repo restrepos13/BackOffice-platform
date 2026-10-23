@@ -159,3 +159,13 @@ export class ProductInactiveError {
     };
   }
 }
+
+/** Productos de una empresa NUEVA: exactamente los elegidos (elección explícita desde el día uno). */
+export function initialProducts(selected: readonly ProductKey[], now = new Date()): string {
+  const out: Record<string, ProductState> = {};
+  for (const key of PRODUCTS) {
+    const enabled = selected.includes(key);
+    out[key] = { enabled, since: enabled ? now.toISOString() : null, until: null, requestedAt: null, requestedBy: null };
+  }
+  return JSON.stringify(out);
+}

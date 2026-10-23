@@ -16,6 +16,8 @@ import {
 } from '../../components/ui';
 import { ModelSelect } from '../../components/media';
 import { PersonaPicker } from '../../components/PersonaPicker';
+import SetupEditor from '../../components/setup/SetupEditor';
+import { COMPLEXITY_LABEL, type SetupProfile } from '../../lib/setup';
 
 /* ─── Tipos ──────────────────────────────────────────────────────────── */
 
@@ -40,10 +42,11 @@ interface CompanyTemplateOption {
 }
 
 type StepKey =
-  | 'plantilla' | 'datos' | 'plan' | 'modulos' | 'vertical'
+  | 'perfil' | 'plantilla' | 'datos' | 'plan' | 'modulos' | 'vertical'
   | 'admin' | 'bot' | 'confirmar';
 
 const STEP_LABELS: Record<StepKey, string> = {
+  perfil: 'Perfil y productos',
   plantilla: 'Plantilla',
   datos: 'Datos e identidad',
   plan: 'Plan y límites',
@@ -147,6 +150,35 @@ export default function CompanyNew() {
   const [pickingPersona, setPickingPersona] = useState(false);
   const [created, setCreated] = useState<Company | null>(null);
   const set = (patch: Partial<WizardState>) => setS((prev) => ({ ...prev, ...patch }));
+  // Perfil de incorporación: el MISMO modelo que arma el autoservicio (lo valida y recalcula el servidor)
+  const [setup, setSetup] = useState<SetupProfile | null>(null);
+  const [meetingNotes, setMeetingNotes] = useState('');
+  const [proposalData, setProposalData] = useState<{ proposal: unknown; blueprint: { modules: string[] } & Record<string, unknown>; rubro: string; mode?: string } | null>(null);
+  const [useProposal, setUseProposal] = useState(true);
+  const propose = useMutation({
+    mutationFn: () => api.post<any>('/platform/setup/propose', { notes: meetingNotes }),
+    onSuccess: (r) => {
+      setSetup(r.setup);
+      setProposalData({ proposal: r.proposal, blueprint: r.blueprint, rubro: r.rubro, mode: r.mode });
+      setUseProposal(true);
+      set({
+        name: s.name || r.company?.name || '',
+        city: s.city || r.company?.city || '',
+        industry: s.industry || r.blueprint?.businessType || '',
+        modules: [...new Set(['inbox', 'contacts', 'bots', 'billing', 'team', ...(r.blueprint?.modules ?? [])])],
+        botName: s.botName || r.proposal?.assistant?.name || '',
+        botWelcome: s.botWelcome || r.proposal?.assistant?.welcome || '',
+        botPrompt: s.botPrompt || r.proposal?.assistant?.instructions || '',
+      });
+      toast.success(r.mode === 'guided' ? 'Propuesta armada sin IA (respaldo por código): revísala' : 'Propuesta armada: revísala y ajústala');
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : 'No se pudo armar la propuesta'),
+  });
+  const blankSetup = useMutation({
+    mutationFn: () => api.post<SetupProfile>('/platform/setup/evaluate', { setup: {} }),
+    onSuccess: (r) => { setSetup(r); setProposalData(null); },
+    onError: (e) => toast.error(e instanceof Error ? e.message : 'Error'),
+  });
 
   const { data: plans } = useQuery({
     queryKey: ['plans'],
@@ -172,7 +204,7 @@ export default function CompanyNew() {
   const hasVertical = !!selectedTemplate?.orderConfig && s.modules.includes('orders');
   const stepKeys: StepKey[] = useMemo(
     () => [
-      'plantilla', 'datos', 'plan', 'modulos',
+      'perfil', 'plantilla', 'datos', 'plan', 'modulos',
       ...(hasVertical ? (['vertical'] as StepKey[]) : []),
       'admin', 'bot', 'confirmar',
     ],
@@ -264,6 +296,9 @@ export default function CompanyNew() {
           : undefined,
         personaTemplateId: s.personaId || undefined,
         channels: s.channels,
+        // Perfil y productos elegidos en la reunión (el servidor los valida y recalcula)
+        ...(setup ? { setup, products: setup.products.selected } : {}),
+        ...(setup && proposalData && useProposal ? { proposal: proposalData.proposal, blueprint: proposalData.blueprint, rubro: proposalData.rubro } : {}),
       }),
     onSuccess: (company) => {
       queryClient.invalidateQueries({ queryKey: ['companies'] });
@@ -274,6 +309,7 @@ export default function CompanyNew() {
 
   const canNext = (): boolean => {
     switch (step) {
+      case 'perfil': return !!setup && setup.products.selected.length > 0;
       case 'datos': return s.name.trim().length >= 2;
       case 'vertical': return s.areas.every((a) => a.name.trim().length > 0);
       case 'admin':
@@ -330,6 +366,30 @@ export default function CompanyNew() {
 
       <div className="grid gap-6 lg:grid-cols-[1fr_320px]">
         <Card>
+          {step === 'perfil' && (
+            <div className="space-y-4">
+              <p className="text-sm text-ink-2">
+                Define con el cliente qué hace su negocio, qué tan complejo es y qué productos contrata. Puedes pegar tus notas de la reunión y armar la misma propuesta que recibe el autoservicio, o empezar en blanco.
+              </p>
+              <Field label="Notas de la reunión" hint="Qué vende, cómo le llegan los clientes, quiénes intervienen, qué hace a mano, qué debe aprobar alguien, qué sistemas usa, si quiere contenido o publicidad">
+                <Textarea rows={5} value={meetingNotes} onChange={(e) => setMeetingNotes(e.target.value)} />
+              </Field>
+              <div className="flex flex-wrap gap-2">
+                <Button type="button" disabled={meetingNotes.trim().length < 40 || propose.isPending} onClick={() => propose.mutate()}>
+                  <Sparkles size={14} /> {propose.isPending ? 'Armando…' : 'Armar propuesta con las notas'}
+                </Button>
+                {!setup && (
+                  <Button type="button" variant="outline" disabled={blankSetup.isPending} onClick={() => blankSetup.mutate()}>Empezar en blanco</Button>
+                )}
+              </div>
+              {proposalData && (
+                <Switch checked={useProposal} onChange={setUseProposal} showLabel
+                  label="Crear también lo propuesto: catálogo, horario, preguntas frecuentes, embudo y respuestas rápidas" />
+              )}
+              {setup && <SetupEditor value={setup} onChange={setSetup} mode="admin" endpoint="/platform/setup/evaluate" />}
+            </div>
+          )}
+
           {step === 'plantilla' && (
             <div className="space-y-5">
               <p className="text-sm text-ink-2">
@@ -785,6 +845,11 @@ export default function CompanyNew() {
                     onEdit={() => setStepIdx(stepKeys.indexOf('vertical'))}
                   />
                 )}
+                <Row
+                  k="Productos"
+                  v={setup ? `${setup.products.selected.map((p) => ({ AUTOMATION: 'Automation', CREATIVE: 'Creative', ADS: 'Ads Intelligence' })[p]).join(', ')} · complejidad ${COMPLEXITY_LABEL[setup.complexity.level].toLowerCase()} · ${setup.business.label}` : 'Sin perfil'}
+                  onEdit={() => setStepIdx(stepKeys.indexOf('perfil'))}
+                />
                 <Row k="Admin" v={s.adminEmail ? `${s.adminName} <${s.adminEmail}>` : 'Se crea después'} onEdit={() => setStepIdx(stepKeys.indexOf('admin'))} />
                 <Row
                   k="Asistente IA"

@@ -52,17 +52,27 @@ describe('registro sin IA: el código arma la empresa', () => {
 
   it('sin IA pregunta solo lo que falta, con opciones de su negocio', () => {
     const ropa = conversation(CORPUS.find((c) => c.id === 'ropa')!);
-    // Con 3 respuestas ya sabe qué vende (blusas, vestidos y jeans): pregunta qué le preguntan
-    expect(codeInterviewTurn(toPairs(ropa.slice(0, 6))).pregunta).toMatch(/preguntan primero/);
-    const t1 = codeInterviewTurn(toPairs(ropa.slice(0, 8)));
+    // Ya sabe qué vende (blusas, vestidos y jeans): lo siguiente es cómo entrega, con opciones de SU negocio
+    const t1 = codeInterviewTurn(toPairs(ropa.slice(0, 6)));
     expect(t1.listo).toBe(false);
-    // Ya contó qué le preguntan: sigue con la entrega
     expect(t1.pregunta).toMatch(/llegan los pedidos/);
     expect(t1.opciones).toContain('Envío por transportadora');
     const full = toPairs(conversation(CORPUS.find((c) => c.id === 'ropa')!));
-    // Solo le falta el horario; al contestarlo termina
-    expect(codeInterviewTurn(full).pregunta).toMatch(/horario/);
-    expect(codeInterviewTurn([...full, ['¿Qué días y en qué horario atiendes?', 'Lunes a sábado de 9 am a 6 pm']], 9).listo).toBe(true);
+    // Con lo comercial respondido, pregunta cómo trabaja (tareas, equipo, contenido) y el horario, una vez cada cosa
+    const asked: string[] = [];
+    let pairs: Array<[string, string]> = [...full];
+    const replies: Record<string, string> = { tareas: 'Responder lo mismo todo el día', personas: '2 a 3 personas', contenido: 'Contenido para redes', horario: 'Lunes a sábado de 9 am a 6 pm' };
+    for (let i = 0; i < 6; i++) {
+      const t = codeInterviewTurn(pairs, 20);
+      if (t.listo) break;
+      asked.push(t.pregunta);
+      const key = Object.keys(replies).find((k) => new RegExp(k === 'tareas' ? 'a mano' : k).test(t.pregunta))!;
+      pairs = [...pairs, [t.pregunta, replies[key]]];
+    }
+    expect(asked).toEqual([
+      expect.stringMatching(/a mano/), expect.stringMatching(/personas/), expect.stringMatching(/contenido para redes/), expect.stringMatching(/horario/),
+    ]);
+    expect(codeInterviewTurn(pairs, 20).listo).toBe(true);
     const odonto = toPairs(conversation(CORPUS.find((c) => c.id === 'odonto')!).slice(0, 4));
     expect(codeInterviewTurn(odonto).pregunta).not.toMatch(/llegan los pedidos/); // un consultorio no despacha pedidos
   });

@@ -11,6 +11,7 @@ import {
   Param,
   Patch,
   Post,
+  Put,
   Query,
   Req,
 } from '@nestjs/common';
@@ -37,10 +38,17 @@ import { EmailsModule, EmailsService } from './emails.module';
 import { CompaniesModule, CompaniesService } from './companies.module';
 import { SetupProposal, applySetupProposal, normalizeProposal } from './ai-setup.module';
 import {
-  Blueprint, agentPresetFor, assistantPromptFromBlueprint, moduleListFor,
+  Blueprint, agentPresetFor, applyBlueprintExtras, assistantPromptFromBlueprint, moduleListFor,
   normalizeBlueprint, normalizeInterviewTurn, revalidateBlueprint,
 } from '../common/blueprint';
 import { AGENT_PRESETS } from '../ai/agent/tools';
+import {
+  SetupProfile, SetupValidationError, normalizeSetup, setupCatalog, setupFromConversation, setupOf, withSelectedProducts,
+  alignModules, modulesForCapabilities,
+} from '../common/setup-profile';
+import { PRODUCTS, ProductKey, productsExplicit, readProducts, withProducts } from '../common/products';
+import { forgetCompanyProducts } from '../auth/products.guard';
+
 
 /**
  * Registro por la web (autoservicio, sin prueba gratis):
@@ -250,6 +258,12 @@ export class SignupService {
       };
     }
     const str = (v: unknown, max: number) => (typeof v === 'string' && v.trim() ? v.trim().slice(0, max) : '');
+    // Perfil de incorporación: IA (si respondió) + lectura por código; mismo formato que el asistido
+    const setup = setupFromConversation({
+      text: ownerText, firstAnswer: answers[0]?.content ?? ownerText, dailyVolume: dailyChatsFrom(msgs),
+      ai: raw.operacion, activity: bp.businessType, source: 'SELF_SERVICE',
+    });
+    bp.modules = alignModules(bp.modules, setup);
     const { rubro, ...blueprint } = bp;
     await this.tracker.touch(dto?.session, { mode, rubro, businessType: bp.businessType, businessName: str(raw.empresa?.nombre, 80) });
     const value = {
@@ -264,6 +278,7 @@ export class SignupService {
       blueprint,
       // Lo que la pantalla de revisión NO debe ofrecer a este tipo de negocio
       profile: { key: profile.key, label: profile.label, hide: profile.deny },
+      setup,
       mode,
     };
     if (mode === 'ai') {
@@ -311,7 +326,19 @@ export class SignupService {
     const proposal: SetupProposal | null = dto?.proposal && typeof dto.proposal === 'object' ? dto.proposal : null;
     // El plano puede venir editado por el dueño: se revalida completo
     const bp = dto?.blueprint && typeof dto.blueprint === 'object' ? revalidateBlueprint(dto.blueprint, rubro) : null;
-    const modules = bp ? moduleListFor(bp) : cfg.modules;
+    // Perfil y productos: lo que corrigió el dueño se valida y se RECALCULA aquí (nada del navegador va a ciegas).
+    // Sin perfil (clientes viejos), se arma con lo que contó.
+    let setup: SetupProfile;
+    try {
+      setup = dto?.setup && typeof dto.setup === 'object'
+        ? normalizeSetup(dto.setup, { source: 'SELF_SERVICE', text: description })
+        : setupFromConversation({ text: description || name, firstAnswer: msgs.find((m) => m.role === 'user')?.content, dailyVolume: dailyChatsFrom(msgs), source: 'SELF_SERVICE', activity: bp?.businessType });
+    } catch (err) {
+      if (err instanceof SetupValidationError) throw fieldError(err.field, err.message);
+      throw err;
+    }
+    const automation = setup.products.selected.includes('AUTOMATION');
+    const modules = alignModules(bp ? moduleListFor(bp) : cfg.modules, setup);
 
     // Slug libre (el registro nunca falla porque el nombre ya exista)
     let slug = slugBase(name);
@@ -327,20 +354,22 @@ export class SignupService {
       contactEmail: email, contactPhone: phone, status: 'ONBOARDING',
       industry: bp?.businessType || cfg.label,
       templateId: cfg.templateId, modules,
+      products: setup.products.selected, setup,
       admin: { name: adminName, email, password, jobTitle: 'Dueño / administrador' },
-      ...(proposal?.assistant?.name
+      ...(automation && proposal?.assistant?.name
         ? { bot: { name: proposal.assistant.name, systemPrompt: assistantPrompt, welcomeMessage: proposal.assistant.welcome } }
         : {}),
       notes: 'Registrada por la web (autoservicio).',
     } as any);
     const companyId: string = created?.id ?? created?.company?.id;
 
+    try {
     if (proposal) {
       await applySetupProposal(this.prisma, this.audit, SIGNUP_ACTOR, companyId, proposal, {
         createAssistant: false,
         agentPreset: agentPresetFor(modules),
       });
-      if (proposal.assistant) {
+      if (proposal.assistant && automation) {
         await this.prisma.bot.updateMany({
           where: { companyId, name: proposal.assistant.name },
           data: {
@@ -351,18 +380,25 @@ export class SignupService {
         });
       }
     }
-    if (bp) await this.applyBlueprintExtras(companyId, bp);
+    // Embudo, respuestas rápidas y seguimientos son de la atención por WhatsApp (Automation)
+    if (bp && automation) await applyBlueprintExtras(this.prisma, companyId, bp);
     await this.prisma.company.update({
       where: { id: companyId },
       data: {
         onboardingJson: JSON.stringify({
           source: 'SIGNUP', rubro, description, contactName: adminName, phone, createdAt: new Date().toISOString(),
+          setup: (await this.prisma.company.findUnique({ where: { id: companyId }, select: { onboardingJson: true } }).then((c) => setupOf(c ?? {}))) ?? setup,
           ...(dailyChatsFrom(msgs) ? { dailyChats: dailyChatsFrom(msgs) } : {}),
           ...(bp ? { businessType: bp.businessType, needs: bp.needs, clientData: bp.clientData, assistantFlow: bp.assistantFlow, modules: bp.modules } : {}),
           ...(msgs.length ? { interview: msgs.slice(0, 18).map((m) => ({ role: m.role, content: m.content.slice(0, 600) })) } : {}),
         }),
       },
     });
+    } catch (err) {
+      // Si algo falla después de crear la empresa, se deshace: nada queda a medias
+      await this.companies.discardProvisioned(companyId);
+      throw err;
+    }
     await this.audit.log({
       actor: SIGNUP_ACTOR, companyId, action: 'signup.create', entity: 'Company', entityId: companyId,
       detail: `${name} · ${bp?.businessType || cfg.label} · ${email}`,
@@ -378,27 +414,6 @@ export class SignupService {
       this.logger.warn(`aviso de registro no enviado: ${err.message}`);
     }
     return this.auth.login(email, password);
-  }
-
-  /** Embudo propio, respuestas rápidas y seguimientos del plano. */
-  private async applyBlueprintExtras(companyId: string, bp: Blueprint) {
-    if (bp.pipeline) {
-      await this.prisma.pipeline.create({
-        data: { companyId, name: bp.pipeline.name, stagesJson: JSON.stringify(bp.pipeline.stages), isDefault: true },
-      });
-    }
-    for (const r of bp.quickReplies) {
-      await this.prisma.quickReply.create({ data: { companyId, ...r } });
-    }
-    if (bp.followUps.length) {
-      const company = await this.prisma.company.findUniqueOrThrow({ where: { id: companyId } });
-      const cfg = parseJson<Record<string, any>>(company.orderConfigJson, {});
-      const followUps = bp.followUps.map((f, i) => ({ id: `ia${i + 1}`, enabled: true, ...f }));
-      await this.prisma.company.update({
-        where: { id: companyId },
-        data: { orderConfigJson: JSON.stringify({ ...cfg, followUps: [...(cfg.followUps ?? []), ...followUps] }) },
-      });
-    }
   }
 
   /** A quién avisar: SIGNUP_NOTIFY_EMAIL (uno o varios separados por coma). */
@@ -484,17 +499,23 @@ export class SignupService {
     const modules = parseJson<string[]>(company.modulesJson, []);
     const rubro: string = ob.rubro
       ?? (modules.includes('production') || modules.includes('delivery') ? 'COMIDAS' : modules.includes('media') ? 'WEBCAM' : modules.includes('orders') ? 'VENTAS' : 'SERVICIOS');
-    const [products, bots, connectedLines, plans] = await Promise.all([
+    const [products, bots, connectedLines, plans, brand, adAccounts] = await Promise.all([
       this.prisma.product.count({ where: { companyId, active: true, ...NOT_DELETED } }),
       this.prisma.bot.count({ where: { companyId } }),
       this.prisma.integration.count({ where: { companyId, status: 'CONNECTED' } }),
       this.prisma.plan.findMany({ where: { active: true, line: rubro }, orderBy: { sortOrder: 'asc' } }),
+      this.prisma.brandProfile.findUnique({ where: { companyId }, select: { id: true } }).catch(() => null),
+      this.prisma.adAccount.count({ where: { companyId } }).catch(() => 0),
     ]);
+    const productStates = readProducts(company);
+    const contracted = PRODUCTS.filter((p) => productStates[p].enabled);
     const pay = parseJson<Record<string, any>>(company.paymentConfigJson, {});
     const checklist = onboardingChecklist({
       rubro, company, products, bots, connectedLines,
       hasPayments: !!(pay.publicKey || pay.manualInstructions || pay.acceptCash),
       requestedPlan: !!ob.requestedPlan,
+      // Empresas anteriores (regla vieja): la lista de siempre
+      contracted: productsExplicit(company) ? contracted : undefined, brandReady: !!brand, adAccounts,
     });
     const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Bogota' }).format(new Date());
     const chatUsed = ob.chat?.day === today ? Number(ob.chat.count) || 0 : 0;
@@ -517,6 +538,8 @@ export class SignupService {
       // Preguntas de su equipo con opciones de SU tipo de negocio (no de restaurante)
       profile: (() => { const p = profileOfCompany(ob, rubro); return { key: p.key, label: p.label, roles: p.roles, pains: p.pains }; })(),
       team: ob.team ?? null,
+      products: contracted,
+      setup: setupOf(company),
     };
   }
 
@@ -623,6 +646,84 @@ export class SignupService {
       this.logger.warn(`aviso de plan no enviado: ${err.message}`);
     }
     return { ok: true, requestedPlan };
+  }
+
+  /* ── Perfil de incorporación (autoservicio y asistido, mismo modelo) ── */
+
+  catalog() {
+    return setupCatalog();
+  }
+
+  /** Recalcula complejidad, capacidades y recomendación con lo que corrigió la persona. */
+  evaluate(raw: unknown, actor?: AuthUser) {
+    const assisted = !!actor && isPlatformRole(actor.role);
+    try {
+      return normalizeSetup((raw as any)?.setup ?? raw, { source: assisted ? 'ASSISTED' : 'SELF_SERVICE', by: actor?.name ?? null, allowOverride: assisted });
+    } catch (err) {
+      if (err instanceof SetupValidationError) throw fieldError(err.field, err.message);
+      throw err;
+    }
+  }
+
+  /**
+   * Configuración asistida: con las notas de la reunión se arma la MISMA
+   * propuesta que en el autoservicio (IA si responde; si no, el motor por código).
+   */
+  async propose(actor: AuthUser, dto: { notes?: string; agentCallId?: string }) {
+    const notes = String(dto?.notes ?? '').trim();
+    const preview = await this.preview({ description: notes });
+    const setup = normalizeSetup({ ...preview.setup, agentCallId: dto?.agentCallId ?? null }, { source: 'ASSISTED', by: actor.name, allowOverride: true, text: notes });
+    return { ...preview, setup };
+  }
+
+  /** Perfil de una empresa existente, con sus llamadas con el equipo (para la reunión). */
+  async companySetup(companyId: string) {
+    const company = await this.prisma.company.findUnique({ where: { id: companyId } });
+    if (!company) throw new NotFoundException('Empresa no encontrada');
+    const ob = parseJson<Record<string, any>>(company.onboardingJson, {});
+    const calls = await this.prisma.agentCall.findMany({ where: { companyId }, orderBy: { slotAt: 'desc' }, take: 20 }).catch(() => []);
+    return {
+      setup: setupOf(company),
+      // Empresas anteriores: lo que se sabe de su registro sirve de punto de partida
+      draft: setupOf(company) ? null : setupFromConversation({
+        text: [ob.description, ob.businessType].filter(Boolean).join('. ') || company.name, source: 'ASSISTED',
+        dailyVolume: Number(ob.dailyChats) || null, activity: ob.businessType ?? company.industry ?? undefined,
+      }),
+      productsExplicit: productsExplicit(company),
+      calls: calls.map((c: any) => ({ id: c.id, topic: c.topic, slotAt: c.slotAt, status: c.status, meetUrl: c.meetUrl ?? null, doneNotes: c.doneNotes ?? null })),
+    };
+  }
+
+  /**
+   * El administrador define o corrige el perfil en la reunión. Se guarda el
+   * perfil, los productos pasan a ser los elegidos y se agregan (sin quitar
+   * nada) las herramientas que piden sus capacidades.
+   */
+  async saveCompanySetup(actor: AuthUser, companyId: string, dto: any) {
+    const company = await this.prisma.company.findUnique({ where: { id: companyId } });
+    if (!company) throw new NotFoundException('Empresa no encontrada');
+    const setup = this.evaluate(dto?.setup ?? dto, actor);
+    if (setup.agentCallId) {
+      const call = await this.prisma.agentCall.findUnique({ where: { id: setup.agentCallId } });
+      if (!call || call.companyId !== companyId) throw fieldError('agentCallId', 'Esa llamada no es de esta empresa');
+    }
+    const ob = parseJson<Record<string, any>>(company.onboardingJson, {});
+    const selected = setup.products.selected;
+    const modules = [...new Set([...parseJson<string[]>(company.modulesJson, []), ...modulesForCapabilities(setup.capabilities, selected)])];
+    const updated = await this.prisma.company.update({
+      where: { id: companyId },
+      data: {
+        onboardingJson: JSON.stringify({ ...ob, setup }),
+        productsJson: withProducts(company, Object.fromEntries(PRODUCTS.map((p) => [p, selected.includes(p)])) as Partial<Record<ProductKey, boolean>>),
+        modulesJson: JSON.stringify(modules),
+      },
+    });
+    forgetCompanyProducts(companyId);
+    await this.audit.log({
+      actor, companyId, action: 'onboarding.setup', entity: 'Company', entityId: companyId,
+      detail: `${setup.business.label} · ${setup.complexity.level}${setup.complexity.override ? ' (ajustada)' : ''} · ${selected.join(', ')}${setup.agentCallId ? ' · reunión' : ''}`,
+    });
+    return { setup, products: readProducts(updated) };
   }
 
   /* ── Plataforma: cadena de modelos de la IA del registro ─────────── */
@@ -763,6 +864,44 @@ export class SignupController {
   @Post('public/signup')
   register(@Body() dto: any) {
     return this.signup.register(dto);
+  }
+
+  @Public()
+  @Get('public/setup/catalog')
+  setupCatalog() {
+    return this.signup.catalog();
+  }
+
+  @Public()
+  @Throttle({ default: { ttl: 60_000, limit: 60 } })
+  @Post('public/setup/evaluate')
+  evaluateSetup(@Body() dto: any) {
+    return this.signup.evaluate(dto);
+  }
+
+  @Post('platform/setup/evaluate')
+  @Roles(ROLES.SUPER_ADMIN, ROLES.DEV)
+  evaluateAssisted(@CurrentUser() user: AuthUser, @Body() dto: any) {
+    return this.signup.evaluate(dto, user);
+  }
+
+  @Post('platform/setup/propose')
+  @Roles(ROLES.SUPER_ADMIN, ROLES.DEV)
+  @Throttle({ default: { ttl: 60_000, limit: 10 } })
+  propose(@CurrentUser() user: AuthUser, @Body() dto: any) {
+    return this.signup.propose(user, dto);
+  }
+
+  @Get('platform/companies/:id/setup')
+  @Roles(ROLES.SUPER_ADMIN, ROLES.DEV)
+  companySetup(@Param('id') id: string) {
+    return this.signup.companySetup(id);
+  }
+
+  @Put('platform/companies/:id/setup')
+  @Roles(ROLES.SUPER_ADMIN, ROLES.DEV)
+  saveCompanySetup(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: any) {
+    return this.signup.saveCompanySetup(user, id, dto);
   }
 
   @Get('onboarding')

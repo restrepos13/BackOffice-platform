@@ -8,7 +8,7 @@ import { Rubro } from './rubros';
 
 export type ProfileKey =
   | 'ROPA' | 'COMIDA' | 'BELLEZA' | 'SALUD' | 'EDUCACION' | 'INMOBILIARIA'
-  | 'TIENDA' | 'TALLER' | 'WEBCAM' | 'SERVICIOS' | 'GENERAL';
+  | 'TIENDA' | 'TALLER' | 'WEBCAM' | 'SERVICIOS' | 'RESERVAS' | 'GENERAL';
 
 export interface BusinessProfile {
   key: ProfileKey;
@@ -99,6 +99,13 @@ export const PROFILES: Record<ProfileKey, BusinessProfile> = {
     roles: ['Profesionales o técnicos', 'Agenda y atención', 'Ventas', 'Administración'],
     pains: ['Agendar', 'Cotizar', 'Responder lo mismo todo el día', 'Hacer seguimiento'],
   },
+  RESERVAS: {
+    key: 'RESERVAS', label: 'Reservas y alquiler de espacios', shipping: 'NINGUNO', deny: [...FOOD_TOOLS, 'orders'],
+    ask: 'qué espacios o turnos alquila y a qué precio, cómo se separa (anticipo), disponibilidad y horarios, cancelaciones, recordatorios',
+    never: 'menú, cocina, domicilios, tallas, envíos ni catálogo de productos si no lo mencionó',
+    roles: ['Reservas y atención', 'Mantenimiento de los espacios', 'Caja y cobros', 'Administración'],
+    pains: ['Responder disponibilidad todo el día', 'Separar y confirmar reservas', 'Cobrar anticipos', 'Clientes que no llegan'],
+  },
   GENERAL: {
     key: 'GENERAL', label: 'Negocio', shipping: 'CUALQUIERA', deny: ['menu', 'production'],
     ask: 'qué ofrece y a quién, cómo vende, cómo entrega o presta el servicio, cómo cobra',
@@ -118,6 +125,8 @@ const KEYWORDS: Record<Exclude<ProfileKey, 'GENERAL'>, string[]> = {
   TIENDA: ['tienda', 'accesorios', 'joyeria', 'distribuidora', 'ferreteria', 'papeleria', 'tecnologia', 'celulares', 'perfumeria', 'cosmeticos', 'muebles', 'productos', 'mayorista', 'importadora'],
   TALLER: ['taller', 'mecanica', 'reparacion', 'servicio tecnico', 'mantenimiento', 'motos', 'carros', 'lavadero'],
   WEBCAM: ['webcam', 'modelos webcam', 'creador de contenido', 'onlyfans', 'chaturbate', 'stripchat', 'estudio de modelos'],
+  // Lo que se alquila o reserva por turnos (canchas, salones, estudios, consultorios por horas…)
+  RESERVAS: ['cancha', 'reserva', 'reservas', 'alquiler de', 'alquilamos', 'alquilo', 'por hora', 'turnos de', 'salon de eventos', 'coworking', 'sala de ensayo', 'estudio de grabacion', 'piscina', 'futbol 5', 'futbol 8', 'padel', 'squash', 'escenario deportivo', 'glamping', 'cabana'],
   SERVICIOS: ['cita', 'asesoria', 'consultoria', 'abogado', 'contador', 'agencia', 'eventos', 'fotografia', 'limpieza', 'gimnasio', 'entrenador'],
 };
 

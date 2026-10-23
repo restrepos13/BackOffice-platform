@@ -5,12 +5,13 @@ import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { toast } from 'sonner';
 import { api } from '../../lib/api';
-import { Button, Loading, PageHeader } from '../../components/ui';
+import { Badge, Button, Loading, PageHeader } from '../../components/ui';
 import { PickCompany, useCompanyScope, withScope } from './shared';
 import CheckoutSection from '../../components/CheckoutSection';
 import ScheduleCall from '../../components/ScheduleCall';
 import TeamQuest from '../../components/TeamQuest';
 import { AiCostSummary } from './AiCosts';
+import { COMPLEXITY_LABEL, STATUS_LABEL, type SetupProfile } from '../../lib/setup';
 
 /**
  * Primeros pasos: avance real de la configuración, una guía con IA que
@@ -23,6 +24,8 @@ interface OnboardingStatus {
   rubroLabel: string;
   onboarding: { contactName?: string; businessType?: string; needs?: Array<{ title: string; solution: string }>; assistantFlow?: string[]; clientData?: string[] };
   checklist: { items: Array<{ key: string; label: string; done: boolean; link: string }>; done: number; total: number; percent: number };
+  /** Perfil de incorporación (null en empresas anteriores) */
+  setup?: SetupProfile | null;
   plans: Array<{ id: string; name: string; priceMonthly: number; currency: string; annualPrice: number; highlight: boolean; minTermMonths: number; features: string[] }>;
   requestedPlan: { name: string; billingCycle: string; amount: number; at: string } | null;
   chatLeft: number;
@@ -152,6 +155,22 @@ export default function Onboarding() {
                 </li>
               ))}
             </ul>
+            {st.setup && (
+              <div className="mt-5 border-t-2 border-line pt-4">
+                <p className="kicker">Tu configuración</p>
+                <p className="mt-1 text-sm">
+                  {st.setup.business.activity} · complejidad <b>{COMPLEXITY_LABEL[st.setup.complexity.level].toLowerCase()}</b> · usas {st.setup.products.selected.map((k) => ({ AUTOMATION: 'Automation', CREATIVE: 'Creative', ADS: 'Ads Intelligence' })[k]).join(', ')}
+                </p>
+                <ul className="mt-2 space-y-1">
+                  {st.setup.capabilities.filter((c) => c.included).map((c) => (
+                    <li key={c.key} className="flex flex-wrap items-start justify-between gap-2 text-xs">
+                      <span>{c.label}{c.note ? <span className="block text-ink-3">{c.note}</span> : null}</span>
+                      <Badge tone={c.status === 'AVAILABLE' ? 'ok' : c.status === 'PARTIAL' ? 'warn' : 'neutral'}>{STATUS_LABEL[c.status]}</Badge>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
             <div className="mt-4 flex flex-wrap items-center gap-3 border-2 border-line bg-bone px-3 py-3">
               <ScheduleCall q={q} topic="SETUP" label="Agéndame con un agente" />
               <p className="text-xs text-ink-2">Conectar tu WhatsApp, la inteligencia artificial y las plantillas lo hacemos nosotros contigo en una llamada.</p>
