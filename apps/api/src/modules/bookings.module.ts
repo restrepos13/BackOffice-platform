@@ -63,6 +63,51 @@ export class BookingsService {
     @Optional() @Inject(WA_OUTBOUND_QUEUE) readonly queue?: Pick<Queue, 'add'> | null,
   ) {}
 
+  /* ── Cambios (para quien necesite reflejarlos, como Google Calendar) ── */
+
+  private listeners: Array<(appointmentId: string) => void> = [];
+
+  onAppointmentChange(fn: (appointmentId: string) => void) {
+    this.listeners.push(fn);
+  }
+
+  /** Aviso sin esperar: lo que falle afuera (Google) nunca deshace ni frena la reserva. */
+  changed(appointmentId: string) {
+    for (const fn of this.listeners) {
+      try {
+        fn(appointmentId);
+      } catch {
+        /* el oyente maneja sus errores */
+      }
+    }
+  }
+
+  /* ── Ocupado en el calendario externo (Google) ── */
+
+  /**
+   * Tramos ocupados por eventos de Google en los espacios que esa conexión bloquea.
+   * Suma ocupación: la disponibilidad sigue mandada por los bloqueos de BackOffice.
+   */
+  private async externalBusy(companyId: string, cfg: BookingConfig, from: Date, to: Date): Promise<Array<{ start: number; end: number; resourceIds: string[] }>> {
+    const conn = await this.prisma.calendarConnection?.findUnique({ where: { companyId } }).catch(() => null);
+    if (!conn || conn.status !== 'CONNECTED' || conn.direction === 'PUSH') return [];
+    const chosen = parseJson<string[]>(conn.blockResourceIdsJson, []);
+    const resourceIds = chosen.length ? chosen : cfg.resources.filter((r) => r.active).map((r) => r.id);
+    if (!resourceIds.length) return [];
+    const blocks = await this.prisma.calendarEventLink.findMany({
+      where: { connectionId: conn.id, origin: 'GOOGLE', busy: true, status: { in: ['ACTIVE', 'CONFLICT'] }, startsAt: { lt: to }, endsAt: { gt: from } },
+      select: { startsAt: true, endsAt: true },
+      take: 2000,
+    });
+    return blocks.map((b: any) => ({ start: new Date(b.startsAt).getTime(), end: new Date(b.endsAt).getTime(), resourceIds }));
+  }
+
+  private externallyBusy(busy: Array<{ start: number; end: number; resourceIds: string[] }>, resourceId: string, start: Date, durationMin: number) {
+    const s = start.getTime();
+    const e = s + durationMin * 60000;
+    return busy.some((b) => b.resourceIds.includes(resourceId) && b.start < e && b.end > s);
+  }
+
   /* ── Configuración ── */
 
   private async company(companyId: string) {
@@ -159,8 +204,10 @@ export class BookingsService {
     const from = starts[0];
     const to = new Date(starts[starts.length - 1].getTime() + service.durationMin * 60000);
     const taken = await this.takenUnits(c.id, resources.map((r) => r.id), from, to);
+    const external = await this.externalBusy(c.id, cfg, from, to);
     const slots = starts.map((start) => {
-      const free = resources.filter((r) => unitsOf(start, service.durationMin, cfg.slotMinutes).every((u) => !taken.has(`${r.id}|${u.toISOString()}`)));
+      const free = resources.filter((r) => unitsOf(start, service.durationMin, cfg.slotMinutes).every((u) => !taken.has(`${r.id}|${u.toISOString()}`))
+        && !this.externallyBusy(external, r.id, start, service.durationMin));
       return { start: start.toISOString(), local: localParts(start, tz).time, resources: free.map((r) => ({ id: r.id, name: r.name })) };
     }).filter((s) => s.resources.length);
     return { ok: true as const, date, service: service.name, durationMin: service.durationMin, price: service.price, slots };
@@ -269,7 +316,14 @@ export class BookingsService {
     const units = unitsOf(input.start, service.durationMin, cfg.slotMinutes);
     const id = randomBytes(12).toString('hex'); // id propio: los bloqueos se toman ANTES de crear la reserva
     const date = localParts(input.start, tz).date;
+    // Se revisa de nuevo justo antes de reservar (también lo ocupado en el calendario del negocio)
+    const external = await this.externalBusy(c.id, cfg, input.start, new Date(input.start.getTime() + service.durationMin * 60000));
+    let externalHit = false;
     for (const resource of candidates) {
+      if (this.externallyBusy(external, resource.id, input.start, service.durationMin)) {
+        externalHit = true;
+        continue;
+      }
       if (!(await this.acquire(c.id, resource.id, units, id))) continue;
       try {
         const lp = localParts(input.start, tz);
@@ -298,6 +352,7 @@ export class BookingsService {
           actor: null, companyId: c.id, action: 'booking.create', entity: 'Appointment', entityId: appointment.id,
           detail: `${service.name} · ${resource.name} · ${lp.date} ${lp.time} · ${input.source === 'IA' ? 'asistente IA' : input.by}`,
         });
+        this.changed(appointment.id);
         return { ok: true, appointment };
       } catch (err) {
         await this.release(id);
@@ -306,7 +361,9 @@ export class BookingsService {
     }
     return {
       ok: false, code: 'TAKEN',
-      message: chosen ? `${chosen.name} ya está reservado a esa hora.` : 'Esa hora ya está reservada en todos los espacios.',
+      message: externalHit && candidates.every((r) => this.externallyBusy(external, r.id, input.start, service.durationMin))
+        ? 'Ese horario está ocupado en el calendario del negocio.'
+        : chosen ? `${chosen.name} ya está reservado a esa hora.` : 'Esa hora ya está reservada en todos los espacios.',
       alternatives: await this.alternatives(c.id, date, service.key, input.start),
     };
   }
@@ -336,6 +393,7 @@ export class BookingsService {
     await this.prisma.bookingNotice.updateMany({ where: { appointmentId: a.id, status: 'PENDING' }, data: { status: 'CANCELLED' } });
     if (opts.notify && cfg.notifyOnStaffChanges) await this.enqueueNotice(c.id, a.id, 'CANCELLATION', this.now());
     await this.audit.log({ actor: null, companyId: c.id, action: 'booking.cancel', entity: 'Appointment', entityId: a.id, detail: `${a.title} · ${opts.actor} · ${opts.by}` });
+    this.changed(a.id);
     return { ok: true, appointment: updated };
   }
 
@@ -359,7 +417,9 @@ export class BookingsService {
     // Primero el mismo recurso, después los demás; los tramos nuevos se toman ANTES de soltar los viejos
     const ordered = chosen ? [chosen] : [...options.filter((r) => r.id === a.resourceId), ...options.filter((r) => r.id !== a.resourceId)];
     const units = unitsOf(opts.start, service.durationMin, cfg.slotMinutes);
+    const external = await this.externalBusy(c.id, cfg, opts.start, new Date(opts.start.getTime() + service.durationMin * 60000));
     for (const resource of ordered) {
+      if (this.externallyBusy(external, resource.id, opts.start, service.durationMin)) continue;
       if (!(await this.acquire(c.id, resource.id, units, a.id))) continue;
       await this.release(a.id, units, resource.id);
       const before = localParts(new Date(a.startsAt), tz);
@@ -376,6 +436,7 @@ export class BookingsService {
       await this.scheduleReminder(c, updated, cfg);
       if (opts.notify && cfg.notifyOnStaffChanges) await this.enqueueNotice(c.id, a.id, 'RESCHEDULE', this.now());
       await this.audit.log({ actor: null, companyId: c.id, action: 'booking.reschedule', entity: 'Appointment', entityId: a.id, detail: `${before.date} ${before.time} → ${after.date} ${after.time} · ${resource.name} · ${opts.actor}` });
+      this.changed(a.id);
       return { ok: true, appointment: updated };
     }
     return { ok: false, code: 'TAKEN', message: 'Esa hora ya está reservada.', alternatives: await this.alternatives(c.id, localParts(opts.start, tz).date, service.key, opts.start) };
@@ -396,11 +457,13 @@ export class BookingsService {
       await this.release(appointment.id);
       await this.prisma.bookingNotice.updateMany({ where: { appointmentId: appointment.id, status: 'PENDING' }, data: { status: 'CANCELLED' } });
     }
+    this.changed(appointment.id);
   }
 
   async afterDelete(appointmentId: string) {
     await this.release(appointmentId);
     await this.prisma.bookingNotice.updateMany({ where: { appointmentId, status: 'PENDING' }, data: { status: 'CANCELLED' } });
+    this.changed(appointmentId);
   }
 
   /* ── Avisos al cliente ── */

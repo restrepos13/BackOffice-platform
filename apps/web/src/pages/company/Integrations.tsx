@@ -14,6 +14,7 @@ import {
   statusTone,
 } from '../../components/ui';
 import ScheduleCall from '../../components/ScheduleCall';
+import GoogleCalendarCard from './integrations/GoogleCalendar';
 import { PickCompany, useCompanyScope, withScope } from './shared';
 
 const TYPE_ICONS: Record<string, typeof MessageCircle> = {
@@ -38,7 +39,8 @@ const TYPE_BLURBS: Record<string, string> = {
   WEBHOOK: 'Integración personalizada por webhook para cualquier sistema.',
 };
 
-const ADDABLE = ['WHATSAPP', 'INSTAGRAM', 'MESSENGER', 'TELEGRAM', 'META_ADS', 'N8N', 'GOOGLE_CALENDAR', 'WEBHOOK'];
+// Google Calendar tiene su propia conexión real (tarjeta de abajo), no un canal genérico
+const ADDABLE = ['WHATSAPP', 'INSTAGRAM', 'MESSENGER', 'TELEGRAM', 'META_ADS', 'N8N', 'WEBHOOK'];
 
 export default function Integrations() {
   const { ready, q, canWrite, companyId, isPlatform } = useCompanyScope();
@@ -189,13 +191,20 @@ export default function Integrations() {
         )}
       </div>
 
+      {/* ─── Calendario ─── */}
+      <div className="mb-3">
+        <p className="kicker">Reservas y agenda</p>
+        <h2 className="display text-2xl">Calendario</h2>
+      </div>
+      <GoogleCalendarCard q={q} canWrite={canWrite} />
+
       {/* ─── Otros canales ─── */}
       <div className="mb-3">
         <p className="kicker">Ecosistema</p>
         <h2 className="display text-2xl">Otros canales</h2>
       </div>
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-        {integrations?.filter((i) => i.type !== 'WHATSAPP').map((integration) => {
+        {integrations?.filter((i) => i.type !== 'WHATSAPP' && i.type !== 'GOOGLE_CALENDAR').map((integration) => {
           const Icon = TYPE_ICONS[integration.type] ?? Link2;
           const connected = integration.status === 'CONNECTED';
           return (

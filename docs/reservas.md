@@ -69,7 +69,7 @@ Estado al 23-oct-2026, en local y sin desplegar. Código:
 
 - **`prisma db push` en producción** para crear los índices (`BookingLock` único, `BookingNotice` único y los de `Appointment`). La defensa en código protege igual, pero el índice es la garantía principal.
 - **Plantilla `recordatorio_reserva`:** hay que crearla en Meta/Twilio y cargarla en las plantillas de la empresa para avisar fuera de las 24 h.
-- **Sin Google Calendar** ni otro calendario externo: no está integrado.
+- **Google Calendar:** integrado en la Fase 2A.1, pendiente de credenciales OAuth y de la prueba con una cuenta real. Ver [google-calendar.md](google-calendar.md). Otros calendarios externos no están integrados.
 - **Sin cobro de anticipos de reservas.** El link de pago existe solo para pedidos.
 - **Bots ya creados:** las herramientas de reserva se activan en su configuración (Asistentes IA → herramientas). El preset se aplica solo a bots nuevos.
 - **Citas manuales sin espacio** (las anteriores) no bloquean turnos de los espacios.

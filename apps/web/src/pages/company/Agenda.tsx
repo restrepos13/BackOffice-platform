@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { toast } from 'sonner';
 import { api } from '../../lib/api';
 import { STAGE_LABELS, fmtDateTime, timeAgo } from '../../lib/format';
@@ -10,6 +11,17 @@ import {
 } from '../../components/ui';
 import { PickCompany, useCompanyScope, withScope } from './shared';
 import { BookingActionsModal, BookingSettings, NewBookingModal, useBookingConfig } from './agenda/Bookings';
+import type { GoogleSyncState } from './integrations/GoogleCalendar';
+
+interface GoogleBlock { id: string; startsAt: string; endsAt: string; allDay: boolean; title: string; conflict: boolean }
+type DayItem = { kind: 'appointment'; at: string; appointment: Appointment } | { kind: 'google'; at: string; block: GoogleBlock };
+
+const SYNC_BADGE: Record<GoogleSyncState, { label: string; tone: 'ok' | 'warn' | 'bad' | 'neutral' }> = {
+  SYNCED: { label: 'En Google', tone: 'neutral' },
+  PENDING: { label: 'Enviando a Google', tone: 'warn' },
+  CONFLICT: { label: 'Conflicto con Google', tone: 'bad' },
+  ERROR: { label: 'Error con Google', tone: 'bad' },
+};
 
 export const APPOINTMENT_STATUS_LABELS: Record<string, string> = {
   SCHEDULED: 'Programada',
@@ -201,6 +213,13 @@ export default function Agenda() {
     queryFn: () => api.get<Appointment[]>(withScope('/appointments', q)),
     enabled: ready,
   });
+  // Google Calendar: lo ocupado allá y el estado de cada reserva (vacío si no está conectado)
+  const { data: overlay } = useQuery({
+    queryKey: ['google-overlay', q],
+    queryFn: () => api.get<{ connected: boolean; blocks: GoogleBlock[]; sync: Record<string, GoogleSyncState> }>(withScope('/calendar/google/overlay', q)),
+    enabled: ready && bookingsOn,
+    retry: false,
+  });
   const { data: followUps } = useQuery({
     queryKey: ['followups', q],
     queryFn: () => api.get<FollowUp[]>(withScope('/followups', q)),
@@ -229,13 +248,21 @@ export default function Agenda() {
     const upcoming = (appointments ?? []).filter(
       (a) => new Date(a.startsAt) >= new Date(new Date().setHours(0, 0, 0, 0)),
     );
-    const map = new Map<string, Appointment[]>();
-    for (const appointment of upcoming) {
-      const key = dayLabel(appointment.startsAt);
-      map.set(key, [...(map.get(key) ?? []), appointment]);
+    const startOfToday = new Date(new Date().setHours(0, 0, 0, 0));
+    const items: DayItem[] = [
+      ...upcoming.map((appointment) => ({ kind: 'appointment' as const, at: appointment.startsAt, appointment })),
+      ...(overlay?.blocks ?? [])
+        .filter((b) => new Date(b.endsAt) > startOfToday && new Date(b.startsAt) < new Date(Date.now() + 14 * 86400000))
+        .map((block) => ({ kind: 'google' as const, at: new Date(Math.max(new Date(block.startsAt).getTime(), startOfToday.getTime())).toISOString(), block })),
+    ].sort((a, b) => new Date(a.at).getTime() - new Date(b.at).getTime());
+    const map = new Map<string, DayItem[]>();
+    for (const item of items) {
+      const key = dayLabel(item.at);
+      map.set(key, [...(map.get(key) ?? []), item]);
     }
     return [...map.entries()];
-  }, [appointments]);
+  }, [appointments, overlay]);
+  const googleConflicts = Object.values(overlay?.sync ?? {}).filter((s) => s === 'CONFLICT').length + (overlay?.blocks ?? []).filter((b) => b.conflict).length;
 
   const past = useMemo(
     () =>
@@ -308,6 +335,12 @@ export default function Agenda() {
       </div>
 
       <div className="mt-6 space-y-6">
+        {googleConflicts > 0 && (tab === 'citas' || tab === 'pasadas') && (
+          <div className="flex flex-wrap items-center justify-between gap-3 border-2 border-bad bg-bad-soft p-3 text-sm">
+            <p>Hay {googleConflicts} conflicto(s) con Google Calendar. Ninguna reserva se cambió sola: decide tú qué hacer.</p>
+            <Link to="/app/integrations"><Button size="sm" variant="outline">Resolver</Button></Link>
+          </div>
+        )}
         {tab === 'citas' && (
           grouped.length === 0 ? (
             <EmptyState
@@ -320,15 +353,20 @@ export default function Agenda() {
               <div key={label}>
                 <p className="kicker mb-2">{label}</p>
                 <div className="space-y-2">
-                  {items.map((appointment) => (
-                    <AppointmentRow
-                      key={appointment.id}
-                      appointment={appointment}
-                      canWrite={canWrite}
-                      onStatus={(status) => updateAppointment.mutate({ id: appointment.id, status })}
-                      onManage={appointment.resourceId ? () => setManaging(appointment) : undefined}
-                    />
-                  ))}
+                  {items.map((item) =>
+                    item.kind === 'google' ? (
+                      <GoogleBlockRow key={`g-${item.block.id}`} block={item.block} />
+                    ) : (
+                      <AppointmentRow
+                        key={item.appointment.id}
+                        appointment={item.appointment}
+                        canWrite={canWrite}
+                        sync={overlay?.sync[item.appointment.id]}
+                        onStatus={(status) => updateAppointment.mutate({ id: item.appointment.id, status })}
+                        onManage={item.appointment.resourceId ? () => setManaging(item.appointment) : undefined}
+                      />
+                    ),
+                  )}
                 </div>
               </div>
             ))
@@ -345,6 +383,7 @@ export default function Agenda() {
                   key={appointment.id}
                   appointment={appointment}
                   canWrite={canWrite}
+                  sync={overlay?.sync[appointment.id]}
                   onStatus={(status) => updateAppointment.mutate({ id: appointment.id, status })}
                   onManage={appointment.resourceId ? () => setManaging(appointment) : undefined}
                   showDate
@@ -420,9 +459,12 @@ function AppointmentRow({
   onStatus,
   onManage,
   showDate,
+  sync,
 }: {
   appointment: Appointment;
   canWrite: boolean;
+  /** Estado en Google Calendar (si está conectado) */
+  sync?: GoogleSyncState;
   onStatus: (status: string) => void;
   /** Reserva en línea: reprogramar, cancelar e historial */
   onManage?: () => void;
@@ -453,6 +495,7 @@ function AppointmentRow({
         <Badge tone={statusTone(appointment.status === 'SCHEDULED' ? 'PENDING' : appointment.status === 'CONFIRMED' ? 'OPEN' : appointment.status === 'NO_SHOW' ? 'ERROR' : appointment.status)}>
           {APPOINTMENT_STATUS_LABELS[appointment.status]}
         </Badge>
+        {sync && <Badge tone={SYNC_BADGE[sync].tone}>{SYNC_BADGE[sync].label}</Badge>}
         {canWrite && isActive && (
           <>
             {appointment.status === 'SCHEDULED' && (
@@ -463,6 +506,29 @@ function AppointmentRow({
           </>
         )}
         {onManage && <Button size="sm" variant="outline" onClick={onManage}>{canWrite ? 'Reprogramar o cancelar' : 'Historial'}</Button>}
+      </div>
+    </div>
+  );
+}
+
+/** Evento de Google Calendar que ocupa ese horario (no es una reserva de BackOffice). */
+function GoogleBlockRow({ block }: { block: GoogleBlock }) {
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-3 border-2 border-dashed border-ink-3 bg-bone px-4 py-3">
+      <div className="flex min-w-0 items-center gap-3">
+        <div className="border-2 border-ink-3 px-2 py-1 text-center">
+          <p className="display text-lg leading-none text-ink-2">{block.allDay ? 'Día' : fmtTime(block.startsAt)}</p>
+        </div>
+        <div className="min-w-0">
+          <p className="truncate text-sm font-semibold text-ink-2">{block.title}</p>
+          <p className="truncate text-xs text-ink-3">
+            {block.allDay ? 'Todo el día' : `Hasta ${fmtTime(block.endsAt)}`} · bloquea reservas en ese horario
+          </p>
+        </div>
+      </div>
+      <div className="flex items-center gap-2">
+        <Badge tone="info">Google Calendar</Badge>
+        {block.conflict && <Badge tone="bad">Se cruza con una reserva</Badge>}
       </div>
     </div>
   );

@@ -782,21 +782,21 @@ model DailyReport {
 // o desde el chat; el motor de IA las creará solo (source IA) en fase 2.
 // status: SCHEDULED | CONFIRMED | COMPLETED | CANCELLED | NO_SHOW
 model Appointment {
-  id          String   @id @default(cuid()) @map("_id")
-  companyId   String
-  company     Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  contactId   String
-  contact     Contact  @relation(fields: [contactId], references: [id], onDelete: Cascade)
-  title       String
-  notes       String?
-  location    String?
-  startsAt    DateTime
-  durationMin Int      @default(30)
-  status      String   @default("SCHEDULED")
-  source      String   @default("MANUAL") // MANUAL | IA
-  createdBy   String? // nombre del actor
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id             String    @id @default(cuid()) @map("_id")
+  companyId      String
+  company        Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  contactId      String
+  contact        Contact   @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  title          String
+  notes          String?
+  location       String?
+  startsAt       DateTime
+  durationMin    Int       @default(30)
+  status         String    @default("SCHEDULED")
+  source         String    @default("MANUAL") // MANUAL | IA
+  createdBy      String? // nombre del actor
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
   // ── Reservas (opcionales: las citas anteriores siguen igual) ──
   /// Espacio o recurso reservado (orderConfig.bookings.resources[].id)
   resourceId     String?
@@ -2001,4 +2001,88 @@ model CreativeEvent {
   createdAt DateTime @default(now())
 
   @@index([companyId, type, createdAt])
+}
+
+/// Conexión de una empresa con Google Calendar (una por empresa). Los tokens
+/// viven cifrados (encryptSecret) y jamás salen por el API.
+model CalendarConnection {
+  id                   String    @id @default(cuid()) @map("_id")
+  companyId            String    @unique
+  provider             String    @default("GOOGLE")
+  /// PENDING_SELECTION | CONNECTED | ERROR | REVOKED
+  status               String    @default("PENDING_SELECTION")
+  /// Cuenta (id del calendario principal = correo de Google)
+  accountEmail         String?
+  refreshTokenEnc      String?
+  accessTokenEnc       String?
+  accessExpiresAt      DateTime?
+  scopes               String?
+  calendarId           String?
+  calendarName         String?
+  calendarTimeZone     String?
+  /// Calendarios que se pueden elegir tras autorizar [{id, name, primary, timeZone}]
+  calendarsJson        String?
+  /// PUSH (BackOffice → Google) | PULL (Google → BackOffice) | BOTH
+  direction            String    @default("BOTH")
+  /// Qué espacios bloquean los eventos ocupados de Google (vacío = todos los activos)
+  blockResourceIdsJson String    @default("[]")
+  /// Los eventos de todo el día ocupan el día completo
+  allDayBlocks         Boolean   @default(true)
+  /// Guardar el título de los eventos externos (por defecto no: datos personales)
+  importTitles         Boolean   @default(false)
+  syncToken            String?
+  channelId            String?
+  channelResourceId    String?
+  /// Huella del token del canal (el token real solo lo conoce Google)
+  channelTokenHash     String?
+  channelExpiresAt     DateTime?
+  lastSyncAt           DateTime?
+  /// OK | ERROR | RUNNING
+  lastSyncStatus       String?
+  lastError            String?
+  failureCount         Int       @default(0)
+  nextRetryAt          DateTime?
+  createdBy            String?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @default(now())
+
+  @@index([status])
+  @@index([channelId])
+}
+
+/// Relación entre una reserva de BackOffice o un evento externo y su evento de Google.
+/// origin BACKOFFICE: lo creó BackOffice (se identifica también por extendedProperties en Google).
+/// origin GOOGLE: evento ajeno importado como bloqueo (sin datos personales salvo que se elija).
+model CalendarEventLink {
+  id              String    @id @default(cuid()) @map("_id")
+  companyId       String
+  connectionId    String
+  origin          String
+  appointmentId   String?
+  externalEventId String?
+  /// etag de Google en la última lectura/escritura (para detectar ediciones simultáneas)
+  etag            String?
+  /// Huella de lo último que BackOffice envió (evita reenviar lo mismo y los ciclos)
+  pushedHash      String?
+  /// Evento externo: inicio/fin (UTC), día completo y si ocupa
+  startsAt        DateTime?
+  endsAt          DateTime?
+  allDay          Boolean   @default(false)
+  busy            Boolean   @default(true)
+  title           String?
+  /// ACTIVE | DELETED | CONFLICT
+  status          String    @default("ACTIVE")
+  /// Conflicto a resolver a mano {kind, detail, googleStart?, googleEnd?, at}
+  conflictJson    String?
+  /// Operación pendiente hacia Google: CREATE | UPDATE | DELETE (reintentos)
+  pendingOp       String?
+  attempts        Int       @default(0)
+  lastError       String?
+  nextRetryAt     DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @default(now())
+
+  @@index([connectionId, externalEventId])
+  @@index([companyId, appointmentId])
+  @@index([companyId, origin, startsAt])
 }

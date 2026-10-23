@@ -133,6 +133,8 @@ export function createMockPrisma() {
     adAssetLink: [] as Doc[],
     bookingLock: [] as Doc[],
     bookingNotice: [] as Doc[],
+    calendarConnection: [] as Doc[],
+    calendarEventLink: [] as Doc[],
     brandProfile: [] as Doc[],
     socialUsage: [] as Doc[],
     invoice: [] as Doc[],
@@ -220,6 +222,7 @@ export function createMockPrisma() {
     adAssetLink: ['assetId+adEntityId'],
     bookingLock: ['companyId+resourceId+slotStart'],
     bookingNotice: ['appointmentId+kind+scheduledAt'],
+    calendarConnection: ['companyId'],
   };
   const model = (name: keyof typeof db, defaults: Doc = {}) => {
     // matches + filtros por relación y claves compuestas (companyId_date)
@@ -405,6 +408,8 @@ export function createMockPrisma() {
     adAssetLink: model('adAssetLink'),
     bookingLock: model('bookingLock'),
     bookingNotice: model('bookingNotice', { status: 'PENDING', attempts: 0 }),
+    calendarConnection: model('calendarConnection', { direction: 'BOTH', blockResourceIdsJson: '[]', allDayBlocks: true, importTitles: false, failureCount: 0 }),
+    calendarEventLink: model('calendarEventLink', { status: 'ACTIVE', allDay: false, busy: true, attempts: 0 }),
     brandProfile: model('brandProfile', { version: 1, logosJson: '[]', colorsJson: '[]', fontsJson: '[]', vocabularyJson: '[]', avoidWordsJson: '[]', productsJson: '[]', ctasJson: '[]', offersJson: '[]', restrictionsJson: '[]', formatsJson: '[]', protectedJson: '{}', policyJson: '{}' }),
     planOrder: model('planOrder', { status: 'REQUESTED', aiPackageAmount: 0, currency: 'COP', billingCycle: 'MONTHLY' }),
     socialUsage: model('socialUsage', { images: 0, videos: 0, credits: 0, costUsd: 0 }),

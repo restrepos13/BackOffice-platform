@@ -56,6 +56,7 @@ import { PlatformHealthModule } from './modules/platform-health.module';
 import { AdsModule } from './modules/ads.module';
 import { LibraryModule } from './modules/library.module';
 import { BookingsModule } from './modules/bookings.module';
+import { CalendarSyncModule } from './modules/calendar-sync.module';
 import { ProductsModule } from './modules/products.module';
 import { OpportunitiesModule } from './modules/opportunities.module';
 import { CreativeModule } from './modules/creative.module';
@@ -124,6 +125,7 @@ import { ScheduleModule } from '@nestjs/schedule';
     AdsModule,
     LibraryModule,
     BookingsModule,
+    CalendarSyncModule,
     ProductsModule,
     OpportunitiesModule,
     InboundOrdersModule,
