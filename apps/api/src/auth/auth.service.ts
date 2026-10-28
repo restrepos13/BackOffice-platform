@@ -57,6 +57,15 @@ export class AuthService {
     };
   }
 
+  /** Sesión para un usuario recién creado o que acaba de restablecer su clave (invitación, recuperación). */
+  async sessionFor(userId: string) {
+    const user = await this.prisma.user.findUniqueOrThrow({
+      where: { id: userId },
+      include: { company: { select: { id: true, name: true, slug: true, status: true } } },
+    });
+    return this.issue(user);
+  }
+
   /** Cuenta un intento fallido y bloquea al llegar al tope (contraseña o código MFA). */
   private async registerFailure(user: any, what: string) {
     const failed = (user.failedLogins ?? 0) + 1;

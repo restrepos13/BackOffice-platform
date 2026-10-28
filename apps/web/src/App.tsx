@@ -23,6 +23,7 @@ const Incidents = lazy(() => import('./pages/platform/Incidents'));
 const PublicTerms = lazy(() => import('./components/Terms').then((m) => ({ default: m.PublicTerms })));
 const TermsAdmin = lazy(() => import('./pages/platform/TermsAdmin'));
 const Ventas = lazy(() => import('./pages/platform/Ventas'));
+const Subscriptions = lazy(() => import('./pages/platform/Subscriptions'));
 const Publicidad = lazy(() => import('./pages/platform/Publicidad'));
 const Audit = lazy(() => import('./pages/platform/Audit'));
 const DevTools = lazy(() => import('./pages/platform/DevTools'));
@@ -71,6 +72,9 @@ const PrintOrder = lazy(() => import('./pages/print/PrintOrder'));
 const PublicMenu = lazy(() => import('./pages/public/Menu'));
 const Landing = lazy(() => import('./pages/public/Landing'));
 const Signup = lazy(() => import('./pages/public/Signup'));
+const ForgotPassword = lazy(() => import('./pages/public/Account').then((m) => ({ default: m.ForgotPassword })));
+const ResetPassword = lazy(() => import('./pages/public/Account').then((m) => ({ default: m.ResetPassword })));
+const AcceptInvitation = lazy(() => import('./pages/public/Account').then((m) => ({ default: m.AcceptInvitation })));
 const Onboarding = lazy(() => import('./pages/company/Onboarding'));
 const Library = lazy(() => import('./pages/company/Library'));
 const AutomationOpportunities = lazy(() => import('./pages/company/Opportunities'));
@@ -125,6 +129,9 @@ export default function App() {
       <Route path="/t/:token" element={<Tracking />} />
       <Route path="/m/:slug" element={<PublicMenu />} />
       <Route path="/registro" element={<Signup />} />
+      <Route path="/recuperar" element={<ForgotPassword />} />
+      <Route path="/restablecer" element={<ResetPassword />} />
+      <Route path="/invitacion" element={<AcceptInvitation />} />
       <Route path="/terminos" element={<PublicTerms />} />
       {CreativeLab && <Route path="/lab/creative" element={<CreativeLab />} />}
       <Route path="/print/order/:id" element={<RequireAuth><PrintOrder /></RequireAuth>} />
@@ -144,6 +151,7 @@ export default function App() {
         <Route path="/platform/companies/new" element={<RequirePlatform><CompanyNew /></RequirePlatform>} />
         <Route path="/platform/companies/:id" element={<RequirePlatform><CompanyDetail /></RequirePlatform>} />
         <Route path="/platform/plans" element={<RequirePlatform><Plans /></RequirePlatform>} />
+        <Route path="/platform/suscripciones" element={<RequirePlatform><Subscriptions /></RequirePlatform>} />
         <Route path="/platform/personas" element={<RequirePlatform><Personas /></RequirePlatform>} />
         <Route path="/platform/emails" element={<RequirePlatform><Emails /></RequirePlatform>} />
         <Route path="/platform/models" element={<RequirePlatform><AiModels /></RequirePlatform>} />

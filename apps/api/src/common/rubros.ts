@@ -104,6 +104,8 @@ export function onboardingChecklist(input: {
   adAccounts?: number;
   /** Capacidades incluidas del perfil de incorporación (null en empresas anteriores) */
   capabilities?: string[];
+  /** El negocio contó que trabaja con más personas: invitar al equipo es un paso. Sin dato, no se pide. */
+  team?: { needed: boolean; done: boolean };
 }) {
   const cfg = (() => {
     try { return JSON.parse(input.company?.orderConfigJson ?? '{}'); } catch { return {}; }
@@ -129,6 +131,9 @@ export function onboardingChecklist(input: {
       : []),
     { key: 'pagos', label: 'Cómo te pagan (Nequi, transferencia, Wompi)', done: input.hasPayments, link: '/app/orders/settings?tab=pagos', place: `${biz} → Pagos` },
     { key: 'whatsapp', label: 'Conectar tu WhatsApp (lo hacemos contigo)', done: input.connectedLines > 0, link: '/app/integrations', place: 'Integraciones (te acompaña el equipo)' },
+    ...(input.team?.needed
+      ? [{ key: 'equipo', label: 'Invitar a tu equipo', done: input.team.done, link: '/app/team', place: 'Empresa y cuenta → Equipo' }]
+      : []),
     { key: 'plan', label: 'Elegir tu plan', done: input.requestedPlan || !!input.company?.planId, link: '/app/bienvenida#planes', place: 'Primeros pasos → Elige tu plan' },
   ];
   // Solo los pasos de lo que contrató: sin Automation no hay WhatsApp, asistente ni catálogo que configurar

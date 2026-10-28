@@ -15,6 +15,7 @@ import {
 } from '@nestjs/common';
 import { entryStageFor } from '../common/pipelines';
 import { PrismaService } from '../prisma/prisma.service';
+import { contactCreated, contactStageChanged } from '../common/domain-events';
 import { DEFAULT_STAGES } from '../common/pipelines';
 import { CurrentUser, Roles } from '../auth/decorators';
 import {
@@ -22,9 +23,9 @@ import {
   ROLES,
   isPlatformRole,
   parseJson,
-  scopeCompanyId,
 } from '../common/constants';
 import { AuditService } from './audit.module';
+import { assertRefsInTenant, requireTenant, tenantFilter } from '../common/tenant';
 import { Products } from '../auth/products.guard';
 
 @Injectable()
@@ -54,7 +55,7 @@ export class ContactsService {
     search?: string,
     pipelineId?: string,
   ) {
-    const scoped = scopeCompanyId(user, companyId);
+    const scoped = tenantFilter(user, companyId);
     const contacts = await this.prisma.contact.findMany({
       where: {
         ...(scoped ? { companyId: scoped } : {}),
@@ -86,8 +87,9 @@ export class ContactsService {
   }
 
   async create(user: AuthUser, dto: any) {
-    const companyId = isPlatformRole(user.role) ? dto.companyId : user.companyId;
-    if (!companyId) throw new ForbiddenException('Falta companyId');
+    const companyId = requireTenant(user, dto?.companyId);
+    // Responsable y cliente deben ser de esta misma empresa
+    await assertRefsInTenant(this.prisma, companyId, { userId: dto.assignedToId, customerId: dto.customerId });
     // Sin embudo indicado entra al embudo por defecto de la empresa (si tiene uno propio)
     const pipelineId = dto.pipelineId === undefined
       ? (await entryStageFor(this.prisma, companyId)).pipelineId
@@ -112,6 +114,7 @@ export class ContactsService {
       actor: user, companyId, action: 'contact.create',
       entity: 'Contact', entityId: contact.id, detail: contact.name,
     });
+    await contactCreated(companyId, contact.id);
     return this.serialize(contact);
   }
 
@@ -125,6 +128,10 @@ export class ContactsService {
 
   async update(user: AuthUser, id: string, dto: any) {
     const existing = await this.assertAccess(user, id);
+    await assertRefsInTenant(this.prisma, existing.companyId, {
+      ...(dto.assignedToId !== undefined ? { userId: dto.assignedToId } : {}),
+      ...(dto.customerId !== undefined ? { customerId: dto.customerId } : {}),
+    });
     // Embudo y etapa: la etapa debe existir en el embudo del contacto; al
     // cambiar de embudo sin etapa, el contacto entra en la primera
     const pipelineChanged = dto.pipelineId !== undefined;
@@ -161,6 +168,7 @@ export class ContactsService {
         entity: 'Contact', entityId: id,
         detail: `${contact.name}: ${existing.stage} → ${stage}`,
       });
+      await contactStageChanged(existing.companyId, id, existing.stage, stage);
     }
     return this.serialize(contact);
   }

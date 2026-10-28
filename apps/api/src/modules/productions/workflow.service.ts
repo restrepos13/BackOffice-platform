@@ -6,6 +6,7 @@ import { parseJson } from '../../common/constants';
 import { TASK_RULES, mergeConfig } from '../../common/productions';
 import { WORKFLOW_QUEUE, queuePrefix, redisConnection } from '../../queue/queue.module';
 import { ProductionsService } from './productions.service';
+import { CancelRun, WaitUntil, deterministicId } from '../../common/automation/run-signals';
 
 /**
  * Motor de Automation: ejecuciones REALES y persistidas (WorkflowRun).
@@ -18,7 +19,20 @@ import { ProductionsService } from './productions.service';
  *  - Solo acciones INTERNAS: crear tareas, marcar vencidas, liberar retenciones.
  *    Nada se envía fuera de BackOffice.
  * La cola BullMQ (con prefijo propio por entorno) acelera; el barrido garantiza.
+ *
+ * Es también el motor del módulo de automatizaciones: otros módulos registran
+ * manejadores por `kind` (registerHandler). El _id de cada ejecución es
+ * determinista (empresa + clave), así la unicidad la garantiza Mongo aunque el
+ * índice único compuesto no exista en la base.
  */
+
+export type WorkflowHandler = (run: any) => Promise<Record<string, unknown>>;
+
+export interface ScheduleOptions {
+  maxAttempts?: number;
+  /** Campos extra del registro (automationId, triggerType, sourceId…) */
+  extra?: Record<string, unknown>;
+}
 
 const LOCK_MS = 2 * 60_000;
 const OPEN_TASK = ['TODO', 'IN_PROGRESS', 'BLOCKED'];
@@ -27,7 +41,12 @@ const OPEN_TASK = ['TODO', 'IN_PROGRESS', 'BLOCKED'];
 export class WorkflowService implements OnModuleInit, OnApplicationShutdown {
   private readonly logger = new Logger('Workflow');
   private worker: Worker | null = null;
+  private readonly handlers = new Map<string, WorkflowHandler>();
   now = () => new Date();
+
+  registerHandler(kind: string, handler: WorkflowHandler) {
+    this.handlers.set(kind, handler);
+  }
 
   constructor(
     private readonly prisma: PrismaService,
@@ -51,13 +70,17 @@ export class WorkflowService implements OnModuleInit, OnApplicationShutdown {
   }
 
   /** Registra una ejecución (idempotente) y la despacha. Devuelve la ejecución. */
-  async schedule(companyId: string, kind: string, key: string, payload: Record<string, unknown>, productionId?: string | null, taskId?: string | null) {
-    const cfg = mergeConfig(parseJson((await this.prisma.productionSettings.findUnique({ where: { companyId } }))?.configJson, {}));
+  async schedule(companyId: string, kind: string, key: string, payload: Record<string, unknown>, productionId?: string | null, taskId?: string | null, opts: ScheduleOptions = {}) {
     let run: any = await this.prisma.workflowRun.findFirst({ where: { companyId, idempotencyKey: key } });
     if (!run) {
+      const maxAttempts = opts.maxAttempts
+        ?? mergeConfig(parseJson((await this.prisma.productionSettings.findUnique({ where: { companyId } }))?.configJson, {})).engine.maxAttempts;
       try {
         run = await this.prisma.workflowRun.create({
-          data: { companyId, kind, idempotencyKey: key, payloadJson: JSON.stringify(payload), productionId: productionId ?? null, taskId: taskId ?? null, maxAttempts: cfg.engine.maxAttempts, updatedAt: this.now() },
+          data: {
+            id: deterministicId('wf', companyId, key), companyId, kind, idempotencyKey: key, payloadJson: JSON.stringify(payload),
+            productionId: productionId ?? null, taskId: taskId ?? null, maxAttempts, createdAt: this.now(), updatedAt: this.now(), ...(opts.extra ?? {}),
+          },
         });
       } catch (e: any) {
         if (e?.code !== 'P2002') throw e;
@@ -88,7 +111,7 @@ export class WorkflowService implements OnModuleInit, OnApplicationShutdown {
     const now = this.now();
     const claim = await this.prisma.workflowRun.updateMany({
       where: {
-        id: runId, companyId, status: { in: ['PENDING', 'RETRYABLE', 'RUNNING'] },
+        id: runId, companyId, status: { in: ['PENDING', 'RETRYABLE', 'RUNNING', 'WAITING'] },
         OR: [{ lockedUntil: null }, { lockedUntil: { isSet: false } }, { lockedUntil: { lt: now } }],
       },
       data: { status: 'RUNNING', lockedUntil: new Date(now.getTime() + LOCK_MS), startedAt: now, attempts: { increment: 1 }, updatedAt: now },
@@ -100,7 +123,21 @@ export class WorkflowService implements OnModuleInit, OnApplicationShutdown {
       await this.prisma.workflowRun.update({ where: { id: run.id }, data: { status: 'COMPLETED', finishedAt: this.now(), lockedUntil: null, resultJson: JSON.stringify(result).slice(0, 2000), errorJson: null, nextRetryAt: null, updatedAt: this.now() } });
       return 'COMPLETED';
     } catch (err: any) {
-      const final = run.attempts >= run.maxAttempts;
+      if (err instanceof WaitUntil) {
+        // Espera programada: no cuenta como intento
+        await this.prisma.workflowRun.update({ where: { id: run.id }, data: { status: 'WAITING', lockedUntil: null, nextRetryAt: err.until, attempts: Math.max(0, run.attempts - 1), updatedAt: this.now() } });
+        // La cola lo despierta a tiempo; si no hay cola, el barrido (cada 5 min)
+        if (this.queue && !process.env.JEST_WORKER_ID) {
+          const delay = Math.max(0, err.until.getTime() - this.now().getTime());
+          await this.queue.add('run', { runId: run.id, companyId }, { jobId: `wf-${run.id}-wait-${err.until.getTime()}`, delay, removeOnComplete: 500, removeOnFail: 2000 }).catch(() => undefined);
+        }
+        return 'RETRYABLE';
+      }
+      if (err instanceof CancelRun) {
+        await this.prisma.workflowRun.update({ where: { id: run.id }, data: { status: 'CANCELLED', lockedUntil: null, nextRetryAt: null, finishedAt: this.now(), errorJson: JSON.stringify({ message: err.message.slice(0, 300), name: 'CancelRun' }), updatedAt: this.now() } });
+        return 'FAILED';
+      }
+      const final = run.attempts >= run.maxAttempts || err?.permanent === true;
       const error = { message: String(err?.message ?? err).slice(0, 300), name: err?.name ?? 'Error', attempt: run.attempts };
       await this.prisma.workflowRun.update({
         where: { id: run.id },
@@ -124,6 +161,8 @@ export class WorkflowService implements OnModuleInit, OnApplicationShutdown {
     if (run.kind === 'task.overdue') return this.markOverdue(run.companyId, run.taskId);
     if (run.kind === 'hold.expire') return { released: await this.productions.expireHold(run.companyId, String(payload.assignmentId)) };
     if (run.kind === 'test.fail') throw new Error('Fallo de prueba controlado');
+    const handler = this.handlers.get(run.kind);
+    if (handler) return handler(run);
     throw new Error(`Acción desconocida: ${run.kind}`);
   }
 
@@ -183,6 +222,7 @@ export class WorkflowService implements OnModuleInit, OnApplicationShutdown {
       where: {
         OR: [
           { status: 'RETRYABLE', nextRetryAt: { lte: now } },
+          { status: 'WAITING', nextRetryAt: { lte: now } },
           { status: 'PENDING', createdAt: { lt: new Date(now.getTime() - 60_000) } },
           { status: 'RUNNING', lockedUntil: { lt: now } },
         ],

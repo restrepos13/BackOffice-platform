@@ -13,7 +13,7 @@ import {
   Query,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { assertChannelAllowed } from '../common/channel-limits';
+import { assertChannelAllowed, verifyChannelAllowed } from '../common/channel-limits';
 import { CurrentUser, Roles } from '../auth/decorators';
 import {
   AuthUser,
@@ -23,6 +23,7 @@ import {
   scopeCompanyId,
 } from '../common/constants';
 import { AuditService } from './audit.module';
+import { assertRefsInTenant } from '../common/tenant';
 import { buildConnectUrl } from './companies.module';
 import { encryptSecret } from '../common/crypto';
 import { Products } from '../auth/products.guard';
@@ -120,6 +121,8 @@ export class IntegrationsService {
       where: { id: companyId },
     });
     await assertChannelAllowed(this.prisma, companyId, dto.type);
+    // El asistente debe ser de esta empresa (si no, la línea usaría el de otra)
+    await assertRefsInTenant(this.prisma, companyId, { botId: dto.botId });
     const integration = await this.prisma.integration.create({
       data: {
         companyId,
@@ -132,6 +135,7 @@ export class IntegrationsService {
         configJson: this.mergeConfig('{}', dto.config ?? {}),
       },
     });
+    await verifyChannelAllowed(this.prisma, companyId, dto.type, integration.id, () => this.prisma.integration.delete({ where: { id: integration.id } }));
     await this.audit.log({
       actor: user, companyId, action: 'integration.create',
       entity: 'Integration', entityId: integration.id, detail: integration.name,
@@ -141,6 +145,7 @@ export class IntegrationsService {
 
   async update(user: AuthUser, id: string, dto: any) {
     const existing = await this.assertAccess(user, id);
+    if (dto.botId !== undefined) await assertRefsInTenant(this.prisma, existing.companyId, { botId: dto.botId });
     const integration = await this.prisma.integration.update({
       where: { id },
       data: {
@@ -216,6 +221,7 @@ export class IntegrationsService {
         overrideSalesJson: source.overrideSalesJson,
       },
     });
+    await verifyChannelAllowed(this.prisma, source.companyId, source.type, copy.id, () => this.prisma.integration.delete({ where: { id: copy.id } }));
     await this.audit.log({
       actor: user, companyId: source.companyId, action: 'integration.clone',
       entity: 'Integration', entityId: copy.id,

@@ -12,11 +12,13 @@
  *   monitor@novastudio.co    → COMPANY_VIEWER (Nova Studio)
  */
 import { PrismaClient } from '@prisma/client';
+import { loadApiEnv, prepareSeed } from './seed-guard';
 import * as bcrypt from 'bcryptjs';
 import { seedPassword } from './seed-passwords';
 import { mkdirSync, writeFileSync } from 'fs';
 import { join, resolve } from 'path';
 
+loadApiEnv();
 const prisma = new PrismaClient();
 // Nunca una clave escrita en el código (repositorio público): sale de apps/api/.env
 const PASSWORD = bcrypt.hashSync(seedPassword('SEED_PASSWORD_DEMO'), 12);
@@ -41,8 +43,8 @@ function hoursAgo(h: number): Date {
   return new Date(Date.now() - h * 3600 * 1000);
 }
 
-async function main() {
-  console.log('Limpiando base…');
+/** Borra todo. Solo se llama si prepareSeed lo autorizó (SEED_RESET_CONFIRM). */
+async function resetDatabase() {
   await prisma.$transaction([
     prisma.message.deleteMany(),
     prisma.conversation.deleteMany(),
@@ -66,6 +68,14 @@ async function main() {
     prisma.plan.deleteMany(),
     prisma.platformSetting.deleteMany(),
   ]);
+}
+
+async function main() {
+  const { target, reset } = await prepareSeed(prisma, 'seed-demo');
+  if (reset) {
+    console.log(`Limpiando la base «${target.name}»…`);
+    await resetDatabase();
+  }
 
   console.log('Catálogo de modelos IA (DeepInfra)…');
   // Precios de REFERENCIA (USD por 1M tokens). Actualizar contra deepinfra.com/pricing

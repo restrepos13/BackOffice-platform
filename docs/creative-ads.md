@@ -2,6 +2,8 @@
 
 Documento operativo. Sin secretos: los valores reales viven solo en el `.env` de cada entorno.
 
+> **Fase 3 (27-oct-2026):** sincronización con candado y tramos, idempotencia sin índices, métricas por objetivo, alcance y frecuencia reales, nuevos hallazgos, estados de atribución, Meta Lead Ads y ciclo de acciones. Ver [ads-intelligence/FASE3.md](ads-intelligence/FASE3.md).
+
 ## 1. Arquitectura
 
 ```
@@ -140,3 +142,46 @@ Ya existe el contrato (`AdsProvider`) y un adaptador que **declara qué falta**,
 - Meta Marketing API: sin costo directo; tiene límites de solicitudes, que se manejan como `RATE_LIMIT` y se reintentan en la siguiente vuelta.
 - Base de datos: unas 60 filas diarias por anuncio y día sincronizado (aproximadamente 1 KB cada una).
 - No se usa IA en estos flujos, así que no consumen créditos.
+
+## 14. Publicidad propia de BackOffice (solo equipo)
+
+Panel de plataforma → **Publicidad** (`/platform/publicidad`), solo para `SUPER_ADMIN` y `DEV`; el rol se exige en el servidor. Es independiente de la Publicidad de los clientes: usa su propia cuenta publicitaria (`META_ADS_CONFIG`, con el token cifrado) y no toca `AdAccount` ni las empresas.
+
+**Pestañas**
+- **Resultados**: lo que ya existía (gasto, registros y empresas por campaña, gasto anotado a mano, enlaces UTM).
+- **Lanzar campaña**: objetivo, presupuesto, fechas, público y anuncio (imagen, texto, título y botón). «Revisar» valida en el servidor y no toca Meta; «Crear en Meta (en pausa)» pide confirmación.
+- **Lanzamientos**: activar (con confirmación), pausar, cambiar el presupuesto, reintentar y archivar. También muestra el historial y los IDs de Meta.
+- **Configuración**: página que publica, Instagram opcional y **tope de presupuesto diario**.
+
+**Qué se crea** (`common/ads/launch.ts`, determinista y probado): una campaña, un conjunto, un creativo y un anuncio, todo en `PAUSED`.
+
+| Objetivo | Campaña | Conjunto | Botón |
+| --- | --- | --- | --- |
+| Registros en la web | `OUTCOME_TRAFFIC` | `WEBSITE`, `LINK_CLICKS` | `SIGN_UP` / `LEARN_MORE` / `GET_QUOTE` / `CONTACT_US` |
+| Conversaciones por WhatsApp | `OUTCOME_ENGAGEMENT` | `WHATSAPP`, `CONVERSATIONS`, `promoted_object.page_id` | `WHATSAPP_MESSAGE` |
+
+- Público: países, edad y género. `targeting_automation.advantage_audience` siempre se envía, porque Meta lo exige desde v23. Con Advantage+ la edad mínima va de 18 a 25 y no se envía edad máxima.
+- El destino de «Registros» es `<PUBLIC_WEB_URL>/registro?utm_source=meta&utm_medium=paid&utm_campaign=<slug del nombre>`. Resultados cruza la campaña por ese `utm_campaign` exacto. No se permiten dos lanzamientos con el mismo slug.
+- Los montos se leen según la moneda de la cuenta: en COP «50.000» son cincuenta mil; en USD el último separador es el decimal.
+
+**Controles de dinero**
+- Nada se crea activo.
+- Activar, subir el presupuesto y activar desde la tabla exigen `confirm: true`.
+- Ningún lanzamiento, activación ni cambio de presupuesto pasa el tope diario vigente, y sin tope no se puede lanzar.
+- Activar va en el orden anuncio → conjunto → campaña: si algo falla a mitad, la campaña sigue en pausa.
+- Cada paso guarda su ID de Meta apenas llega. Si uno falla, el lanzamiento queda en `FAILED` y «Reintentar» continúa desde ese paso sin duplicar.
+- Un candado con compare-and-set sobre `PlatformSetting` evita que dos clics simultáneos procesen el mismo lanzamiento.
+- Archivar solo lo quita de la lista: en Meta no se borra nada, y una campaña activa hay que pausarla antes.
+- Todo queda en `AuditLog`: `ads.launch.create`, `.activate`, `.pause`, `.budget`, `.archive`, `ads.image` y `ads.prefs`.
+
+**Datos**: `PlatformSetting` con las claves `META_ADS_PREFS` y `META_ADS_LAUNCH:<id>`, una por lanzamiento. No hay modelos nuevos, ni índices, ni `db push`.
+
+**Requisitos en Meta antes del primer lanzamiento**
+- Token de usuario del sistema con `ads_management`.
+- La página asignada a ese usuario del sistema, con permiso para crear anuncios.
+- Para WhatsApp, la página vinculada al número de WhatsApp Business.
+- Imágenes JPG o PNG de hasta 8 MB. Se suben a la biblioteca de la cuenta (`/adimages`) y se verifican por sus bytes, no por la extensión.
+
+**Versión de la API**: este panel usaba `v21.0` fijo. Ahora usa `META_ADS_API_VERSION` (por defecto `v24.0`), igual que la Publicidad de clientes.
+
+**Pruebas**: `apps/api/test/platform-ads.spec.ts` (14, con un Meta falso, sin llamadas reales) y `apps/web/src/pages/platform/PublicidadLanzar.test.tsx` (5).

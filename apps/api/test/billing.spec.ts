@@ -215,7 +215,8 @@ describe('IA prepaga: incluidas primero, después paquetes FIFO con vencimiento'
     expect(checkout.checkoutUrl).toContain('amount-in-cents=9900000');
     expect(checkout.purpose).toBe('AI_CREDITS');
 
-    const data = { transaction: { id: 'tx1', reference: checkout.reference, status: 'APPROVED', payment_method_type: 'NEQUI' } };
+    // Como los eventos reales de Wompi: traen monto y moneda (se verifican contra lo cobrado)
+    const data = { transaction: { id: 'tx1', reference: checkout.reference, status: 'APPROVED', payment_method_type: 'NEQUI', amount_in_cents: 9900000, currency: 'COP' } };
     const timestamp = 1700000000;
     const body = { data, timestamp, signature: signEvent(data, timestamp, 'evsecret', ['transaction.id', 'transaction.status']) };
     expect(verifyEventSignature(body, 'evsecret')).toBe(true);
@@ -224,6 +225,12 @@ describe('IA prepaga: incluidas primero, después paquetes FIFO con vencimiento'
     expect(db.aiCreditLot).toHaveLength(1);
     expect(db.aiCreditLot[0]).toMatchObject({ companyId: 'co1', total: 500, remaining: 500, source: 'PURCHASE' });
     await expect(payments.handleWompiEvent({ ...body, signature: { ...body.signature, checksum: 'falso' } })).rejects.toBeInstanceOf(UnauthorizedException);
+    // Un aprobado con otro monto no acredita: queda para revisión
+    const other = await service.checkout(ADMIN, pkg.id);
+    const bad = { transaction: { id: 'tx2', reference: other.reference, status: 'APPROVED', amount_in_cents: 100, currency: 'COP' } };
+    await payments.handleWompiEvent({ data: bad, timestamp, signature: signEvent(bad, timestamp, 'evsecret', ['transaction.id', 'transaction.status']) });
+    expect(db.aiCreditLot).toHaveLength(1);
+    expect(db.payment.find((p: any) => p.reference === other.reference)!.status).toBe('REVIEW');
   });
 
   it('plataforma regala saldo con vigencia; cantidades absurdas se rechazan', async () => {

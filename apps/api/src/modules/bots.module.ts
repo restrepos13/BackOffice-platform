@@ -30,6 +30,7 @@ import {
   scopeCompanyId,
 } from '../common/constants';
 import { AuditService } from './audit.module';
+import { assertWithinLimit, verifyWithinLimit } from '../common/limits';
 import { Products } from '../auth/products.guard';
 
 @Injectable()
@@ -120,6 +121,8 @@ export class BotsService {
       : user.companyId;
     if (!companyId) throw new ForbiddenException('Falta companyId');
     await this.assertModelAllowed(companyId, dto.model, dto.aiSource);
+    const onReached = (l: any, used: number) => this.audit.log({ actor: user, companyId, action: 'limit.reached', entity: 'Company', entityId: companyId, detail: `asistentes: ${used}/${l.max} (${l.source})` });
+    await assertWithinLimit(this.prisma, companyId, 'bots', onReached);
     const bot = await this.prisma.bot.create({
       data: {
         companyId,
@@ -148,6 +151,7 @@ export class BotsService {
         ),
       },
     });
+    await verifyWithinLimit(this.prisma, companyId, 'bots', () => this.prisma.bot.delete({ where: { id: bot.id } }), onReached);
     await this.audit.log({
       actor: user, companyId, action: 'bot.create', entity: 'Bot',
       entityId: bot.id, detail: bot.name,

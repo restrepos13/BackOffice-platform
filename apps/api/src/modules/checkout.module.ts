@@ -1,5 +1,5 @@
 import {
-  BadRequestException, Body, Controller, ForbiddenException, Get, Injectable, Logger, Module, NotFoundException,
+  BadRequestException, Body, ConflictException, Controller, ForbiddenException, Get, Injectable, Logger, Module, NotFoundException, Optional,
   Param, Patch, Post, Put, Query, Res, UploadedFile, UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
@@ -19,6 +19,7 @@ import {
 import { ensureFile, removeFile, saveFile } from '../common/file-store';
 import { TEAM_SIZE_PEOPLE } from '../common/business-profile';
 import { AuditModule, AuditService } from './audit.module';
+import { SubscriptionsModule, SubscriptionsService } from './subscriptions.module';
 import { EmailsModule, EmailsService } from './emails.module';
 import { usdCopRate } from '../common/trm';
 
@@ -72,6 +73,7 @@ export class CheckoutService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly emails: EmailsService,
+    @Optional() private readonly subscriptions?: SubscriptionsService,
   ) {}
 
   private companyIdOf(user: AuthUser, companyId?: string) {
@@ -254,6 +256,11 @@ export class CheckoutService {
     const companyId = this.companyIdOf(user, (dto as any)?.companyId);
     const company = await this.prisma.company.findUniqueOrThrow({ where: { id: companyId } });
     const plan = await this.prisma.plan.findUnique({ where: { id: String(dto?.planId ?? '') } });
+    // Solo planes a la venta: activos y dentro de su ventana comercial
+    const nowAt = new Date();
+    if (plan && (!plan.active || (plan.availableFrom && plan.availableFrom > nowAt) || (plan.availableUntil && plan.availableUntil < nowAt))) {
+      throw new BadRequestException('Ese plan ya no está a la venta');
+    }
     if (!plan || !plan.active) throw new BadRequestException('Ese plan ya no está disponible. Elige otro.');
     const cycle = dto?.billingCycle === 'ANNUAL' ? 'ANNUAL' : 'MONTHLY';
     const mode: ServiceMode = dto?.serviceMode === 'MANAGED' ? 'MANAGED' : 'SELF';
@@ -417,6 +424,23 @@ export class CheckoutService {
     if (!order) throw new NotFoundException('Pedido no encontrado');
     if (order.status === 'ACTIVE') return this.serialize(order);
     if (order.status === 'CANCELLED') throw new BadRequestException('Este pedido está cancelado');
+    // Se reclama el pedido (compare-and-set): dos clics a la vez no activan dos veces
+    const claimed = await this.prisma.planOrder.updateMany({
+      where: { id, status: { notIn: ['ACTIVE', 'CANCELLED'] } },
+      data: { status: 'ACTIVE', activatedAt: new Date(), paidAt: order.paidAt ?? new Date(), handledBy: actor.name },
+    });
+    if (claimed.count !== 1) throw new ConflictException('Este pedido ya se está activando o ya se activó');
+    try {
+      return await this.applyActivation(actor, order);
+    } catch (err) {
+      // Si algo falla, el pedido vuelve a su estado para reintentar
+      await this.prisma.planOrder.update({ where: { id }, data: { status: order.status, activatedAt: null, handledBy: order.handledBy ?? null } }).catch(() => undefined);
+      throw err;
+    }
+  }
+
+  private async applyActivation(actor: AuthUser, order: any) {
+    const id = order.id;
     const company = await this.prisma.company.findUniqueOrThrow({ where: { id: order.companyId } });
     const mode: ServiceMode = order.serviceMode === 'MANAGED' ? 'MANAGED' : 'SELF';
     const now = new Date().toISOString();
@@ -426,13 +450,11 @@ export class CheckoutService {
       states[a.key] = { ...(states[a.key] ?? {}), enabled: true, qty: a.qty, since: now, until: null, requestedAt: null };
     }
     // Primera suscripción → landing de regalo (la arma el equipo)
-    const firstTime = (await this.prisma.planOrder.count({ where: { companyId: order.companyId, status: 'ACTIVE' } })) === 0;
+    const firstTime = (await this.prisma.planOrder.count({ where: { companyId: order.companyId, status: 'ACTIVE', id: { not: id } } })) === 0;
     const landing = parseJson<Record<string, any>>(company.landingJson, {});
     await this.prisma.company.update({
       where: { id: order.companyId },
       data: {
-        planId: order.planId,
-        status: 'ACTIVE',
         billingCycle: order.billingCycle,
         ...(order.billingCycle === 'ANNUAL' ? { annualStartPeriod: periodOf() } : {}),
         contractStartAt: new Date(),
@@ -444,10 +466,13 @@ export class CheckoutService {
         ...(firstTime && !landing.status ? { landingJson: JSON.stringify({ status: 'PENDING', createdAt: now }) } : {}),
       },
     });
-    const row = await this.prisma.planOrder.update({
-      where: { id },
-      data: { status: 'ACTIVE', activatedAt: new Date(), paidAt: order.paidAt ?? new Date(), handledBy: actor.name },
-    });
+    // Plan, periodo y estado pasan por el ciclo de vida de la suscripción (con historial)
+    if (this.subscriptions) {
+      await this.subscriptions.activateFromOrder(actor, order.companyId, { id, planId: order.planId, billingCycle: order.billingCycle });
+    } else {
+      await this.prisma.company.update({ where: { id: order.companyId }, data: { planId: order.planId, status: 'ACTIVE' } });
+    }
+    const row = await this.prisma.planOrder.findUniqueOrThrow({ where: { id } });
     await this.audit.log({ actor, companyId: order.companyId, action: 'checkout.activate', entity: 'PlanOrder', entityId: id, detail: `${order.planName} · ${SERVICE_MODES[mode].name} activado · ${money(order.total)}${firstTime ? ' · landing de regalo pendiente' : ''}` });
     return this.serialize(row);
   }
@@ -519,7 +544,7 @@ export class CheckoutController {
 }
 
 @Module({
-  imports: [AuditModule, EmailsModule],
+  imports: [AuditModule, EmailsModule, SubscriptionsModule],
   controllers: [CheckoutController],
   providers: [CheckoutService],
   exports: [CheckoutService],

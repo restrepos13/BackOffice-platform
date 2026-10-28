@@ -12,6 +12,7 @@ import {
   Patch,
   Post,
   Query,
+  Optional,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { computeAiCredits } from '../ai/ai-access';
@@ -21,6 +22,8 @@ import {
   PERIOD_RE, computeCompanyInvoice, earlyExitFee, invoiceCurrency, periodOf, sanitizeLines, shiftPeriod, summarize, monthsBetween, includedIva,
 } from '../common/billing-engine';
 import { AuditService } from './audit.module';
+import { SubscriptionsModule, SubscriptionsService } from './subscriptions.module';
+import { deterministicId } from '../common/automation/run-signals';
 
 /**
  * Cobro a las empresas, personalizable mes a mes:
@@ -37,6 +40,7 @@ export class BillingService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    @Optional() private readonly subscriptions?: SubscriptionsService,
   ) {}
 
   private resolveCompany(user: AuthUser, companyId?: string): string {
@@ -276,9 +280,23 @@ export class BillingService {
       planAmount: inv.planAmount, consumptionAmount: inv.consumptionAmount, totalAmount: inv.total,
       currency: invoiceCurrency(company), linesJson: JSON.stringify(inv.lines),
     };
-    const invoice = existing
-      ? await this.prisma.invoice.update({ where: { id: existing.id }, data })
-      : await this.prisma.invoice.create({ data: { companyId, period: p, status: 'PENDING', ...data } });
+    // Una factura por empresa y mes: el _id sale de ambos (dos emisiones a la vez no crean dos)
+    const id = deterministicId('inv', companyId, p);
+    let invoice: any;
+    if (existing) {
+      // Solo se recalcula si sigue pendiente (compare-and-set: un pago simultáneo no se pisa)
+      const r = await this.prisma.invoice.updateMany({ where: { id: existing.id, status: { not: 'PAID' } }, data });
+      if (r.count !== 1) throw new BadRequestException('Ese mes ya está pagado');
+      invoice = await this.prisma.invoice.findUniqueOrThrow({ where: { id: existing.id } });
+    } else {
+      try {
+        invoice = await this.prisma.invoice.create({ data: { id, companyId, period: p, status: 'PENDING', ...data } });
+      } catch (err: any) {
+        if (err?.code !== 'P2002') throw err;
+        throw new BadRequestException('Esa factura se acaba de emitir: recarga para verla');
+      }
+    }
+    await this.subscriptions?.onInvoiceIssued(companyId, invoice);
     await this.audit.log({
       actor: user, companyId, action: existing ? 'billing.invoice_recalc' : 'billing.invoice_issue',
       entity: 'Invoice', entityId: invoice.id, detail: `${p} · ${inv.total} ${data.currency}`,
@@ -345,6 +363,7 @@ export class BillingController {
 }
 
 @Module({
+  imports: [SubscriptionsModule],
   controllers: [BillingController],
   providers: [BillingService],
   exports: [BillingService],

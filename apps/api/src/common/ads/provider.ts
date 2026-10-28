@@ -89,7 +89,8 @@ export interface CampaignDraft {
   objective: 'LEADS' | 'MESSAGES' | 'TRAFFIC' | 'SALES' | 'AWARENESS' | 'ENGAGEMENT';
 }
 
-export type ProviderErrorKind = 'AUTH' | 'PERMISSION' | 'RATE_LIMIT' | 'NOT_FOUND' | 'NOT_SUPPORTED' | 'NOT_CONFIGURED' | 'PROVIDER';
+/** INCOMPLETE = la plataforma devolvió más datos de los que se pudieron leer (o pidió un rango menor). */
+export type ProviderErrorKind = 'AUTH' | 'PERMISSION' | 'RATE_LIMIT' | 'NOT_FOUND' | 'NOT_SUPPORTED' | 'NOT_CONFIGURED' | 'INCOMPLETE' | 'PROVIDER';
 
 export class AdsProviderError extends Error {
   constructor(public readonly kind: ProviderErrorKind, message: string, public readonly providerCode?: number | string) {
@@ -110,7 +111,15 @@ export interface AdsProvider {
   fetchInsights(account: AccountRef, token: string, since: string, until: string): Promise<RemoteInsight[]>;
   setStatus(account: AccountRef, token: string, level: AdLevel, externalId: string, status: 'ACTIVE' | 'PAUSED'): Promise<Record<string, unknown>>;
   createCampaignPaused(account: AccountRef, token: string, draft: CampaignDraft): Promise<{ externalId: string; response: Record<string, unknown> }>;
+  /**
+   * Alcance (personas únicas) y frecuencia del periodo completo, por cuenta y
+   * por campaña. Opcional: si el proveedor no lo da, no se muestran.
+   */
+  fetchPeriodStats?(account: AccountRef, token: string, since: string, until: string): Promise<PeriodStats>;
 }
+
+export interface PeriodStatRow { reach: number; impressions: number; frequency: number | null }
+export interface PeriodStats { account: PeriodStatRow | null; campaigns: Array<PeriodStatRow & { externalId: string }> }
 
 export type FetchLike = (url: string, init?: any) => Promise<{ ok: boolean; status: number; json(): Promise<any> }>;
 

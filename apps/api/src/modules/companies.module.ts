@@ -27,7 +27,8 @@ import {
 import { maskCompanyKey, normalizeAiMode, storeCompanyKey } from '../ai/ai-access';
 import { serializePaymentConfig } from './payments.module';
 import { serializeEinvoiceConfig } from '../common/einvoice';
-import { deleteCompanyLooseData } from '../common/company-cleanup';
+import { companyDataFootprint, deleteCompanyLooseData } from '../common/company-cleanup';
+import { forgetCompanySections } from '../auth/sections.guard';
 import { PERIOD_RE, earlyExitFee, periodOf } from '../common/billing-engine';
 import { AGENT_PRESETS } from '../ai/agent/tools';
 import { AuditService } from './audit.module';
@@ -144,6 +145,42 @@ export function buildConnectUrl(type: string, slug: string): string {
     default:
       return '';
   }
+}
+
+/**
+ * Datos básicos que la propia empresa edita (Configuración): formato válido
+ * antes de guardar. Solo revisa lo que viene; lo demás no cambia.
+ */
+export function validateCompanyBasics(dto: any) {
+  if (!dto || typeof dto !== 'object') throw new BadRequestException('Datos inválidos');
+  const has = (k: string) => dto[k] !== undefined && dto[k] !== null;
+  if (has('name')) {
+    const n = String(dto.name).trim();
+    if (n.length < 2 || n.length > 80) throw new BadRequestException('El nombre debe tener entre 2 y 80 caracteres');
+    dto.name = n;
+  }
+  if (has('contactEmail') && String(dto.contactEmail).trim() !== '') {
+    const e = String(dto.contactEmail).trim().toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(e) || e.length > 160) throw new BadRequestException('El correo de contacto no es válido');
+    dto.contactEmail = e;
+  }
+  if (has('contactPhone') && String(dto.contactPhone).trim() !== '' && !/^[+\d][\d\s()-]{6,24}$/.test(String(dto.contactPhone).trim())) {
+    throw new BadRequestException('El teléfono de contacto no es válido');
+  }
+  if (has('website') && String(dto.website).trim() !== '' && (!/^https?:\/\/[^\s]+$/i.test(String(dto.website).trim()) || String(dto.website).length > 200)) {
+    throw new BadRequestException('El sitio web debe empezar por https://');
+  }
+  if (has('brandColor') && String(dto.brandColor).trim() !== '' && !/^#[0-9a-f]{6}$/i.test(String(dto.brandColor).trim())) {
+    throw new BadRequestException('El color de marca debe tener el formato #RRGGBB');
+  }
+  if (has('timezone')) {
+    try {
+      new Intl.DateTimeFormat('en', { timeZone: String(dto.timezone) });
+    } catch {
+      throw new BadRequestException('La zona horaria no es válida');
+    }
+  }
+  if (has('language') && !/^[a-z]{2}(-[A-Z]{2})?$/.test(String(dto.language))) throw new BadRequestException('El idioma no es válido');
 }
 
 @Injectable()
@@ -599,10 +636,17 @@ export class CompaniesService {
     return url;
   }
 
+  /** Inventario de datos de la empresa y qué les pasaría al borrarla (solo lectura). */
+  async dataFootprint(id: string) {
+    if (!(await this.prisma.company.findUnique({ where: { id }, select: { id: true } }))) throw new NotFoundException('Empresa no encontrada');
+    return companyDataFootprint(this.prisma, id);
+  }
+
   async update(actor: AuthUser, id: string, dto: any) {
     if (!isPlatformRole(actor.role) && actor.companyId !== id) {
       throw new ForbiddenException();
     }
+    validateCompanyBasics(dto);
     const before = await this.prisma.company.findUniqueOrThrow({ where: { id } });
     // Campos que un admin de empresa puede tocar vs. plataforma
     const platformOnly = [
@@ -694,6 +738,7 @@ export class CompaniesService {
       },
       include: { plan: true },
     });
+    if (dto.modules) forgetCompanySections(id); // la sección rige desde la próxima petición
     // Salida anticipada: si se cancela antes de cumplir la permanencia, se cobra
     // la parte proporcional del montaje (que fue gratis con permanencia)
     if (dto.status === 'CANCELLED' && before.status !== 'CANCELLED') {
@@ -807,6 +852,13 @@ export class CompaniesController {
   @Roles(ROLES.SUPER_ADMIN, ROLES.DEV, ROLES.COMPANY_ADMIN)
   update(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: any) {
     return this.companies.update(user, id, dto);
+  }
+
+  /** Qué pasaría con los datos si se borra la empresa (solo lectura). */
+  @Get(':id/data-footprint')
+  @Roles(ROLES.SUPER_ADMIN, ROLES.DEV)
+  dataFootprint(@Param('id') id: string) {
+    return this.companies.dataFootprint(id);
   }
 
   @Delete(':id')

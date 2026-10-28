@@ -5,17 +5,21 @@ import { useState } from 'react';
 import { toast } from 'sonner';
 import { api } from '../../lib/api';
 import { fmtMoney, fmtNum } from '../../lib/format';
-import { Badge, Button, Card, Field, Input, Loading, Modal, PageHeader, Select, Stat } from '../../components/ui';
+import { Badge, Button, Card, Field, Input, Loading, Modal, PageHeader, Select, Stat, Tabs } from '../../components/ui';
+import { AdsSetup, LaunchList, LaunchSetup, LaunchWizard } from './PublicidadLanzar';
 
 /**
  * Publicidad de BackOffice en Meta (equipo): gasto, resultados y, sobre todo,
  * cuánto cuesta cada registro y cada empresa que llega desde los anuncios.
- * El cruce sale de los enlaces con UTM que se arman aquí mismo.
+ * El cruce sale de los enlaces con UTM que se arman aquí mismo. Las pestañas
+ * de lanzamiento crean campañas propias en pausa (PublicidadLanzar).
  */
+
+type Tab = 'results' | 'launch' | 'launches' | 'setup';
 
 interface Campaign {
   id: string; name: string; status: string; effectiveStatus: string; objective: string;
-  spend: number; impressions: number; reach: number; clicks: number; ctr: number; cpc: number;
+  spend: number; impressions: number; reach: number; clicks: number; ctr: number; cpc: number; launchId: string | null;
   leads: number; conversations: number; linkClicks: number;
   signups: number; companies: number; costPerSignup: number | null; costPerCompany: number | null;
 }
@@ -37,11 +41,13 @@ function slug(s: string) {
 export default function Publicidad() {
   const queryClient = useQueryClient();
   const [days, setDays] = useState(30);
+  const [tab, setTab] = useState<Tab>('results');
   const [connectOpen, setConnectOpen] = useState(false);
   const [creds, setCreds] = useState({ accountId: '', token: '' });
   const [manual, setManual] = useState({ date: new Date().toISOString().slice(0, 10), campaign: '', spend: '', notes: '' });
   const [link, setLink] = useState({ source: 'facebook', campaign: '' });
   const { data, isLoading } = useQuery({ queryKey: ['ads', days], queryFn: () => api.get<AdsData>(`/platform/ads?days=${days}`) });
+  const setup = useQuery({ queryKey: ['ads', 'setup'], queryFn: () => api.get<AdsSetup>('/platform/ads/setup'), enabled: tab !== 'results' });
   const refresh = () => queryClient.invalidateQueries({ queryKey: ['ads'] });
 
   const connect = useMutation({
@@ -66,7 +72,7 @@ export default function Publicidad() {
   });
   const removeManual = useMutation({ mutationFn: (id: string) => api.delete(`/platform/ads/manual/${id}`), onSuccess: refresh });
   const setStatus = useMutation({
-    mutationFn: ({ id, status }: { id: string; status: string }) => api.post(`/platform/ads/campaigns/${id}/status`, { status }),
+    mutationFn: ({ id, status }: { id: string; status: string }) => api.post(`/platform/ads/campaigns/${id}/status`, { status, confirm: status === 'ACTIVE' }),
     onSuccess: (_r, v) => {
       toast.success(v.status === 'PAUSED' ? 'Campaña pausada en Meta' : 'Campaña activada en Meta');
       refresh();
@@ -98,6 +104,36 @@ export default function Publicidad() {
         }
       />
 
+      <div className="mb-6">
+        <Tabs
+          tabs={[
+            { id: 'results', label: 'Resultados' },
+            { id: 'launch', label: 'Lanzar campaña' },
+            { id: 'launches', label: 'Lanzamientos' },
+            { id: 'setup', label: 'Configuración' },
+          ]}
+          active={tab}
+          onChange={(t) => setTab(t as Tab)}
+        />
+      </div>
+
+      {tab !== 'results' && (
+        !data.connected ? (
+          <Card kicker="Sin conexión" title="Conecta la cuenta publicitaria">
+            <p className="text-sm text-ink-2">Para lanzar campañas hace falta la cuenta publicitaria conectada con un token que tenga <b>ads_management</b>.</p>
+            <Button className="mt-3" onClick={() => setConnectOpen(true)}>Conectar Meta Ads</Button>
+          </Card>
+        ) : setup.isLoading || !setup.data ? <Loading /> : tab === 'launch' ? (
+          !setup.data.prefs.pageId || !setup.data.prefs.maxDailyBudget ? (
+            <Card kicker="Falta un paso" title="Elige la página y el tope de gasto">
+              <p className="text-sm text-ink-2">Antes del primer lanzamiento define qué página publica los anuncios y cuánto puede gastar como máximo cada campaña al día.</p>
+              <Button className="mt-3" onClick={() => setTab('setup')}>Ir a Configuración</Button>
+            </Card>
+          ) : <LaunchWizard setup={setup.data} onCreated={() => setTab('launches')} />
+        ) : tab === 'launches' ? <LaunchList setup={setup.data} /> : <LaunchSetup key={JSON.stringify(setup.data.prefs)} setup={setup.data} />
+      )}
+
+      {tab === 'results' && (<>
       {data.error && <p className="mb-4 border-2 border-bad bg-bad-soft px-4 py-3 text-sm text-bad">No pudimos leer Meta: {data.error}. Revisa que el token siga vigente.</p>}
 
       <div className="mb-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
@@ -134,6 +170,7 @@ export default function Publicidad() {
                         <p className="text-[11px] text-ink-3">
                           <Badge tone={c.effectiveStatus === 'ACTIVE' ? 'ok' : 'neutral'}>{c.effectiveStatus === 'ACTIVE' ? 'Activa' : c.effectiveStatus === 'PAUSED' ? 'Pausada' : c.effectiveStatus}</Badge>{' '}
                           {c.objective?.replace('OUTCOME_', '').toLowerCase()}
+                          {c.launchId && <> · <span className="font-semibold text-ink-2">lanzada desde aquí</span></>}
                         </p>
                       </td>
                       <td className="py-2.5 text-right tabular-nums">{fmtMoney(c.spend)}</td>
@@ -150,7 +187,7 @@ export default function Publicidad() {
                           disabled={setStatus.isPending}
                           onClick={() => {
                             const next = c.status === 'ACTIVE' ? 'PAUSED' : 'ACTIVE';
-                            if (confirm(`¿${next === 'PAUSED' ? 'Pausar' : 'Activar'} "${c.name}" en Meta?`)) setStatus.mutate({ id: c.id, status: next });
+                            if (confirm(next === 'PAUSED' ? `¿Pausar "${c.name}" en Meta?` : `¿Activar "${c.name}" en Meta? Empezará a gastar su presupuesto.`)) setStatus.mutate({ id: c.id, status: next });
                           }}
                           aria-label={c.status === 'ACTIVE' ? 'Pausar' : 'Activar'}
                         >
@@ -233,11 +270,13 @@ export default function Publicidad() {
         </Card>
       )}
 
+      </>)}
+
       <Modal open={connectOpen} onClose={() => setConnectOpen(false)} kicker="Meta Ads" title="Conectar la cuenta publicitaria">
         <div className="space-y-4 text-sm">
           <ol className="list-decimal space-y-1 pl-5 text-ink-2">
             <li>En el Business Manager de Meta, crea un usuario del sistema con acceso a la cuenta publicitaria.</li>
-            <li>Genera un token con los permisos <b>ads_read</b> (y <b>ads_management</b> si quieres pausar campañas desde aquí).</li>
+            <li>Genera un token con <b>ads_read</b> y <b>ads_management</b> (para lanzar, activar y pausar desde aquí), y asígnale la página que publica.</li>
             <li>Copia el ID de la cuenta publicitaria (empieza por act_).</li>
           </ol>
           <Field label="ID de la cuenta publicitaria"><Input placeholder="act_1234567890" value={creds.accountId} onChange={(e) => setCreds({ ...creds, accountId: e.target.value })} /></Field>

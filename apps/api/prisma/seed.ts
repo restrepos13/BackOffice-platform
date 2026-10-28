@@ -1,11 +1,13 @@
 /**
- * Seed de PRODUCCIÓN — BackOffice Platform.
- * Deja la plataforma vacía y lista para operar: planes, catálogo de modelos,
- * biblioteca de personalidades, settings, el equipo BackOffice y UNA empresa
- * de prueba vacía para revisar la vista de cliente.
+ * Seed base de DESARROLLO — BackOffice Platform.
+ * Deja la base de desarrollo lista: planes, catálogo de modelos, biblioteca de
+ * personalidades, settings, el equipo BackOffice y UNA empresa de prueba vacía.
  *
- * ⚠️ BORRA TODO lo existente. El seed con datos demo quedó en
- * prisma/seed-demo.ts (`pnpm db:seed:demo`).
+ * Solo corre contra una base de desarrollo autorizada (ver prisma/seed-guard.ts):
+ *   SEED_CONFIRM_DB=backoffice_dev pnpm db:seed
+ * Si la base ya tiene datos, se niega; para BORRARLOS y volver a sembrar:
+ *   SEED_CONFIRM_DB=backoffice_dev SEED_RESET_CONFIRM=backoffice_dev pnpm db:seed
+ * El seed con datos demo quedó en prisma/seed-demo.ts (`pnpm db:seed:demo`).
  * ⚠️ Si se corre, la empresa DEMO de ventas ("Delicias Andinas") también se
  * borra: recréala con `pnpm db:seed:demo-empresa` (o el cron del domingo /
  * Dev Tools → Operación → "Restaurar empresa demo" la reviven solos).
@@ -19,14 +21,16 @@
  */
 import { seedPrecios } from './seed-precios';
 import { PrismaClient } from '@prisma/client';
+import { loadApiEnv, prepareSeed } from './seed-guard';
 import * as bcrypt from 'bcryptjs';
 import { seedPassword } from './seed-passwords';
 
+loadApiEnv();
 const prisma = new PrismaClient();
 const hash = (plain: string) => bcrypt.hashSync(plain, 10);
 
-async function main() {
-  console.log('Limpiando base…');
+/** Borra todo. Solo se llama si prepareSeed lo autorizó (SEED_RESET_CONFIRM). */
+async function resetDatabase() {
   await prisma.$transaction([
     prisma.message.deleteMany(),
     prisma.conversation.deleteMany(),
@@ -50,6 +54,14 @@ async function main() {
     prisma.plan.deleteMany(),
     prisma.platformSetting.deleteMany(),
   ]);
+}
+
+async function main() {
+  const { target, reset } = await prepareSeed(prisma, 'seed');
+  if (reset) {
+    console.log(`Limpiando la base «${target.name}»…`);
+    await resetDatabase();
+  }
 
   console.log('Planes…');
   const growth = await prisma.plan.create({
@@ -287,7 +299,7 @@ async function main() {
   const negocio = await prisma.plan.findUnique({ where: { code: 'negocios-negocio' } });
   if (negocio) await prisma.company.updateMany({ where: { slug: 'empresa-de-prueba' }, data: { planId: negocio.id } });
 
-  console.log('Seed de producción listo ✅ — plataforma vacía + Empresa de Prueba');
+  console.log('Seed de desarrollo listo ✅ — plataforma vacía + Empresa de Prueba');
 }
 
 main()

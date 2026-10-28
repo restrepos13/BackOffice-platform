@@ -16,11 +16,16 @@ import { OpportunityList } from '../../../components/opportunities/Opportunities
  */
 
 type Mode = 'REAL' | 'DEMO';
-interface Totals { spend: number; impressions: number; clicks: number; results: number; leads: number; conversations: number; purchases: number; purchaseValue: number; ctr: number | null; cpc: number | null; cpm: number | null; costPerResult: number | null; platformRoas: number | null; days: number }
-interface Account { id: string; provider: string; mode: Mode; externalId: string; name: string; currency: string; status: string; lastSyncAt: string | null; lastError: string | null; dataAgeHours: number | null; stale: boolean; hasToken: boolean }
+/** results/costPerResult pueden venir en null: el periodo mezcla objetivos o el objetivo no busca resultados. */
+interface Totals { spend: number; impressions: number; clicks: number; results: number | null; leads: number; conversations: number; purchases: number; purchaseValue: number; ctr: number | null; cpc: number | null; cpm: number | null; costPerResult: number | null; platformRoas: number | null; days: number; resultLabel?: string; reach?: number | null; frequency?: number | null }
+interface Account {
+  id: string; provider: string; mode: Mode; externalId: string; name: string; currency: string; status: string; lastSyncAt: string | null; lastError: string | null; dataAgeHours: number | null; stale: boolean; hasToken: boolean;
+  lastSyncStatus?: 'OK' | 'PARTIAL' | 'ERROR' | null; lastErrorKind?: string | null; errorHelp?: string | null; nextSyncAt?: string | null; credential?: string; syncing?: boolean; scopes?: string[];
+}
 interface Overview {
   mode: Mode; modes: { real: number; demo: number }; days: number; period: { current: { since: string; until: string }; previous: { since: string; until: string } };
   currency: string | null; mixedCurrencies: boolean; accounts: Account[]; totals: Totals; previous: Totals; deltas: Record<string, number | null>; insufficient: boolean;
+  comparable?: boolean; notes?: string[]; resultLabel?: string | null;
   daily: Array<{ date: string; spend: number; results: number }>; campaigns: Array<Totals & { id: string; externalId: string; name: string; status: string | null; objective: string | null; dailyBudget: number | null }>;
   configuredDailyBudget: number; openFindings: number; pendingActions: number; executedActions: number;
 }
@@ -165,12 +170,13 @@ function Summary({ q, mode, base }: { q: string; mode: Mode; base: Overview }) {
         <p className="pb-2 text-xs text-ink-3">{o.period.current.since} a {o.period.current.until} · comparado con {o.period.previous.since} a {o.period.previous.until}</p>
       </div>
       {o.mixedCurrencies && <p className="mb-3 border-2 border-warn bg-paper px-3 py-2 text-sm">Tus cuentas usan monedas distintas: filtra por cuenta para comparar cifras.</p>}
-      {o.insufficient && <p className="mb-3 border-2 border-warn bg-paper px-3 py-2 text-sm">Pocos datos para comparar periodos: las variaciones pueden no ser representativas.</p>}
+      {o.insufficient && <p className="mb-3 border-2 border-warn bg-paper px-3 py-2 text-sm">Pocos datos para comparar periodos: {o.comparable === false ? 'las variaciones no se calculan.' : 'las variaciones pueden no ser representativas.'}</p>}
+      {o.accounts.some((a) => a.lastSyncStatus === 'PARTIAL') && <p className="mb-3 border-2 border-warn bg-paper px-3 py-2 text-sm">Una cuenta quedó con la última sincronización incompleta: puede faltar algún día. <Link to="?tab=cuentas" className="underline">Ver detalle</Link></p>}
       {o.accounts.some((a) => a.stale && a.mode === 'REAL') && <p className="mb-3 border-2 border-warn bg-paper px-3 py-2 text-sm">Algunos datos tienen más de 12 horas. <Link to="?tab=cuentas" className="underline">Sincronizar</Link></p>}
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <Stat label="Gasto" value={money(t.spend, cur)} hint={undefined} />
-        <Stat label="Resultados" value={num(t.results)} />
-        <Stat label="Costo por resultado" value={money(t.costPerResult, cur)} />
+        <Stat label="Resultados" value={num(t.results)} hint={t.results === null ? 'Objetivos distintos: míralos por campaña' : o.resultLabel ?? undefined} />
+        <Stat label="Costo por resultado" value={money(t.costPerResult, cur)} hint={t.results === null ? 'No hay un costo único' : undefined} />
         <Stat label="CTR" value={pct(t.ctr)} />
       </div>
       <div className="mt-1 grid gap-3 text-xs sm:grid-cols-2 lg:grid-cols-4">
@@ -180,10 +186,18 @@ function Summary({ q, mode, base }: { q: string; mode: Mode; base: Overview }) {
         <MiniStat label="CPC" value={money(t.cpc, cur)} /><MiniStat label="CPM" value={money(t.cpm, cur)} />
         <MiniStat label="Leads" value={num(t.leads)} /><MiniStat label="Conversaciones" value={num(t.conversations)} />
         <MiniStat label="Compras" value={num(t.purchases)} /><MiniStat label="ROAS (plataforma)" value={t.platformRoas === null ? '—' : `${t.platformRoas}x`} />
+        {t.reach != null && <MiniStat label="Alcance (personas)" value={num(t.reach)} />}
+        {t.frequency != null && <MiniStat label="Frecuencia" value={`${t.frequency.toLocaleString('es-CO', { maximumFractionDigits: 2 })} veces`} />}
       </div>
-      <p className="mt-1 text-[11px] text-ink-3">Cifras reportadas por la plataforma. Las ventas confirmadas en tu CRM están en «Leads y ventas».</p>
-      <Card kicker="Día a día" title="Gasto y resultados" className="mt-6">
-        <AdsSpendChart data={o.daily} money={(v) => money(v, cur)} />
+      <p className="mt-1 text-[11px] text-ink-3">Cifras reportadas por la plataforma; CTR, CPC, CPM y costos los calcula BackOffice con ellas. Las ventas confirmadas en tu CRM están en «Leads y ventas».</p>
+      {!!o.notes?.length && (
+        <div className="mt-3 border-2 border-line bg-paper px-3 py-2 text-xs text-ink-2" data-testid="metric-notes">
+          <p className="kicker mb-1">Lo que no se puede calcular y por qué</p>
+          <ul className="list-disc space-y-0.5 pl-4">{o.notes.map((n) => <li key={n}>{n}</li>)}</ul>
+        </div>
+      )}
+      <Card kicker="Día a día" title={t.results === null ? 'Gasto' : 'Gasto y resultados'} className="mt-6">
+        <AdsSpendChart data={o.daily} money={(v) => money(v, cur)} showResults={t.results !== null} resultsLabel={o.resultLabel ?? 'Resultados'} />
       </Card>
       <div className="mt-6 grid gap-3 sm:grid-cols-4">
         <Link to="?tab=oportunidades" className="border-2 border-ink bg-paper p-3 hover:bg-bone-2"><p className="kicker">Oportunidades abiertas</p><p className="display text-2xl">{o.openFindings}</p></Link>
@@ -204,19 +218,22 @@ function MiniStat({ label, value }: { label: string; value: string }) {
 
 function CampaignTable({ rows, currency }: { rows: Overview['campaigns']; currency: string }) {
   if (!rows.length) return <p className="text-sm text-ink-3">Sin campañas sincronizadas.</p>;
+  // Alcance y frecuencia solo si la plataforma los reportó para este periodo
+  const withReach = rows.some((c) => c.reach != null);
   return (
     <div className="overflow-x-auto">
       <table className="w-full min-w-[760px] text-sm">
-        <thead><tr className="border-b-2 border-ink text-left text-[11px] uppercase tracking-wider text-ink-3"><th className="p-2">Campaña</th><th className="p-2">Estado</th><th className="p-2 text-right">Gasto</th><th className="p-2 text-right">Resultados</th><th className="p-2 text-right">Costo/resultado</th><th className="p-2 text-right">CTR</th><th className="p-2 text-right">Ppto. diario</th></tr></thead>
+        <thead><tr className="border-b-2 border-ink text-left text-[11px] uppercase tracking-wider text-ink-3"><th className="p-2">Campaña</th><th className="p-2">Estado</th><th className="p-2 text-right">Gasto</th><th className="p-2 text-right">Resultados</th><th className="p-2 text-right">Costo/resultado</th><th className="p-2 text-right">CTR</th>{withReach && <th className="p-2 text-right">Alcance · frec.</th>}<th className="p-2 text-right">Ppto. diario</th></tr></thead>
         <tbody>
           {rows.map((c) => (
             <tr key={c.id} className="border-b border-line">
               <td className="p-2 font-semibold">{c.name}</td>
               <td className="p-2"><StatusBadge s={c.status} /></td>
               <td className="p-2 text-right tabular-nums">{money(c.spend, currency)}</td>
-              <td className="p-2 text-right tabular-nums">{num(c.results)}</td>
+              <td className="p-2 text-right tabular-nums">{num(c.results)}{c.resultLabel && <span className="block text-[10px] text-ink-3">{c.resultLabel}</span>}</td>
               <td className="p-2 text-right tabular-nums">{money(c.costPerResult, currency)}</td>
               <td className="p-2 text-right tabular-nums">{pct(c.ctr)}</td>
+              {withReach && <td className="p-2 text-right tabular-nums">{c.reach != null ? `${num(c.reach)} · ${c.frequency?.toLocaleString('es-CO', { maximumFractionDigits: 2 }) ?? '—'}` : '—'}</td>}
               <td className="p-2 text-right tabular-nums">{money(c.dailyBudget, currency)}</td>
             </tr>
           ))}
@@ -257,7 +274,18 @@ function Accounts({ q }: { q: string }) {
   const oauth = useMutation({ mutationFn: () => api.get<{ url: string }>(withScope('/ads/meta/oauth', q)), onSuccess: (r) => { window.location.href = r.url; }, onError: err });
   const select = useMutation({ mutationFn: () => api.post(withScope('/ads/meta/select', q), { externalIds: chosen }), onSuccess: () => { refresh(); setParams({ tab: 'cuentas' }); toast.success('Cuentas conectadas. Sincronízalas para traer los datos.'); }, onError: err });
   const connect = useMutation({ mutationFn: () => api.post(withScope('/ads/accounts/manual', q), manual), onSuccess: () => { refresh(); setManual({ accountId: '', token: '' }); toast.success('Cuenta conectada'); }, onError: err });
-  const sync = useMutation({ mutationFn: (id: string) => api.post<{ entities: number; insights: number }>(withScope(`/ads/accounts/${id}/sync`, q)), onSuccess: (r) => { refresh(); queryClient.invalidateQueries({ queryKey: ['ads-findings'] }); toast.success(`Sincronizado: ${r.entities} elementos y ${r.insights} filas de métricas`); }, onError: (e) => { refresh(); err(e); } });
+  const [history, setHistory] = useState<string | null>(null);
+  const sync = useMutation({
+    mutationFn: (id: string) => api.post<{ status: string; entities: number; insights: number; note?: string; help?: string }>(withScope(`/ads/accounts/${id}/sync`, q)),
+    onSuccess: (r) => {
+      refresh();
+      queryClient.invalidateQueries({ queryKey: ['ads-findings'] });
+      queryClient.invalidateQueries({ queryKey: ['ads-syncs'] });
+      if (r.status === 'PARTIAL') toast.warning(`Sincronización incompleta. ${r.note ?? ''} ${r.help ?? ''}`);
+      else toast.success(`Sincronizado: ${r.entities} elementos y ${r.insights} filas de métricas`);
+    },
+    onError: (e) => { refresh(); queryClient.invalidateQueries({ queryKey: ['ads-syncs'] }); err(e); },
+  });
   const disconnect = useMutation({ mutationFn: (id: string) => api.delete(withScope(`/ads/accounts/${id}`, q)), onSuccess: () => { refresh(); setDisc(null); toast.success('Cuenta desconectada. El historial se conserva.'); }, onError: err });
   if (isLoading || !accounts) return <Loading />;
   const meta = providers?.find((p) => p.key === 'META');
@@ -285,15 +313,24 @@ function Accounts({ q }: { q: string }) {
                 <span>
                   <b>{a.name}</b> <span className="text-xs text-ink-3">{PROVIDER[a.provider]} · {a.externalId} · {a.currency}</span>
                   {a.mode === 'DEMO' && <Badge tone="info">Demostración</Badge>}{' '}
-                  <Badge tone={a.status === 'CONNECTED' ? 'ok' : a.status === 'DISCONNECTED' ? 'neutral' : 'bad'}>{a.status === 'CONNECTED' ? 'Conectada' : a.status === 'EXPIRED' ? 'Conexión vencida' : a.status === 'DISCONNECTED' ? 'Desconectada' : 'Con error'}</Badge>
-                  <span className="block text-xs text-ink-3">{a.lastSyncAt ? `Última sincronización: hace ${a.dataAgeHours ?? 0} h` : 'Sin sincronizar'}{a.lastError ? ` · ${a.lastError}` : ''}</span>
+                  <Badge tone={a.status === 'CONNECTED' ? 'ok' : a.status === 'DISCONNECTED' ? 'neutral' : 'bad'}>{a.status === 'CONNECTED' ? 'Conectada' : a.status === 'EXPIRED' ? 'Conexión vencida' : a.status === 'DISCONNECTED' ? 'Desconectada' : a.lastErrorKind === 'PERMISSION' ? 'Sin permisos' : 'Con error'}</Badge>{' '}
+                  {a.lastSyncStatus && a.lastSyncStatus !== 'OK' && <Badge tone={a.lastSyncStatus === 'PARTIAL' ? 'warn' : 'bad'}>{a.lastSyncStatus === 'PARTIAL' ? 'Última sincronización incompleta' : 'Última sincronización falló'}</Badge>}
+                  {a.syncing && <Badge tone="info">Sincronizando…</Badge>}
+                  <span className="block text-xs text-ink-3">
+                    {a.lastSyncAt ? `Última sincronización completa: hace ${a.dataAgeHours ?? 0} h` : 'Sin sincronización completa'}
+                    {a.mode === 'REAL' && a.status !== 'DISCONNECTED' && (a.nextSyncAt ? ` · próximo intento: ${new Date(a.nextSyncAt).toLocaleString('es-CO', { dateStyle: 'short', timeStyle: 'short' })}` : a.status === 'EXPIRED' ? ' · sin reintentos hasta reconectar' : '')}
+                  </span>
+                  {(a.errorHelp || a.lastError) && <span className="block text-xs text-bad">{a.errorHelp ?? ''}{a.lastError ? ` (${a.lastError})` : ''}</span>}
+                  {a.credential && <span className="block text-[11px] text-ink-3">Credencial: {a.credential}{a.scopes?.length ? ` · permisos: ${a.scopes.join(', ')}` : ''}</span>}
+                  <button type="button" className="mt-1 cursor-pointer text-xs font-semibold text-ink-2 underline-offset-2 hover:underline" aria-expanded={history === a.id} onClick={() => setHistory(history === a.id ? null : a.id)}>{history === a.id ? 'Ocultar historial' : 'Historial de sincronizaciones'}</button>
                 </span>
                 {canWrite && a.status !== 'DISCONNECTED' && (
                   <span className="flex gap-1">
-                    <Button size="sm" variant="outline" disabled={sync.isPending} onClick={() => sync.mutate(a.id)}>{sync.isPending && sync.variables === a.id ? 'Sincronizando…' : 'Sincronizar'}</Button>
+                    <Button size="sm" variant="outline" disabled={sync.isPending || a.syncing} onClick={() => sync.mutate(a.id)}>{sync.isPending && sync.variables === a.id ? 'Sincronizando…' : 'Sincronizar'}</Button>
                     <Button size="sm" variant="ghost" onClick={() => setDisc(a)}>Desconectar</Button>
                   </span>
                 )}
+                {history === a.id && <SyncHistory q={q} accountId={a.id} />}
               </li>
             ))}
           </ul>
@@ -339,6 +376,31 @@ function Accounts({ q }: { q: string }) {
   );
 }
 
+interface SyncRun { id: string; trigger: string; status: string; startedAt: string; finishedAt: string | null; error: string | null; help: string | null; counts: { entities?: number; insights?: number; since?: string; until?: string; chunks?: number; chunksOk?: number; warnings?: string[] } }
+
+const RUN_LABEL: Record<string, [string, 'ok' | 'warn' | 'bad' | 'info']> = { OK: ['Completa', 'ok'], PARTIAL: ['Incompleta', 'warn'], ERROR: ['Falló', 'bad'], RUNNING: ['En curso', 'info'] };
+
+function SyncHistory({ q, accountId }: { q: string; accountId: string }) {
+  const { data, isLoading } = useQuery({ queryKey: ['ads-syncs', q, accountId], queryFn: () => api.get<SyncRun[]>(withScope(`/ads/accounts/${accountId}/syncs`, q)) });
+  if (isLoading || !data) return <div className="w-full"><Loading /></div>;
+  if (!data.length) return <p className="w-full text-xs text-ink-3">Sin sincronizaciones todavía.</p>;
+  return (
+    <ul className="w-full divide-y divide-line border-2 border-line bg-bone px-3 text-xs" data-testid="sync-history">
+      {data.map((r) => (
+        <li key={r.id} className="py-2">
+          <Badge tone={RUN_LABEL[r.status]?.[1] ?? 'neutral'}>{RUN_LABEL[r.status]?.[0] ?? r.status}</Badge>{' '}
+          {new Date(r.startedAt).toLocaleString('es-CO', { dateStyle: 'short', timeStyle: 'short' })} · {r.trigger === 'CRON' ? 'automática' : 'manual'}
+          {r.counts.since && <> · {r.counts.since} a {r.counts.until}</>}
+          {r.counts.chunks ? <> · {r.counts.chunksOk ?? 0}/{r.counts.chunks} tramos</> : null}
+          {r.counts.entities !== undefined && <> · {r.counts.entities} elementos y {r.counts.insights ?? 0} filas nuevas o cambiadas</>}
+          {r.error && <span className="block text-bad">{r.help ? `${r.help} ` : ''}({r.error})</span>}
+          {r.counts.warnings?.map((w) => <span key={w} className="block text-warn">{w}</span>)}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 /* ── Campañas ── */
 
 interface Node { id: string; level: string; externalId: string; name: string; status: string | null; effectiveStatus: string | null; dailyBudget: number | null; issues: string[]; metrics: Totals }
@@ -367,7 +429,7 @@ function Campaigns({ q, mode, currency }: { q: string; mode: Mode; currency: str
         </td>
         <td className="p-2"><StatusBadge s={st} /></td>
         <td className="p-2 text-right tabular-nums">{money(n.metrics.spend, currency)}</td>
-        <td className="p-2 text-right tabular-nums">{num(n.metrics.results)}</td>
+        <td className="p-2 text-right tabular-nums">{num(n.metrics.results)}{depth === 0 && n.metrics.resultLabel && <span className="block text-[10px] text-ink-3">{n.metrics.resultLabel}</span>}</td>
         <td className="p-2 text-right tabular-nums">{money(n.metrics.costPerResult, currency)}</td>
         <td className="p-2 text-right tabular-nums">{pct(n.metrics.ctr)}</td>
         <td className="p-2 text-right">
@@ -416,10 +478,18 @@ function Findings({ q, mode }: { q: string; mode: Mode }) {
 
 interface Settings { autonomy: 'ANALYSIS' | 'RECOMMEND' | 'AUTHORIZED'; globalPause: boolean; autoActions: string[]; maxDailyBudget: number | null; maxDataAgeHours: number }
 interface Rule { id: string; name: string; metric: string; level: string; windowDays: number; operator: string; threshold: number; minSpend: number; action: string; active: boolean; checkEveryMin: number; lastRunAt: string | null }
-interface ActionLog { id: string; source: string; action: string; status: string; entityName: string | null; actor: string | null; createdAt: string; error: string | null; reversible: boolean; data: any; mode: Mode }
+interface ActionLog {
+  id: string; source: string; action: string; status: string; entityName: string | null; actor: string | null; createdAt: string; error: string | null; reversible: boolean; data: any; mode: Mode;
+  kind?: 'INFO' | 'SUGGESTION' | 'EXECUTION'; approvedBy?: string | null; approvedAt?: string | null; decidedAt?: string | null; retryable?: boolean;
+  execution?: { id: string; status: string; error: string | null; decidedAt: string | null } | null;
+}
 
 const ACTION_LABEL: Record<string, string> = { ALERT: 'Alerta', RECOMMEND_PAUSE: 'Propone pausar', PAUSE: 'Pausa', RESUME: 'Reanuda', CREATE_CAMPAIGN: 'Crea campaña (en pausa)' };
-const STATUS_LABEL: Record<string, [string, 'ok' | 'warn' | 'bad' | 'neutral' | 'info']> = { PROPOSED: ['Por aprobar', 'warn'], EXECUTED: ['Ejecutada', 'ok'], FAILED: ['Falló', 'bad'], REJECTED: ['Rechazada', 'neutral'], SKIPPED: ['Reemplazada', 'neutral'] };
+const STATUS_LABEL: Record<string, [string, 'ok' | 'warn' | 'bad' | 'neutral' | 'info']> = {
+  PROPOSED: ['Sugerida · por aprobar', 'warn'], APPROVED: ['Aprobada', 'info'], RUNNING: ['Ejecutándose', 'info'], EXECUTED: ['Ejecutada', 'ok'],
+  FAILED: ['Falló', 'bad'], REJECTED: ['Rechazada', 'neutral'], SKIPPED: ['Omitida', 'neutral'],
+};
+const when = (d?: string | null) => (d ? new Date(d).toLocaleString('es-CO', { dateStyle: 'medium', timeStyle: 'short' }) : '');
 
 function Autopilot({ q, mode, currency }: { q: string; mode: Mode; currency: string }) {
   const queryClient = useQueryClient();
@@ -433,7 +503,16 @@ function Autopilot({ q, mode, currency }: { q: string; mode: Mode; currency: str
   const refresh = () => ['ads-settings', 'ads-rules', 'ads-actions', 'ads-overview', 'ads-campaigns'].forEach((k) => queryClient.invalidateQueries({ queryKey: [k] }));
   const save = useMutation({ mutationFn: () => api.put(withScope('/ads/settings', q), form), onSuccess: () => { refresh(); toast.success('Ajustes guardados'); }, onError: err });
   const runNow = useMutation({ mutationFn: () => api.post<any[]>(withScope('/ads/rules/run', q)), onSuccess: (r) => { refresh(); toast.success(r.length ? `${r.length} coincidencias evaluadas` : 'Ninguna regla se cumplió'); }, onError: err });
-  const decide = useMutation({ mutationFn: ({ id, decision }: { id: string; decision: string }) => api.post(withScope(`/ads/actions/${id}/decide`, q), { decision, confirm: true }), onSuccess: () => { refresh(); toast.success('Listo'); }, onError: err });
+  const decide = useMutation({
+    mutationFn: ({ id, decision }: { id: string; decision: string }) => api.post<{ status?: string; demo?: boolean }>(withScope(`/ads/actions/${id}/decide`, q), { decision, confirm: true }),
+    onSuccess: (r) => { refresh(); toast.success(r.status === 'REJECTED' ? 'Propuesta rechazada' : r.status === 'SKIPPED' ? 'Aprobada: ya estaba en pausa, no se ejecutó nada' : r.demo ? 'Aprobada y pausada (simulado)' : 'Aprobada y confirmada por la plataforma'); },
+    onError: (e) => { refresh(); err(e); },
+  });
+  const retry = useMutation({
+    mutationFn: (l: ActionLog) => api.post<{ status?: string }>(withScope(`/ads/actions/${l.id}/retry`, q), { confirm: l.action === 'RESUME' }),
+    onSuccess: (r) => { refresh(); toast.success(r.status === 'SKIPPED' ? 'Ya estaba así en la plataforma' : 'Reintento confirmado por la plataforma'); },
+    onError: (e) => { refresh(); err(e); },
+  });
   const [revert, setRevert] = useState<ActionLog | null>(null);
   const doRevert = useMutation({ mutationFn: () => api.post(withScope(`/ads/actions/${revert!.id}/revert`, q), { confirm: true }), onSuccess: () => { refresh(); setRevert(null); toast.success('Revertido: el elemento se reanudó'); }, onError: err });
   if (!s || !form || !rules || !log) return <Loading />;
@@ -466,16 +545,26 @@ function Autopilot({ q, mode, currency }: { q: string; mode: Mode; currency: str
         {!log.length ? <p className="text-sm text-ink-3">Sin acciones todavía.</p> : (
           <ul className="divide-y divide-line text-sm">
             {log.map((l) => (
-              <li key={l.id} className="flex flex-wrap items-start justify-between gap-2 py-2">
+              <li key={l.id} className="flex flex-wrap items-start justify-between gap-2 py-2" data-testid={`action-${l.id}`}>
                 <span>
-                  <b>{ACTION_LABEL[l.action] ?? l.action}</b> · {l.entityName} <Badge tone={STATUS_LABEL[l.status]?.[1] ?? 'neutral'}>{STATUS_LABEL[l.status]?.[0] ?? l.status}</Badge>
-                  <span className="block text-xs text-ink-3">{new Date(l.createdAt).toLocaleString('es-CO', { dateStyle: 'medium', timeStyle: 'short' })} · {l.actor ?? 'Sistema'}{l.data?.rule ? ` · regla «${l.data.rule}»` : ''}{l.data?.match?.reason ? ` · ${l.data.match.reason}` : ''}</span>
+                  <b>{ACTION_LABEL[l.action] ?? l.action}</b> · {l.entityName}{' '}
+                  {l.kind === 'INFO' ? <Badge tone="neutral">Informativa</Badge> : <Badge tone={STATUS_LABEL[l.status]?.[1] ?? 'neutral'}>{STATUS_LABEL[l.status]?.[0] ?? l.status}</Badge>}
+                  {l.mode === 'DEMO' && <> <Badge tone="info">Demostración</Badge></>}
+                  <span className="block text-xs text-ink-3">{when(l.createdAt)} · {l.kind === 'SUGGESTION' ? 'sugerida por' : 'por'} {l.source === 'RULE' && !l.approvedBy ? 'Autopilot' : l.actor ?? 'Sistema'}{l.data?.rule ? ` · regla «${l.data.rule}»` : ''}{l.data?.match?.reason ? ` · ${l.data.match.reason}` : ''}</span>
                   {l.data?.guard && <span className="block text-xs text-ink-3">Motivo: {l.data.guard}</span>}
-                  {l.error && <span className="block text-xs text-bad">{l.error}</span>}
+                  {l.approvedBy && <span className="block text-xs text-ink-2">Aprobada por {l.approvedBy}{l.approvedAt ? ` el ${when(l.approvedAt)}` : ''}</span>}
+                  {l.execution && (
+                    <span className={clsx('block text-xs', l.execution.status === 'EXECUTED' ? 'text-ok' : l.execution.status === 'FAILED' ? 'text-bad' : 'text-ink-2')}>
+                      Resultado: {STATUS_LABEL[l.execution.status]?.[0] ?? l.execution.status}{l.execution.status === 'EXECUTED' ? ' (confirmado por la plataforma)' : ''}{l.execution.error ? ` · ${l.execution.error}` : ''}
+                    </span>
+                  )}
+                  {l.kind === 'EXECUTION' && l.status === 'EXECUTED' && <span className="block text-xs text-ok">Confirmado por la plataforma{l.mode === 'DEMO' ? ' (simulado)' : ''}</span>}
+                  {l.error && <span className={clsx('block text-xs', l.status === 'SKIPPED' ? 'text-ink-3' : 'text-bad')}>{l.error}</span>}
                 </span>
                 {canWrite && (
                   <span className="flex gap-1">
-                    {l.status === 'PROPOSED' && l.action === 'RECOMMEND_PAUSE' && <><Button size="sm" onClick={() => decide.mutate({ id: l.id, decision: 'APPROVE' })}>Aprobar y pausar</Button><Button size="sm" variant="ghost" onClick={() => decide.mutate({ id: l.id, decision: 'REJECT' })}>Rechazar</Button></>}
+                    {l.status === 'PROPOSED' && l.action === 'RECOMMEND_PAUSE' && <><Button size="sm" disabled={decide.isPending} onClick={() => decide.mutate({ id: l.id, decision: 'APPROVE' })}>Aprobar y pausar</Button><Button size="sm" variant="ghost" disabled={decide.isPending} onClick={() => decide.mutate({ id: l.id, decision: 'REJECT' })}>Rechazar</Button></>}
+                    {l.retryable && <Button size="sm" variant="outline" disabled={retry.isPending} onClick={() => { if (l.action !== 'RESUME' || confirm('Reanudar vuelve a gastar presupuesto. ¿Reintentar?')) retry.mutate(l); }}>Reintentar</Button>}
                     {l.status === 'EXECUTED' && l.action === 'PAUSE' && l.reversible && <Button size="sm" variant="outline" onClick={() => setRevert(l)}>Revertir</Button>}
                   </span>
                 )}
@@ -545,7 +634,22 @@ function RulesCard({ q, rules, metrics, currency, onChange }: { q: string; rules
 /* ── Leads y ventas ── */
 
 interface FunnelRow { campaignExternalId: string | null; campaignName: string; spend: number; platformResults: number; leads: number; qualified: number; customers: number; sales: number; revenue: number; costPerLead: number | null; costPerQualified: number | null; cac: number | null; roas: number | null }
-interface RevenueRes { period: { since: string; until: string }; connected: boolean; currency: string; campaigns: FunnelRow[]; totals: { spend: number; leads: number; qualified: number; customers: number; sales: number; revenue: number; costPerLead: number | null; costPerQualified: number | null; cac: number | null; roas: number | null }; unattributedAds: number; businessRevenue: number; method: string }
+type AttrState = 'ATTRIBUTED' | 'PARTIAL' | 'UNATTRIBUTED';
+interface AttrRow { contactId: string; name: string; createdAt: string; state: AttrState; via: string | null; adId: string | null; adName: string | null; adsetName: string | null; campaignName: string | null; evidence: string }
+interface RevenueRes {
+  period: { since: string; until: string }; connected: boolean; currency: string; campaigns: FunnelRow[];
+  totals: { spend: number; leads: number; qualified: number; customers: number; sales: number; revenue: number; costPerLead: number | null; costPerQualified: number | null; cac: number | null; roas: number | null };
+  unattributedAds: number; businessRevenue: number; method: string;
+  attribution?: { counts: Record<AttrState, number>; recent: AttrRow[]; rules: Record<AttrState, string> };
+  leadForms?: { received: number; withContact: number; pendingPermission: number; errors: number };
+}
+interface LeadRow { id: string; status: string; error: string | null; leadgenId: string; formId: string | null; adId: string | null; adName: string | null; contactId: string | null; fieldNames: string[]; receivedAt: string }
+
+const ATTR: Record<AttrState, [string, 'ok' | 'warn' | 'neutral']> = { ATTRIBUTED: ['Atribuido', 'ok'], PARTIAL: ['Parcial', 'warn'], UNATTRIBUTED: ['Sin atribuir', 'neutral'] };
+const VIA: Record<string, string> = { WHATSAPP_REFERRAL: 'Clic a WhatsApp', LEAD_FORM: 'Formulario Lead Ads', POST: 'Publicación' };
+const LEAD_STATUS: Record<string, [string, 'ok' | 'warn' | 'bad' | 'info' | 'neutral']> = {
+  FETCHED: ['Con datos', 'ok'], PENDING_PERMISSION: ['Falta permiso', 'warn'], ERROR: ['Error', 'bad'], RECEIVED: ['Recibido', 'info'], FETCHING: ['Leyendo…', 'info'],
+};
 
 function Revenue({ q }: { q: string }) {
   const [days, setDays] = useState('30');
@@ -593,11 +697,87 @@ function Revenue({ q }: { q: string }) {
           </div>
         )}
       </Card>
+      {data.attribution && <Attribution a={data.attribution} />}
+      <LeadForms q={q} summary={data.leadForms} />
       <div className="mt-6 grid gap-3 text-sm md:grid-cols-2">
         <div className="border-2 border-line bg-paper p-3"><p className="kicker mb-1">Cómo se atribuye</p><p>{data.method}</p>{data.unattributedAds > 0 && <p className="mt-1 text-xs text-warn">{data.unattributedAds} leads vinieron de anuncios que no están en tus cuentas conectadas (no se adivinan).</p>}</div>
         <div className="border-2 border-line bg-paper p-3"><p className="kicker mb-1">Ventas totales del negocio en el periodo</p><p className="display text-2xl">{money(data.businessRevenue, cur)}</p><p className="text-xs text-ink-3">Incluye todo, no solo lo que vino de anuncios. No se usa para el ROAS.</p></div>
       </div>
     </>
+  );
+}
+
+function Attribution({ a }: { a: NonNullable<RevenueRes['attribution']> }) {
+  const total = a.counts.ATTRIBUTED + a.counts.PARTIAL + a.counts.UNATTRIBUTED;
+  return (
+    <Card kicker="Atribución" title="De dónde salió cada contacto" className="mt-6">
+      {!total ? <p className="text-sm text-ink-3">En este periodo no llegaron contactos desde anuncios, formularios ni publicaciones de Meta.</p> : (
+        <>
+          <div className="grid gap-3 sm:grid-cols-3">
+            {(Object.keys(ATTR) as AttrState[]).map((k) => (
+              <div key={k} className="border-2 border-line bg-paper p-3">
+                <p className="kicker">{ATTR[k][0]}</p>
+                <p className="display text-2xl">{a.counts[k]}</p>
+                <p className="text-xs text-ink-3">{a.rules[k]}</p>
+              </div>
+            ))}
+          </div>
+          <div className="mt-4 overflow-x-auto">
+            <table className="w-full min-w-[760px] text-sm" data-testid="attribution-table">
+              <thead><tr className="border-b-2 border-ink text-left text-[11px] uppercase tracking-wider text-ink-3"><th className="p-2">Contacto</th><th className="p-2">Estado</th><th className="p-2">Vía</th><th className="p-2">Campaña · conjunto · anuncio</th><th className="p-2">Evidencia</th></tr></thead>
+              <tbody>
+                {a.recent.map((r) => (
+                  <tr key={r.contactId} className="border-b border-line align-top">
+                    <td className="p-2"><span className="font-semibold">{r.name}</span><span className="block text-[11px] text-ink-3">{new Date(r.createdAt).toLocaleDateString('es-CO')}</span></td>
+                    <td className="p-2"><Badge tone={ATTR[r.state][1]}>{ATTR[r.state][0]}</Badge></td>
+                    <td className="p-2 text-xs">{r.via ? VIA[r.via] ?? r.via : '—'}</td>
+                    <td className="p-2 text-xs">{r.campaignName || r.adsetName || r.adName ? [r.campaignName, r.adsetName, r.adName].map((x) => x ?? 'desconocido').join(' · ') : <span className="text-ink-3">Desconocido</span>}</td>
+                    <td className="p-2 text-xs text-ink-2">{r.evidence}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {total > a.recent.length && <p className="mt-2 text-xs text-ink-3">Se muestran los {a.recent.length} más recientes de {total}.</p>}
+        </>
+      )}
+    </Card>
+  );
+}
+
+function LeadForms({ q, summary }: { q: string; summary?: RevenueRes['leadForms'] }) {
+  const queryClient = useQueryClient();
+  const { canWrite } = useCompanyScope();
+  const { data } = useQuery({ queryKey: ['ads-leads', q], queryFn: () => api.get<LeadRow[]>(withScope('/ads/leads', q)) });
+  const fetchLead = useMutation({
+    mutationFn: (id: string) => api.post<LeadRow>(withScope(`/ads/leads/${id}/fetch`, q)),
+    onSuccess: (r) => { queryClient.invalidateQueries({ queryKey: ['ads-leads'] }); queryClient.invalidateQueries({ queryKey: ['ads-revenue'] }); if (r.status === 'FETCHED') toast.success('Datos del lead recibidos'); else toast.error(r.error ?? 'Meta todavía no entrega los datos'); },
+    onError: (e) => toast.error(e instanceof Error ? e.message : 'Error'),
+  });
+  if (!data) return null;
+  return (
+    <Card kicker="Meta Lead Ads" title="Formularios recibidos" className="mt-6">
+      {!data.length ? (
+        <p className="text-sm text-ink-3">Aún no llega ningún formulario. Para recibirlos, la página debe estar conectada en BackOffice y suscrita al aviso «leadgen» de Meta, con el permiso <b>leads_retrieval</b> aprobado.</p>
+      ) : (
+        <>
+          {summary && <p className="mb-3 text-xs text-ink-3">En el periodo: {summary.received} recibidos · {summary.withContact} con datos · {summary.pendingPermission} esperando permiso · {summary.errors} con error.</p>}
+          <ul className="divide-y divide-line text-sm">
+            {data.map((l) => (
+              <li key={l.id} className="flex flex-wrap items-start justify-between gap-2 py-2">
+                <span>
+                  <Badge tone={LEAD_STATUS[l.status]?.[1] ?? 'neutral'}>{LEAD_STATUS[l.status]?.[0] ?? l.status}</Badge>{' '}
+                  <span className="text-xs text-ink-3">{new Date(l.receivedAt).toLocaleString('es-CO', { dateStyle: 'short', timeStyle: 'short' })} · lead {l.leadgenId}{l.adName ? ` · anuncio «${l.adName}»` : l.adId ? ` · anuncio ${l.adId} (no sincronizado)` : ' · sin ID de anuncio'}</span>
+                  {l.contactId && <span className="block text-xs text-ok">Contacto creado o unido en el CRM</span>}
+                  {l.error && <span className="block text-xs text-warn">{l.error}</span>}
+                </span>
+                {canWrite && ['PENDING_PERMISSION', 'ERROR'].includes(l.status) && <Button size="sm" variant="outline" disabled={fetchLead.isPending} onClick={() => fetchLead.mutate(l.id)}>Pedir datos otra vez</Button>}
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+    </Card>
   );
 }
 

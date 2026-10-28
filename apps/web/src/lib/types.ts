@@ -333,7 +333,10 @@ export interface Message {
   /** Lo que leyó la IA de una imagen (comprobantes) */
   analysisJson?: string | null;
   transcription?: string | null;
-  deliveryStatus?: 'QUEUED' | 'SENT' | 'DELIVERED' | 'READ' | 'FAILED' | null;
+  /** SIMULATED: modo prueba, no salió · UNCERTAIN: sin confirmación del proveedor · CANCELLED: respuesta del bot retirada */
+  deliveryStatus?: 'QUEUED' | 'SENDING' | 'SENT' | 'DELIVERED' | 'READ' | 'FAILED' | 'UNCERTAIN' | 'SIMULATED' | 'CANCELLED' | null;
+  deliveryError?: string | null;
+  templateKey?: string | null;
   metaCategory?: string | null;
   mediaAssetId?: string | null;
   mediaAsset?: { id: string; name: string; priceUsd: number; mimeType: string } | null;
@@ -354,8 +357,35 @@ export interface Conversation {
   lastMessageAt: string;
   contact: Contact & { customer?: { id: string; name: string } | null };
   bot?: { id: string; name: string; model?: string } | null;
-  integration?: { id: string; name: string } | null;
+  integration?: { id: string; name: string; type?: string } | null;
   messages: Message[];
+  /** Responsable de esta conversación (no del contacto) */
+  assignedToId?: string | null;
+  assignedToName?: string | null;
+  modeChangedAt?: string | null;
+  modeChangedBy?: string | null;
+}
+
+export interface InboxPage {
+  items: Conversation[];
+  nextCursor: string | null;
+  counts: { unread: number; mine: number; unassigned: number; attention: number };
+}
+
+export interface ConversationNote { id: string; authorId: string; authorName: string; body: string; createdAt: string }
+
+export interface ChannelInfo {
+  id: string; name: string; type: string; provider: string;
+  state: 'NOT_CONFIGURED' | 'SANDBOX' | 'PENDING_VERIFICATION' | 'VERIFIED' | 'AUTH_ERROR' | 'ERROR';
+  label: string; detail: string | null; verifiedAt: string | null;
+}
+
+export interface MessagingWindow {
+  mode: 'FREE_TEXT' | 'TEMPLATE_ONLY' | 'BLOCKED';
+  provider: 'TWILIO' | 'META' | 'NONE';
+  channel: string; withinWindow: boolean; lastInboundAt: string | null; expiresAt: string | null; reason: string | null;
+  templates: Array<{ key: string; name: string; body: string | null; variables: number }>;
+  channelState: (ChannelInfo & { label: string }) | null;
 }
 
 /* ─── Módulo de pedidos (catering y afines) ───────────────────────── */
@@ -605,21 +635,6 @@ export interface MonthlyConsumption {
   previous: ConsumptionBlock;
   deltaPct: number | null;
   generatedAt: string;
-}
-
-export interface Automation {
-  id: string;
-  companyId: string;
-  company?: { name: string; slug: string };
-  name: string;
-  description?: string | null;
-  type: 'FLOW' | 'CONTENT' | 'REPORT' | 'INTERNAL';
-  trigger?: string | null;
-  status: 'ACTIVE' | 'PAUSED' | 'DRAFT';
-  lastRunAt?: string | null;
-  runsCount: number;
-  successRate: number;
-  runs?: { id: string; status: string; startedAt: string }[];
 }
 
 export interface PlatformMetrics {

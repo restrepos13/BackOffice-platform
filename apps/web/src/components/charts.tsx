@@ -159,18 +159,18 @@ export function BarsChart({
   );
 }
 
-/** Publicidad: gasto diario (área) y resultados (línea escalonada) en ejes separados. */
-export function AdsSpendChart({ data, height = 240, money }: { data: any[]; height?: number; money: (v: number) => string }) {
+/** Publicidad: gasto diario (área) y resultados (línea escalonada) en ejes separados. Sin resultados comparables, solo el gasto. */
+export function AdsSpendChart({ data, height = 240, money, showResults = true, resultsLabel = 'Resultados' }: { data: any[]; height?: number; money: (v: number) => string; showResults?: boolean; resultsLabel?: string }) {
   return (
     <ResponsiveContainer width="100%" height={height}>
       <AreaChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
         <CartesianGrid stroke={LINE} vertical={false} />
         <XAxis dataKey="date" {...axisProps} tickFormatter={shortDate} minTickGap={28} />
         <YAxis yAxisId="s" {...axisProps} tickFormatter={(v: number) => money(v)} width={72} />
-        <YAxis yAxisId="r" orientation="right" {...axisProps} width={36} allowDecimals={false} />
+        {showResults && <YAxis yAxisId="r" orientation="right" {...axisProps} width={36} allowDecimals={false} />}
         <Tooltip content={<BrutalTooltip formatter={(v: number, n: string) => (n === 'Gasto' ? money(v) : String(v))} />} />
         <Area yAxisId="s" type="monotone" dataKey="spend" name="Gasto" stroke={INK} fill={INK} fillOpacity={0.12} strokeWidth={2} />
-        <Area yAxisId="r" type="stepAfter" dataKey="results" name="Resultados" stroke={OK} fill={OK} fillOpacity={0.08} strokeWidth={2} />
+        {showResults && <Area yAxisId="r" type="stepAfter" dataKey="results" name={resultsLabel} stroke={OK} fill={OK} fillOpacity={0.08} strokeWidth={2} />}
       </AreaChart>
     </ResponsiveContainer>
   );

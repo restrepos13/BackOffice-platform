@@ -22,11 +22,17 @@ import { SkipThrottle } from '@nestjs/throttler';
 import type { Request, Response } from 'express';
 import type { Queue } from 'bullmq';
 import { PrismaService } from '../prisma/prisma.service';
+import { contactCreated } from '../common/domain-events';
 import { Public } from '../auth/decorators';
 import { parseJson } from '../common/constants';
 import { ENGINE_QUEUE, WA_OUTBOUND_QUEUE } from '../queue/queue.module';
 import { applyConsent } from '../common/customer-notify';
 import { parseMessagingEvents, verifyMetaSignature } from '../common/meta';
+import { parseLeadgenEvents } from '../common/ads/leads';
+import { claimInbound, releaseInbound } from '../common/inbox/dedupe';
+import { sanitizeError, shouldApplyStatus } from '../common/inbox/delivery';
+import { AdLeadsService } from './ads-leads';
+import { AdsModule } from './ads.module';
 import { EventsService } from './events.module';
 
 /**
@@ -46,6 +52,7 @@ export class WebhooksService {
     @Optional() @Inject(ENGINE_QUEUE) private readonly engineQueue?: Queue,
     @Optional() @Inject(WA_OUTBOUND_QUEUE) private readonly outboundQueue?: Queue,
     @Optional() private readonly events?: EventsService,
+    @Optional() private readonly leads?: AdLeadsService,
   ) {}
 
   private async setting(key: string): Promise<string> {
@@ -82,9 +89,24 @@ export class WebhooksService {
     providerId: string; contactKey: { phone?: string; externalId?: string }; name: string; text: string; type: string;
     origin?: ChatOrigin | null;
   }) {
-    // Idempotencia: los reintentos de Meta no duplican nada
+    // Idempotencia: los reintentos de Meta no duplican nada (ni dos webhooks simultáneos)
     const dup = await this.prisma.message.findFirst({ where: { providerId: input.providerId } });
     if (dup) return false;
+    if (!(await claimInbound(this.prisma, input.companyId, input.channel, input.providerId))) return false;
+    try {
+      return await this.storeClaimed(input);
+    } catch (err) {
+      // Falló a mitad: se suelta el recibo para que el reintento de Meta sí entre
+      await releaseInbound(this.prisma, input.channel, input.providerId);
+      throw err;
+    }
+  }
+
+  private async storeClaimed(input: {
+    companyId: string; line: any; channel: 'WHATSAPP' | 'INSTAGRAM' | 'MESSENGER';
+    providerId: string; contactKey: { phone?: string; externalId?: string }; name: string; text: string; type: string;
+    origin?: ChatOrigin | null;
+  }) {
     let contact = await this.prisma.contact.findFirst({
       where: { companyId: input.companyId, ...(input.contactKey.phone ? { phone: input.contactKey.phone } : { externalId: input.contactKey.externalId }) },
     });
@@ -95,6 +117,7 @@ export class WebhooksService {
           ...(input.contactKey.phone ? { phone: input.contactKey.phone } : { externalId: input.contactKey.externalId }),
         },
       });
+      await contactCreated(input.companyId, contact.id);
     }
     let conversation = await this.prisma.conversation.findFirst({
       where: {
@@ -158,6 +181,8 @@ export class WebhooksService {
     for (const entry of body?.entry ?? []) {
       for (const change of entry?.changes ?? []) {
         const value = change?.value;
+        // Estados de entrega de lo que enviamos (sent → delivered → read, o failed)
+        for (const st of value?.statuses ?? []) await this.applyWhatsappStatus(company.id, st);
         if (!value?.messages?.length) continue;
         const phoneNumberId = value?.metadata?.phone_number_id;
         const line = lines.find((l) => parseJson<Record<string, string>>(l.configJson, {}).phoneNumberId === phoneNumberId) ?? lines[0] ?? null;
@@ -177,12 +202,36 @@ export class WebhooksService {
     return { ok: true, stored };
   }
 
-  /** Instagram y Messenger (objeto "instagram" o "page"). */
+  /**
+   * Estado de un mensaje saliente por WhatsApp Cloud API. Solo cambia mensajes
+   * de ESTA empresa, nunca retrocede (un "delivered" tardío no pisa un "read")
+   * y un aviso repetido no hace nada.
+   */
+  async applyWhatsappStatus(companyId: string, st: any) {
+    const map: Record<string, string> = { sent: 'SENT', delivered: 'DELIVERED', read: 'READ', failed: 'FAILED' };
+    const status = map[String(st?.status ?? '').toLowerCase()];
+    if (!st?.id || !status) return false;
+    const message = await this.prisma.message.findFirst({ where: { providerId: String(st.id) }, include: { conversation: true } });
+    if (!message || (message.conversation as any).companyId !== companyId) return false;
+    if (!shouldApplyStatus(message.deliveryStatus, status)) return false;
+    const err = st?.errors?.[0];
+    await this.prisma.message.update({
+      where: { id: message.id },
+      data: { deliveryStatus: status, ...(status === 'FAILED' ? { deliveryError: sanitizeError(`Meta: ${err?.title ?? err?.message ?? 'falló'}${err?.code ? ` (${err.code})` : ''}`) } : {}) },
+    });
+    if (status === 'FAILED') await this.prisma.conversation.update({ where: { id: message.conversationId }, data: { needsAttention: true } });
+    this.events?.emit(companyId, { type: 'message.status', conversationId: message.conversationId, messageId: message.id, deliveryStatus: status });
+    return true;
+  }
+
+  /** Instagram y Messenger (objeto "instagram" o "page"), y formularios de Lead Ads (campo "leadgen"). */
   async ingestMeta(slug: string, body: any) {
     const company = await this.prisma.company.findUnique({ where: { slug } });
     if (!company) return { ok: false };
+    const leadEvents = parseLeadgenEvents(body);
+    const leads = leadEvents.length && this.leads ? await this.leads.ingest(company.id, leadEvents) : undefined;
     const events = parseMessagingEvents(body);
-    if (!events.length) return { ok: true, stored: 0 };
+    if (!events.length) return { ok: true, stored: 0, ...(leads ? { leads } : {}) };
     const integrations = await this.prisma.integration.findMany({
       where: { companyId: company.id, type: { in: ['INSTAGRAM', 'MESSENGER'] } },
     });
@@ -235,6 +284,7 @@ export class WebhooksController {
 }
 
 @Module({
+  imports: [AdsModule],
   controllers: [WebhooksController],
   providers: [WebhooksService],
 })

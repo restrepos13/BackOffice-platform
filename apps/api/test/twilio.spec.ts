@@ -142,7 +142,8 @@ describe('Envío saliente (processOutbound)', () => {
     const result = await service.processOutbound({ messageId: 'out1' });
     expect(String(result.sid)).toContain('SANDBOX');
     const message = db.message.find((m: any) => m.id === 'out1')!;
-    expect(message.deliveryStatus).toBe('SENT');
+    // En sandbox no sale nada: queda SIMULATED (antes decía SENT, como si hubiera salido)
+    expect(message.deliveryStatus).toBe('SIMULATED');
     expect(message.metaCategory).toBe('SERVICIO');
     expect(message.metaCostUsd).toBe(0);
   });
@@ -168,7 +169,7 @@ describe('Envío saliente (processOutbound)', () => {
     });
     expect(result.category).toBe('UTILIDAD');
     const message = db.message.find((m: any) => m.id === 'out1')!;
-    expect(message.deliveryStatus).toBe('SENT');
+    expect(message.deliveryStatus).toBe('SIMULATED'); // línea sandbox: la plantilla no salió de verdad
     expect(message.metaCostUsd).toBeCloseTo(0.008);
   });
 

@@ -1,5 +1,6 @@
 import { Global, Logger, Module, OnApplicationShutdown } from '@nestjs/common';
 import { Queue } from 'bullmq';
+import { defaultQueuePrefix } from '../common/runtime-env';
 
 /**
  * Colas BullMQ sobre Redis (servicio local de Homebrew).
@@ -18,13 +19,15 @@ export const ENGINE_QUEUE = 'ENGINE_QUEUE';
 export const WORKFLOW_QUEUE = 'WORKFLOW_QUEUE';
 
 /**
- * Prefijo de las llaves en Redis (BULLMQ_PREFIX). Sin él, el de siempre ("bull").
- * Un entorno aislado (piloto) usa su propio prefijo para no compartir trabajos
- * con otra API conectada al mismo Redis.
+ * Prefijo de las llaves en Redis (BULLMQ_PREFIX). Sin él, producción usa el de
+ * siempre ("bull") y desarrollo "bo-dev": una API local nunca toma trabajos de
+ * otra conectada al mismo Redis. El piloto define el suyo.
  */
 export function queuePrefix(): { prefix?: string } {
   const p = String(process.env.BULLMQ_PREFIX ?? '').trim();
-  return /^[\w:-]{1,40}$/.test(p) ? { prefix: p } : {};
+  if (/^[\w:-]{1,40}$/.test(p)) return { prefix: p };
+  const fallback = defaultQueuePrefix();
+  return fallback ? { prefix: fallback } : {};
 }
 
 /** REDIS_URL completo: redis:// o rediss:// (TLS), con usuario y clave (Render Key Value, Upstash…). */

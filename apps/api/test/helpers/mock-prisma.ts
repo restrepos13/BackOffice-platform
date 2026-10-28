@@ -41,7 +41,8 @@ function matches(doc: Doc, where: Doc | undefined): boolean {
       if ('in' in cond && !cond.in.includes(value)) return false;
       if ('notIn' in cond && cond.notIn.includes(value)) return false;
       if ('gt' in cond && !(value > cond.gt)) return false;
-      if ('contains' in cond && !(typeof value === 'string' && value.includes(cond.contains))) return false;
+      if ('contains' in cond && !(typeof value === 'string' && (cond.mode === 'insensitive' ? value.toLowerCase().includes(String(cond.contains).toLowerCase()) : value.includes(cond.contains)))) return false;
+      if ('startsWith' in cond && !(typeof value === 'string' && value.startsWith(cond.startsWith))) return false;
       if ('gte' in cond && !(value >= cond.gte)) return false;
       if ('lte' in cond && !(value <= cond.lte)) return false;
       if ('lt' in cond && !(value < cond.lt)) return false;
@@ -61,17 +62,26 @@ function matches(doc: Doc, where: Doc | undefined): boolean {
   return true;
 }
 
-function sort(docs: Doc[], orderBy?: Doc): Doc[] {
+function sort(docs: Doc[], orderBy?: Doc | Doc[]): Doc[] {
   if (!orderBy) return docs;
-  const [[field, dir]] = Object.entries(orderBy) as [string, 'asc' | 'desc'][];
+  // Varios criterios (orderBy: [{a: 'desc'}, {b: 'desc'}]) se aplican en orden
+  const keys = (Array.isArray(orderBy) ? orderBy : [orderBy]).flatMap((o) => Object.entries(o)) as [string, 'asc' | 'desc'][];
   return [...docs].sort((a, b) => {
-    const va = a[field] instanceof Date ? a[field].getTime() : a[field];
-    const vb = b[field] instanceof Date ? b[field].getTime() : b[field];
-    return (va < vb ? -1 : va > vb ? 1 : 0) * (dir === 'desc' ? -1 : 1);
+    for (const [field, dir] of keys) {
+      const va = a[field] instanceof Date ? a[field].getTime() : a[field];
+      const vb = b[field] instanceof Date ? b[field].getTime() : b[field];
+      const c = (va < vb ? -1 : va > vb ? 1 : 0) * (dir === 'desc' ? -1 : 1);
+      if (c) return c;
+    }
+    return 0;
   });
 }
 
-export function createMockPrisma() {
+/**
+ * opts.atlasWithoutIndexes: simula la base compartida tal como está hoy (sin
+ * los índices únicos declarados en Prisma). Solo `_id` es único, como en Mongo.
+ */
+export function createMockPrisma(opts: { atlasWithoutIndexes?: boolean } = {}) {
   const db = {
     company: [] as Doc[],
     bot: [] as Doc[],
@@ -148,6 +158,10 @@ export function createMockPrisma() {
     productionQuote: [] as Doc[],
     productionIssue: [] as Doc[],
     workflowRun: [] as Doc[],
+    automation: [] as Doc[],
+    automationVersion: [] as Doc[],
+    authToken: [] as Doc[],
+    emailMessage: [] as Doc[],
     brandProfile: [] as Doc[],
     socialUsage: [] as Doc[],
     invoice: [] as Doc[],
@@ -163,16 +177,23 @@ export function createMockPrisma() {
     adRule: [] as Doc[],
     adActionLog: [] as Doc[],
     adBrief: [] as Doc[],
+    adLead: [] as Doc[],
+    conversationNote: [] as Doc[],
+    inboundReceipt: [] as Doc[],
+    subscriptionEvent: [] as Doc[],
+    aiIncludedCounter: [] as Doc[],
   };
 
   // Filtros por relación (where: { conversation: {...} }) — resueltos por FK
   const RELATION_FILTERS: Partial<Record<keyof typeof db, Array<{ key: string; fk: string; collection: keyof typeof db }>>> = {
     message: [{ key: 'conversation', fk: 'conversationId', collection: 'conversation' }],
+    conversation: [{ key: 'contact', fk: 'contactId', collection: 'contact' }],
     orderItem: [{ key: 'order', fk: 'orderId', collection: 'order' }],
     feedback: [{ key: 'order', fk: 'orderId', collection: 'order' }],
   };
 
   const name_isOrder = (doc: Doc) => db.order.includes(doc);
+  const name_isConversation = (doc: Doc) => db.conversation.includes(doc);
   const attach = (doc: Doc, include?: Doc): Doc => {
     if (!include) return { ...doc }; // snapshot, como Prisma real
     const out = { ...doc };
@@ -186,6 +207,9 @@ export function createMockPrisma() {
     }
     if (include.integration && doc.integrationId) {
       out.integration = db.integration.find((i) => i.id === doc.integrationId) ?? null;
+    }
+    if (include.plan && doc.planId) {
+      out.plan = db.plan.find((p) => p.id === doc.planId) ?? null;
     }
     if (include.company) {
       out.company = db.company.find((c) => c.id === doc.companyId) ?? null;
@@ -212,6 +236,12 @@ export function createMockPrisma() {
             ? attach(order, include.order.include)
             : { ...order })
         : null;
+    }
+    if (include.messages && name_isConversation(doc)) {
+      const m = include.messages;
+      let list = sort(db.message.filter((x) => x.conversationId === doc.id), m.orderBy);
+      if (m.take) list = list.slice(0, m.take);
+      out.messages = list.map((x) => ({ ...x }));
     }
     if (include.conversation && doc.conversationId) {
       const conversation = db.conversation.find((c) => c.id === doc.conversationId) ?? null;
@@ -244,6 +274,7 @@ export function createMockPrisma() {
     productionSlotLock: ['companyId+resourceId+slotStart'],
     productionQuote: ['companyId+productionId+version'],
     workflowRun: ['companyId+idempotencyKey'],
+    authToken: ['tokenHash'],
   };
   const model = (name: keyof typeof db, defaults: Doc = {}) => {
     // matches + filtros por relación y claves compuestas (companyId_date)
@@ -252,6 +283,20 @@ export function createMockPrisma() {
       const rels = RELATION_FILTERS[name] ?? [];
       const plain: Doc = {};
       for (const [key, cond] of Object.entries(where)) {
+        // AND / OR / NOT pueden traer filtros por relación adentro
+        if (key === 'AND') {
+          if (!(cond as Doc[]).every((w) => match(doc, w))) return false;
+          continue;
+        }
+        if (key === 'OR') {
+          if (!(cond as Doc[]).some((w) => match(doc, w))) return false;
+          continue;
+        }
+        // Conversación con algún mensaje que cumpla (messages: { some: … })
+        if (name === 'conversation' && key === 'messages' && cond && typeof cond === 'object' && 'some' in (cond as Doc)) {
+          if (!db.message.some((m) => m.conversationId === doc.id && matches(m, (cond as Doc).some))) return false;
+          continue;
+        }
         const rel = rels.find((r) => r.key === key);
         if (rel && cond && typeof cond === 'object') {
           const related = db[rel.collection].find((d) => d.id === doc[rel.fk]);
@@ -317,8 +362,12 @@ export function createMockPrisma() {
     },
     create: async ({ data }: Doc) => {
       const { items, ...plain } = data;
+      // _id siempre es único en Mongo
+      if (plain.id != null && db[name].some((d: Doc) => d.id === plain.id)) {
+        throw Object.assign(new Error(`Unique constraint failed on ${String(name)}._id_`), { code: 'P2002' });
+      }
       // Índices únicos como en Mongo (P2002 si se repite)
-      for (const key of UNIQUE[name as string] ?? []) {
+      for (const key of opts.atlasWithoutIndexes ? [] : UNIQUE[name as string] ?? []) {
         const fields = key.split('+');
         if (fields.every((f) => plain[f] != null) && db[name].some((d: Doc) => fields.every((f) => sameValue(d[f], plain[f])))) {
           throw Object.assign(new Error(`Unique constraint failed on ${String(name)}.${key}`), { code: 'P2002' });
@@ -334,8 +383,16 @@ export function createMockPrisma() {
       return { ...doc };
     },
     createMany: async ({ data }: Doc) => {
-      for (const row of data) db[name].push({ id: id(), createdAt: new Date(), ...defaults, ...row });
-      return { count: data.length };
+      // Como insertMany ordenado de Mongo: inserta hasta el primer _id repetido y falla
+      let count = 0;
+      for (const row of data) {
+        if (row.id != null && db[name].some((d: Doc) => d.id === row.id)) {
+          throw Object.assign(new Error(`Unique constraint failed on ${String(name)}._id_`), { code: 'P2002', inserted: count });
+        }
+        db[name].push({ id: id(), createdAt: new Date(), ...defaults, ...row });
+        count++;
+      }
+      return { count };
     },
     update: async ({ where, data }: Doc) => {
       const doc = db[name].find((d) => matches(d, where));
@@ -447,6 +504,11 @@ export function createMockPrisma() {
     adRule: model('adRule', { active: true, minSpend: 0, checkEveryMin: 60, lastRunAt: null, operator: 'GT', level: 'CAMPAIGN', action: 'ALERT', risk: 'LOW' }),
     adActionLog: model('adActionLog', { mode: 'REAL', dataJson: '{}', reversible: false }),
     adBrief: model('adBrief', { status: 'DRAFT' }),
+    adLead: model('adLead', { status: 'RECEIVED', fieldNamesJson: '[]' }),
+    conversationNote: model('conversationNote'),
+    inboundReceipt: model('inboundReceipt'),
+    subscriptionEvent: model('subscriptionEvent', { refsJson: '{}' }),
+    aiIncludedCounter: model('aiIncludedCounter', { used: 0 }),
     productionSettings: model('productionSettings', { configJson: '{}' }),
     productionCounter: model('productionCounter', { seq: 0 }),
     production: model('production', { status: 'NUEVA', version: 1, priority: 'NORMAL', channel: 'OTHER', briefJson: '{}', isTest: false }),
@@ -459,7 +521,11 @@ export function createMockPrisma() {
     productionSlotLock: model('productionSlotLock', {}),
     productionQuote: model('productionQuote', { status: 'DRAFT', currency: 'COP', linesJson: '[]', totalsJson: '{}' }),
     productionIssue: model('productionIssue', { status: 'OPEN', severity: 'MEDIUM' }),
+    authToken: model('authToken', { usedAt: null, revokedAt: null }),
+    emailMessage: model('emailMessage', { status: 'QUEUED' }),
     workflowRun: model('workflowRun', { status: 'PENDING', attempts: 0, maxAttempts: 5, payloadJson: '{}' }),
+    automation: model('automation', { status: 'DRAFT', configJson: '{}', version: 0, type: 'FLOW', runsCount: 0, successRate: 100 }),
+    automationVersion: model('automationVersion'),
   };
 
   return { prisma, db };

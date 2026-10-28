@@ -20,6 +20,8 @@ export class ApiError extends Error {
     readonly status: number,
     readonly field?: string,
     readonly code?: string,
+    /** Lista de problemas de validación que el servidor explica uno por uno */
+    readonly errors?: string[],
   ) {
     super(message);
   }
@@ -68,7 +70,8 @@ async function request<T>(
     // Mensajes técnicos (o en inglés) no llegan a la persona
     const technical = !raw || res.status === 429 || (res.status >= 500 && !data?.code) || /^[A-Z][a-z]+(Exception| Error)|Too Many Requests|Internal server/i.test(String(raw));
     const msg = technical ? FRIENDLY[res.status] ?? FRIENDLY[500] : String(raw);
-    throw new ApiError(msg, res.status, data?.field, data?.code);
+    const errors = Array.isArray(data?.errors) ? data.errors.filter((e: unknown) => typeof e === 'string').slice(0, 30) : undefined;
+    throw new ApiError(msg, res.status, data?.field, data?.code, errors);
   }
   return data as T;
 }

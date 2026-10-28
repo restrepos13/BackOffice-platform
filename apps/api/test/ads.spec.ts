@@ -9,7 +9,7 @@ import { AdsService } from '../src/modules/ads.module';
 import { MetaAdsProvider, classifyMetaError, metaInsightRow } from '../src/common/ads/meta-ads-provider';
 import { AdsProviderError, currencyOffset, fromMinor } from '../src/common/ads/provider';
 import { audit as runAudit } from '../src/common/ads/findings';
-import { budgetAllowed, evaluateRule, guardAutoAction } from '../src/common/ads/autopilot';
+import { budgetAllowed, evaluateRule, guardAutoAction, validateRule } from '../src/common/ads/autopilot';
 import { revenueFunnel } from '../src/common/ads/revenue';
 import { buildProposal, validateBrief } from '../src/common/ads/proposal';
 import { buildCapiEvent, sha256 } from '../src/common/ads/conversions';
@@ -332,13 +332,20 @@ describe('Ads · Autopilot', () => {
     await expect(svc.setEntityStatus(A, e.id, { status: 'ACTIVE' })).rejects.toThrow(/gasta presupuesto/);
   });
 
-  it('las reglas validan sus límites y la frecuencia no suma alcances', () => {
+  it('las reglas validan sus límites y la frecuencia no suma ni aproxima alcances', () => {
     const rows = [
       { externalId: 'a', campaignExternalId: 'c', date: '2026-10-01', spend: 10, impressions: 500, reach: 100, clicks: 1, linkClicks: 1, leads: 0, conversations: 0, purchases: 0, purchaseValue: 0 },
       { externalId: 'a', campaignExternalId: 'c', date: '2026-10-02', spend: 10, impressions: 500, reach: 100, clicks: 1, linkClicks: 1, leads: 0, conversations: 0, purchases: 0, purchaseValue: 0 },
     ];
-    const m = evaluateRule({ id: 'r', name: 'F', metric: 'FREQUENCY', level: 'CAMPAIGN', windowDays: 7, operator: 'GT', threshold: 4, minSpend: 0, action: 'ALERT' }, [{ level: 'CAMPAIGN', externalId: 'c', name: 'C', effectiveStatus: 'ACTIVE' }], rows, '2026-10-02');
-    expect(m[0].value).toBe(10);
+    const rule = { id: 'r', name: 'Frecuencia', metric: 'FREQUENCY' as const, level: 'CAMPAIGN' as const, windowDays: 7, operator: 'GT' as const, threshold: 4, minSpend: 0, action: 'ALERT' as const };
+    const camp = [{ level: 'CAMPAIGN', externalId: 'c', name: 'C', effectiveStatus: 'ACTIVE' }];
+    // Sin el alcance del periodo que reporta la plataforma, la regla no opina (antes daba 10 con el alcance diario máximo)
+    expect(evaluateRule(rule, camp, rows, '2026-10-02')).toEqual([]);
+    const stat = { since: '2026-09-26', until: '2026-10-02', reach: 200, impressions: 1000, frequency: 5 };
+    const m = evaluateRule(rule, camp, rows, '2026-10-02', { periodStat: (_l, _id, w) => (w.since === stat.since && w.until === stat.until ? stat : null) });
+    expect(m[0].value).toBe(5);
+    expect(validateRule({ ...rule, level: 'AD' })).toMatch(/frecuencia se mide por campaña/);
+    expect(validateRule({ ...rule, windowDays: 14 })).toMatch(/7 o 30 días/);
     expect(budgetAllowed(100, 50).ok).toBe(false);
     expect(budgetAllowed(40, 50).ok).toBe(true);
     expect(budgetAllowed(-1, null).ok).toBe(false);

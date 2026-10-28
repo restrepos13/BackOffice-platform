@@ -27,9 +27,9 @@ apps/web   → React 18 + Vite + Tailwind 4 + TanStack Query + Recharts + sonner
 
 ```bash
 pnpm install
-pnpm db:push      # sincroniza índices contra MongoDB Atlas
-pnpm db:seed      # datos demo (borra y recrea todo)
-pnpm dev          # api + web en paralelo
+pnpm db:push      # sincroniza índices contra la base de .env (en local: backoffice_dev)
+SEED_CONFIRM_DB=backoffice_dev pnpm db:seed   # siembra la base de desarrollo (ver «Entornos»)
+pnpm dev          # api + web en paralelo (tareas programadas apagadas en local)
 ```
 
 Verificación: `npx tsc --noEmit` en cada app; build con `npx nest build` /
@@ -42,8 +42,21 @@ sin que lo pida.
 
 **Base de datos: MongoDB Atlas** (definitiva, desde el 21 sep 2026).
 `DATABASE_URL` en `apps/api/.env` (NO commiteado) con formato
-`mongodb+srv://…mongodb.net/backoffice?retryWrites=true&w=majority` — el nombre
-de la base en la URL es obligatorio. Provider `mongodb` en el schema; todos los
+`mongodb+srv://…mongodb.net/<base>?retryWrites=true&w=majority` — el nombre
+de la base en la URL es obligatorio.
+
+**Entornos (28 oct 2026, `src/common/runtime-env.ts`).** Producción = `RENDER=true`
+(lo pone Render), `HEALTH_ENV=prod` o `APP_ENV=production`; todo lo demás es
+desarrollo. En desarrollo:
+- `.env` local apunta a **`backoffice_dev`** con un usuario de Atlas que solo
+  tiene permisos sobre esa base. Nunca credenciales de producción en local.
+- La API **no arranca** contra una base fuera de `DEV_DATABASE_ALLOWLIST`
+  (por defecto `backoffice_dev`) salvo una base local con «pilot» en el nombre;
+  la base `backoffice` (producción) se rechaza siempre. También verifica la base
+  efectiva de la conexión (`dbStats`).
+- Las tareas programadas (`@Cron`) quedan apagadas: `ScheduleModule` solo se
+  registra con `SCHEDULERS_ENABLED=1` (en producción, encendidas salvo `=0`).
+- Las colas BullMQ usan el prefijo `bo-dev` si no hay `BULLMQ_PREFIX`. Provider `mongodb` en el schema; todos los
 `@id` son cuid mapeados a `_id` (`@map("_id")`). Los enums siguen siendo String
 y los JSON van serializados en campos `*Json` (funciona igual en Mongo). No usar
 SQL crudo: el health check usa `$runCommandRaw({ ping: 1 })`. `prisma db push`
@@ -130,10 +143,15 @@ Esquema completo: `apps/api/prisma/schema.prisma`. Seed: `apps/api/prisma/seed.t
 
 ## Seeds y cuentas
 
-**`pnpm db:seed` = seed de PRODUCCIÓN** (desde el 21 sep 2026): limpia todo y
-deja planes, catálogo IA, personalidades globales, settings, el equipo
-BackOffice y UNA "Empresa de Prueba" vacía. ⚠️ Nunca correrlo sin pensar cuando
-haya datos reales de clientes — borra todo.
+**`pnpm db:seed` = seed base de DESARROLLO**: deja planes, catálogo IA,
+personalidades globales, settings, el equipo BackOffice y UNA "Empresa de
+Prueba" vacía. Protegido por `prisma/seed-guard.ts` (también `seed-demo` y
+`seed-nexus`): se niega en producción, contra una base fuera de la lista de
+desarrollo o protegida, si la conexión efectiva es otra base, y sin
+`SEED_CONFIRM_DB=<nombre de la base>`. Si la base ya tiene datos, borrarlos
+exige además `SEED_RESET_CONFIRM=<nombre de la base>`:
+`SEED_CONFIRM_DB=backoffice_dev SEED_RESET_CONFIRM=backoffice_dev pnpm db:seed`.
+Nunca se siembra producción.
 Los datos demo (4 empresas, conversaciones, consumo) viven en
 `prisma/seed-demo.ts` → `pnpm db:seed:demo`.
 

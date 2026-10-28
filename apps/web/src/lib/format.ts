@@ -123,6 +123,18 @@ export const AUTOMATION_STATUS_LABELS: Record<string, string> = {
   ACTIVE: 'Activa',
   PAUSED: 'Pausada',
   DRAFT: 'Borrador',
+  ARCHIVED: 'Archivada',
+};
+
+/** Estados de una ejecución real del motor */
+export const RUN_STATUS_LABELS: Record<string, string> = {
+  PENDING: 'En cola',
+  RUNNING: 'Ejecutando',
+  WAITING: 'En espera',
+  RETRYABLE: 'Por reintentar',
+  COMPLETED: 'Completada',
+  FAILED: 'Fallida',
+  CANCELLED: 'Cancelada',
 };
 
 export const AUTOMATION_TYPE_LABELS: Record<string, string> = {

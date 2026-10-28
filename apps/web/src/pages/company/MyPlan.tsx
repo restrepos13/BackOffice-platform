@@ -7,6 +7,7 @@ import { toast } from 'sonner';
 import { api } from '../../lib/api';
 import { fmtMoney } from '../../lib/format';
 import { Badge, Button, Card, Loading, Modal, PageHeader } from '../../components/ui';
+import { SubscriptionCard } from './plan/SubscriptionCard';
 import { PickCompany, useCompanyScope, withScope } from './shared';
 
 /**
@@ -39,7 +40,7 @@ const day = (iso: string) => new Date(iso).toLocaleDateString('es-CO', { day: 'n
 const INCLUDED_PATH: Record<string, string> = { reactivation: '/app/reactivacion', collections: '/app/cobranza', salesAudit: '/app/auditor' };
 
 export default function MyPlan() {
-  const { ready, q, canWrite } = useCompanyScope();
+  const { ready, q, canWrite, isPlatform } = useCompanyScope();
   const queryClient = useQueryClient();
   const [cancelling, setCancelling] = useState<AddonsView['addons'][number] | null>(null);
   const [qty, setQty] = useState<Record<string, number>>({});
@@ -74,6 +75,7 @@ export default function MyPlan() {
   return (
     <>
       <PageHeader kicker="Lo que tienes contratado" title="Mi" accent="plan" />
+      {!isPlatform && <SubscriptionCard />}
 
       <div className="mb-6 grid gap-6 lg:grid-cols-[minmax(0,1fr)_340px]">
         <Card kicker="Automatización humanizada de WhatsApp" title={summary.plan ? `Plan ${summary.plan.name} · ${summary.mode.name}` : 'Aún sin plan'}>

@@ -24,6 +24,7 @@ import {
 } from '../common/constants';
 import { AuditService } from './audit.module';
 import { forgetSession } from '../auth/jwt.guard';
+import { SEAT_ROLES, assertWithinLimit, verifyWithinLimit } from '../common/limits';
 
 /** Claves de plataforma: más largas que las de empresa (ven todas las empresas). */
 const PLATFORM_MIN_PASSWORD = 10;
@@ -91,6 +92,10 @@ export class UsersService {
       where: { email: dto.email.toLowerCase() },
     });
     if (exists) throw new BadRequestException('Ya existe un usuario con ese correo');
+    // Cupo de personas del plan (los domiciliarios tienen su propio tope)
+    const seat = !isPlatformRole(dto.role) && SEAT_ROLES.includes(dto.role) && !!dto.companyId;
+    const onReached = (l: any, used: number) => this.audit.log({ actor, companyId: dto.companyId ?? null, action: 'limit.reached', entity: 'Company', entityId: dto.companyId ?? undefined, detail: `usuarios: ${used}/${l.max} (${l.source})` });
+    if (seat) await assertWithinLimit(this.prisma, dto.companyId!, 'users', onReached);
 
     const user = await this.prisma.user.create({
       data: {
@@ -103,6 +108,7 @@ export class UsersService {
         passwordHash: AuthService.hashPassword(dto.password),
       },
     });
+    if (seat) await verifyWithinLimit(this.prisma, dto.companyId!, 'users', () => this.prisma.user.delete({ where: { id: user.id } }), onReached);
     await this.audit.log({
       actor,
       companyId: user.companyId,
@@ -163,6 +169,12 @@ export class UsersService {
       await this.assertNotLastSuperAdmin(target);
     }
     if (isPlatformRole(dto.role ?? target.role)) this.assertPlatformPassword(dto.password);
+    // Reactivar a alguien (o pasar un domiciliario a un rol del equipo) ocupa un cupo del plan
+    const nextRole = dto.role ?? target.role;
+    const nextActive = dto.active ?? target.active;
+    if (target.companyId && SEAT_ROLES.includes(nextRole) && nextActive && !(SEAT_ROLES.includes(target.role) && target.active)) {
+      await assertWithinLimit(this.prisma, target.companyId, 'users', (l: any, used: number) => this.audit.log({ actor, companyId: target.companyId, action: 'limit.reached', entity: 'Company', entityId: target.companyId ?? undefined, detail: `usuarios: ${used}/${l.max} (${l.source})` }));
+    }
     const user = await this.prisma.user.update({
       where: { id },
       data: {
@@ -187,7 +199,13 @@ export class UsersService {
       action: 'user.update',
       entity: 'User',
       entityId: user.id,
-      detail: user.name,
+      // Qué cambió (jamás la contraseña en sí)
+      detail: [
+        user.name,
+        dto.role && dto.role !== target.role ? `rol ${target.role} → ${dto.role}` : null,
+        dto.active !== undefined && dto.active !== target.active ? (dto.active ? 'reactivado' : 'desactivado') : null,
+        dto.password ? 'contraseña restablecida por un administrador' : null,
+      ].filter(Boolean).join(' · '),
     });
     return this.safe(user);
   }

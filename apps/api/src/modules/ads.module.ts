@@ -12,17 +12,22 @@ import { decryptSecret, encryptSecret } from '../common/crypto';
 import { exchangeCode, oauthUrl, signState, verifyState } from '../common/meta-publish';
 import { publicWebUrl } from '../common/tracking';
 import { DEFAULT_STAGES } from '../common/pipelines';
-import { AccountRef, AdLevel, AdsProvider, AdsProviderError, FetchLike, ProviderKey, RemoteEntity, RemoteInsight, addDays, isoDay } from '../common/ads/provider';
+import { AccountRef, AdLevel, AdsProvider, AdsProviderError, FetchLike, PeriodStats, ProviderErrorKind, ProviderKey, RemoteEntity, RemoteInsight, addDays, isoDay } from '../common/ads/provider';
 import { META_ADS_SCOPES } from '../common/ads/meta-ads-provider';
 import { DemoAdsProvider } from '../common/ads/demo-provider';
 import { PROVIDER_KEYS, providerFor } from '../common/ads/registry';
-import { daily, delta, groupBy, inRange, periods, totals } from '../common/ads/metrics';
+import {
+  RESULT_LABEL, ResultType, comparable, delta, groupBy, inRange, mixedTotals, periodStatFor, periods, resultTypeFor, resultsOf, totals, typedTotals,
+} from '../common/ads/metrics';
+import { KIND_LABEL, SYNC_EVERY_H, SYNC_LOCK_MS, accountStatusAfter, chunks, nextAttempt } from '../common/ads/sync-policy';
+import { deterministicId } from '../common/automation/run-signals';
 import { CrmAdStats, audit } from '../common/ads/findings';
 import { Autonomy, METRICS, RuleLike, budgetAllowed, evaluateRule, guardAutoAction, ruleRunKey, validateRule } from '../common/ads/autopilot';
-import { adIdOf, revenueFunnel } from '../common/ads/revenue';
+import { AttributionState, adIdOf, attributionOf, revenueFunnel } from '../common/ads/revenue';
 import { Brief, buildProposal, validateBrief } from '../common/ads/proposal';
 import { OPEN, OppDraft, storeDetected } from '../common/opportunities/store';
 import { AuditModule, AuditService } from './audit.module';
+import { AdLeadsService } from './ads-leads';
 import { Products } from '../auth/products.guard';
 import { ProductInactiveError, hasProduct } from '../common/products';
 
@@ -39,8 +44,24 @@ import { ProductInactiveError, hasProduct } from '../common/products';
 
 const WRITE = [ROLES.SUPER_ADMIN, ROLES.DEV, ROLES.COMPANY_ADMIN] as const;
 const READ = [ROLES.SUPER_ADMIN, ROLES.DEV, ROLES.COMPANY_ADMIN, ROLES.COMPANY_VIEWER] as const;
-const SYNC_EVERY_H = 6;
 const FIRST_SYNC_DAYS = 60;
+
+/*
+ * Identidad e idempotencia sin depender de índices: el _id de cada fila se
+ * deriva de su clave lógica, y Mongo siempre garantiza que _id sea único
+ * (aunque en la base compartida falten los índices únicos declarados).
+ *  - Cuenta:   empresa + plataforma + ID externo
+ *  - Elemento: cuenta + nivel + ID externo
+ *  - Métrica:  cuenta + nivel + ID externo + día
+ *  - Acción:   clave de idempotencia
+ */
+export const adAccountId = (companyId: string, provider: string, externalId: string) => deterministicId('ada', companyId, provider, externalId);
+export const adEntityId = (accountId: string, level: string, externalId: string) => deterministicId('ade', accountId, level, externalId);
+export const adInsightId = (accountId: string, level: string, externalId: string, date: string) => deterministicId('adi', accountId, level, externalId, date);
+export const adActionId = (idempotencyKey: string) => deterministicId('adl', idempotencyKey);
+
+const isDup = (err: any) => err?.code === 'P2002';
+const PERIOD_STATS_KEEP = 6;
 /** Al re-sincronizar se vuelven a traer estos días: la atribución sigue cambiando */
 const RESYNC_DAYS = 7;
 
@@ -101,7 +122,14 @@ export class AdsService {
   private view(a: any) {
     const { tokenEnc: _t, ...rest } = a;
     const ageH = a.lastSyncAt ? Math.round((this.now().getTime() - new Date(a.lastSyncAt).getTime()) / 36e5) : null;
-    return { ...rest, hasToken: !!a.tokenEnc, scopes: parseJson<string[]>(a.scopesJson, []), dataAgeHours: ageH, stale: ageH === null || ageH > SYNC_EVERY_H * 2 };
+    const { syncLockUntil, periodStatsJson: _p, ...pub } = rest;
+    return {
+      ...pub, hasToken: !!a.tokenEnc, scopes: parseJson<string[]>(a.scopesJson, []), dataAgeHours: ageH, stale: ageH === null || ageH > SYNC_EVERY_H * 2,
+      // La credencial nunca sale: solo se dice que existe y cómo se guardó
+      credential: a.mode === 'DEMO' ? 'Sin credencial (demostración)' : a.tokenEnc ? 'Guardada cifrada · no se muestra' : 'Sin credencial',
+      syncing: !!syncLockUntil && new Date(syncLockUntil).getTime() > this.now().getTime(),
+      errorHelp: a.lastErrorKind ? KIND_LABEL[a.lastErrorKind] ?? null : null,
+    };
   }
 
   /* ── Proveedores y cuentas ── */
@@ -129,7 +157,10 @@ export class AdsService {
     const [remote] = await p.listAccounts();
     const existing = await this.prisma.adAccount.findFirst({ where: { companyId: c.id, provider: key, externalId: remote.externalId } });
     const acc = existing ?? await this.prisma.adAccount.create({
-      data: { companyId: c.id, provider: key, mode: 'DEMO', externalId: remote.externalId, name: remote.name, currency: remote.currency, timezone: remote.timezone, status: 'CONNECTED', connectedBy: user.name, updatedAt: this.now() },
+      data: { id: adAccountId(c.id, key, remote.externalId), companyId: c.id, provider: key, mode: 'DEMO', externalId: remote.externalId, name: remote.name, currency: remote.currency, timezone: remote.timezone, status: 'CONNECTED', connectedBy: user.name, updatedAt: this.now() },
+    }).catch(async (err: any) => {
+      if (!isDup(err)) throw err;
+      return this.prisma.adAccount.findUniqueOrThrow({ where: { id: adAccountId(c.id, key, remote.externalId) } });
     });
     await this.audit.log({ actor: user, companyId: c.id, action: 'ads.demo', entity: 'AdAccount', entityId: acc.id, detail: `Cuenta de demostración ${key}` });
     await this.sync(user, acc.id, c.id);
@@ -164,9 +195,15 @@ export class AdsService {
       name: remote.name, currency: remote.currency, timezone: remote.timezone, tokenEnc: encryptSecret(token),
       scopesJson: JSON.stringify(scopes), status: 'CONNECTED', lastError: null, connectedBy: user?.name ?? null, updatedAt: this.now(),
     };
+    const id = adAccountId(companyId, 'META', remote.externalId);
     const acc = existing
-      ? await this.prisma.adAccount.update({ where: { id: existing.id }, data })
-      : await this.prisma.adAccount.create({ data: { companyId, provider: 'META', mode: 'REAL', externalId: remote.externalId, ...data } });
+      ? await this.prisma.adAccount.update({ where: { id: existing.id }, data: { ...data, nextSyncAt: this.now(), syncFailures: 0, lastErrorKind: null } })
+      : await this.prisma.adAccount.create({ data: { id, companyId, provider: 'META', mode: 'REAL', externalId: remote.externalId, ...data, nextSyncAt: this.now(), syncFailures: 0 } })
+        .catch(async (err: any) => {
+          // Dos conexiones simultáneas de la misma cuenta: queda una sola fila
+          if (!isDup(err)) throw err;
+          return this.prisma.adAccount.update({ where: { id }, data });
+        });
     await this.audit.log({ actor: user, companyId, action: 'ads.connect', entity: 'AdAccount', entityId: acc.id, detail: `${remote.name} (${remote.externalId})` });
     return this.view(acc);
   }
@@ -245,38 +282,146 @@ export class AdsService {
     return e instanceof Error ? e : new BadRequestException('Error con la plataforma');
   }
 
+  /**
+   * Sincroniza una cuenta. Garantías:
+   *  - Una sola a la vez por cuenta (candado compare-and-set en AdAccount).
+   *  - Nunca borra: guarda lo que llega y actualiza lo que cambió.
+   *  - Las métricas se piden por tramos; si un tramo falla, lo anterior queda
+   *    guardado y la corrida queda PARTIAL (sin mover lastSyncAt, así el
+   *    siguiente intento vuelve a cubrir el hueco).
+   *  - Errores tipados: vencida, permisos, límite, incompleta. Cada uno con su
+   *    siguiente intento (ver sync-policy).
+   */
   async sync(user: AuthUser | null, accountId: string, companyId: string, trigger: 'MANUAL' | 'CRON' = 'MANUAL') {
     const a = await this.accountOf(companyId, accountId);
     if (a.status === 'DISCONNECTED') throw new BadRequestException('La cuenta está desconectada');
-    const running = await this.prisma.adSyncRun.findFirst({ where: { accountId: a.id, status: 'RUNNING', startedAt: { gte: new Date(this.now().getTime() - 15 * 60e3) } } });
-    if (running) throw new ConflictException('Ya hay una sincronización en curso para esta cuenta');
-    const run = await this.prisma.adSyncRun.create({ data: { companyId, accountId: a.id, trigger, status: 'RUNNING', startedAt: this.now() } });
-    const p = this.provider(a.provider, a.mode);
-    const token = this.token(a);
-    const until = isoDay(this.now());
-    const since = a.lastSyncAt ? addDays(isoDay(new Date(a.lastSyncAt)), -RESYNC_DAYS) : addDays(until, -(FIRST_SYNC_DAYS - 1));
+    const start = this.now();
+    const locked = await this.prisma.adAccount.updateMany({
+      where: { id: a.id, companyId, OR: [{ syncLockUntil: { isSet: false } }, { syncLockUntil: null }, { syncLockUntil: { lt: start } }] },
+      data: { syncLockUntil: new Date(start.getTime() + SYNC_LOCK_MS) },
+    });
+    if (locked.count !== 1) throw new ConflictException('Ya hay una sincronización en curso para esta cuenta');
+    const run = await this.prisma.adSyncRun.create({ data: { companyId, accountId: a.id, trigger, status: 'RUNNING', startedAt: start } });
     try {
-      const entities = await p.fetchEntities(this.ref(a), token);
-      const insights = await p.fetchInsights(this.ref(a), token, since < addDays(until, -(FIRST_SYNC_DAYS - 1)) ? addDays(until, -(FIRST_SYNC_DAYS - 1)) : since, a.mode === 'DEMO' ? addDays(until, -1) : until);
-      const e = await this.saveEntities(a, entities);
-      const i = await this.saveInsights(a, insights);
-      await this.prisma.adSyncRun.update({ where: { id: run.id }, data: { status: 'OK', countsJson: JSON.stringify({ entities: e, insights: i, since }), finishedAt: this.now() } });
-      await this.prisma.adAccount.update({ where: { id: a.id }, data: { lastSyncAt: this.now(), lastError: null, status: 'CONNECTED' } });
-      await this.runAudit(companyId).catch((err) => this.logger.warn(`auditoría ${companyId}: ${err.message}`));
-      return { ok: true, entities: e, insights: i };
-    } catch (err: any) {
-      const msg = String(err?.message ?? err).slice(0, 300);
-      const expired = err instanceof AdsProviderError && err.kind === 'AUTH';
-      await this.prisma.adSyncRun.update({ where: { id: run.id }, data: { status: 'ERROR', error: msg, finishedAt: this.now() } });
-      await this.prisma.adAccount.update({ where: { id: a.id }, data: { lastError: msg, status: expired ? 'EXPIRED' : 'ERROR' } });
-      if (user) await this.audit.log({ actor: user, companyId, action: 'ads.sync.error', entity: 'AdAccount', entityId: a.id, detail: msg });
-      throw this.providerHttp(err);
+      return await this.runSync(user, a, run.id, start);
+    } finally {
+      await this.prisma.adAccount.updateMany({ where: { id: a.id }, data: { syncLockUntil: null } });
     }
   }
 
-  /** Guarda en lote: una consulta para leer lo que hay, createMany para lo nuevo y update solo de lo que cambió. */
+  private async runSync(user: AuthUser | null, a: any, runId: string, start: Date) {
+    const companyId = a.companyId as string;
+    const p = this.provider(a.provider, a.mode);
+    const until = a.mode === 'DEMO' ? addDays(isoDay(start), -1) : isoDay(start);
+    const floor = addDays(isoDay(start), -(FIRST_SYNC_DAYS - 1));
+    const wanted = a.lastSyncAt ? addDays(isoDay(new Date(a.lastSyncAt)), -RESYNC_DAYS) : floor;
+    const since = wanted < floor ? floor : wanted;
+    const counts = { entities: 0, insights: 0, since, until, chunksOk: 0, chunks: 0, warnings: [] as string[] };
+    let failure: { kind: ProviderErrorKind; message: string } | null = null;
+    let entitiesSaved = false;
+    try {
+      const token = this.token(a);
+      counts.entities = await this.saveEntities(a, await p.fetchEntities(this.ref(a), token));
+      entitiesSaved = true;
+      const parts = chunks(since, until);
+      counts.chunks = parts.length;
+      for (const part of parts) {
+        counts.insights += await this.saveInsights(a, await p.fetchInsights(this.ref(a), token, part.since, part.until));
+        counts.chunksOk++;
+      }
+      // Alcance y frecuencia del periodo (no se pueden sumar día a día): opcional
+      if (p.fetchPeriodStats) {
+        try {
+          await this.savePeriodStats(a, p, token, until);
+        } catch (err: any) {
+          counts.warnings.push(`Alcance y frecuencia no disponibles: ${String(err?.message ?? err).slice(0, 160)}`);
+        }
+      }
+    } catch (err: any) {
+      failure = {
+        kind: err instanceof AdsProviderError ? err.kind : err instanceof BadRequestException ? 'AUTH' : 'PROVIDER',
+        message: String(err?.message ?? err).slice(0, 300),
+      };
+    }
+    const done = this.now();
+    const partial = !!failure && entitiesSaved;
+    const status = !failure ? 'OK' : partial ? 'PARTIAL' : 'ERROR';
+    const failures = failure ? (a.syncFailures ?? 0) + 1 : 0;
+    await this.prisma.adSyncRun.update({
+      where: { id: runId },
+      data: { status, countsJson: JSON.stringify(counts), error: failure?.message ?? null, errorKind: failure?.kind ?? null, finishedAt: done },
+    });
+    await this.prisma.adAccount.update({
+      where: { id: a.id },
+      data: {
+        // Solo una corrida completa mueve la marca: así el siguiente intento cubre lo que faltó
+        ...(failure ? {} : { lastSyncAt: done }),
+        lastSyncStatus: status, lastError: failure?.message ?? null, lastErrorKind: failure?.kind ?? null,
+        syncFailures: failures, nextSyncAt: nextAttempt(failure?.kind ?? null, failures, done),
+        status: accountStatusAfter(failure?.kind ?? null, a.status),
+      },
+    });
+    if (!failure) {
+      // Los hallazgos solo se recalculan con datos completos
+      await this.runAudit(companyId).catch((err) => this.logger.warn(`auditoría ${companyId}: ${err.message}`));
+      return { ok: true, status, entities: counts.entities, insights: counts.insights, warnings: counts.warnings };
+    }
+    if (user) await this.audit.log({ actor: user, companyId, action: 'ads.sync.error', entity: 'AdAccount', entityId: a.id, detail: `${failure.kind}: ${failure.message}` });
+    if (partial) {
+      return {
+        ok: false, status, entities: counts.entities, insights: counts.insights, warnings: counts.warnings,
+        error: failure.message, errorKind: failure.kind, help: KIND_LABEL[failure.kind] ?? null,
+        note: `Se guardaron los elementos y ${counts.chunksOk} de ${counts.chunks} tramos de métricas. Lo anterior no se borró; el resto se reintenta.`,
+      };
+    }
+    throw new BadRequestException(failure.message);
+  }
+
+  /** Guarda alcance y frecuencia de 7 y 30 días tal como los reporta la plataforma. */
+  private async savePeriodStats(a: any, p: AdsProvider, token: string, until: string) {
+    const windows = [7, 30].map((d) => periods(until, d).current);
+    const results: Array<{ w: { since: string; until: string }; stats: PeriodStats }> = [];
+    for (const w of windows) results.push({ w, stats: await p.fetchPeriodStats!(this.ref(a), token, w.since, w.until) });
+    const merge = (json: string | null | undefined, add: Array<{ since: string; until: string; reach: number; impressions: number; frequency: number | null }>) => {
+      const old = parseJson<any[]>(json, []).filter((x) => !add.some((n) => n.since === x.since && n.until === x.until));
+      return JSON.stringify([...add, ...old].slice(0, PERIOD_STATS_KEEP));
+    };
+    const acct = results.filter((r) => r.stats.account).map((r) => ({ since: r.w.since, until: r.w.until, ...r.stats.account! }));
+    if (acct.length) await this.prisma.adAccount.update({ where: { id: a.id }, data: { periodStatsJson: merge(a.periodStatsJson, acct) } });
+    const camps = await this.prisma.adEntity.findMany({ where: { companyId: a.companyId, accountId: a.id, level: 'CAMPAIGN' } });
+    for (const c of camps) {
+      const add = results.flatMap((r) => r.stats.campaigns.filter((x) => x.externalId === c.externalId).map((x) => ({ since: r.w.since, until: r.w.until, reach: x.reach, impressions: x.impressions, frequency: x.frequency })));
+      if (add.length) await this.prisma.adEntity.update({ where: { id: c.id }, data: { periodStatsJson: merge(c.periodStatsJson, add) } });
+    }
+  }
+
+  /** Inserta filas nuevas con _id determinista. Si otra corrida ya insertó alguna, se omite (no se duplica). */
+  private async insertIdempotent(model: 'adEntity' | 'adInsightDaily', rows: any[]) {
+    let inserted = 0;
+    for (let k = 0; k < rows.length; k += 1000) {
+      const batch = rows.slice(k, k + 1000);
+      try {
+        inserted += (await (this.prisma as any)[model].createMany({ data: batch })).count;
+      } catch (err: any) {
+        if (!isDup(err)) throw err;
+        // Lote con filas ya existentes (escritura concurrente): fila por fila
+        for (const row of batch) {
+          if (await (this.prisma as any)[model].findUnique({ where: { id: row.id } })) continue;
+          try {
+            await (this.prisma as any)[model].create({ data: row });
+            inserted++;
+          } catch (e: any) {
+            if (!isDup(e)) throw e;
+          }
+        }
+      }
+    }
+    return inserted;
+  }
+
+  /** Guarda en lote: una consulta para leer lo que hay, inserción idempotente de lo nuevo y update solo de lo que cambió. */
   private async saveEntities(a: { id: string; companyId: string; provider: string; mode: string }, entities: RemoteEntity[]) {
-    const existing = await this.prisma.adEntity.findMany({ where: { accountId: a.id } });
+    const existing = await this.prisma.adEntity.findMany({ where: { companyId: a.companyId, accountId: a.id } });
     const byKey = new Map(existing.map((x) => [`${x.level}:${x.externalId}`, x]));
     const now = this.now();
     const fresh: any[] = [];
@@ -287,11 +432,14 @@ export class AdsService {
         objective: x.objective, dailyBudget: x.dailyBudget, lifetimeBudget: x.lifetimeBudget, issuesJson: JSON.stringify(x.issues),
         rawJson: JSON.stringify(x.raw).slice(0, 20000), providerUpdatedAt: x.providerUpdatedAt ? new Date(x.providerUpdatedAt) : null,
       };
-      const old = byKey.get(`${x.level}:${x.externalId}`);
+      const key = `${x.level}:${x.externalId}`;
+      const old = byKey.get(key);
       if (!old) {
-        fresh.push({ companyId: a.companyId, accountId: a.id, provider: a.provider, mode: a.mode, level: x.level, externalId: x.externalId, ...data, syncedAt: now });
+        byKey.set(key, { id: 'pending' } as any); // la plataforma repitió un elemento en la misma respuesta
+        fresh.push({ id: adEntityId(a.id, x.level, x.externalId), companyId: a.companyId, accountId: a.id, provider: a.provider, mode: a.mode, level: x.level, externalId: x.externalId, ...data, syncedAt: now });
         continue;
       }
+      if (old.id === 'pending') continue;
       const differs = (Object.keys(data) as Array<keyof typeof data>).some((k) => {
         const v1 = data[k] instanceof Date ? (data[k] as Date).getTime() : data[k] ?? null;
         const v0 = (old as any)[k] instanceof Date ? (old as any)[k].getTime() : (old as any)[k] ?? null;
@@ -302,17 +450,16 @@ export class AdsService {
         changed++;
       }
     }
-    if (fresh.length) await this.prisma.adEntity.createMany({ data: fresh });
-    return fresh.length + changed;
+    return (await this.insertIdempotent('adEntity', fresh)) + changed;
   }
 
   private async saveInsights(a: { id: string; companyId: string; mode: string; currency: string }, rows: RemoteInsight[]) {
     if (!rows.length) return 0;
     const dates = rows.map((r) => r.date).sort();
-    const existing = await this.prisma.adInsightDaily.findMany({ where: { accountId: a.id, date: { gte: dates[0], lte: dates[dates.length - 1] } } });
+    const existing = await this.prisma.adInsightDaily.findMany({ where: { companyId: a.companyId, accountId: a.id, date: { gte: dates[0], lte: dates[dates.length - 1] } } });
     const byKey = new Map(existing.map((x) => [`${x.level}:${x.externalId}:${x.date}`, x]));
     const now = this.now();
-    const fresh: any[] = [];
+    const fresh = new Map<string, any>();
     let changed = 0;
     const NUMS = ['spend', 'impressions', 'reach', 'clicks', 'linkClicks', 'leads', 'conversations', 'purchases', 'purchaseValue'] as const;
     for (const r of rows) {
@@ -321,17 +468,26 @@ export class AdsService {
         linkClicks: r.linkClicks, leads: r.leads, conversations: r.conversations, purchases: r.purchases, purchaseValue: r.purchaseValue,
         rawJson: JSON.stringify(r.raw).slice(0, 8000),
       };
-      const old = byKey.get(`${r.level}:${r.externalId}:${r.date}`);
+      const key = `${r.level}:${r.externalId}:${r.date}`;
+      const old = byKey.get(key);
       if (!old) {
-        fresh.push({ companyId: a.companyId, accountId: a.id, mode: a.mode, level: r.level, externalId: r.externalId, date: r.date, ...data, syncedAt: now });
+        // Si la plataforma repite una fila, gana la última
+        fresh.set(key, { id: adInsightId(a.id, r.level, r.externalId, r.date), companyId: a.companyId, accountId: a.id, mode: a.mode, level: r.level, externalId: r.externalId, date: r.date, ...data, syncedAt: now });
       } else if (NUMS.some((k) => Number((old as any)[k]) !== Number(data[k]))) {
         // La atribución sigue moviendo los números unos días: se actualiza solo lo que cambió
         await this.prisma.adInsightDaily.update({ where: { id: old.id }, data: { ...data, syncedAt: now } });
         changed++;
       }
     }
-    for (let k = 0; k < fresh.length; k += 1000) await this.prisma.adInsightDaily.createMany({ data: fresh.slice(k, k + 1000) });
-    return fresh.length + changed;
+    return (await this.insertIdempotent('adInsightDaily', [...fresh.values()])) + changed;
+  }
+
+  /** Últimas corridas de sincronización de una cuenta (para ver errores y tramos). */
+  async syncRuns(user: AuthUser, accountId: string, companyId?: string) {
+    const c = await this.companyOf(user, companyId);
+    const a = await this.accountOf(c.id, accountId);
+    const rows = await this.prisma.adSyncRun.findMany({ where: { companyId: c.id, accountId: a.id }, orderBy: { startedAt: 'desc' }, take: 10 });
+    return rows.map((r) => ({ ...r, counts: parseJson(r.countsJson, {}), help: r.errorKind ? KIND_LABEL[r.errorKind] ?? null : null }));
   }
 
   async syncNow(user: AuthUser, accountId: string, companyId?: string) {
@@ -363,6 +519,26 @@ export class AdsService {
     return rows.reduce((m, r) => (r.date > m ? r.date : m), '') || addDays(isoDay(this.now()), -1);
   }
 
+  /** Tipo de resultado de cada campaña según su objetivo (lo que se cuenta como "resultado"). */
+  private typeOfFn(entities: Array<{ level: string; externalId: string; objective: string | null }>) {
+    const map = new Map(entities.filter((e) => e.level === 'CAMPAIGN').map((e) => [e.externalId, resultTypeFor(e.objective)]));
+    return (campaign: string | null | undefined): ResultType => (campaign ? map.get(campaign) ?? 'reported' : 'reported');
+  }
+
+  /** Serie diaria: gasto siempre; resultados solo si el periodo no mezcla tipos. */
+  private dailySeries(rows: any[], p: { since: string; until: string }, typeOf: (c: string | null | undefined) => ResultType, mixed: boolean) {
+    const byDay = groupBy(rows, (r: any) => r.date);
+    const out: Array<{ date: string; spend: number; results: number; clicks: number; impressions: number }> = [];
+    for (let d = p.since; d <= p.until; d = addDays(d, 1)) {
+      const list = byDay.get(d) ?? [];
+      const t = totals(list);
+      const results = mixed ? 0 : [...groupBy(list, (r: any) => r.campaignExternalId ?? '__none__')]
+        .reduce((sum, [c, l]) => sum + (resultsOf(totals(l), typeOf(c === '__none__' ? null : c)) ?? 0), 0);
+      out.push({ date: d, spend: t.spend, results, clicks: t.clicks, impressions: t.impressions });
+    }
+    return out;
+  }
+
   async overview(user: AuthUser, q: { companyId?: string; days?: string; accountId?: string; mode?: string; campaign?: string }) {
     const c = await this.companyOf(user, q.companyId);
     const mode = await this.modeFor(c.id, q.mode);
@@ -371,14 +547,33 @@ export class AdsService {
     const rows = q.campaign ? all.filter((r) => r.campaignExternalId === q.campaign) : all;
     const until = this.lastDay(rows);
     const p = periods(until, days);
-    const now = totals(rows.filter((r) => inRange(r.date, p.current)));
-    const before = totals(rows.filter((r) => inRange(r.date, p.previous)));
+    const typeOf = this.typeOfFn(entities);
+    const now = mixedTotals(rows.filter((r) => inRange(r.date, p.current)), typeOf);
+    const before = mixedTotals(rows.filter((r) => inRange(r.date, p.previous)), typeOf);
+    const cmp = comparable(now, before);
     const byCampaign = groupBy(rows.filter((r) => inRange(r.date, p.current)), (r) => r.campaignExternalId);
-    const campaigns = entities.filter((e) => e.level === 'CAMPAIGN').map((e) => ({
-      id: e.id, externalId: e.externalId, name: e.name, status: e.effectiveStatus ?? e.status, objective: e.objective, dailyBudget: e.dailyBudget,
-      accountId: e.accountId, ...totals(byCampaign.get(e.externalId) ?? []),
-    })).sort((a, b) => b.spend - a.spend);
+    const campaigns = entities.filter((e) => e.level === 'CAMPAIGN').map((e) => {
+      const type = resultTypeFor(e.objective);
+      const stat = periodStatFor(e.periodStatsJson, p.current);
+      return {
+        id: e.id, externalId: e.externalId, name: e.name, status: e.effectiveStatus ?? e.status, objective: e.objective, dailyBudget: e.dailyBudget,
+        accountId: e.accountId, ...typedTotals(byCampaign.get(e.externalId) ?? [], type), resultLabel: RESULT_LABEL[type],
+        reach: stat?.reach ?? null, frequency: stat?.frequency ?? null,
+      };
+    }).sort((a, b) => b.spend - a.spend);
     const currencies = [...new Set(accounts.map((a) => a.currency))];
+    // Alcance: personas únicas. Solo una cuenta (o una campaña) y para el periodo exacto que reportó la plataforma
+    const reachStat = q.campaign
+      ? periodStatFor(entities.find((e) => e.level === 'CAMPAIGN' && e.externalId === q.campaign)?.periodStatsJson, p.current)
+      : accounts.length === 1 ? periodStatFor(accounts[0].periodStatsJson, p.current) : null;
+    const notes: string[] = [];
+    if (now.resultNote) notes.push(now.resultNote);
+    if (!reachStat) {
+      notes.push(accounts.length > 1 && !q.campaign
+        ? 'Alcance y frecuencia: con varias cuentas no se pueden sumar (una persona puede estar en más de una). Filtra por cuenta.'
+        : 'Alcance y frecuencia: la plataforma los reporta para 7 y 30 días terminando en el último día sincronizado; para este periodo no están disponibles.');
+    }
+    if (!cmp.ok && cmp.reason) notes.push(`Variaciones: ${cmp.reason}`);
     const [openFindings, pendingActions, executed] = await Promise.all([
       this.prisma.opportunity.count({ where: { companyId: c.id, source: 'ADS', mode, status: { in: OPEN } } }),
       this.prisma.adActionLog.count({ where: { companyId: c.id, mode, status: 'PROPOSED' } }),
@@ -386,17 +581,24 @@ export class AdsService {
     ]);
     const realCount = await this.prisma.adAccount.count({ where: { companyId: c.id, mode: 'REAL' } });
     const demoCount = await this.prisma.adAccount.count({ where: { companyId: c.id, mode: 'DEMO' } });
+    const d = (a: number | null, b: number | null) => (cmp.ok ? delta(a, b) : null);
     return {
       mode, modes: { real: realCount, demo: demoCount }, days, period: p, currency: currencies.length === 1 ? currencies[0] : null,
       mixedCurrencies: currencies.length > 1,
       accounts: accounts.map((a) => this.view(a)),
-      totals: now, previous: before,
+      totals: { ...now, reach: reachStat?.reach ?? null, frequency: reachStat?.frequency ?? null }, previous: before,
       deltas: {
-        spend: delta(now.spend, before.spend), results: delta(now.results, before.results), costPerResult: delta(now.costPerResult, before.costPerResult),
-        ctr: delta(now.ctr, before.ctr), cpc: delta(now.cpc, before.cpc), cpm: delta(now.cpm, before.cpm),
+        spend: d(now.spend, before.spend),
+        // Resultados solo se comparan si ambos periodos miden el mismo tipo
+        results: now.resultType && now.resultType === before.resultType ? d(now.results, before.results) : null,
+        costPerResult: now.resultType && now.resultType === before.resultType ? d(now.costPerResult, before.costPerResult) : null,
+        ctr: d(now.ctr, before.ctr), cpc: d(now.cpc, before.cpc), cpm: d(now.cpm, before.cpm),
       },
-      insufficient: now.days < Math.min(days, 7) || before.days === 0,
-      daily: daily(rows, p.current),
+      comparable: cmp.ok,
+      insufficient: now.days < Math.min(days, 7) || !cmp.ok,
+      notes,
+      daily: this.dailySeries(rows, p.current, typeOf, now.resultTypes.length > 1),
+      resultLabel: now.resultType ? RESULT_LABEL[now.resultType] : null,
       campaigns,
       configuredDailyBudget: campaigns.filter((x) => x.status === 'ACTIVE').reduce((s, x) => s + (x.dailyBudget ?? 0), 0),
       openFindings, pendingActions, executedActions: executed,
@@ -411,11 +613,15 @@ export class AdsService {
     const p = periods(this.lastDay(rows), days).current;
     const cur = rows.filter((r) => inRange(r.date, p));
     const byAd = groupBy(cur, (r) => r.externalId);
-    const metricsFor = (e: any) => totals(
-      e.level === 'AD' ? byAd.get(e.externalId) ?? []
+    const typeOf = this.typeOfFn(entities);
+    const metricsFor = (e: any) => {
+      const type = typeOf(e.level === 'CAMPAIGN' ? e.externalId : e.campaignExternalId);
+      const list = e.level === 'AD' ? byAd.get(e.externalId) ?? []
         : e.level === 'ADSET' ? entities.filter((x) => x.level === 'AD' && x.adsetExternalId === e.externalId).flatMap((x) => byAd.get(x.externalId) ?? [])
-          : cur.filter((r) => r.campaignExternalId === e.externalId),
-    );
+          : cur.filter((r) => r.campaignExternalId === e.externalId);
+      const stat = e.level === 'CAMPAIGN' ? periodStatFor(e.periodStatsJson, p) : null;
+      return { ...typedTotals(list, type), resultLabel: RESULT_LABEL[type], reach: stat?.reach ?? null, frequency: stat?.frequency ?? null };
+    };
     const node = (e: any) => ({
       id: e.id, level: e.level, externalId: e.externalId, name: e.name, status: e.status, effectiveStatus: e.effectiveStatus, objective: e.objective,
       dailyBudget: e.dailyBudget, issues: parseJson<string[]>(e.issuesJson, []), syncedAt: e.syncedAt, metrics: metricsFor(e),
@@ -434,8 +640,12 @@ export class AdsService {
 
   /* ── Auditoría / hallazgos ── */
 
-  private async crmStats(companyId: string, conversations: number): Promise<CrmAdStats> {
+  private async crmStats(companyId: string, conversations: number, window: { since: string; until: string }): Promise<CrmAdStats> {
     const cut = new Date(this.now().getTime() - 14 * 86400e3);
+    // Conversaciones del CRM que llegaron con el dato de un anuncio en la misma ventana
+    const crmAdConversations = await this.prisma.conversation.count({
+      where: { companyId, originJson: { contains: '"AD"' }, createdAt: { gte: new Date(`${window.since}T00:00:00Z`), lt: new Date(`${addDays(window.until, 1)}T00:00:00Z`) } },
+    });
     const contacts = await this.prisma.contact.findMany({ where: { companyId, originJson: { contains: '"AD"' }, createdAt: { lte: cut } }, select: { stage: true, originJson: true }, take: 5000 });
     const recentAd = await this.prisma.contact.count({ where: { companyId, originJson: { contains: '"AD"' }, createdAt: { gte: new Date(this.now().getTime() - 7 * 86400e3) } } });
     return {
@@ -443,6 +653,7 @@ export class AdsService {
       adLeads: Math.max(contacts.length, recentAd),
       stuckInFirstStage: contacts.filter((x) => x.stage === DEFAULT_STAGES[0].key).length,
       platformConversations: conversations,
+      crmAdConversations,
     };
   }
 
@@ -451,18 +662,21 @@ export class AdsService {
     for (const mode of ['REAL', 'DEMO'] as const) {
       const accounts = await this.prisma.adAccount.findMany({ where: { companyId, mode, status: { not: 'DISCONNECTED' } } });
       for (const a of accounts) {
+        // Con datos incompletos no se juzga nada (ni se cierran hallazgos como "desaparecidos")
+        if (a.lastSyncStatus === 'PARTIAL') continue;
         const [entities, rows] = await Promise.all([
           this.prisma.adEntity.findMany({ where: { companyId, accountId: a.id } }),
           this.prisma.adInsightDaily.findMany({ where: { companyId, accountId: a.id, date: { gte: addDays(isoDay(this.now()), -60) } } }),
         ]);
         if (!rows.length && !entities.length) continue;
         const until = this.lastDay(rows);
-        const conv7 = totals(rows.filter((r) => inRange(r.date, periods(until, 7).current))).conversations;
+        const w7 = periods(until, 7).current;
+        const conv7 = totals(rows.filter((r) => inRange(r.date, w7))).conversations;
         // Los datos del CRM solo se cruzan con cuentas reales
-        const crm = mode === 'REAL' ? await this.crmStats(companyId, conv7) : undefined;
+        const crm = mode === 'REAL' ? await this.crmStats(companyId, conv7, w7) : undefined;
         const drafts = audit(
           entities.map((e) => ({ ...e, issues: parseJson<string[]>(e.issuesJson, []) })),
-          rows, { until, currency: a.currency, minSpend: 0 }, crm,
+          rows, { until, currency: a.currency, minSpend: 0, typeOf: this.typeOfFn(entities) }, crm,
         );
         const platform = mode === 'DEMO' ? 'Datos de demostración (simulados)' : `${a.provider === 'META' ? 'Meta Ads' : a.provider} (reportado por la plataforma)`;
         const opps: OppDraft[] = drafts.map((d) => ({
@@ -509,28 +723,65 @@ export class AdsService {
 
   /* ── Acciones sobre campañas (auditables) ── */
 
+  /**
+   * Cambia el estado de un elemento en la plataforma. Antes de llamar verifica
+   * que la empresa, la cuenta (conectada y con credencial) y el elemento sigan
+   * siendo válidos. Una clave de idempotencia = un registro (con _id derivado)
+   * y una sola ejecución en curso (compare-and-set PROPOSED/FAILED → RUNNING).
+   * El resultado lo confirma la plataforma: si falla, queda FAILED con el error.
+   */
   private async changeStatus(actor: string, companyId: string, entity: any, status: 'ACTIVE' | 'PAUSED', meta: { source: 'USER' | 'RULE' | 'FINDING'; ruleId?: string; findingId?: string; key: string; data?: unknown }) {
     if (entity.companyId !== companyId) throw new ForbiddenException('El elemento no es de tu empresa');
     const a = await this.accountOf(companyId, entity.accountId);
-    const done = await this.prisma.adActionLog.findUnique({ where: { idempotencyKey: meta.key } });
-    if (done && done.status === 'EXECUTED') return { ok: true, duplicate: true, logId: done.id };
+    let log = await this.prisma.adActionLog.findUnique({ where: { idempotencyKey: meta.key } });
+    if (log && log.companyId !== companyId) throw new ForbiddenException('El elemento no es de tu empresa');
+    if (log && (log.status === 'EXECUTED' || log.status === 'SKIPPED')) return { ok: true, duplicate: true, logId: log.id, status: log.status };
     const before = { status: entity.status, effectiveStatus: entity.effectiveStatus };
-    const log = done ?? await this.prisma.adActionLog.create({
-      data: {
-        companyId, accountId: a.id, mode: a.mode, source: meta.source, ruleId: meta.ruleId ?? null, findingId: meta.findingId ?? null, idempotencyKey: meta.key,
-        level: entity.level, externalId: entity.externalId, entityName: entity.name, action: status === 'PAUSED' ? 'PAUSE' : 'RESUME', status: 'PROPOSED',
-        dataJson: JSON.stringify(meta.data ?? {}), beforeJson: JSON.stringify(before), reversible: true, actor,
-      },
-    });
+    if (!log) {
+      try {
+        log = await this.prisma.adActionLog.create({
+          data: {
+            id: adActionId(meta.key), companyId, accountId: a.id, mode: a.mode, source: meta.source, ruleId: meta.ruleId ?? null, findingId: meta.findingId ?? null, idempotencyKey: meta.key,
+            level: entity.level, externalId: entity.externalId, entityName: entity.name, action: status === 'PAUSED' ? 'PAUSE' : 'RESUME', status: 'PROPOSED',
+            dataJson: JSON.stringify(meta.data ?? {}), beforeJson: JSON.stringify(before), reversible: true, actor,
+          },
+        });
+      } catch (err: any) {
+        if (!isDup(err)) throw err;
+        log = await this.prisma.adActionLog.findUniqueOrThrow({ where: { id: adActionId(meta.key) } });
+      }
+    }
+    // Una sola ejecución a la vez para esta clave
+    const claim = await this.prisma.adActionLog.updateMany({ where: { id: log!.id, status: { in: ['PROPOSED', 'FAILED'] } }, data: { status: 'RUNNING', actor } });
+    if (claim.count !== 1) throw new ConflictException('Esta acción ya se está ejecutando o ya se ejecutó');
+    const fail = async (msg: string, kind?: string) => {
+      await this.prisma.adActionLog.update({ where: { id: log!.id }, data: { status: 'FAILED', error: msg.slice(0, 300), decidedAt: this.now() } });
+      if (kind === 'AUTH') await this.prisma.adAccount.update({ where: { id: a.id }, data: { status: 'EXPIRED', lastError: msg, lastErrorKind: 'AUTH' } });
+    };
+    // Verificaciones previas: nada se intenta con una conexión que no sirve
+    if (a.mode !== 'DEMO' && (a.status !== 'CONNECTED' || !a.tokenEnc)) {
+      const msg = a.status === 'EXPIRED' ? 'La conexión con la plataforma venció: vuelve a conectar la cuenta.' : 'La cuenta no está conectada: no se ejecutó nada.';
+      await fail(msg);
+      throw new BadRequestException(msg);
+    }
+    const current = await this.prisma.adEntity.findFirst({ where: { companyId, accountId: a.id, level: entity.level, externalId: entity.externalId } });
+    if (!current) {
+      await fail('El elemento ya no existe en la cuenta sincronizada');
+      throw new NotFoundException('El elemento ya no existe en la cuenta sincronizada');
+    }
+    if (current.status === status) {
+      // Ya estaba así: no se llama a la plataforma ni se marca como ejecutado por BackOffice
+      await this.prisma.adActionLog.update({ where: { id: log!.id }, data: { status: 'SKIPPED', error: status === 'PAUSED' ? 'Ya estaba en pausa en la plataforma' : 'Ya estaba activo en la plataforma', decidedAt: this.now() } });
+      return { ok: true, skipped: true, logId: log!.id, status: 'SKIPPED' };
+    }
     try {
       const response = await this.provider(a.provider, a.mode).setStatus(this.ref(a), this.token(a), entity.level as AdLevel, entity.externalId, status);
-      await this.prisma.adEntity.update({ where: { id: entity.id }, data: { status, effectiveStatus: status === 'PAUSED' ? 'PAUSED' : entity.effectiveStatus === 'PAUSED' ? 'ACTIVE' : entity.effectiveStatus } });
-      await this.prisma.adActionLog.update({ where: { id: log.id }, data: { status: 'EXECUTED', afterJson: JSON.stringify({ status }), providerResponse: JSON.stringify(response).slice(0, 2000), decidedAt: this.now(), actor } });
-      return { ok: true, logId: log.id, demo: a.mode === 'DEMO' };
+      if ((response as any)?.success === false) throw new AdsProviderError('PROVIDER', 'La plataforma no confirmó el cambio');
+      await this.prisma.adEntity.update({ where: { id: current.id }, data: { status, effectiveStatus: status === 'PAUSED' ? 'PAUSED' : current.effectiveStatus === 'PAUSED' ? 'ACTIVE' : current.effectiveStatus } });
+      await this.prisma.adActionLog.update({ where: { id: log!.id }, data: { status: 'EXECUTED', error: null, afterJson: JSON.stringify({ status }), providerResponse: JSON.stringify(response).slice(0, 2000), decidedAt: this.now(), actor } });
+      return { ok: true, logId: log!.id, demo: a.mode === 'DEMO', status: 'EXECUTED' };
     } catch (err: any) {
-      const msg = String(err?.message ?? err).slice(0, 300);
-      await this.prisma.adActionLog.update({ where: { id: log.id }, data: { status: 'FAILED', error: msg, decidedAt: this.now() } });
-      if (err instanceof AdsProviderError && err.kind === 'AUTH') await this.prisma.adAccount.update({ where: { id: a.id }, data: { status: 'EXPIRED', lastError: msg } });
+      await fail(String(err?.message ?? err), err instanceof AdsProviderError ? err.kind : undefined);
       throw this.providerHttp(err);
     }
   }
@@ -544,31 +795,69 @@ export class AdsService {
     // Reanudar vuelve a gastar dinero: siempre con confirmación explícita
     if (dto?.confirm !== true) throw new BadRequestException(status === 'ACTIVE' ? 'Reanudar gasta presupuesto: confirma la acción' : 'Confirma la acción');
     await this.audit.log({ actor: user, companyId: c.id, action: `ads.${status === 'PAUSED' ? 'pause' : 'resume'}`, entity: 'AdEntity', entityId: e.id, detail: e.name });
-    return this.changeStatus(user.name, c.id, e, status, { source: 'USER', key: `user:${e.id}:${status}:${Date.now()}` });
+    // Doble clic dentro de 30 s = la misma acción
+    return this.changeStatus(user.name, c.id, e, status, { source: 'USER', key: `user:${e.id}:${status}:${Math.floor(this.now().getTime() / 30e3)}` });
   }
 
   async actions(user: AuthUser, q: { companyId?: string; status?: string; mode?: string }) {
     const c = await this.companyOf(user, q.companyId);
     const mode = await this.modeFor(c.id, q.mode);
     const rows = await this.prisma.adActionLog.findMany({ where: { companyId: c.id, mode, ...(q.status ? { status: String(q.status) } : {}) }, orderBy: { createdAt: 'desc' }, take: 200 });
-    return rows.map((r) => ({ ...r, data: parseJson(r.dataJson, {}), before: parseJson(r.beforeJson, null), after: parseJson(r.afterJson, null) }));
+    const byId = new Map(rows.map((r) => [r.id, r]));
+    return rows.map((r) => {
+      const data = parseJson<any>(r.dataJson, {});
+      const execution = data.executionLogId ? byId.get(data.executionLogId) : null;
+      return {
+        ...r, data, before: parseJson(r.beforeJson, null), after: parseJson(r.afterJson, null), providerResponse: undefined,
+        // Ciclo completo: sugerida → aprobada (quién) → ejecutada / falló (lo que confirmó la plataforma)
+        kind: ['ALERT'].includes(r.action) ? 'INFO' : r.action === 'RECOMMEND_PAUSE' ? 'SUGGESTION' : 'EXECUTION',
+        execution: execution ? { id: execution.id, status: execution.status, error: execution.error, decidedAt: execution.decidedAt } : null,
+        retryable: r.status === 'FAILED' && (r.action === 'PAUSE' || r.action === 'RESUME'),
+      };
+    });
   }
 
+  /**
+   * Aprobar o rechazar una propuesta. La propuesta pasa a APPROVED/REJECTED con
+   * compare-and-set (dos personas a la vez no aprueban dos veces) y la
+   * ejecución queda en su propio registro, enlazado.
+   */
   async decideAction(user: AuthUser, id: string, dto: { decision?: string; confirm?: boolean }, companyId?: string) {
     const c = await this.companyOf(user, companyId);
     const log = await this.prisma.adActionLog.findUnique({ where: { id } });
     if (!log || log.companyId !== c.id) throw new NotFoundException('Acción no encontrada');
     if (log.status !== 'PROPOSED') throw new ConflictException('Esta acción ya se decidió');
     if (dto?.decision === 'REJECT') {
-      await this.prisma.adActionLog.update({ where: { id }, data: { status: 'REJECTED', actor: user.name, decidedAt: this.now() } });
-      return { ok: true };
+      const r = await this.prisma.adActionLog.updateMany({ where: { id, companyId: c.id, status: 'PROPOSED' }, data: { status: 'REJECTED', actor: user.name, decidedAt: this.now() } });
+      if (r.count !== 1) throw new ConflictException('Esta acción ya se decidió');
+      await this.audit.log({ actor: user, companyId: c.id, action: 'ads.action.reject', entity: 'AdActionLog', entityId: id, detail: log.entityName ?? log.externalId });
+      return { ok: true, status: 'REJECTED' };
     }
     if (dto?.decision !== 'APPROVE' || dto?.confirm !== true) throw new BadRequestException('Confirma la acción');
     if (log.action !== 'RECOMMEND_PAUSE' && log.action !== 'PAUSE') throw new BadRequestException('Acción no ejecutable');
     const e = await this.prisma.adEntity.findFirst({ where: { companyId: c.id, accountId: log.accountId, level: log.level, externalId: log.externalId } });
     if (!e) throw new NotFoundException('El elemento ya no existe');
-    await this.prisma.adActionLog.update({ where: { id }, data: { status: 'SKIPPED', error: 'Aprobada: se ejecuta como acción nueva', actor: user.name, decidedAt: this.now() } });
-    return this.changeStatus(user.name, c.id, e, 'PAUSED', { source: 'RULE', ruleId: log.ruleId ?? undefined, key: `approved:${log.id}`, data: { approvedFrom: log.id } });
+    const key = `approved:${log.id}`;
+    const approved = await this.prisma.adActionLog.updateMany({
+      where: { id, companyId: c.id, status: 'PROPOSED' },
+      data: { status: 'APPROVED', approvedBy: user.name, approvedAt: this.now(), dataJson: JSON.stringify({ ...parseJson(log.dataJson, {}), executionLogId: adActionId(key) }) },
+    });
+    if (approved.count !== 1) throw new ConflictException('Esta acción ya se decidió');
+    await this.audit.log({ actor: user, companyId: c.id, action: 'ads.action.approve', entity: 'AdActionLog', entityId: id, detail: `Pausar ${log.entityName ?? log.externalId}` });
+    return this.changeStatus(user.name, c.id, e, 'PAUSED', { source: 'RULE', ruleId: log.ruleId ?? undefined, key, data: { approvedFrom: log.id, approvedBy: user.name } });
+  }
+
+  /** Reintenta una ejecución que falló, con la MISMA clave: nunca se duplica. Reanudar exige confirmación. */
+  async retryAction(user: AuthUser, id: string, dto: { confirm?: boolean }, companyId?: string) {
+    const c = await this.companyOf(user, companyId);
+    const log = await this.prisma.adActionLog.findUnique({ where: { id } });
+    if (!log || log.companyId !== c.id) throw new NotFoundException('Acción no encontrada');
+    if (log.status !== 'FAILED' || (log.action !== 'PAUSE' && log.action !== 'RESUME')) throw new BadRequestException('Solo se reintenta una pausa o reanudación que falló');
+    if (log.action === 'RESUME' && dto?.confirm !== true) throw new BadRequestException('Reanudar gasta presupuesto: confirma la acción');
+    const e = await this.prisma.adEntity.findFirst({ where: { companyId: c.id, accountId: log.accountId, level: log.level, externalId: log.externalId } });
+    if (!e) throw new NotFoundException('El elemento ya no existe');
+    await this.audit.log({ actor: user, companyId: c.id, action: 'ads.action.retry', entity: 'AdActionLog', entityId: id, detail: log.entityName ?? log.externalId });
+    return this.changeStatus(user.name, c.id, e, log.action === 'PAUSE' ? 'PAUSED' : 'ACTIVE', { source: log.source as any, ruleId: log.ruleId ?? undefined, key: log.idempotencyKey });
   }
 
   async revertAction(user: AuthUser, id: string, dto: { confirm?: boolean }, companyId?: string) {
@@ -659,7 +948,15 @@ export class AdsService {
     if (!r || r.companyId !== c.id) throw new NotFoundException('Regla no encontrada');
     const mode = await this.modeFor(c.id, q.mode);
     const { entities, rows } = await this.data(c.id, mode);
-    return { mode, matches: evaluateRule(r as unknown as RuleLike, entities, rows, this.lastDay(rows)) };
+    return { mode, matches: evaluateRule(r as unknown as RuleLike, entities, rows, this.lastDay(rows), this.ruleCtx(entities)) };
+  }
+
+  private ruleCtx(entities: any[]) {
+    return {
+      typeOf: this.typeOfFn(entities),
+      periodStat: (level: string, externalId: string, w: { since: string; until: string }) =>
+        level === 'CAMPAIGN' ? periodStatFor(entities.find((e) => e.level === 'CAMPAIGN' && e.externalId === externalId)?.periodStatsJson, w) : null,
+    };
   }
 
   /** Evalúa las reglas de una empresa y registra lo que corresponda. */
@@ -673,7 +970,7 @@ export class AdsService {
         const { accounts, entities, rows } = await this.data(companyId, mode);
         if (!accounts.length) continue;
         const until = this.lastDay(rows);
-        for (const m of evaluateRule(rule as unknown as RuleLike, entities, rows, until)) {
+        for (const m of evaluateRule(rule as unknown as RuleLike, entities, rows, until, this.ruleCtx(entities))) {
           const entity = entities.find((e) => e.level === rule.level && e.externalId === m.externalId)!;
           const account = accounts.find((a) => a.id === entity.accountId)!;
           const ageH = account.lastSyncAt ? (this.now().getTime() - account.lastSyncAt.getTime()) / 36e5 : null;
@@ -693,10 +990,13 @@ export class AdsService {
           }
           await this.prisma.adActionLog.create({
             data: {
-              companyId, accountId: account.id, mode, source: 'RULE', ruleId: rule.id, idempotencyKey: key, level: entity.level, externalId: entity.externalId,
+              id: adActionId(key), companyId, accountId: account.id, mode, source: 'RULE', ruleId: rule.id, idempotencyKey: key, level: entity.level, externalId: entity.externalId,
               entityName: entity.name, action: g.decision === 'ALERT' ? 'ALERT' : 'RECOMMEND_PAUSE', status: g.decision === 'ALERT' ? 'EXECUTED' : 'PROPOSED',
               dataJson: JSON.stringify({ match: m, guard: g.reason, rule: rule.name }), reversible: false, actor: 'Autopilot',
             },
+          }).catch((err: any) => {
+            // Dos evaluaciones simultáneas: la propuesta del día ya existe
+            if (!isDup(err)) throw err;
           });
         }
       }
@@ -743,13 +1043,51 @@ export class AdsService {
       spendByCampaign: spendBy, stages: { first: DEFAULT_STAGES[0].key, won: stages, lost }, since, until: end,
     });
     const businessRevenue = allSales.filter((o) => o.status !== 'cancelado' && (o.paymentStatus === 'PAID' || o.status === 'entregado')).reduce((s, o) => s + (Number(o.total) || 0), 0);
+    // Estado de atribución de cada contacto que llegó desde Meta (anuncio, formulario o publicación)
+    const fromMeta = await this.prisma.contact.findMany({
+      where: { companyId: c.id, createdAt: { gte: since, lt: end }, OR: [{ originJson: { contains: '"AD"' } }, { originJson: { contains: '"POST"' } }] },
+      select: { id: true, name: true, stage: true, createdAt: true, originJson: true }, orderBy: { createdAt: 'desc' }, take: 10000,
+    });
+    const adMap = new Map(entities.filter((e) => e.level === 'AD').map((e) => [e.externalId, e]));
+    const names = new Map(entities.map((e) => [`${e.level}:${e.externalId}`, e.name]));
+    const counts: Record<AttributionState, number> = { ATTRIBUTED: 0, PARTIAL: 0, UNATTRIBUTED: 0 };
+    const recent: any[] = [];
+    for (const x of fromMeta) {
+      const info = attributionOf(x, adMap);
+      if (!info) continue;
+      counts[info.state]++;
+      if (recent.length < 50) {
+        recent.push({
+          contactId: x.id, name: x.name, createdAt: x.createdAt, stage: x.stage, ...info,
+          adName: info.adId ? names.get(`AD:${info.adId}`) ?? null : null,
+          adsetName: info.adsetId ? names.get(`ADSET:${info.adsetId}`) ?? null : null,
+          campaignName: info.campaignId ? names.get(`CAMPAIGN:${info.campaignId}`) ?? null : null,
+        });
+      }
+    }
+    const leadCounts = await this.prisma.adLead.findMany({ where: { companyId: c.id, receivedAt: { gte: since, lt: end } }, select: { status: true } });
     return {
       period: p, connected: accounts.length > 0, currency: accounts[0]?.currency ?? c.currency,
       ...funnel,
       /** Total del negocio en el periodo: NO es ingreso atribuido a anuncios */
       businessRevenue: Math.round(businessRevenue),
       adLeadsWithoutId: contacts.filter((x) => !adIdOf(x)).length,
-      method: 'Atribución directa: ID del anuncio que Meta envía en el primer mensaje de WhatsApp (clic a WhatsApp). Sin coincidencias aproximadas.',
+      method: 'Atribución directa por identificadores: el ID del anuncio que Meta envía en el primer mensaje de WhatsApp (clic a WhatsApp) o en el formulario de Lead Ads. Sin fechas cercanas ni coincidencias aproximadas.',
+      attribution: {
+        counts,
+        recent,
+        rules: {
+          ATTRIBUTED: 'Trae el ID de un anuncio que está en las cuentas sincronizadas: se conocen anuncio, conjunto y campaña.',
+          PARTIAL: 'Hay evidencia de que vino de un anuncio, pero no alcanza para ubicar la campaña.',
+          UNATTRIBUTED: 'El origen dice anuncio o publicación, pero no trae ningún identificador utilizable.',
+        },
+      },
+      leadForms: {
+        received: leadCounts.length,
+        withContact: leadCounts.filter((l) => l.status === 'FETCHED').length,
+        pendingPermission: leadCounts.filter((l) => l.status === 'PENDING_PERMISSION').length,
+        errors: leadCounts.filter((l) => l.status === 'ERROR').length,
+      },
     };
   }
 
@@ -806,9 +1144,13 @@ export class AdsService {
     if (await this.prisma.adActionLog.findUnique({ where: { idempotencyKey: key } })) throw new ConflictException('La creación ya se intentó; revisa el registro de acciones');
     const log = await this.prisma.adActionLog.create({
       data: {
-        companyId: c.id, accountId: a.id, mode: a.mode, source: 'USER', idempotencyKey: key, level: 'CAMPAIGN', externalId: 'pending', entityName: proposal?.providerConfig?.name,
+        id: adActionId(key), companyId: c.id, accountId: a.id, mode: a.mode, source: 'USER', idempotencyKey: key, level: 'CAMPAIGN', externalId: 'pending', entityName: proposal?.providerConfig?.name,
         action: 'CREATE_CAMPAIGN', status: 'PROPOSED', dataJson: JSON.stringify({ briefId: b.id, providerConfig: proposal?.providerConfig }), reversible: false, actor: user.name,
       },
+    }).catch((err: any) => {
+      // Doble clic: el _id derivado de la clave impide crear dos veces
+      if (isDup(err)) throw new ConflictException('La creación ya se intentó; revisa el registro de acciones');
+      throw err;
     });
     try {
       const res = await this.provider(a.provider, a.mode).createCampaignPaused(this.ref(a), this.token(a), { name: proposal.providerConfig.name, objective: proposal.providerConfig.objective });
@@ -829,8 +1171,21 @@ export class AdsService {
     if (this.cronBusy || process.env.ADS_CRON_DISABLED === '1') return;
     this.cronBusy = true;
     try {
+      const now = this.now();
+      // Vencidas (EXPIRED) y desconectadas no se reintentan solas; las con error sí, según su próximo intento
       const due = await this.prisma.adAccount.findMany({
-        where: { mode: 'REAL', status: 'CONNECTED', OR: [{ lastSyncAt: null }, { lastSyncAt: { lt: new Date(this.now().getTime() - SYNC_EVERY_H * 36e5) } }] },
+        where: {
+          mode: 'REAL', status: { in: ['CONNECTED', 'ERROR'] },
+          OR: [
+            { nextSyncAt: { lte: now } },
+            {
+              AND: [
+                { OR: [{ nextSyncAt: { isSet: false } }, { nextSyncAt: null }] },
+                { OR: [{ lastSyncAt: { isSet: false } }, { lastSyncAt: null }, { lastSyncAt: { lt: new Date(now.getTime() - SYNC_EVERY_H * 36e5) } }] },
+              ],
+            },
+          ],
+        },
         take: 20,
       });
       // Sin Ads Intelligence activo no se sincroniza ni corren reglas (los datos se conservan)
@@ -849,7 +1204,7 @@ export class AdsService {
 @Products('ADS')
 @Controller('ads')
 export class AdsController {
-  constructor(private readonly ads: AdsService) {}
+  constructor(private readonly ads: AdsService, private readonly leads: AdLeadsService) {}
 
   @Get('providers') @Roles(...READ) providers(@CurrentUser() u: AuthUser, @Query('companyId') c?: string) { return this.ads.providers(u, c); }
   @Get('accounts') @Roles(...READ) accounts(@CurrentUser() u: AuthUser, @Query('companyId') c?: string) { return this.ads.accounts(u, c); }
@@ -859,6 +1214,7 @@ export class AdsController {
   @Delete('accounts/:id') @Roles(...WRITE) disconnect(@CurrentUser() u: AuthUser, @Param('id') id: string, @Query('companyId') c?: string) { return this.ads.disconnect(u, id, c); }
   @Post('accounts/:id/sync') @Roles(...WRITE) @Throttle({ default: { ttl: 60_000, limit: 6 } })
   sync(@CurrentUser() u: AuthUser, @Param('id') id: string, @Query('companyId') c?: string) { return this.ads.syncNow(u, id, c); }
+  @Get('accounts/:id/syncs') @Roles(...READ) syncs(@CurrentUser() u: AuthUser, @Param('id') id: string, @Query('companyId') c?: string) { return this.ads.syncRuns(u, id, c); }
   @Get('meta/oauth') @Roles(...WRITE) oauth(@CurrentUser() u: AuthUser, @Query('companyId') c?: string) { return this.ads.oauthStart(u, c); }
   @Get('meta/pending') @Roles(...WRITE) pending(@CurrentUser() u: AuthUser, @Query('companyId') c?: string) { return this.ads.pending(u, c); }
   @Post('meta/select') @Roles(...WRITE) select(@CurrentUser() u: AuthUser, @Body() dto: any, @Query('companyId') c?: string) { return this.ads.selectPending(u, dto, c); }
@@ -871,6 +1227,8 @@ export class AdsController {
 
   @Get('actions') @Roles(...READ) actions(@CurrentUser() u: AuthUser, @Query() q: any) { return this.ads.actions(u, q); }
   @Post('actions/:id/decide') @Roles(...WRITE) decide(@CurrentUser() u: AuthUser, @Param('id') id: string, @Body() dto: any, @Query('companyId') c?: string) { return this.ads.decideAction(u, id, dto, c); }
+  @Post('actions/:id/retry') @Roles(...WRITE) @Throttle({ default: { ttl: 60_000, limit: 10 } })
+  retry(@CurrentUser() u: AuthUser, @Param('id') id: string, @Body() dto: any, @Query('companyId') c?: string) { return this.ads.retryAction(u, id, dto, c); }
   @Post('actions/:id/revert') @Roles(...WRITE) revert(@CurrentUser() u: AuthUser, @Param('id') id: string, @Body() dto: any, @Query('companyId') c?: string) { return this.ads.revertAction(u, id, dto, c); }
 
   @Get('settings') @Roles(...READ) settings(@CurrentUser() u: AuthUser, @Query('companyId') c?: string) { return this.ads.settings(u, c); }
@@ -883,6 +1241,16 @@ export class AdsController {
   @Post('rules/run') @Roles(...WRITE) @Throttle({ default: { ttl: 60_000, limit: 6 } }) runRules(@CurrentUser() u: AuthUser, @Query('companyId') c?: string) { return this.ads.runRulesNow(u, c); }
 
   @Get('revenue') @Roles(...READ) revenue(@CurrentUser() u: AuthUser, @Query() q: any) { return this.ads.revenue(u, q); }
+
+  @Get('leads') @Roles(...READ)
+  async leadList(@CurrentUser() u: AuthUser, @Query('companyId') c?: string) { return this.leads.list((await this.ads.companyOf(u, c)).id); }
+  @Post('leads/:id/fetch') @Roles(...WRITE) @Throttle({ default: { ttl: 60_000, limit: 10 } })
+  async leadFetch(@CurrentUser() u: AuthUser, @Param('id') id: string, @Query('companyId') c?: string) {
+    const company = await this.ads.companyOf(u, c);
+    const lead = await this.leads.fetch(company.id, id);
+    if (!lead || lead.companyId !== company.id) throw new NotFoundException('Lead no encontrado');
+    return lead;
+  }
 
   @Get('briefs') @Roles(...READ) briefs(@CurrentUser() u: AuthUser, @Query('companyId') c?: string) { return this.ads.briefs(u, c); }
   @Post('briefs') @Roles(...WRITE) saveBrief(@CurrentUser() u: AuthUser, @Body() dto: any, @Query('companyId') c?: string) { return this.ads.saveBrief(u, dto, c); }
@@ -904,8 +1272,8 @@ export class AdsPublicController {
 
 @Module({
   imports: [AuditModule],
-  providers: [AdsService],
+  providers: [AdsService, AdLeadsService],
   controllers: [AdsController, AdsPublicController],
-  exports: [AdsService],
+  exports: [AdsService, AdLeadsService],
 })
 export class AdsModule {}

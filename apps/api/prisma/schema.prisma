@@ -96,6 +96,14 @@ model Plan {
   priceManaged    Float   @default(0)
   /// US$ de mensajes de Meta (vía Twilio) incluidos al mes en "Todo incluido"
   includedMetaUsd Float   @default(10)
+  /// Descripción comercial (opcional; los planes existentes no la tienen)
+  description          String?
+  /// Productos que incluye el plan (["AUTOMATION","ADS"…]). null = no declarado:
+  /// lo contratado por cada empresa sigue en Company.productsJson
+  includedProductsJson String?
+  /// Ventana de venta: fuera de ella el plan no se ofrece a clientes nuevos (los contratos vigentes no cambian)
+  availableFrom        DateTime?
+  availableUntil       DateTime?
 }
 
 // ─── Empresas (tenants) ──────────────────────────────────────────────
@@ -148,6 +156,17 @@ model Company {
   /// null = regla anterior (Automation siempre; Creative y Ads con plan). Ver common/products.ts
   productsJson          String?
   trialEndsAt           DateTime?
+  /// Ciclo de vida de la suscripción (common/subscription.ts). null = empresa anterior a la fase 5:
+  /// se deriva de `status` sin migrar datos
+  subscriptionStatus    String?
+  /// Periodo pagado/vigente, solo si un pago o una activación lo determinó (nunca se inventa)
+  currentPeriodStart    DateTime?
+  currentPeriodEnd      DateTime?
+  /// Cancelación pedida: el acceso sigue hasta el fin del periodo
+  cancelAtPeriodEnd     Boolean?
+  canceledAt            DateTime?
+  endedAt               DateTime?
+  suspendedAt           DateTime?
   createdAt             DateTime  @default(now())
   updatedAt             DateTime  @updatedAt
 
@@ -382,12 +401,23 @@ model Conversation {
   createdAt      DateTime     @default(now())
   /// De dónde llegó: anuncio de Meta, publicación o directo (common/chat-origin.ts)
   originJson     String?
+  /// Responsable de ESTA conversación (un contacto puede tener varias, cada una con su responsable)
+  assignedToId   String?
+  assignedAt     DateTime?
+  assignedById   String?
+  /// Último cambio de modo humano/bot: quién y cuándo (el bot descarta respuestas preparadas antes)
+  modeChangedAt  DateTime?
+  modeChangedBy  String?
+  /// Candado del motor: un solo proceso responde a la vez (compare-and-set)
+  engineLockUntil DateTime?
 
   messages Message[]
   orders   Order[]
 
   @@index([companyId, contactId])
   @@index([companyId, lastMessageAt])
+  @@index([companyId, assignedToId, lastMessageAt])
+  @@index([companyId, channel, lastMessageAt])
 }
 
 // direction: IN | OUT — author: CONTACT | BOT | AGENT
@@ -403,8 +433,15 @@ model Message {
   fileName       String? // archivo en uploads/<companyId>/ para audio/imagen/documento
   transcription  String? // transcripción de audios entrantes
   // Proveedor (Twilio): idempotencia y estados de entrega
-  providerId     String? // MessageSid de Twilio — idempotencia de reintentos
-  deliveryStatus String? // QUEUED | SENT | DELIVERED | READ | FAILED
+  providerId     String? // MessageSid de Twilio / wamid de Meta — idempotencia de reintentos
+  /// QUEUED | SENDING | SENT | DELIVERED | READ | FAILED | UNCERTAIN (no se sabe si salió) | SIMULATED (sandbox: no salió) | CANCELLED (respuesta del bot retirada)
+  deliveryStatus String?
+  /// Motivo del fallo tal como lo dio el proveedor (sin tokens ni URLs con credenciales)
+  deliveryError  String?
+  /// Cuándo empezó el intento de envío (para detectar resultados ambiguos)
+  sendStartedAt  DateTime?
+  /// Plantilla aprobada usada (fuera de la ventana de 24 h)
+  templateKey    String?
   // Transparencia de costos Meta (salientes): SERVICIO | UTILIDAD | MARKETING
   metaCategory   String?
   metaCostUsd    Float?
@@ -952,8 +989,16 @@ model Automation {
   description String?
   type        String    @default("FLOW")
   trigger     String? // descripción del disparador
+  /// DRAFT | ACTIVE | PAUSED | ARCHIVED
   status      String    @default("DRAFT")
+  /// Borrador editable de la definición (motor v1). Las ejecuciones usan AutomationVersion.
   configJson  String    @default("{}")
+  /// Tipo de disparador del motor (null = automatización descriptiva anterior, sin motor)
+  triggerType String?
+  /// Última versión publicada (0 = nunca publicada)
+  version     Int       @default(0)
+  createdById String?
+  /// Métricas de demostración del seed: el panel ya no las muestra como reales
   lastRunAt   DateTime?
   runsCount   Int       @default(0)
   successRate Float     @default(100)
@@ -961,6 +1006,22 @@ model Automation {
   updatedAt   DateTime  @updatedAt
 
   runs AutomationRun[]
+
+  @@index([companyId, status, triggerType])
+}
+
+/// Versión inmutable de una definición. id determinista "<automationId>:v<n>"
+/// (el _id único de Mongo impide dos versiones con el mismo número).
+model AutomationVersion {
+  id             String   @id @map("_id")
+  companyId      String
+  automationId   String
+  version        Int
+  definitionJson String
+  createdById    String?
+  createdAt      DateTime @default(now())
+
+  @@index([companyId, automationId])
 }
 
 // status: SUCCESS | FAILED | RUNNING
@@ -1036,6 +1097,8 @@ model Payment {
   // Para qué es: INVOICE (mensualidad) | AI_CREDITS (paquete prepago de IA)
   purpose       String   @default("INVOICE")
   metaJson      String   @default("{}")
+  /// Cuándo se aplicaron los efectos del pago aprobado (una sola vez: compare-and-set)
+  effectsAppliedAt DateTime?
 }
 
 // ─── Correos a empresas ──────────────────────────────────────────────
@@ -1239,6 +1302,29 @@ model Promotion {
 }
 
 /// Respuestas rápidas del equipo humano en la bandeja ("/saludo").
+/// Nota interna de una conversación: solo para el equipo, nunca sale al cliente.
+model ConversationNote {
+  id             String   @id @default(cuid()) @map("_id")
+  companyId      String
+  conversationId String
+  authorId       String
+  authorName     String
+  body           String
+  createdAt      DateTime @default(now())
+
+  @@index([conversationId, createdAt])
+}
+
+/// Recibo de un mensaje entrante del proveedor. El _id se deriva del canal +
+/// ID del proveedor: dos webhooks iguales (incluso simultáneos) no procesan dos veces.
+model InboundReceipt {
+  id         String   @id @map("_id")
+  companyId  String
+  channel    String
+  providerId String
+  createdAt  DateTime @default(now())
+}
+
 model QuickReply {
   id        String   @id @default(cuid()) @map("_id")
   companyId String
@@ -1425,6 +1511,35 @@ model Incident {
 /// Compra de un plan desde el panel de la empresa. Por ahora el pago se hace
 /// por QR de Bancolombia o transferencia (el equipo contacta y confirma);
 /// Wompi queda como "próximamente".
+/// Historial de la suscripción (solo se agrega). El _id sale de la clave de
+/// idempotencia: un webhook o una tarea repetida no registra dos veces el mismo cambio.
+model SubscriptionEvent {
+  id        String   @id @map("_id")
+  companyId String
+  /// ACTIVATE | TRIAL_START | PAYMENT_PENDING | GRACE | SUSPEND | REACTIVATE | CANCEL_REQUEST | CANCEL_UNDO | END | PLAN_CHANGE | PAYMENT_APPROVED | PAYMENT_FAILED
+  type      String
+  fromStatus String?
+  toStatus   String?
+  /// ADMIN | COMPANY | PAYMENT | SYSTEM
+  source    String
+  actor     String?
+  reason    String?
+  /// Referencias: pago, factura, plan anterior/nuevo…
+  refsJson  String   @default("{}")
+  createdAt DateTime @default(now())
+
+  @@index([companyId, createdAt])
+}
+
+/// Conversaciones de IA incluidas usadas en el mes (contador atómico: dos
+/// consumos simultáneos no pasan del cupo). _id = empresa + periodo.
+model AiIncludedCounter {
+  id        String   @id @map("_id")
+  companyId String
+  period    String
+  used      Int      @default(0)
+}
+
 model PlanOrder {
   id                 String    @id @default(cuid()) @map("_id")
   companyId          String
@@ -1756,6 +1871,17 @@ model AdAccount {
   status      String    @default("CONNECTED")
   lastSyncAt  DateTime?
   lastError   String?
+  /// AUTH | PERMISSION | RATE_LIMIT | INCOMPLETE | PROVIDER | NOT_FOUND (null = sin error)
+  lastErrorKind  String?
+  /// OK | PARTIAL | ERROR — resultado de la última sincronización
+  lastSyncStatus String?
+  /// Próximo intento automático (con espera creciente tras errores recuperables)
+  nextSyncAt     DateTime?
+  syncFailures   Int?
+  /// Candado de sincronización (compare-and-set): una sola a la vez por cuenta
+  syncLockUntil  DateTime?
+  /// Alcance y frecuencia de la cuenta por periodo, tal como los reporta la plataforma
+  periodStatsJson String?
   connectedBy String?
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @default(now())
@@ -1788,6 +1914,8 @@ model AdEntity {
   /// Datos originales de la plataforma (sin tokens)
   rawJson            String    @default("{}")
   providerUpdatedAt  DateTime?
+  /// Alcance y frecuencia por periodo (7 y 30 días) reportados por la plataforma: el alcance diario no se puede sumar
+  periodStatsJson    String?
   syncedAt           DateTime  @default(now())
 
   @@unique([accountId, level, externalId])
@@ -1828,10 +1956,11 @@ model AdSyncRun {
   companyId  String
   accountId  String
   trigger    String    @default("MANUAL")
-  /// RUNNING | OK | ERROR
+  /// RUNNING | OK | PARTIAL | ERROR
   status     String    @default("RUNNING")
   countsJson String    @default("{}")
   error      String?
+  errorKind  String?
   startedAt  DateTime  @default(now())
   finishedAt DateTime?
 
@@ -1958,8 +2087,11 @@ model AdActionLog {
   entityName       String?
   /// PAUSE | RESUME | ALERT | RECOMMEND_PAUSE | CREATE_CAMPAIGN | SET_BUDGET
   action           String
-  /// PROPOSED | EXECUTED | FAILED | REJECTED | SKIPPED
+  /// PROPOSED | APPROVED | EXECUTED | FAILED | REJECTED | SKIPPED
   status           String
+  /// Quién aprobó una propuesta y cuándo (la ejecución queda en su propio registro)
+  approvedBy       String?
+  approvedAt       DateTime?
   dataJson         String    @default("{}")
   beforeJson       String?
   afterJson        String?
@@ -1974,6 +2106,31 @@ model AdActionLog {
 }
 
 /// Brief comercial y propuesta de campaña (Campaign Studio).
+/// Lead de un formulario de Meta (Lead Ads) recibido por webhook. El _id se
+/// deriva del leadgen_id: los reintentos de Meta no duplican. Los datos
+/// personales van al contacto; aquí solo quedan los identificadores.
+model AdLead {
+  id          String    @id @map("_id")
+  companyId   String
+  leadgenId   String
+  pageId      String?
+  formId      String?
+  adId        String?
+  adsetId     String?
+  campaignId  String?
+  /// RECEIVED | FETCHED | PENDING_PERMISSION | ERROR
+  status      String    @default("RECEIVED")
+  error       String?
+  contactId   String?
+  /// Nombres de los campos que traía el formulario (sin valores)
+  fieldNamesJson String  @default("[]")
+  leadCreatedAt DateTime?
+  receivedAt  DateTime  @default(now())
+  fetchedAt   DateTime?
+
+  @@index([companyId, receivedAt])
+}
+
 model AdBrief {
   id                String   @id @default(cuid()) @map("_id")
   companyId         String
@@ -2376,7 +2533,7 @@ model WorkflowRun {
   /// Determinista: misma causa = misma ejecución
   idempotencyKey String
   payloadJson    String    @default("{}")
-  /// PENDING | RUNNING | COMPLETED | FAILED | RETRYABLE | CANCELLED
+  /// PENDING | RUNNING | WAITING | COMPLETED | FAILED | RETRYABLE | CANCELLED
   status         String    @default("PENDING")
   attempts       Int       @default(0)
   maxAttempts    Int       @default(5)
@@ -2386,10 +2543,47 @@ model WorkflowRun {
   finishedAt     DateTime?
   errorJson      String?
   resultJson     String?
+  /// Motor de automatizaciones (kind = automation.run): qué y qué versión se ejecutó
+  automationId      String?
+  automationVersion Int?
+  /// Evento de origen: tipo, registro y ocurrencia (correlación)
+  triggerType    String?
+  sourceType     String?
+  sourceId       String?
+  eventId        String?
+  /// Bitácora de pasos [{index, type, status, at, output?, error?}]
+  stepsJson      String?
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @default(now())
 
   @@unique([companyId, idempotencyKey])
+  @@index([companyId, automationId, createdAt])
   @@index([status, nextRetryAt])
   @@index([companyId, productionId])
+}
+
+/// Tokens de un solo uso del ciclo de vida de usuarios (invitaciones y
+/// recuperación de contraseña). Solo se guarda el HASH del token; el valor
+/// viaja una vez por correo (o se le muestra a quien invita). usedAt y
+/// revokedAt se crean explícitamente en null para poder reclamarlos en Mongo.
+model AuthToken {
+  id            String    @id @default(cuid()) @map("_id")
+  /// INVITE | PASSWORD_RESET
+  kind          String
+  tokenHash     String    @unique
+  email         String
+  companyId     String?
+  userId        String?
+  name          String?
+  role          String?
+  opsProfile    String?
+  invitedById   String?
+  invitedByName String?
+  expiresAt     DateTime
+  usedAt        DateTime?
+  revokedAt     DateTime?
+  createdAt     DateTime  @default(now())
+
+  @@index([companyId, kind])
+  @@index([email, kind])
 }

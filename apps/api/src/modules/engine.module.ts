@@ -1,3 +1,4 @@
+import { accessFor, effectiveStatus } from '../common/subscription';
 import {
   Body,
   Controller,
@@ -54,6 +55,7 @@ import {
 } from '../ai/types';
 import { Products } from '../auth/products.guard';
 import { hasProduct } from '../common/products';
+import { orderHistory } from '../common/domain-events';
 
 const UPLOADS_DIR = resolve(process.cwd(), 'uploads');
 
@@ -174,10 +176,50 @@ export class EngineService {
     );
   }
 
-  /** Pipeline completo sobre una conversación. */
+  /** Inicio de la corrida en curso por conversación (para descartar respuestas tardías). */
+  private runStartedAt = new Map<string, Date>();
+
+  /**
+   * Pipeline completo sobre una conversación. Un solo proceso a la vez por
+   * conversación (candado compare-and-set con vencimiento): dos workers o
+   * instancias no responden al mismo mensaje.
+   */
   async processConversation(
     conversationId: string,
-    opts: { allowDraftBot?: boolean } = {},
+    opts: { allowDraftBot?: boolean; rerun?: boolean } = {},
+  ): Promise<EngineResult | null> {
+    const startedAt = new Date();
+    const lock = await this.prisma.conversation.updateMany({
+      where: { id: conversationId, OR: [{ engineLockUntil: { isSet: false } }, { engineLockUntil: null }, { engineLockUntil: { lt: startedAt } }] },
+      data: { engineLockUntil: new Date(startedAt.getTime() + 2 * 60e3) },
+    });
+    if (lock.count !== 1) {
+      this.logger.warn(`processConversation(${conversationId}): otro proceso la está atendiendo`);
+      return null;
+    }
+    // Cuántos mensajes del cliente había al empezar (no depende de relojes)
+    const inboundAtStart = await this.prisma.message.count({ where: { conversationId, direction: 'IN' } });
+    let result: EngineResult | null;
+    this.runStartedAt.set(conversationId, startedAt);
+    try {
+      result = await this.runPipeline(conversationId, opts, startedAt);
+    } finally {
+      this.runStartedAt.delete(conversationId);
+      await this.prisma.conversation.updateMany({ where: { id: conversationId }, data: { engineLockUntil: null } });
+    }
+    // Si llegaron mensajes del cliente mientras se respondía, su trabajo encontró el candado
+    // ocupado y se omitió: se atienden ahora (una sola vez más)
+    if (!opts.rerun) {
+      const inboundNow = await this.prisma.message.count({ where: { conversationId, direction: 'IN' } });
+      if (inboundNow > inboundAtStart) return (await this.processConversation(conversationId, { ...opts, rerun: true })) ?? result;
+    }
+    return result;
+  }
+
+  private async runPipeline(
+    conversationId: string,
+    opts: { allowDraftBot?: boolean },
+    startedAt: Date,
   ): Promise<EngineResult | null> {
     const conversation = await this.prisma.conversation.findUnique({
       where: { id: conversationId },
@@ -193,6 +235,10 @@ export class EngineService {
     // Modo humano: la IA no toca la conversación
     if (conversation.botPaused) return null;
 
+    // Suscripción suspendida o finalizada: la IA no atiende; la conversación queda para una persona
+    if (company && accessFor(effectiveStatus(company)) !== 'FULL') {
+      return this.escalate(conversation, null, 'La suscripción de la empresa está suspendida o finalizada');
+    }
     // Sin BackOffice Automation activo la IA no atiende: pasa a una persona (nunca se queda sin respuesta)
     if (company && !hasProduct(company, 'AUTOMATION')) {
       return this.escalate(conversation, null, 'BackOffice Automation no está activo para esta empresa');
@@ -482,8 +528,18 @@ export class EngineService {
     effective: ReturnType<typeof resolveEffective>,
     replies: string[],
     state: { state: string; missingFields?: string[]; draftOrderId?: string | null; orderStatus?: string | null },
-  ): Promise<EngineResult> {
+  ): Promise<EngineResult | null> {
     const conversationId = conversation.id;
+    // Mientras el modelo pensaba, ¿una persona tomó la conversación? Entonces el bot no responde
+    const startedAt = this.runStartedAt.get(conversationId);
+    const now = await this.prisma.conversation.findUnique({ where: { id: conversationId }, select: { botPaused: true, modeChangedAt: true } });
+    if (now?.botPaused || (startedAt && now?.modeChangedAt && new Date(now.modeChangedAt) > startedAt)) {
+      await this.audit.log({
+        actor: null, companyId: company.id, action: 'bot.reply_discarded', entity: 'Conversation', entityId: conversationId,
+        detail: 'Un agente tomó la conversación mientras el bot preparaba la respuesta: no se envió',
+      });
+      return null;
+    }
     const plan = humanizeDelays(replies, effective.delayMinSec, effective.delayMaxSec);
     const dispatch: Array<{ messageId: string; delayMs: number }> = [];
     for (const part of plan) {
@@ -664,7 +720,7 @@ export class EngineService {
         items: { create: items },
       },
     });
-    await this.prisma.orderStatusHistory.create({
+    await orderHistory(this.prisma).create({
       data: {
         companyId, orderId: created.id, fromStatus: null, toStatus: 'borrador',
         authorType: 'IA', authorName: 'Asistente IA',
@@ -713,7 +769,7 @@ export class EngineService {
       where: { id: orderId },
       data: { status: 'confirmado', aiConfidence: confidence },
     });
-    await this.prisma.orderStatusHistory.create({
+    await orderHistory(this.prisma).create({
       data: {
         companyId: order.companyId, orderId, fromStatus: 'borrador', toStatus: 'confirmado',
         authorType: 'IA', authorName: 'Asistente IA',
@@ -754,7 +810,7 @@ export class EngineService {
         where: { id: draft.id },
         data: { status: 'requiere_atencion' },
       });
-      await this.prisma.orderStatusHistory.create({
+      await orderHistory(this.prisma).create({
         data: {
           companyId: conversation.companyId, orderId: draft.id,
           fromStatus: draft.status, toStatus: 'requiere_atencion',

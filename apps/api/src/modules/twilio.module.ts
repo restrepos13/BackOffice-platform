@@ -27,7 +27,10 @@ import twilio from 'twilio';
 import { isLatLng } from '../common/geo';
 import { applyConsent, queueBotText } from '../common/customer-notify';
 import { MetaLineConfig, metaLineConfig, sendMetaText } from '../common/meta';
+import { SendError, classifySendError, sanitizeError, shouldApplyStatus } from '../common/inbox/delivery';
+import { claimInbound, releaseInbound } from '../common/inbox/dedupe';
 import { PrismaService } from '../prisma/prisma.service';
+import { contactCreated } from '../common/domain-events';
 import { reportIncident } from '../common/incidents';
 import { Public } from '../auth/decorators';
 import { SkipThrottle } from '@nestjs/throttler';
@@ -238,8 +241,7 @@ export class TwilioService implements OnModuleInit, OnApplicationShutdown {
     const outboundWorker = this.workers[1];
     outboundWorker.on('failed', async (job, err) => {
       if (!job || (job.attemptsMade ?? 0) < (job.opts.attempts ?? 1)) return;
-      // Reintentos agotados: el mensaje NO se pierde en silencio
-      await this.markSendFailed(job.data.messageId, err.message);
+      await this.onOutboundExhausted(job.data.messageId, err.message);
     });
     this.logger.log('Workers de WhatsApp arriba (wa-inbound, wa-outbound)');
   }
@@ -250,14 +252,24 @@ export class TwilioService implements OnModuleInit, OnApplicationShutdown {
 
   /* ── Entrante: idempotente por MessageSid, multimedia, dispara el motor ── */
 
-  async processInbound(data: { companyId: string; lineId: string | null; payload: Record<string, any> }) {
-    const { companyId, lineId, payload } = data;
-    const sid: string | undefined = payload.MessageSid ?? payload.SmsMessageSid;
+  async processInbound(data: { companyId: string; lineId: string | null; payload: Record<string, any> }): Promise<Record<string, any>> {
+    const sid: string | undefined = data.payload.MessageSid ?? data.payload.SmsMessageSid;
     if (!sid) return { skipped: 'sin MessageSid' };
-
-    // Idempotencia: los reintentos de Twilio no duplican nada
+    // Idempotencia: los reintentos de Twilio no duplican nada (ni dos webhooks simultáneos)
     const existing = await this.prisma.message.findFirst({ where: { providerId: sid } });
     if (existing) return { skipped: 'duplicado', messageId: existing.id };
+    if (!(await claimInbound(this.prisma, data.companyId, 'TWILIO', sid))) return { skipped: 'duplicado' };
+    try {
+      return await this.handleInbound(data, sid);
+    } catch (err) {
+      // Falló a mitad: se suelta el recibo para que el reintento sí lo procese
+      await releaseInbound(this.prisma, 'TWILIO', sid);
+      throw err;
+    }
+  }
+
+  private async handleInbound(data: { companyId: string; lineId: string | null; payload: Record<string, any> }, sid: string) {
+    const { companyId, lineId, payload } = data;
 
     const line = lineId
       ? await this.prisma.integration.findUnique({ where: { id: lineId } })
@@ -272,6 +284,7 @@ export class TwilioService implements OnModuleInit, OnApplicationShutdown {
       contact = await this.prisma.contact.create({
         data: { companyId, name: profileName, phone, channel: 'WHATSAPP', ...(await entryStageFor(this.prisma, companyId)) },
       });
+      await contactCreated(companyId, contact.id);
     }
 
     let conversation = await this.prisma.conversation.findFirst({
@@ -506,10 +519,25 @@ export class TwilioService implements OnModuleInit, OnApplicationShutdown {
       include: { conversation: { include: { contact: true, integration: true, company: true } } },
     });
     if (!message || message.direction !== 'OUT') return { skipped: 'mensaje inválido' };
-    if (['SENT', 'DELIVERED', 'READ'].includes(message.deliveryStatus ?? '')) {
-      return { skipped: 'ya enviado' }; // idempotencia del worker
+    const status = message.deliveryStatus ?? '';
+    if (['SENT', 'DELIVERED', 'READ', 'SIMULATED', 'CANCELLED', 'FAILED', 'UNCERTAIN'].includes(status)) {
+      return { skipped: status === 'UNCERTAIN' ? 'resultado incierto: decide una persona' : ['SENT', 'DELIVERED', 'READ', 'SIMULATED'].includes(status) ? 'ya enviado' : 'ya procesado' }; // idempotencia del worker
+    }
+    if (status === 'SENDING') {
+      // Un intento anterior empezó y no terminó: pudo haber salido. No se reenvía solo.
+      const started = message.sendStartedAt ? new Date(message.sendStartedAt).getTime() : 0;
+      // Otro proceso lo tiene en curso: se reintenta más tarde (el job vuelve con espera)
+      if (Date.now() - started < 2 * 60e3) throw new Error('Envío en curso en otro proceso');
+      await this.markUncertain(message, 'El intento anterior se interrumpió sin confirmación del proveedor: pudo haber salido.');
+      return { uncertain: true };
     }
     const conversation: any = message.conversation;
+    // Respuesta del bot preparada ANTES de que una persona tomara la conversación: se retira
+    if (message.author === 'BOT' && conversation.botPaused && conversation.modeChangedAt && new Date(conversation.modeChangedAt) > new Date(message.createdAt)) {
+      await this.prisma.message.update({ where: { id: message.id }, data: { deliveryStatus: 'CANCELLED', deliveryError: 'Un agente tomó la conversación antes de que saliera esta respuesta del bot.' } });
+      this.events?.emit(conversation.companyId, { type: 'message.status', conversationId: conversation.id, messageId: message.id, deliveryStatus: 'CANCELLED' });
+      return { cancelled: 'modo humano' };
+    }
     // Instagram / Messenger / WhatsApp Cloud API: salen por la Graph API de Meta
     const meta = metaLineConfig(conversation.integration);
     if (meta || ['INSTAGRAM', 'MESSENGER'].includes(conversation.channel)) {
@@ -517,10 +545,12 @@ export class TwilioService implements OnModuleInit, OnApplicationShutdown {
     }
     const creds = this.lineConfig(conversation.integration);
     if (!creds) {
-      throw new Error('La línea no tiene configuración de Twilio');
+      await this.markSendFailed(message.id, 'La línea no tiene configuración de Twilio', false);
+      return { failed: 'sin configuración' };
     }
     if (!creds.sandbox && !creds.fromNumber) {
-      throw new Error('La línea no tiene número de Twilio configurado');
+      await this.markSendFailed(message.id, 'La línea no tiene número de Twilio configurado', false);
+      return { failed: 'sin número' };
     }
 
     // Ventana de 24 h: fuera de ella SOLO se permite plantilla aprobada
@@ -545,12 +575,16 @@ export class TwilioService implements OnModuleInit, OnApplicationShutdown {
     };
     const metaCostUsd = Number(rates[category] ?? 0);
 
-    let providerId: string | null = null;
+    if (!(await this.claimSend(message.id))) return { skipped: 'otro proceso lo está enviando' };
     if (creds.sandbox || !creds.accountSid || !creds.authToken) {
-      // SANDBOX: jamás sale un mensaje real; se marca enviado y se registra
-      providerId = `SANDBOX_${randomBytes(8).toString('hex')}`;
-      this.logger.log(`[sandbox] ${conversation.company.slug} → ${conversation.contact.phone}: ${message.content.slice(0, 60)}`);
-    } else {
+      // SANDBOX: jamás sale un mensaje real. Queda SIMULATED (no "enviado") para no engañar a nadie
+      const providerId = `SANDBOX_${randomBytes(8).toString('hex')}`;
+      this.logger.log(`[sandbox] ${conversation.company.slug} → mensaje ${message.id} (no enviado)`);
+      await this.finishSend(conversation, message.id, { providerId, deliveryStatus: 'SIMULATED', metaCategory: category, metaCostUsd });
+      return { sid: providerId, category, simulated: true };
+    }
+    let providerId: string;
+    try {
       const client = twilio(creds.accountSid, creds.authToken);
       const base = await this.publicBaseUrl();
       const sent = await client.messages.create({
@@ -566,29 +600,21 @@ export class TwilioService implements OnModuleInit, OnApplicationShutdown {
             : { body: message.content }),
         statusCallback: `${base}/api/webhooks/${conversation.company.slug}/twilio/status`,
       });
+      if (!sent?.sid) throw new SendError('UNCERTAIN', 'Twilio respondió sin el identificador del mensaje');
       providerId = sent.sid;
+    } catch (err) {
+      return this.handleSendError(message, conversation, err);
     }
-
-    await this.prisma.message.update({
-      where: { id: message.id },
-      data: {
-        providerId,
-        deliveryStatus: 'SENT',
-        metaCategory: category,
-        metaCostUsd,
-      },
-    });
-    this.events?.emit(conversation.companyId, {
-      type: 'message.status',
-      conversationId: conversation.id,
-      messageId: message.id,
-      deliveryStatus: 'SENT',
-    });
+    await this.finishSend(conversation, message.id, { providerId, deliveryStatus: 'SENT', metaCategory: category, metaCostUsd });
     return { sid: providerId, category };
   }
 
   /** Envío por Meta (ventana de 24 h; en sandbox o sin token no sale nada real). */
-  private async processMetaOutbound(message: any, conversation: any, meta: MetaLineConfig | null, data: { metaCategory?: string }) {
+  private async processMetaOutbound(message: any, conversation: any, meta: MetaLineConfig | null, data: { metaCategory?: string; contentSid?: string }) {
+    if (data.contentSid) {
+      await this.markSendFailed(message.id, 'Las plantillas por WhatsApp Cloud API de Meta aún no están disponibles en BackOffice', false);
+      return { failed: 'plantilla no soportada' };
+    }
     const within = isWithinServiceWindow(
       (await this.prisma.message.findFirst({ where: { conversationId: conversation.id, direction: 'IN' }, orderBy: { createdAt: 'desc' } }))?.createdAt ?? null,
     );
@@ -596,23 +622,83 @@ export class TwilioService implements OnModuleInit, OnApplicationShutdown {
       await this.markSendFailed(message.id, 'Fuera de la ventana de 24 h (Meta no permite escribir primero por este canal)', false);
       return { failed: 'fuera de ventana' };
     }
-    let providerId: string;
+    if (!(await this.claimSend(message.id))) return { skipped: 'otro proceso lo está enviando' };
     if (!meta || meta.sandbox) {
-      providerId = `SANDBOX_${randomBytes(8).toString('hex')}`;
-      this.logger.log(`[sandbox ${conversation.channel}] ${conversation.company.slug}: ${message.content.slice(0, 60)}`);
-    } else {
+      const providerId = `SANDBOX_${randomBytes(8).toString('hex')}`;
+      this.logger.log(`[sandbox ${conversation.channel}] ${conversation.company.slug}: mensaje ${message.id} (no enviado)`);
+      await this.finishSend(conversation, message.id, { providerId, deliveryStatus: 'SIMULATED', metaCategory: data.metaCategory ?? 'SERVICIO', metaCostUsd: 0 });
+      return { sid: providerId, channel: conversation.channel, simulated: true };
+    }
+    let providerId: string;
+    try {
       const recipient = conversation.channel === 'WHATSAPP'
         ? conversation.contact.phone
         : String(conversation.contact.externalId ?? '').split(':').pop();
-      const sent = await sendMetaText({ channel: conversation.channel, config: meta, recipient, text: message.content });
-      providerId = sent.id;
+      providerId = (await this.sendMeta({ channel: conversation.channel, config: meta, recipient, text: message.content })).id;
+    } catch (err) {
+      return this.handleSendError(message, conversation, err);
     }
-    await this.prisma.message.update({
-      where: { id: message.id },
-      data: { providerId, deliveryStatus: 'SENT', metaCategory: data.metaCategory ?? 'SERVICIO', metaCostUsd: 0 },
-    });
-    this.events?.emit(conversation.companyId, { type: 'message.status', conversationId: conversation.id, messageId: message.id, deliveryStatus: 'SENT' });
+    await this.finishSend(conversation, message.id, { providerId, deliveryStatus: 'SENT', metaCategory: data.metaCategory ?? 'SERVICIO', metaCostUsd: 0 });
     return { sid: providerId, channel: conversation.channel };
+  }
+
+  /** Reemplazable en pruebas: envío real por la Graph API de Meta. */
+  sendMeta: typeof sendMetaText = (input) => sendMetaText(input);
+
+  /** Toma el mensaje para enviarlo (QUEUED → SENDING): dos workers no lo envían dos veces. */
+  private async claimSend(messageId: string) {
+    const r = await this.prisma.message.updateMany({ where: { id: messageId, deliveryStatus: 'QUEUED' }, data: { deliveryStatus: 'SENDING', sendStartedAt: new Date() } });
+    return r.count === 1;
+  }
+
+  private async finishSend(conversation: any, messageId: string, data: { providerId: string; deliveryStatus: string; metaCategory: string; metaCostUsd: number }) {
+    await this.prisma.message.update({ where: { id: messageId }, data: { ...data, deliveryError: data.deliveryStatus === 'SIMULATED' ? 'Modo prueba: el mensaje no salió a ningún cliente' : null } });
+    this.events?.emit(conversation.companyId, { type: 'message.status', conversationId: conversation.id, messageId, deliveryStatus: data.deliveryStatus });
+  }
+
+  /** Decide según el resultado: reintentar (429), fallido (rechazo), incierto (sin respuesta). */
+  private async handleSendError(message: any, conversation: any, err: unknown): Promise<Record<string, any>> {
+    const e = classifySendError(err);
+    if (e.outcome === 'RETRYABLE') {
+      // El proveedor lo rechazó por límite: es seguro reintentar (BullMQ con espera creciente)
+      await this.prisma.message.update({ where: { id: message.id }, data: { deliveryStatus: 'QUEUED', deliveryError: e.message } });
+      throw e;
+    }
+    if (e.outcome === 'UNCERTAIN') {
+      await this.markUncertain(message, e.message);
+      return { uncertain: true };
+    }
+    if (e.outcome === 'AUTH' && conversation.integration) {
+      // Las credenciales dejaron de servir: el canal lo muestra (sin tocar las credenciales)
+      const cfg = parseJson<Record<string, any>>(conversation.integration.configJson, {});
+      await this.prisma.integration.update({
+        where: { id: conversation.integration.id },
+        data: { configJson: JSON.stringify({ ...cfg, verification: { ok: false, at: new Date().toISOString(), kind: 'AUTH', message: e.message } }) },
+      });
+    }
+    await this.markSendFailed(message.id, e.message, false);
+    return { failed: e.outcome };
+  }
+
+  /**
+   * Reintentos agotados: el mensaje NO se pierde en silencio. Si nunca se
+   * empezó a enviar (QUEUED) es un fallo; si quedó a medio enviar (SENDING),
+   * es incierto: pudo haber salido.
+   */
+  async onOutboundExhausted(messageId: string, reason: string) {
+    const m = await this.prisma.message.findUnique({ where: { id: messageId }, include: { conversation: true } });
+    if (!m) return;
+    if (m.deliveryStatus === 'QUEUED') await this.markSendFailed(messageId, reason);
+    else if (m.deliveryStatus === 'SENDING') await this.markUncertain(m, `Reintentos agotados con el envío a medias: ${sanitizeError(reason)}`);
+  }
+
+  /** No se sabe si salió: no se reintenta solo (podría duplicarse). Una persona decide. */
+  private async markUncertain(message: any, reason: string) {
+    const companyId = (message.conversation as any).companyId;
+    await this.prisma.message.update({ where: { id: message.id }, data: { deliveryStatus: 'UNCERTAIN', deliveryError: reason } });
+    await this.prisma.conversation.update({ where: { id: message.conversationId }, data: { needsAttention: true } });
+    await this.audit.log({ actor: null, companyId, action: 'message.send_uncertain', entity: 'Message', entityId: message.id, detail: reason });
+    this.events?.emit(companyId, { type: 'message.status', conversationId: message.conversationId, messageId: message.id, deliveryStatus: 'UNCERTAIN' });
   }
 
   private async markSendFailed(messageId: string, reason: string, retryable = true) {
@@ -621,9 +707,10 @@ export class TwilioService implements OnModuleInit, OnApplicationShutdown {
       include: { conversation: true },
     });
     if (!message) return;
+    const clean = sanitizeError(reason);
     await this.prisma.message.update({
       where: { id: messageId },
-      data: { deliveryStatus: 'FAILED' },
+      data: { deliveryStatus: 'FAILED', deliveryError: clean },
     });
     // Alerta en el panel: la conversación queda marcada y el hecho auditado
     await this.prisma.conversation.update({
@@ -636,10 +723,16 @@ export class TwilioService implements OnModuleInit, OnApplicationShutdown {
       action: 'twilio.send_failed',
       entity: 'Message',
       entityId: messageId,
-      detail: `${retryable ? 'Reintentos agotados' : 'Rechazado'}: ${reason}`,
+      detail: `${retryable ? 'Reintentos agotados' : 'Rechazado'}: ${clean}`,
     });
-    this.logger.error(`Envío fallido (${messageId}): ${reason}`);
-    await reportIncident(this.prisma, { companyId: (message.conversation as any).companyId, kind: 'WA_SEND_FAILED', detail: reason });
+    this.logger.error(`Envío fallido (${messageId}): ${clean}`);
+    await reportIncident(this.prisma, { companyId: (message.conversation as any).companyId, kind: 'WA_SEND_FAILED', detail: clean });
+    this.events?.emit((message.conversation as any).companyId, {
+      type: 'message.status',
+      conversationId: message.conversationId,
+      messageId,
+      deliveryStatus: 'FAILED',
+    });
     this.events?.emit((message.conversation as any).companyId, {
       type: 'conversation.updated',
       conversationId: message.conversationId,
@@ -660,11 +753,8 @@ export class TwilioService implements OnModuleInit, OnApplicationShutdown {
     if (!message || (message.conversation as any).companyId !== companyId) {
       return { skipped: 'mensaje desconocido' };
     }
-    // READ no se degrada a DELIVERED por callbacks fuera de orden
-    const order = ['QUEUED', 'SENT', 'DELIVERED', 'READ'];
-    const current = order.indexOf(message.deliveryStatus ?? '');
-    const incoming = order.indexOf(status);
-    if (status !== 'FAILED' && incoming !== -1 && incoming < current) {
+    // READ no se degrada a DELIVERED por callbacks fuera de orden (ni se repite el mismo)
+    if (!shouldApplyStatus(message.deliveryStatus, status)) {
       return { skipped: 'estado anterior' };
     }
     await this.prisma.message.update({

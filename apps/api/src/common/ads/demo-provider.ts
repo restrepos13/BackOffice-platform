@@ -1,5 +1,5 @@
 import {
-  AccountRef, AdLevel, AdsProvider, CampaignDraft, ProviderKey, RemoteAccount, RemoteEntity, RemoteInsight, addDays,
+  AccountRef, AdLevel, AdsProvider, CampaignDraft, PeriodStats, ProviderKey, RemoteAccount, RemoteEntity, RemoteInsight, addDays,
 } from './provider';
 
 /**
@@ -95,8 +95,10 @@ export class DemoAdsProvider implements AdsProvider {
         if (!a.daily) continue;
         const r = rng(`${a.id}${day}`);
         const spend = Math.round(a.daily * (0.8 + r() * 0.4));
-        // Escenario "empeora": la última semana el costo por resultado sube ~60 %
-        const cpr = a.trend === 'worse' && daysAgo < 7 ? a.cpr * 1.6 : a.cpr;
+        // Escenario "empeora": la última semana el costo por resultado del anuncio
+        // se duplica (la campaña sube con holgura sobre el umbral del 30 %, sin
+        // depender del ruido de cada fecha)
+        const cpr = a.trend === 'worse' && daysAgo < 7 ? a.cpr * 2.2 : a.cpr;
         const results = a.dead || !cpr ? 0 : Math.max(0, Math.round((spend / cpr) * (0.85 + r() * 0.3)));
         const impressions = Math.round(spend / (9 + r() * 4)) * 1;
         const clicks = Math.round(impressions * (0.009 + r() * 0.008));
@@ -112,6 +114,19 @@ export class DemoAdsProvider implements AdsProvider {
       }
     }
     return out;
+  }
+
+  /** Alcance simulado del periodo (personas únicas ≈ impresiones / frecuencia). */
+  async fetchPeriodStats(account: AccountRef, token: string, since: string, until: string): Promise<PeriodStats> {
+    const rows = await this.fetchInsights(account, token, since, until);
+    const by = new Map<string, number>();
+    for (const r of rows) by.set(r.campaignExternalId ?? '', (by.get(r.campaignExternalId ?? '') ?? 0) + r.impressions);
+    const stat = (impressions: number, f: number) => ({ impressions, reach: Math.round(impressions / f), frequency: Math.round(f * 100) / 100 });
+    const total = [...by.values()].reduce((s, n) => s + n, 0);
+    return {
+      account: total ? stat(total, 2.6) : null,
+      campaigns: [...by.entries()].map(([externalId, imp], i) => ({ externalId, ...stat(imp, 2.1 + i * 0.4) })),
+    };
   }
 
   async setStatus(_a: AccountRef, _t: string, _l: AdLevel, externalId: string, status: 'ACTIVE' | 'PAUSED') {

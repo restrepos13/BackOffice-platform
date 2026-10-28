@@ -15,7 +15,7 @@ import { Badge, Button, EmptyState, Field, Loading, Modal, Select, Textarea } fr
 export interface Opportunity {
   id: string; source: 'ADS' | 'CRM'; mode: 'REAL' | 'DEMO'; ruleKey: string; severity: string; title: string; summary: string | null; entityName: string | null;
   evidence: 'SUFFICIENT' | 'INITIAL' | 'MISSING_DATA'; status: string; statusLabel: string; firstSeenAt: string; lastSeenAt: string; actedAt: string | null; resultAt: string | null;
-  explanation: { facts: string[]; interpretation: string; assumptions: string[]; missing: string[]; action: string; expected: string; uncertainty: string };
+  explanation: { facts: string[]; interpretation: string; assumptions: string[]; missing: string[]; action: string; expected: string; uncertainty: string; rule?: string };
   sources: string[]; period: Record<string, any>;
   action: { type: 'PAUSE' | 'FOLLOW_UP' | 'REVIEW' | 'LINK' | 'NONE'; label?: string; risk: string; reversible: boolean; href?: string; contacts: number };
   decisions: Array<{ at: string; by: string; status: string; note?: string }>;
@@ -161,6 +161,7 @@ export function OpportunityCard({ o, scope, canWrite, compact }: { o: Opportunit
             <p className="mt-1 text-xs text-ink-3">{o.explanation.uncertainty}</p>
           </div>
         </div>
+        {o.explanation.rule && <p className="mt-3 border-l-4 border-line pl-3 text-xs text-ink-2"><b>Regla aplicada:</b> {o.explanation.rule}</p>}
         <div className="mt-3 flex flex-wrap gap-1">{st.dataKinds.map((k) => <Badge key={k} tone="neutral">{KIND_LABEL[k]}</Badge>)}</div>
         <p className="mt-2 text-[11px] text-ink-3">Fuente: {o.sources.join(' · ') || '—'}{period ? ` · periodo ${period}` : ''} · detectada el {fmtDate(o.firstSeenAt)}</p>
         {o.decisions.length > 0 && (

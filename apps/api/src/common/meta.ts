@@ -1,4 +1,5 @@
 import { createHmac, timingSafeEqual } from 'crypto';
+import { SendError, classifySendError, sanitizeError } from './inbox/delivery';
 import { decryptSecret, isEncrypted } from './crypto';
 import { parseJson } from './constants';
 
@@ -8,7 +9,8 @@ import { parseJson } from './constants';
  * App Secret de la app de Meta (META_APP_SECRET).
  */
 
-export const GRAPH = 'https://graph.facebook.com/v21.0';
+/** Versión configurable: Meta retira versiones viejas (META_GRAPH_VERSION, por defecto v24.0). */
+export const GRAPH = `https://graph.facebook.com/${(process.env.META_GRAPH_VERSION || 'v24.0').replace(/[^v0-9.]/g, '')}`;
 
 export interface MetaLineConfig {
   provider: 'META';
@@ -62,14 +64,23 @@ export async function sendMetaText(
   const body = isWhatsapp
     ? { messaging_product: 'whatsapp', to: input.recipient.replace(/[^\d]/g, ''), type: 'text', text: { body: input.text } }
     : { recipient: { id: input.recipient }, messaging_type: 'RESPONSE', message: { text: input.text.slice(0, 1000) } };
-  const res = await fetchImpl(url, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${config.accessToken}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
+  let res: Response;
+  try {
+    res = await fetchImpl(url, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${config.accessToken}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+  } catch (err) {
+    // Sin respuesta: no se sabe si Meta lo recibió
+    throw new SendError('UNCERTAIN', `Sin respuesta de Meta: ${sanitizeError(err)}`);
+  }
   const data: any = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(`Meta respondió ${res.status}: ${data?.error?.message ?? 'error'}`);
-  return { id: data?.message_id ?? data?.messages?.[0]?.id ?? `meta_${Date.now()}` };
+  if (!res.ok) throw classifySendError({ status: res.status, code: data?.error?.code, message: `Meta respondió ${res.status}: ${data?.error?.message ?? 'error'}` });
+  const id = data?.message_id ?? data?.messages?.[0]?.id;
+  // Nunca se inventa un ID: si Meta aceptó pero no lo devolvió, el resultado es incierto
+  if (!id) throw new SendError('UNCERTAIN', 'Meta respondió sin el identificador del mensaje');
+  return { id: String(id) };
 }
 
 /** Eventos de mensaje de Instagram/Messenger normalizados (sin ecos). */

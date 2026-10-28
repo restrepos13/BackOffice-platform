@@ -1,5 +1,5 @@
 import {
-  AccountRef, AdLevel, AdsProvider, AdsProviderError, CampaignDraft, FetchLike, RemoteAccount, RemoteEntity, RemoteInsight, fromMinor,
+  AccountRef, AdLevel, AdsProvider, AdsProviderError, CampaignDraft, FetchLike, PeriodStats, RemoteAccount, RemoteEntity, RemoteInsight, fromMinor,
 } from './provider';
 
 /**
@@ -29,6 +29,8 @@ export function classifyMetaError(err: any, status: number): AdsProviderError {
   if ([4, 17, 32, 613, 80000, 80004].includes(code) || status === 429) return new AdsProviderError('RATE_LIMIT', 'Meta pidió esperar (límite de solicitudes). Se reintentará más tarde.', code);
   if (code === 10 || code === 200 || (code >= 200 && code < 300) || status === 403) return new AdsProviderError('PERMISSION', `Permisos insuficientes en Meta: ${msg}`, code);
   if (code === 100 && /does not exist|Unknown path/i.test(msg)) return new AdsProviderError('NOT_FOUND', msg, code);
+  // "Please reduce the amount of data you're asking for": se reintenta con un rango menor
+  if (Number(err?.error_subcode) === 1487534 || /reduce the amount of data/i.test(msg)) return new AdsProviderError('INCOMPLETE', 'Meta pidió consultar un rango de fechas más corto.', code);
   return new AdsProviderError('PROVIDER', `Meta: ${msg}`, code);
 }
 
@@ -103,14 +105,19 @@ export class MetaAdsProvider implements AdsProvider {
     });
   }
 
-  /** Recorre todas las páginas (paging.next) con tope para no colgarse. */
+  /**
+   * Recorre todas las páginas (paging.next) con tope para no colgarse. Si se
+   * llega al tope y Meta aún tiene más, falla como INCOMPLETE: guardar una
+   * parte sin decirlo haría que las métricas parezcan completas.
+   */
   private async all(path: string, token: string, params: Record<string, string>): Promise<any[]> {
     const out: any[] = [];
     let page = await this.get(path, token, params);
-    for (let i = 0; i < MAX_PAGES; i++) {
+    for (let i = 0; ; i++) {
       out.push(...(page?.data ?? []));
       const next = page?.paging?.next;
       if (!next || typeof next !== 'string' || !next.startsWith('https://graph.facebook.com/')) break;
+      if (i + 1 >= MAX_PAGES) throw new AdsProviderError('INCOMPLETE', `Meta devolvió más de ${MAX_PAGES} páginas en ${path}: la lectura quedó incompleta.`);
       page = await this.call(next);
     }
     return out;
@@ -164,6 +171,17 @@ export class MetaAdsProvider implements AdsProvider {
       limit: '500',
     });
     return rows.map(metaInsightRow);
+  }
+
+  async fetchPeriodStats(account: AccountRef, token: string, since: string, until: string): Promise<PeriodStats> {
+    const range = JSON.stringify({ since, until });
+    const row = (r: any) => ({ reach: Number(r?.reach) || 0, impressions: Number(r?.impressions) || 0, frequency: r?.frequency !== undefined && r?.frequency !== null && r?.frequency !== '' ? Number(r.frequency) : null });
+    const [acct, camps] = await Promise.all([
+      this.get(`/${account.externalId}/insights`, token, { level: 'account', time_range: range, fields: 'reach,impressions,frequency' }),
+      this.all(`/${account.externalId}/insights`, token, { level: 'campaign', time_range: range, fields: 'campaign_id,reach,impressions,frequency', limit: '500' }),
+    ]);
+    const a = acct?.data?.[0];
+    return { account: a ? row(a) : null, campaigns: camps.filter((r) => r?.campaign_id).map((r) => ({ externalId: String(r.campaign_id), ...row(r) })) };
   }
 
   async setStatus(_account: AccountRef, token: string, _level: AdLevel, externalId: string, status: 'ACTIVE' | 'PAUSED') {

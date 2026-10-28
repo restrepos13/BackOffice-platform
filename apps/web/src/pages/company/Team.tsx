@@ -23,11 +23,48 @@ const emptyForm: MemberForm = {
   name: '', email: '', role: 'COMPANY_VIEWER', jobTitle: '', password: '',
 };
 
+interface Invitation {
+  id: string; email: string; name: string | null; role: string; opsProfile: string | null; invitedByName: string | null;
+  createdAt: string; expiresAt: string; status: 'PENDING' | 'ACCEPTED' | 'REVOKED' | 'EXPIRED';
+}
+const INVITE_STATUS: Record<Invitation['status'], { label: string; tone: 'ok' | 'warn' | 'bad' | 'neutral' }> = {
+  PENDING: { label: 'Pendiente', tone: 'warn' }, ACCEPTED: { label: 'Aceptada', tone: 'ok' },
+  REVOKED: { label: 'Revocada', tone: 'neutral' }, EXPIRED: { label: 'Vencida', tone: 'bad' },
+};
+
 export default function Team() {
   const { ready, q, canWrite, companyId } = useCompanyScope();
   const { user: me } = useAuth();
   const queryClient = useQueryClient();
   const [editing, setEditing] = useState<MemberForm | null>(null);
+  const [inviting, setInviting] = useState<{ email: string; name: string; role: string } | null>(null);
+  const [inviteLink, setInviteLink] = useState<{ link: string; emailStatus: string; email: string } | null>(null);
+
+  const invitations = useQuery({
+    queryKey: ['invitations', q],
+    queryFn: () => api.get<Invitation[]>(withScope('/users/invitations', q)),
+    enabled: ready && canWrite,
+  });
+  const invite = useMutation({
+    mutationFn: (f: { email: string; name: string; role: string }) =>
+      api.post<{ link: string; emailStatus: string; invitation: Invitation }>('/users/invitations', {
+        email: f.email.trim(), name: f.name.trim() || undefined, role: f.role, ...(companyId ? { companyId } : {}),
+      }),
+    onSuccess: (r) => {
+      queryClient.invalidateQueries({ queryKey: ['invitations'] });
+      setInviteLink({ link: r.link, emailStatus: r.emailStatus, email: r.invitation.email });
+      setInviting(null);
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : 'Error'),
+  });
+  const revoke = useMutation({
+    mutationFn: (id: string) => api.delete(withScope(`/users/invitations/${id}`, q)),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['invitations'] });
+      toast.success('Invitación revocada');
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : 'Error'),
+  });
 
   const { data: users, isLoading } = useQuery({
     queryKey: ['team', q],
@@ -70,7 +107,12 @@ export default function Team() {
       <PageHeader
         kicker="Roles y accesos"
         title="Equipo"
-        actions={canWrite ? <Button onClick={() => setEditing({ ...emptyForm })}>+ Invitar miembro</Button> : undefined}
+        actions={canWrite ? (
+          <>
+            <Button variant="outline" onClick={() => setEditing({ ...emptyForm })}>Crear con contraseña</Button>
+            <Button onClick={() => setInviting({ email: '', name: '', role: 'COMPANY_VIEWER' })}>+ Invitar por correo</Button>
+          </>
+        ) : undefined}
       />
 
       <div className="mb-4 grid gap-3 md:grid-cols-2">
@@ -133,11 +175,76 @@ export default function Team() {
         ))}
       </Table>
 
+      {canWrite && (invitations.data?.length ?? 0) > 0 && (
+        <div className="mt-8">
+          <p className="kicker mb-2">Invitaciones</p>
+          <Table head={['Correo', 'Rol', 'Estado', 'Invitó', 'Vence', '']}>
+            {invitations.data!.map((i) => (
+              <tr key={i.id}>
+                <td className="px-4 py-3 text-sm">{i.email}{i.name ? <span className="block text-xs text-ink-3">{i.name}</span> : null}</td>
+                <td className="px-4 py-3 text-sm">{ROLE_LABELS[i.role] ?? i.role}</td>
+                <td className="px-4 py-3"><Badge tone={INVITE_STATUS[i.status].tone}>{INVITE_STATUS[i.status].label}</Badge></td>
+                <td className="px-4 py-3 text-xs text-ink-3">{i.invitedByName ?? '—'}</td>
+                <td className="px-4 py-3 text-xs text-ink-3">{i.status === 'PENDING' ? new Date(i.expiresAt).toLocaleDateString('es-CO') : '—'}</td>
+                <td className="px-4 py-3 text-right">
+                  {i.status === 'PENDING' && <Button size="sm" variant="ghost" disabled={revoke.isPending} onClick={() => revoke.mutate(i.id)}>Revocar</Button>}
+                </td>
+              </tr>
+            ))}
+          </Table>
+        </div>
+      )}
+
+      <Modal open={!!inviting} onClose={() => setInviting(null)} kicker="Equipo" title="Invitar por correo">
+        {inviting && (
+          <div className="space-y-4">
+            <p className="text-sm text-ink-2">La persona recibe un enlace para crear su propia contraseña. Vence en 7 días y sirve una sola vez.</p>
+            <Field label="Correo" required>
+              <Input type="email" value={inviting.email} onChange={(e) => setInviting({ ...inviting, email: e.target.value })} />
+            </Field>
+            <Field label="Nombre (opcional)">
+              <Input value={inviting.name} onChange={(e) => setInviting({ ...inviting, name: e.target.value })} />
+            </Field>
+            <Field label="Rol">
+              <Select value={inviting.role} onChange={(e) => setInviting({ ...inviting, role: e.target.value })}>
+                <option value="COMPANY_ADMIN">Admin de empresa</option>
+                <option value="COMPANY_VIEWER">Visualización</option>
+                <option value="COMPANY_COURIER">Domiciliario</option>
+              </Select>
+            </Field>
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setInviting(null)}>Cancelar</Button>
+              <Button disabled={invite.isPending || !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(inviting.email.trim())} onClick={() => invite.mutate(inviting)}>
+                {invite.isPending ? 'Invitando…' : 'Enviar invitación'}
+              </Button>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      <Modal open={!!inviteLink} onClose={() => setInviteLink(null)} kicker="Invitación creada" title={inviteLink ? `Invitación para ${inviteLink.email}` : ''}>
+        {inviteLink && (
+          <div className="space-y-3">
+            <p className="text-sm">
+              {inviteLink.emailStatus === 'SENT'
+                ? 'Le enviamos el enlace por correo.'
+                : 'El correo de la plataforma no está configurado o falló: comparte tú este enlace con la persona (por WhatsApp, por ejemplo).'}
+            </p>
+            <p className="break-all border-2 border-line bg-bone p-2 font-mono text-xs">{inviteLink.link}</p>
+            <p className="text-xs text-ink-3">Por seguridad este enlace se muestra solo ahora: no queda guardado en BackOffice.</p>
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => { void navigator.clipboard?.writeText(inviteLink.link).then(() => toast.success('Enlace copiado'), () => toast.error('No se pudo copiar')); }}>Copiar enlace</Button>
+              <Button onClick={() => setInviteLink(null)}>Listo</Button>
+            </div>
+          </div>
+        )}
+      </Modal>
+
       <Modal
         open={!!editing}
         onClose={() => setEditing(null)}
         kicker="Equipo"
-        title={editing?.id ? `Editar ${editing.name}` : 'Invitar miembro'}
+        title={editing?.id ? `Editar ${editing.name}` : 'Crear miembro con contraseña'}
       >
         {editing && (
           <div className="space-y-4">

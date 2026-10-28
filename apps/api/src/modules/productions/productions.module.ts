@@ -2,6 +2,7 @@ import { Body, Controller, Get, Module, Param, Patch, Post, Put, Query } from '@
 import { Throttle } from '@nestjs/throttler';
 import { CurrentUser } from '../../auth/decorators';
 import { Products } from '../../auth/products.guard';
+import { Section } from '../../auth/sections.guard';
 import { AuthUser } from '../../common/constants';
 import { PrismaService } from '../../prisma/prisma.service';
 import { AuditModule } from '../audit.module';
@@ -16,6 +17,7 @@ import { WorkflowService } from './workflow.service';
  * consulta solo cuenta para roles de plataforma.
  */
 @Products('AUTOMATION')
+@Section('productions')
 @Controller('productions')
 export class ProductionsController {
   constructor(

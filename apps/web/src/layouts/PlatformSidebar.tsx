@@ -3,7 +3,7 @@ import {
   Activity, BarChart3, Bike, Bot, Building2, Calculator, CalendarDays, ChartNoAxesCombined, ChevronDown, CircleDollarSign, Clapperboard,
   ClipboardCheck, Contact, Cpu, CreditCard, Eye, Factory, FileSearch, FileSignature, FileText, FolderOpen, Gem, HandCoins,
   Headset, HeartPulse, Images, Inbox, LayoutDashboard, ListChecks, LogOut, Mail, Megaphone, Package, Palette, Plug,
-  RefreshCcw, ScrollText, Send, Settings, Siren, Sparkles, Store, Terminal, UserPlus, UserRound, Users, Wallet, Workflow, X,
+  RefreshCcw, ScrollText, Send, Settings, Siren, Sparkles, Store, Terminal, UserPlus, UserRound, Users, Receipt, Wallet, Workflow, X,
   type LucideIcon,
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
@@ -62,6 +62,7 @@ export function platformSections(badges: { registros?: number; salud?: number } 
         { to: '/platform/registros', label: 'Registros', icon: UserPlus, badge: badges.registros },
         { to: '/platform/citas', label: 'Citas', icon: Headset },
         { to: '/platform/ventas', label: 'Ventas', icon: Wallet },
+        { to: '/platform/suscripciones', label: 'Suscripciones', icon: Receipt },
         { to: '/platform/emails', label: 'Correos', icon: Mail },
       ],
     },

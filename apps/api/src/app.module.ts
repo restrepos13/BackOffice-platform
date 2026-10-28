@@ -7,6 +7,7 @@ import { AuthModule } from './auth/auth.module';
 import { JwtAuthGuard } from './auth/jwt.guard';
 import { RolesGuard } from './auth/roles.guard';
 import { ProductsGuard } from './auth/products.guard';
+import { SectionsGuard } from './auth/sections.guard';
 import { UsersModule } from './modules/users.module';
 import { PlansModule } from './modules/plans.module';
 import { CompaniesModule } from './modules/companies.module';
@@ -54,10 +55,13 @@ import { AgentCallsModule } from './modules/agent-calls.module';
 import { DataExportModule } from './modules/data-export.module';
 import { PlatformHealthModule } from './modules/platform-health.module';
 import { AdsModule } from './modules/ads.module';
+import { SubscriptionsModule } from './modules/subscriptions.module';
+import { SubscriptionGuard } from './auth/subscription.guard';
 import { LibraryModule } from './modules/library.module';
 import { BookingsModule } from './modules/bookings.module';
 import { CalendarSyncModule } from './modules/calendar-sync.module';
 import { ProductionsModule } from './modules/productions/productions.module';
+import { AccountModule } from './modules/account.module';
 import { ProductsModule } from './modules/products.module';
 import { OpportunitiesModule } from './modules/opportunities.module';
 import { CreativeModule } from './modules/creative.module';
@@ -67,6 +71,7 @@ import { SignupModule } from './modules/signup.module';
 import { SocialModule } from './modules/social.module';
 import { MarketingModule } from './modules/marketing.module';
 import { ScheduleModule } from '@nestjs/schedule';
+import { schedulersEnabled } from './common/runtime-env';
 
 @Module({
   imports: [
@@ -74,7 +79,9 @@ import { ScheduleModule } from '@nestjs/schedule';
     ConfigModule.forRoot({ isGlobal: true, envFilePath: process.env.ENV_FILE || '.env' }),
     // Rate limiting global: 200 peticiones/min por IP (el login tiene su propio límite)
     ThrottlerModule.forRoot([{ ttl: 60_000, limit: 200 }]),
-    ScheduleModule.forRoot(),
+    // Sin ScheduleModule los @Cron no se registran: en desarrollo quedan apagados
+    // salvo SCHEDULERS_ENABLED=1 (se evalúa después de que ConfigModule cargó el .env)
+    ...(schedulersEnabled() ? [ScheduleModule.forRoot()] : []),
     QueueModule,
     PrismaModule,
     AuthModule,
@@ -125,10 +132,12 @@ import { ScheduleModule } from '@nestjs/schedule';
     PlatformHealthModule,
     CreativeModule,
     AdsModule,
+    SubscriptionsModule,
     LibraryModule,
     BookingsModule,
     CalendarSyncModule,
     ProductionsModule,
+    AccountModule,
     ProductsModule,
     OpportunitiesModule,
     InboundOrdersModule,
@@ -142,6 +151,8 @@ import { ScheduleModule } from '@nestjs/schedule';
     { provide: APP_GUARD, useClass: JwtAuthGuard },
     { provide: APP_GUARD, useClass: RolesGuard },
     { provide: APP_GUARD, useClass: ProductsGuard },
+    { provide: APP_GUARD, useClass: SectionsGuard },
+    { provide: APP_GUARD, useClass: SubscriptionGuard },
   ],
 })
 export class AppModule {}

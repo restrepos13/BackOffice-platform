@@ -1,4 +1,5 @@
 import { parseJson } from '../constants';
+import { deterministicId } from '../automation/run-signals';
 import { story } from './present';
 
 /**
@@ -31,7 +32,7 @@ export interface OppDraft {
   severity: 'HIGH' | 'MEDIUM' | 'LOW';
   title: string;
   summary: string;
-  explanation: { facts: string[]; interpretation: string; assumptions: string[]; missing: string[]; action: string; expected: string; uncertainty: string };
+  explanation: { facts: string[]; interpretation: string; assumptions: string[]; missing: string[]; action: string; expected: string; uncertainty: string; rule?: string };
   evidence: Record<string, unknown>;
   sources: string[];
   period: Record<string, unknown>;
@@ -76,11 +77,16 @@ export function addDecision(json: string | null | undefined, d: Decision): strin
   return JSON.stringify(list.slice(-50));
 }
 
+/** _id derivado de la clave: Mongo garantiza que no haya dos aunque falte el índice único. */
+export const opportunityId = (dedupeKey: string) => deterministicId('opp', dedupeKey);
+
 /**
  * Guarda lo detectado en una corrida. Si ya existe (misma dedupeKey) se
  * refresca la evidencia sin tocar el estado que eligió el usuario. Lo que
  * estaba nuevo y ya no se detecta pasa a "resultado registrado" con la nota
  * de que la condición desapareció (no se borra ni se da por "resuelta").
+ * Si una condición que había desaparecido vuelve, se reabre como episodio
+ * nuevo (misma fila, fecha de detección nueva y la decisión en el historial).
  */
 export async function storeDetected(
   prisma: any,
@@ -99,21 +105,34 @@ export async function storeDetected(
       actionJson: JSON.stringify(d.action), entityName: d.entityName ?? null, lastSeenAt: now,
     };
     const existing = await prisma.opportunity.findUnique({ where: { dedupeKey } });
+    if (existing && existing.companyId !== scope.companyId) continue; // nunca se pisa otra empresa
     if (existing) {
       // Una pospuesta cuyo plazo venció vuelve a ser nueva
       const wake = existing.status === 'SNOOZED' && existing.snoozedUntil && new Date(existing.snoozedUntil) <= now;
+      // La condición había desaparecido (cerrada por el sistema) y volvió: episodio nuevo
+      const back = existing.status === 'RESULT' && parseJson<{ kind?: string }>(existing.resultJson, {}).kind === 'CONDITION_GONE';
       await prisma.opportunity.update({
         where: { id: existing.id },
-        data: { ...data, ...(wake ? { status: 'NEW', snoozedUntil: null, decisionsJson: addDecision(existing.decisionsJson, { at: now.toISOString(), by: 'Sistema', status: 'NEW', note: 'Terminó el plazo de la pausa' }) } : {}) },
-      });
-    } else {
-      await prisma.opportunity.create({
         data: {
-          companyId: scope.companyId, source: scope.source, mode: scope.mode, accountId: scope.accountId ?? null, ruleKey: d.ruleKey, dedupeKey,
-          level: d.level ?? null, externalId: d.externalId ?? null, status: 'NEW', firstSeenAt: now, decisionsJson: '[]', ...data,
+          ...data,
+          ...(wake ? { status: 'NEW', snoozedUntil: null, decisionsJson: addDecision(existing.decisionsJson, { at: now.toISOString(), by: 'Sistema', status: 'NEW', note: 'Terminó el plazo de la pausa' }) } : {}),
+          ...(back ? { status: 'NEW', firstSeenAt: now, resultJson: null, resultAt: null, decisionsJson: addDecision(existing.decisionsJson, { at: now.toISOString(), by: 'Sistema', status: 'NEW', note: 'La condición volvió a detectarse' }) } : {}),
         },
       });
-      created++;
+      if (back) created++;
+    } else {
+      try {
+        await prisma.opportunity.create({
+          data: {
+            id: opportunityId(dedupeKey), companyId: scope.companyId, source: scope.source, mode: scope.mode, accountId: scope.accountId ?? null, ruleKey: d.ruleKey, dedupeKey,
+            level: d.level ?? null, externalId: d.externalId ?? null, status: 'NEW', firstSeenAt: now, decisionsJson: '[]', ...data,
+          },
+        });
+        created++;
+      } catch (err: any) {
+        // Otra corrida simultánea la creó primero: queda una sola
+        if (err?.code !== 'P2002') throw err;
+      }
     }
   }
   const stale = await prisma.opportunity.findMany({

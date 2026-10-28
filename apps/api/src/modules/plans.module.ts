@@ -1,17 +1,20 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
   Get,
   Injectable,
   Module,
+  NotFoundException,
   Param,
   Patch,
   Post,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CurrentUser, Roles } from '../auth/decorators';
-import { AuthUser, ROLES, parseJson } from '../common/constants';
+import { AuthUser, ROLES, isPlatformRole, parseJson } from '../common/constants';
+import { PRODUCTS } from '../common/products';
 import { AuditService } from './audit.module';
 import { PLAN_LINES } from '../common/billing-engine';
 
@@ -22,14 +25,20 @@ export class PlansService {
     private readonly audit: AuditService,
   ) {}
 
-  async list() {
+  /** Catálogo. Cuántas empresas usa cada plan solo lo ve plataforma (es dato de otras empresas). */
+  async list(user?: AuthUser) {
+    const platform = !!user && isPlatformRole(user.role);
     const plans = await this.prisma.plan.findMany({
       orderBy: [{ line: 'asc' }, { sortOrder: 'asc' }, { priceMonthly: 'asc' }],
-      include: { _count: { select: { companies: true } } },
+      ...(platform ? { include: { _count: { select: { companies: true } } } } : {}),
     });
-    return plans.map((p) => ({
+    const now = new Date();
+    return plans.map((p: any) => ({
       ...p,
       features: parseJson<string[]>(p.featuresJson, []),
+      includedProducts: parseJson<string[] | null>(p.includedProductsJson, null),
+      // A la venta = activo y dentro de su ventana; los contratos vigentes no dependen de esto
+      onSale: p.active && (!p.availableFrom || p.availableFrom <= now) && (!p.availableUntil || p.availableUntil >= now),
     }));
   }
 
@@ -48,7 +57,22 @@ export class PlansService {
       ...(dto.priceManaged != null ? { priceManaged: Math.max(0, Number(dto.priceManaged)) } : {}),
       ...(dto.includedMetaUsd != null ? { includedMetaUsd: Math.max(0, Number(dto.includedMetaUsd)) } : {}),
       ...(dto.tier !== undefined ? { tier: ['BASICO', 'INTERMEDIO', 'MAX'].includes(dto.tier) ? dto.tier : null } : {}),
+      ...(dto.description !== undefined ? { description: dto.description ? String(dto.description).slice(0, 600) : null } : {}),
+      ...(dto.includedProducts !== undefined ? {
+        includedProductsJson: Array.isArray(dto.includedProducts)
+          ? JSON.stringify([...new Set(dto.includedProducts.filter((x: unknown) => (PRODUCTS as readonly string[]).includes(String(x))))])
+          : null,
+      } : {}),
+      ...(dto.availableFrom !== undefined ? { availableFrom: this.date(dto.availableFrom) } : {}),
+      ...(dto.availableUntil !== undefined ? { availableUntil: this.date(dto.availableUntil) } : {}),
     };
+  }
+
+  private date(v: unknown) {
+    if (v === null || v === '') return null;
+    const d = new Date(String(v));
+    if (Number.isNaN(d.getTime())) throw new BadRequestException('Fecha inválida');
+    return d;
   }
 
   async create(actor: AuthUser, dto: any) {
@@ -78,6 +102,15 @@ export class PlansService {
   }
 
   async update(actor: AuthUser, id: string, dto: any) {
+    const before = await this.prisma.plan.findUnique({ where: { id } });
+    if (!before) throw new NotFoundException('Plan no encontrado');
+    // El precio de un plan en uso cambia lo que pagan esas empresas: se confirma a sabiendas
+    const priceKeys = ['priceMonthly', 'priceManaged', 'currency'] as const;
+    const priceChanges = priceKeys.filter((k) => dto[k] !== undefined && dto[k] !== (before as any)[k]);
+    const inUse = await this.prisma.company.count({ where: { planId: id } });
+    if (priceChanges.length && inUse > 0 && dto.confirmAffects !== true) {
+      throw new BadRequestException(`Este plan lo usan ${inUse} empresas: cambiar ${priceChanges.join(', ')} cambia lo que se les cobra. Si fue un acuerdo, usa un precio pactado por empresa; si no, confirma el cambio.`);
+    }
     const plan = await this.prisma.plan.update({
       where: { id },
       data: {
@@ -100,12 +133,17 @@ export class PlansService {
       action: 'plan.update',
       entity: 'Plan',
       entityId: plan.id,
-      detail: plan.name,
+      detail: priceChanges.length
+        ? `${plan.name} · ${priceChanges.map((k) => `${k}: ${(before as any)[k]} → ${(plan as any)[k]}`).join(', ')} · ${inUse} empresas`
+        : plan.name,
     });
     return plan;
   }
 
   async remove(actor: AuthUser, id: string) {
+    // Borrar un plan en uso dejaría contratos sin condiciones: se desactiva en su lugar
+    const inUse = await this.prisma.company.count({ where: { planId: id } });
+    if (inUse > 0) throw new BadRequestException(`Este plan lo usan ${inUse} empresas: desactívalo (deja de venderse y los contratos vigentes se conservan).`);
     await this.prisma.plan.delete({ where: { id } });
     await this.audit.log({ actor, action: 'plan.delete', entity: 'Plan', entityId: id });
     return { ok: true };
@@ -117,8 +155,8 @@ export class PlansController {
   constructor(private readonly plans: PlansService) {}
 
   @Get()
-  list() {
-    return this.plans.list();
+  list(@CurrentUser() user: AuthUser) {
+    return this.plans.list(user);
   }
 
   @Post()

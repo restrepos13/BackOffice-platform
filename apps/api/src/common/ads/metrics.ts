@@ -104,3 +104,112 @@ export function daily(rows: InsightLike[], p: { since: string; until: string }) 
   }
   return out;
 }
+
+/* ── Resultado según el objetivo ──
+   Cada campaña persigue un tipo de resultado. Sumar leads + chats + compras de
+   campañas con objetivos distintos da un "costo por resultado" que no mide
+   nada. Aquí cada campaña cuenta solo su resultado principal; si un periodo
+   mezcla tipos, el costo por resultado agregado queda sin calcular (y se dice
+   por qué). */
+
+export type ResultType = 'conversations' | 'leads' | 'purchases' | 'linkClicks' | 'none' | 'reported';
+
+export const RESULT_LABEL: Record<ResultType, string> = {
+  conversations: 'conversaciones iniciadas',
+  leads: 'leads',
+  purchases: 'compras',
+  linkClicks: 'clics en el enlace',
+  none: 'sin resultado (alcance o reconocimiento)',
+  reported: 'resultados reportados (leads + conversaciones + compras)',
+};
+
+/** Objetivo de Meta (OUTCOME_* o los antiguos) → tipo de resultado principal. */
+export function resultTypeFor(objective: string | null | undefined): ResultType {
+  const o = String(objective ?? '').toUpperCase();
+  if (/ENGAGEMENT|MESSAGES/.test(o)) return 'conversations';
+  // En campañas de leads a WhatsApp/Messenger Meta reporta conversaciones: cuentan ambas
+  if (/LEAD/.test(o)) return 'leads';
+  if (/SALES|CONVERSIONS|PRODUCT_CATALOG/.test(o)) return 'purchases';
+  if (/TRAFFIC|LINK_CLICKS/.test(o)) return 'linkClicks';
+  if (/AWARENESS|REACH|BRAND|VIDEO_VIEWS/.test(o)) return 'none';
+  return 'reported';
+}
+
+/** Resultados del tipo pedido sobre un total ya agregado. */
+export function resultsOf(t: Totals, type: ResultType): number | null {
+  switch (type) {
+    case 'conversations': return t.conversations;
+    case 'leads': return t.leads + t.conversations;
+    case 'purchases': return t.purchases;
+    case 'linkClicks': return t.linkClicks;
+    case 'none': return null;
+    default: return t.results;
+  }
+}
+
+/** Totales de un elemento con su resultado principal y el costo de ese resultado. */
+export function typedTotals(rows: InsightLike[], type: ResultType) {
+  const t = totals(rows);
+  const results = resultsOf(t, type);
+  return {
+    ...t,
+    resultType: type,
+    results: results ?? 0,
+    resultsAvailable: results !== null,
+    costPerResult: results ? r2(t.spend / results) : null,
+  };
+}
+
+/**
+ * Agregado de varias campañas: suma sus resultados principales solo si todas
+ * comparten tipo. Con tipos distintos, `results` y `costPerResult` son null.
+ */
+export function mixedTotals(rows: InsightLike[], typeOfCampaign: (campaignExternalId: string | null | undefined) => ResultType) {
+  const t = totals(rows);
+  const types = new Set<ResultType>();
+  let results = 0;
+  for (const [campaign, list] of groupBy(rows, (r) => r.campaignExternalId ?? '__none__')) {
+    const type = typeOfCampaign(campaign === '__none__' ? null : campaign);
+    if (totals(list).spend <= 0 && totals(list).impressions <= 0) continue;
+    types.add(type);
+    results += resultsOf(totals(list), type) ?? 0;
+  }
+  const single = types.size === 1 ? [...types][0] : null;
+  const comparable = !!single && single !== 'none';
+  return {
+    ...t,
+    resultTypes: [...types],
+    resultType: single,
+    results: comparable ? results : null,
+    costPerResult: comparable && results ? r2(t.spend / results) : null,
+    resultNote: types.size > 1
+      ? `El periodo mezcla campañas con objetivos distintos (${[...types].map((x) => RESULT_LABEL[x]).join(', ')}): no hay un costo por resultado único. Míralo por campaña.`
+      : single === 'none' ? 'Campañas de alcance o reconocimiento: no persiguen un resultado medible por costo.' : null,
+  };
+}
+
+/* ── Alcance y frecuencia ──
+   El alcance son personas únicas: no se puede sumar día a día. Solo se
+   muestra cuando la plataforma lo reportó para ese mismo periodo. */
+
+export interface PeriodStat { since: string; until: string; reach: number; impressions: number; frequency: number | null }
+
+export function periodStatFor(json: string | null | undefined, p: { since: string; until: string }): PeriodStat | null {
+  if (!json) return null;
+  try {
+    const list = JSON.parse(json) as PeriodStat[];
+    return (Array.isArray(list) ? list : []).find((s) => s.since === p.since && s.until === p.until) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Variaciones solo entre periodos comparables: el anterior debe tener datos
+ * en casi todos sus días (≥ 80 % de los del actual). Si no, null con motivo.
+ */
+export function comparable(now: { days: number }, before: { days: number }): { ok: boolean; reason: string | null } {
+  if (before.days === 0) return { ok: false, reason: 'No hay datos del periodo anterior para comparar.' };
+  if (before.days < Math.ceil(now.days * 0.8)) return { ok: false, reason: `El periodo anterior tiene datos de ${before.days} días y el actual de ${now.days}: no son comparables.` };
+  return { ok: true, reason: null };
+}

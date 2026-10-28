@@ -7,6 +7,7 @@ import { Throttle } from '@nestjs/throttler';
 import { randomBytes } from 'crypto';
 import type { Queue } from 'bullmq';
 import { PrismaService } from '../prisma/prisma.service';
+import { contactCreated } from '../common/domain-events';
 import { CurrentUser, Roles } from '../auth/decorators';
 import { Products } from '../auth/products.guard';
 import { AuthUser, ROLES, isPlatformRole, parseJson } from '../common/constants';
@@ -621,6 +622,7 @@ export class BookingsService {
       else {
         contactId = (await this.prisma.contact.create({ data: { companyId: id, phone, name: clip(dto.name, 80) || phone, channel: 'WHATSAPP' } })).id;
         createdContact = contactId;
+        await contactCreated(id, contactId);
       }
     }
     if (!contactId) throw new BadRequestException('Elige o escribe el cliente');

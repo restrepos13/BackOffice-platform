@@ -507,6 +507,12 @@ export class SignupService {
       this.prisma.brandProfile.findUnique({ where: { companyId }, select: { id: true } }).catch(() => null),
       this.prisma.adAccount.count({ where: { companyId } }).catch(() => 0),
     ]);
+    // Equipo: otra persona activa o una invitación pendiente
+    const [members, invites] = await Promise.all([
+      this.prisma.user.count({ where: { companyId, active: true } }),
+      this.prisma.authToken.count({ where: { companyId, kind: 'INVITE', usedAt: null, revokedAt: null } }).catch(() => 0),
+    ]);
+    const teamDone = members > 1 || invites > 0;
     const productStates = readProducts(company);
     const contracted = PRODUCTS.filter((p) => productStates[p].enabled);
     const pay = parseJson<Record<string, any>>(company.paymentConfigJson, {});
@@ -517,6 +523,7 @@ export class SignupService {
       // Empresas anteriores (regla vieja): la lista de siempre
       contracted: productsExplicit(company) ? contracted : undefined, brandReady: !!brand, adAccounts,
       capabilities: Array.isArray(ob.setup?.capabilities) ? ob.setup.capabilities.filter((c: any) => c?.included).map((c: any) => String(c.key)) : undefined,
+      team: Number(ob.setup?.signals?.people) > 1 ? { needed: true, done: teamDone } : undefined,
     });
     const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Bogota' }).format(new Date());
     const chatUsed = ob.chat?.day === today ? Number(ob.chat.count) || 0 : 0;

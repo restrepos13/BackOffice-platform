@@ -1,4 +1,4 @@
-import { InsightLike, inRange, periods, totals } from './metrics';
+import { InsightLike, inRange, periods, totals, PeriodStat, ResultType, typedTotals } from './metrics';
 import { addDays } from './provider';
 
 /**
@@ -67,29 +67,40 @@ export function validateRule(r: Partial<RuleLike>): string | null {
   if (!Number.isFinite(r.threshold) || r.threshold! < 0) return 'El umbral debe ser un número positivo';
   if (!Number.isFinite(r.minSpend) || r.minSpend! < 0) return 'El gasto mínimo debe ser positivo';
   if (!['ALERT', 'RECOMMEND_PAUSE', 'PAUSE'].includes(String(r.action))) return 'Acción inválida';
+  // La plataforma reporta alcance por campaña para 7 y 30 días: la frecuencia solo existe ahí
+  if (r.metric === 'FREQUENCY' && (r.level !== 'CAMPAIGN' || ![7, 30].includes(Number(r.windowDays)))) return 'La frecuencia se mide por campaña, con ventana de 7 o 30 días';
   return null;
 }
 
 const isActive = (e: RuleEntity) => (e.effectiveStatus ?? e.status) === 'ACTIVE';
 
-export function evaluateRule(rule: RuleLike, entities: RuleEntity[], rows: InsightLike[], until: string): RuleMatch[] {
+export interface RuleContext {
+  /** Tipo de resultado principal de cada campaña (el costo por resultado se mide con ese) */
+  typeOf?: (campaignExternalId: string | null | undefined) => ResultType;
+  /** Alcance del periodo reportado por la plataforma (la frecuencia solo se calcula con él) */
+  periodStat?: (level: string, externalId: string, window: { since: string; until: string }) => PeriodStat | null;
+}
+
+export function evaluateRule(rule: RuleLike, entities: RuleEntity[], rows: InsightLike[], until: string, ctx: RuleContext = {}): RuleMatch[] {
   const win = periods(until, rule.windowDays).current;
   const targets = entities.filter((e) => e.level === rule.level && isActive(e));
   const out: RuleMatch[] = [];
   for (const e of targets) {
     const own = rows.filter((r) => (rule.level === 'AD' ? r.externalId === e.externalId : r.campaignExternalId === e.externalId));
-    const t = totals(own.filter((r) => inRange(r.date, win)));
+    const campaignOf = rule.level === 'AD' ? own[0]?.campaignExternalId ?? (e as any).campaignExternalId : e.externalId;
+    const t = typedTotals(own.filter((r) => inRange(r.date, win)), ctx.typeOf ? ctx.typeOf(campaignOf) : 'reported');
     if (t.spend < rule.minSpend) continue;
     let value: number | null = null;
     switch (rule.metric) {
       case 'SPEND': value = t.spend; break;
       case 'CPL': value = t.costPerResult; break;
       case 'CTR': value = t.ctr; break;
-      case 'NO_RESULTS': value = t.results === 0 ? t.spend : null; break;
+      case 'NO_RESULTS': value = t.resultsAvailable && t.results === 0 ? t.spend : null; break;
       case 'FREQUENCY': {
-        // Alcance diario no es sumable: se usa el máximo diario como cota inferior
-        const reach = Math.max(0, ...own.filter((r) => inRange(r.date, win)).map((r) => r.reach));
-        value = reach ? Math.round((t.impressions / reach) * 100) / 100 : null;
+        // El alcance son personas únicas: no se suma día a día ni se aproxima.
+        // Solo con el alcance del periodo que reportó la plataforma (si no, no opina).
+        const stat = ctx.periodStat?.(rule.level, e.externalId, win) ?? null;
+        value = stat?.frequency ?? (stat?.reach ? Math.round((stat.impressions / stat.reach) * 100) / 100 : null);
         break;
       }
       case 'SPEND_SPIKE': {

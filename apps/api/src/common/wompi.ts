@@ -1,4 +1,4 @@
-import { createHash } from 'crypto';
+import { createHash, timingSafeEqual } from 'crypto';
 
 /**
  * Wompi (Colombia) — utilidades puras: Web Checkout con firma de integridad y
@@ -41,7 +41,9 @@ export function verifyEventSignature(body: any, eventsSecret: string): boolean {
     .map((prop: string) => prop.split('.').reduce((acc: any, key: string) => acc?.[key], body.data))
     .join('');
   const expected = createHash('sha256').update(`${concat}${body.timestamp}${eventsSecret}`).digest('hex');
-  return expected === body.signature.checksum;
+  const got = String(body.signature.checksum);
+  // Comparación en tiempo constante
+  return got.length === expected.length && timingSafeEqual(Buffer.from(got), Buffer.from(expected));
 }
 
 /** Firma un evento (para tests y para el simulador de Dev Tools). */

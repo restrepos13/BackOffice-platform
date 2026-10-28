@@ -147,3 +147,53 @@ export function revenueFunnel(input: {
     unattributedAds,
   };
 }
+
+/* ── Estado de atribución de cada contacto ──
+   ATTRIBUTED: trae el ID de un anuncio que está en las cuentas sincronizadas
+     (se conocen anuncio, conjunto y campaña).
+   PARTIAL: hay evidencia de que vino de un anuncio, pero no alcanza para
+     ubicarlo: el ID no está en las cuentas conectadas, o llegó solo el enlace
+     o el identificador del clic, sin el ID del anuncio.
+   UNATTRIBUTED: el origen dice "anuncio" o "publicación" sin ningún
+     identificador utilizable.
+   Los contactos con origen directo (o sin origen) no entran: no vinieron de
+   un anuncio, así que no hay nada que atribuir. Nunca se usan fechas
+   cercanas ni nombres parecidos. */
+
+export type AttributionState = 'ATTRIBUTED' | 'PARTIAL' | 'UNATTRIBUTED';
+
+export interface AttributionInfo {
+  state: AttributionState;
+  via: 'WHATSAPP_REFERRAL' | 'LEAD_FORM' | 'POST' | null;
+  adId: string | null;
+  adsetId: string | null;
+  campaignId: string | null;
+  evidence: string;
+}
+
+export function attributionOf(
+  contact: { originJson: string | null },
+  ads: Map<string, { adsetExternalId: string | null; campaignExternalId: string | null }>,
+): AttributionInfo | null {
+  let o: any = null;
+  try {
+    o = contact.originJson ? JSON.parse(contact.originJson) : null;
+  } catch {
+    o = null;
+  }
+  if (!o || (o.kind !== 'AD' && o.kind !== 'POST')) return null;
+  const via = o.via === 'LEAD_FORM' ? 'LEAD_FORM' : o.kind === 'POST' ? 'POST' : 'WHATSAPP_REFERRAL';
+  const source = via === 'LEAD_FORM' ? 'formulario de Meta Lead Ads' : via === 'POST' ? 'publicación' : 'primer mensaje de WhatsApp (referral)';
+  const adId = typeof o.sourceId === 'string' && o.sourceId ? o.sourceId : null;
+  if (adId && ads.has(adId)) {
+    const ad = ads.get(adId)!;
+    return { state: 'ATTRIBUTED', via, adId, adsetId: ad.adsetExternalId, campaignId: ad.campaignExternalId, evidence: `ID del anuncio ${adId} en el ${source}, presente en la cuenta sincronizada.` };
+  }
+  if (adId) {
+    return { state: 'PARTIAL', via, adId, adsetId: null, campaignId: null, evidence: `ID ${adId} en el ${source}, pero ese anuncio no está en las cuentas conectadas: no se sabe su campaña.` };
+  }
+  if (o.ctwaClid || o.sourceUrl) {
+    return { state: 'PARTIAL', via, adId: null, adsetId: null, campaignId: null, evidence: `El ${source} trae ${o.ctwaClid ? 'el identificador del clic' : 'el enlace del anuncio'}, pero no el ID del anuncio.` };
+  }
+  return { state: 'UNATTRIBUTED', via, adId: null, adsetId: null, campaignId: null, evidence: `El origen dice ${via === 'POST' ? 'publicación' : 'anuncio'}, sin ningún identificador utilizable.` };
+}

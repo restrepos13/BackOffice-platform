@@ -166,7 +166,8 @@ describe('Instagram y Messenger', () => {
     const fetchMock = jest.fn(async () => ({ ok: true, json: async () => ({ message_id: 'm_out' }) })) as any;
     const sent = await sendMetaText({ channel: 'INSTAGRAM', config: { provider: 'META', accessToken: 'tok', sandbox: false }, recipient: 'IGSID_1', text: 'hola' }, fetchMock);
     expect(sent.id).toBe('m_out');
-    expect(fetchMock.mock.calls[0][0]).toBe('https://graph.facebook.com/v21.0/me/messages');
+    // La versión de Graph es configurable (META_GRAPH_VERSION); la ruta es la que importa
+    expect(fetchMock.mock.calls[0][0]).toMatch(/^https:\/\/graph\.facebook\.com\/v\d+\.\d+\/me\/messages$/);
     expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toMatchObject({ recipient: { id: 'IGSID_1' }, message: { text: 'hola' } });
 
     const { prisma, db } = createMockPrisma();

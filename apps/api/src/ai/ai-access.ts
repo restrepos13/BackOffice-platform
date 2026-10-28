@@ -1,3 +1,4 @@
+import { deterministicId } from '../common/automation/run-signals';
 import { decryptSecret, encryptSecret, isEncrypted } from '../common/crypto';
 import { REFERENCE_MODELS } from '../common/ai-cost';
 import { PLATFORM_OPENROUTER_KEY, openRouterKey } from './model-routing';
@@ -175,10 +176,13 @@ export async function consumeAiCredit(
   }
   // Modelos premium gastan varias conversaciones del paquete por cada una
   const weight = Math.max(1, Math.min(10, Math.round(opts.weight ?? 1)));
+  // Misma conversación en la misma ventana → mismos _id: un trabajo duplicado o un reintento no cobra dos veces
+  const bucket = opts.conversationId ? String(Math.floor(now.getTime() / CREDIT_WINDOW_MS)) : null;
   let first: { charged: boolean; source: 'INCLUDED' | 'PREPAID' | 'NONE'; alert: 'LOW' | 'EMPTY' | null } | null = null;
   let alert: 'LOW' | 'EMPTY' | null = null;
   for (let i = 0; i < weight; i++) {
-    const r = await consumeOneCredit(prisma, company, opts, now);
+    const useId = bucket ? deterministicId('aiu', company.id, String(opts.conversationId), bucket, String(i)) : undefined;
+    const r = await consumeOneCredit(prisma, company, opts, now, useId);
     first ??= r;
     alert = r.alert ?? alert;
     if (!r.charged) break;
@@ -191,16 +195,33 @@ async function consumeOneCredit(
   company: any,
   opts: { conversationId?: string | null; purpose?: string },
   now: Date,
+  useId?: string,
 ): Promise<{ charged: boolean; source: 'INCLUDED' | 'PREPAID' | 'NONE'; alert: 'LOW' | 'EMPTY' | null }> {
-  const credits = await computeAiCredits(prisma, company, now);
   const purpose = opts.purpose ?? (opts.conversationId ? 'CHAT' : 'CONSULTA');
-  if (credits.includedLeft > 0) {
-    await prisma.aiCreditUse.create({
-      data: { companyId: company.id, conversationId: opts.conversationId ?? null, purpose, fromIncluded: true },
+  // 1) Se reclama el uso. Si ya existe, otro proceso lo cobró: no se descuenta de nuevo
+  let use: any;
+  try {
+    use = await prisma.aiCreditUse.create({
+      data: { ...(useId ? { id: useId } : {}), companyId: company.id, conversationId: opts.conversationId ?? null, purpose, fromIncluded: false, createdAt: now },
     });
-    return { charged: true, source: 'INCLUDED', alert: null };
+  } catch (err: any) {
+    if (useId && err?.code === 'P2002') return { charged: false, source: 'NONE', alert: null };
+    throw err;
   }
-  // FIFO sobre lotes vigentes; el updateMany condicional evita sobregiros concurrentes
+  const credits = await computeAiCredits(prisma, company, now);
+  // 2) Lo incluido en el plan: contador atómico del mes (no se pasa del cupo con consumos simultáneos)
+  if (credits.includedMonthly > 0) {
+    const period = credits.period;
+    const counterId = deterministicId('aiinc', company.id, period);
+    await prisma.aiIncludedCounter.create({ data: { id: counterId, companyId: company.id, period, used: credits.includedUsed } })
+      .catch((err: any) => { if (err?.code !== 'P2002') throw err; });
+    const slot = await prisma.aiIncludedCounter.updateMany({ where: { id: counterId, used: { lt: credits.includedMonthly } }, data: { used: { increment: 1 } } });
+    if (slot.count === 1) {
+      await prisma.aiCreditUse.update({ where: { id: use.id }, data: { fromIncluded: true } });
+      return { charged: true, source: 'INCLUDED', alert: null };
+    }
+  }
+  // 3) FIFO sobre lotes vigentes; el updateMany condicional evita sobregiros concurrentes
   const lots = await prisma.aiCreditLot.findMany({
     where: { companyId: company.id, expiresAt: { gt: now }, remaining: { gt: 0 } },
     orderBy: { createdAt: 'asc' },
@@ -211,9 +232,7 @@ async function consumeOneCredit(
       data: { remaining: { decrement: 1 } },
     });
     if (res.count === 0) continue;
-    await prisma.aiCreditUse.create({
-      data: { companyId: company.id, conversationId: opts.conversationId ?? null, purpose, lotId: lot.id },
-    });
+    await prisma.aiCreditUse.update({ where: { id: use.id }, data: { lotId: lot.id } });
     const after = credits.balance - 1;
     const lastLot = lots[lots.length - 1];
     let alert: 'LOW' | 'EMPTY' | null = null;
@@ -226,6 +245,8 @@ async function consumeOneCredit(
     }
     return { charged: true, source: 'PREPAID', alert };
   }
+  // 4) Sin saldo: se suelta el reclamo (no quedó cobrado)
+  await prisma.aiCreditUse.delete({ where: { id: use.id } }).catch(() => undefined);
   return { charged: false, source: 'NONE', alert: 'EMPTY' };
 }
 
@@ -246,13 +267,21 @@ export async function creditAiLot(
   const expiresAt = new Date(now);
   expiresAt.setMonth(expiresAt.getMonth() + (input.validityMonths ?? 12));
   const total = Math.max(1, Math.round(input.conversations));
-  return prisma.aiCreditLot.create({
-    data: {
-      companyId: input.companyId, source: input.source, packageId: input.packageId ?? null,
-      total, remaining: total, expiresAt, paymentRef: input.paymentRef ?? null,
-      note: input.note ?? null, createdBy: input.createdBy ?? null,
-    },
-  });
+  // Con referencia de pago, el _id sale de ella: dos webhooks simultáneos acreditan una sola vez
+  const id = input.paymentRef ? deterministicId('aicl', input.paymentRef) : undefined;
+  try {
+    return await prisma.aiCreditLot.create({
+      data: {
+        ...(id ? { id } : {}),
+        companyId: input.companyId, source: input.source, packageId: input.packageId ?? null,
+        total, remaining: total, expiresAt, paymentRef: input.paymentRef ?? null,
+        note: input.note ?? null, createdBy: input.createdBy ?? null,
+      },
+    });
+  } catch (err: any) {
+    if (id && err?.code === 'P2002') return prisma.aiCreditLot.findUnique({ where: { id } });
+    throw err;
+  }
 }
 
 async function platformCandidate(

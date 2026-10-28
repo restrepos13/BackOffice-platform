@@ -32,6 +32,7 @@ import {
   scopeCompanyId,
 } from '../common/constants';
 import { AuditService } from './audit.module';
+import { assertRefsInTenant } from '../common/tenant';
 import { Products } from '../auth/products.guard';
 
 /**
@@ -92,6 +93,7 @@ export class MediaService {
       throw new BadRequestException('Máximo 10 MB por imagen');
     }
 
+    await assertRefsInTenant(this.prisma, companyId, { integrationId: dto.integrationId || null });
     const dir = join(UPLOADS_DIR, companyId);
     mkdirSync(dir, { recursive: true });
     const fileName = `${randomBytes(16).toString('hex')}.${ext}`;
@@ -123,6 +125,7 @@ export class MediaService {
 
   async update(user: AuthUser, id: string, dto: any) {
     const existing = await this.assertAccess(user, id);
+    if (dto.integrationId) await assertRefsInTenant(this.prisma, existing.companyId, { integrationId: dto.integrationId });
     const asset = await this.prisma.mediaAsset.update({
       where: { id },
       data: {

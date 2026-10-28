@@ -111,6 +111,9 @@ export default function Login() {
           <Button type="submit" disabled={busy} className="w-full">
             {busy ? 'Entrando…' : 'Entrar al panel →'}
           </Button>
+          <p className="text-center text-xs">
+            <Link to="/recuperar" className="underline">¿Olvidaste tu contraseña?</Link>
+          </p>
           </>
           )}
         </form>

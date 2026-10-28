@@ -676,3 +676,63 @@ describe('IA híbrida: la empresa usa su cuenta y BackOffice le vende IA aparte'
     expect(credits).toMatchObject({ mode: 'HYBRID', balance: 8, usedThisMonth: 2 });
   });
 });
+
+/* ═══ Fase 4: el bot y el agente no responden a la vez ═══ */
+
+describe('motor: modo humano y concurrencia', () => {
+  it('si un agente toma la conversación mientras el modelo piensa, la respuesta del bot se descarta', async () => {
+    const { db, provider, engine, say, audit } = setup();
+    say('Hola, ¿tienen almuerzo?');
+    provider.script({ reply: ['Sí, hoy hay almuerzo ejecutivo'], confidence: 0.9, state: 'consultando' });
+    const chat = provider.chat.bind(provider);
+    provider.chat = async (opts) => {
+      // El agente toma la conversación durante la llamada al modelo
+      Object.assign(db.conversation[0], { botPaused: true, modeChangedAt: new Date(Date.now() + 5), attendedByName: 'Ana' });
+      return chat(opts);
+    };
+    const r = await engine.processConversation('conv1');
+    expect(r).toBeNull();
+    expect(db.message.filter((m) => m.direction === 'OUT')).toHaveLength(0);
+    expect(audit.log).toHaveBeenCalledWith(expect.objectContaining({ action: 'bot.reply_discarded' }));
+    expect(db.conversation[0].engineLockUntil).toBeNull();
+  });
+
+  it('otro proceso con el candado vigente: no se responde dos veces', async () => {
+    const { db, provider, engine, say } = setup();
+    say('Hola');
+    db.conversation[0].engineLockUntil = new Date(Date.now() + 60_000);
+    expect(await engine.processConversation('conv1')).toBeNull();
+    expect(provider.calls).toHaveLength(0);
+    expect(db.message.filter((m) => m.direction === 'OUT')).toHaveLength(0);
+  });
+
+  it('un mensaje que llega mientras se responde se atiende al terminar (no se pierde)', async () => {
+    const { db, provider, engine, say } = setup();
+    say('Hola');
+    provider.script({ reply: ['¡Hola! ¿En qué te ayudo?'], confidence: 0.9, state: 'consultando' });
+    provider.script({ reply: ['Claro, el almuerzo cuesta $18.000'], confidence: 0.9, state: 'consultando' });
+    const chat = provider.chat.bind(provider);
+    let first = true;
+    provider.chat = async (opts) => {
+      if (first) {
+        first = false;
+        say('¿Cuánto vale el almuerzo?'); // llega durante la primera respuesta
+      }
+      return chat(opts);
+    };
+    await engine.processConversation('conv1');
+    expect(db.message.filter((m) => m.direction === 'OUT').map((m) => m.content)).toEqual(['¡Hola! ¿En qué te ayudo?', 'Claro, el almuerzo cuesta $18.000']);
+  });
+});
+
+describe('motor: suscripción', () => {
+  it('con la suscripción suspendida la IA no responde y la conversación pasa a una persona', async () => {
+    const { db, provider, engine, say } = setup();
+    db.company[0].subscriptionStatus = 'SUSPENDED';
+    say('Hola');
+    const r = await engine.processConversation('conv1');
+    expect(r!.escalated).toBe(true);
+    expect(provider.calls).toHaveLength(0);
+    expect(db.conversation[0].needsAttention).toBe(true);
+  });
+});

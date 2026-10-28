@@ -23,6 +23,7 @@ import { creditAiLot } from '../ai/ai-access';
 import { buildCheckoutUrl, verifyEventSignature } from '../common/wompi';
 import { ensureTrackingLink, orderCode, publicWebUrl } from '../common/tracking';
 import { AuditService } from './audit.module';
+import { SubscriptionsModule, SubscriptionsService } from './subscriptions.module';
 import { EventsService } from './events.module';
 import { usdCopRate } from '../common/trm';
 import { Products } from '../auth/products.guard';
@@ -90,6 +91,7 @@ export class PaymentsService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     @Optional() private readonly events?: EventsService,
+    @Optional() private readonly subscriptions?: SubscriptionsService,
   ) {}
 
   private async settings(): Promise<Record<string, string>> {
@@ -205,6 +207,17 @@ export class PaymentsService {
 
     const updated = await this.recordEvent(payment, transaction, !!secret);
     if (transaction.status === APPROVED) {
+      // El monto y la moneda deben ser los que se cobraron: si no, nada se aplica y queda para revisión
+      const amount = Number(transaction.amount_in_cents);
+      const currency = String(transaction.currency ?? payment.currency);
+      if (amount !== payment.amountInCents || currency !== payment.currency) {
+        await this.prisma.payment.update({ where: { id: payment.id }, data: { status: 'REVIEW' } });
+        await this.audit.log({ actor: null, companyId: payment.companyId, action: 'payment.mismatch', entity: 'Payment', entityId: payment.id, detail: `Esperado ${payment.amountInCents} ${payment.currency}, recibido ${amount} ${currency}` });
+        return { ok: true, status: 'REVIEW' };
+      }
+      // Los efectos se aplican UNA vez: solo quien pasa el pago a APROBADO (compare-and-set)
+      const first = await this.prisma.payment.updateMany({ where: { id: payment.id, OR: [{ effectsAppliedAt: null }, { effectsAppliedAt: { isSet: false } }] }, data: { effectsAppliedAt: new Date() } });
+      if (first.count !== 1) return { ok: true, status: 'APPROVED', duplicate: true };
       if (payment.purpose === 'AI_CREDITS') {
         const meta = parseJson<Record<string, any>>(payment.metaJson, {});
         await creditAiLot(this.prisma, {
@@ -218,26 +231,41 @@ export class PaymentsService {
         });
         this.events?.emit(payment.companyId, { type: 'ai.credits', level: 'TOPUP' });
       } else if (payment.invoiceId) {
-        await this.prisma.invoice.update({ where: { id: payment.invoiceId }, data: { status: 'PAID', paidAt: new Date() } });
+        const inv = await this.prisma.invoice.updateMany({ where: { id: payment.invoiceId, status: { not: 'PAID' } }, data: { status: 'PAID', paidAt: new Date() } });
         await this.audit.log({
           actor: null, companyId: payment.companyId, action: 'payment.approved',
-          entity: 'Payment', entityId: payment.id, detail: `${payment.reference} vía ${transaction.payment_method_type ?? 'Wompi'}`,
+          entity: 'Payment', entityId: payment.id, detail: `${payment.reference} vía ${transaction.payment_method_type ?? 'Wompi'}${inv.count ? '' : ' (la factura ya estaba pagada)'}`,
         });
+        const invoice = await this.prisma.invoice.findUnique({ where: { id: payment.invoiceId } });
+        if (invoice && inv.count) await this.subscriptions?.onInvoicePaid(payment.companyId, invoice, 'PAYMENT');
       }
+    } else if (FAILED_STATES.includes(String(transaction.status))) {
+      await this.subscriptions?.record(payment.companyId, {
+        type: 'PAYMENT_FAILED', source: 'PAYMENT', key: `payment-failed:${payment.reference}:${transaction.id ?? transaction.status}`,
+        reason: `Wompi: ${transaction.status}${transaction.status_message ? ` · ${String(transaction.status_message).slice(0, 120)}` : ''}`, refs: { reference: payment.reference },
+      });
     }
     return { ok: true, status: updated.status };
   }
 
+  /**
+   * Guarda el evento. El estado no retrocede: un aviso tardío (PENDING) no
+   * pisa un estado final, y un APROBADO no se cambia solo (un reverso se
+   * revisa a mano).
+   */
   private async recordEvent(payment: any, transaction: any, verified: boolean) {
     const events = parseJson<any[]>(payment.eventsLog, []);
     events.push({ at: new Date().toISOString(), status: transaction.status, txId: transaction.id, verified });
+    const FINAL = [APPROVED, ...FAILED_STATES, 'REVIEW'];
+    const incoming = String(transaction.status ?? '');
+    const keep = payment.status === APPROVED || payment.status === 'REVIEW' || (FINAL.includes(payment.status) && !FINAL.includes(incoming));
     return this.prisma.payment.update({
       where: { id: payment.id },
       data: {
-        status: transaction.status ?? payment.status,
+        status: keep ? payment.status : incoming || payment.status,
         providerTxId: transaction.id ?? payment.providerTxId,
         paymentMethod: transaction.payment_method_type ?? payment.paymentMethod,
-        eventsLog: JSON.stringify(events),
+        eventsLog: JSON.stringify(events.slice(-50)),
       },
     });
   }
@@ -471,6 +499,7 @@ export class PaymentsController {
 }
 
 @Module({
+  imports: [SubscriptionsModule],
   controllers: [PaymentsController],
   providers: [PaymentsService],
   exports: [PaymentsService],

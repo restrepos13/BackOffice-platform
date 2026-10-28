@@ -37,7 +37,7 @@ export class EmailsService {
     return text.replace(/\{\{(\w+)\}\}/g, (_, key) => vars[key] ?? `{{${key}}}`);
   }
 
-  private async deliver(id: string) {
+  private async deliver(id: string, htmlOverride?: string) {
     const message = await this.prisma.emailMessage.findUniqueOrThrow({
       where: { id },
     });
@@ -64,7 +64,7 @@ export class EmailsService {
         from: cfg.SMTP_FROM || cfg.SMTP_USER,
         to: message.toEmail,
         subject: message.subject,
-        html: message.body,
+        html: htmlOverride ?? message.body,
       });
       return this.prisma.emailMessage.update({
         where: { id },
@@ -178,20 +178,26 @@ export class EmailsService {
     body: string;
     /** true (default): envuelve el contenido en el layout de la marca */
     branded?: boolean;
+    /**
+     * Contenido con secretos (enlaces con token): se ENVÍA `body`, pero en la
+     * base queda `storedBody` (sin el enlace). Si no hay SMTP, el correo queda
+     * en cola ya sin el secreto: reenviarlo no sirve y hay que generar otro.
+     */
+    storedBody?: string;
   }) {
-    const html = params.branded === false
-      ? params.body
-      : await this.brandLayout(params.companyId, params.body);
+    const wrap = (b: string) => (params.branded === false ? Promise.resolve(b) : this.brandLayout(params.companyId, b));
+    const html = await wrap(params.body);
+    const stored = params.storedBody !== undefined ? await wrap(params.storedBody) : html;
     const message = await this.prisma.emailMessage.create({
       data: {
         companyId: params.companyId ?? null,
         toEmail: params.toEmail,
         subject: params.subject,
-        body: html,
+        body: stored,
         actorName: 'Sistema BackOffice',
       },
     });
-    return this.deliver(message.id);
+    return this.deliver(message.id, params.storedBody !== undefined ? html : undefined);
   }
 }
 

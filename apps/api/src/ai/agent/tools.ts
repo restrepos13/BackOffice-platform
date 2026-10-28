@@ -11,6 +11,7 @@ import {
 } from '../../common/geo';
 import { normalizeCode, pickPromotion } from '../../common/promotions';
 import { addDaysLocal, bookingCode, localParts, localToUtc } from '../../common/bookings';
+import { contactStageChanged, orderHistory } from '../../common/domain-events';
 import {
   CUSTOMER_STATUS_LABEL,
   ensureTrackingLink,
@@ -722,7 +723,7 @@ export const AGENT_TOOLS: AgentTool[] = [
             items: { create: cleanItems },
           },
         });
-        await ctx.prisma.orderStatusHistory.create({
+        await orderHistory(ctx.prisma).create({
           data: {
             companyId: ctx.company.id, orderId: created.id, fromStatus: null, toStatus: 'borrador',
             authorType: 'IA', authorName: 'Agente IA',
@@ -797,7 +798,7 @@ export const AGENT_TOOLS: AgentTool[] = [
         }
       }
       await ctx.prisma.order.update({ where: { id: draft.id }, data: { status: 'confirmado' } });
-      await ctx.prisma.orderStatusHistory.create({
+      await orderHistory(ctx.prisma).create({
         data: {
           companyId: ctx.company.id, orderId: draft.id, fromStatus: 'borrador', toStatus: 'confirmado',
           authorType: 'IA', authorName: 'Agente IA', reason: 'El cliente aceptó el resumen por chat',
@@ -811,7 +812,10 @@ export const AGENT_TOOLS: AgentTool[] = [
       // Quien confirma pasa a la etapa "ganada" de SU embudo (CLIENTE en el estándar)
       if (ctx.contact?.id) {
         const won = await wonStageFor(ctx.prisma, ctx.contact.pipelineId);
-        if (ctx.contact.stage !== won) await ctx.prisma.contact.update({ where: { id: ctx.contact.id }, data: { stage: won } });
+        if (ctx.contact.stage !== won) {
+          await ctx.prisma.contact.update({ where: { id: ctx.contact.id }, data: { stage: won } });
+          await contactStageChanged(ctx.company.id, ctx.contact.id, ctx.contact.stage, won);
+        }
       }
       // Uso del cupón (condicional: nunca pasa de los usos máximos)
       if (draft.couponCode || draft.discount) {

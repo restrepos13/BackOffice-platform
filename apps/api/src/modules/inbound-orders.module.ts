@@ -23,6 +23,7 @@ import { orderCode } from '../common/tracking';
 import { AuditService } from './audit.module';
 import { OrdersModule, OrdersService } from './orders.module';
 import { Products } from '../auth/products.guard';
+import { contactCreated, orderHistory } from '../common/domain-events';
 
 export const EXTERNAL_SOURCES = ['RAPPI', 'UBER_EATS', 'DIDI', 'IFOOD', 'WEB', 'POS', 'OTRO'];
 
@@ -131,6 +132,7 @@ export class InboundOrdersService {
       contact = await this.prisma.contact.create({
         data: { companyId, name, phone, channel: 'WHATSAPP', stage: 'CLIENTE', customerId: customer.id },
       });
+      await contactCreated(companyId, contact.id);
     }
     const products = await this.prisma.product.findMany({ where: { companyId, ...NOT_DELETED } });
     const items = dto.items.map((item: any) => {
@@ -170,7 +172,7 @@ export class InboundOrdersService {
         items: { create: items.map(({ _price, ...rest }: any) => rest) },
       },
     });
-    await this.prisma.orderStatusHistory.create({
+    await orderHistory(this.prisma).create({
       data: { companyId, orderId: order.id, fromStatus: null, toStatus: 'borrador', authorType: 'SISTEMA', authorName: source, reason: `Pedido externo ${externalId}` },
     });
     // Misma operación que un pedido de WhatsApp: áreas, agenda, recordatorios

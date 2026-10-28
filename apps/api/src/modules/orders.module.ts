@@ -33,6 +33,7 @@ import {
 } from '../common/constants';
 import { decryptSecret, isEncrypted } from '../common/crypto';
 import { AuditService } from './audit.module';
+import { assertRefsInTenant } from '../common/tenant';
 import { EmailsModule, EmailsService } from './emails.module';
 import { validateDelivery } from '../common/agenda';
 import type { Queue } from 'bullmq';
@@ -42,6 +43,7 @@ import { notifyOrderDispatched } from '../common/customer-notify';
 import { newTrackingToken, orderCode, publicWebUrl, trackingUrl } from '../common/tracking';
 import { isLatLng, pickCourier } from '../common/geo';
 import { Products } from '../auth/products.guard';
+import { orderHistory } from '../common/domain-events';
 
 /* ═══ Utilidades puras (exportadas para tests) ═══════════════════════ */
 
@@ -63,6 +65,20 @@ export const ORDER_TRANSITIONS: Record<string, string[]> = {
   cancelado: [], // terminal
   requiere_atencion: ['borrador', 'confirmado', 'cancelado'],
 };
+
+/**
+ * Quién asigna domiciliarios automáticamente: el proceso original ('legacy')
+ * o una automatización activa del motor ('automation').
+ * orderConfig.delivery.autoAssignVia = 'automation' activa la migración;
+ * quitarlo (o pausar la automatización) la revierte.
+ */
+export async function courierAssignmentOwner(prisma: any, companyId: string, delivery: Record<string, any>): Promise<'legacy' | 'automation'> {
+  if (delivery?.autoAssignVia !== 'automation') return 'legacy';
+  const active = await prisma.automation.count({
+    where: { companyId, status: 'ACTIVE', triggerType: 'order.status_changed', configJson: { contains: '"assign_courier"' } },
+  });
+  return active > 0 ? 'automation' : 'legacy';
+}
 
 export function canTransition(from: string, to: string): boolean {
   return (ORDER_TRANSITIONS[from] ?? []).includes(to);
@@ -490,6 +506,7 @@ export class OrdersService {
       where: { id: dto.customerId, companyId, ...NOT_DELETED },
     });
     if (!customer) throw new NotFoundException('Cliente no encontrado');
+    await assertRefsInTenant(this.prisma, companyId, { contactId: dto.contactId ?? null });
     if (!dto.deliveryAt || Number.isNaN(new Date(dto.deliveryAt).getTime())) {
       throw new BadRequestException('Falta la fecha de entrega');
     }
@@ -531,7 +548,7 @@ export class OrdersService {
         },
       });
     }
-    await this.prisma.orderStatusHistory.create({
+    await orderHistory(this.prisma).create({
       data: {
         companyId, orderId: order.id,
         fromStatus: null, toStatus: 'borrador',
@@ -732,7 +749,7 @@ export class OrdersService {
         ...(to === 'entregado' ? { deliveredAt: new Date() } : {}),
       },
     });
-    await this.prisma.orderStatusHistory.create({
+    await orderHistory(this.prisma).create({
       data: {
         companyId: order.companyId, orderId,
         fromStatus: order.status, toStatus: to,
@@ -771,11 +788,15 @@ export class OrdersService {
    * al quedar "listo", se asigna el domiciliario en turno con menos pedidos
    * activos y más cerca del punto de despacho (o de la sucursal del pedido).
    */
-  async autoAssignCourier(orderId: string) {
+  async autoAssignCourier(orderId: string, via: 'legacy' | 'automation' = 'legacy') {
     const order = await this.prisma.order.findUniqueOrThrow({ where: { id: orderId } });
     const company = await this.prisma.company.findUniqueOrThrow({ where: { id: order.companyId } });
     const delivery = parseJson<Record<string, any>>(company.orderConfigJson, {}).delivery ?? {};
     if (!delivery.enabled || !delivery.autoAssign || order.courierId) return null;
+    // Migración al motor de automatizaciones (reversible): un solo dueño a la vez.
+    // Si la empresa la pasó al motor pero no hay automatización activa que lo
+    // haga, el proceso original sigue asignando (nunca se queda sin asignar).
+    if ((await courierAssignmentOwner(this.prisma, order.companyId, delivery)) !== via) return null;
     const [couriers, active, branch] = await Promise.all([
       this.prisma.user.findMany({ where: { companyId: order.companyId, role: ROLES.COMPANY_COURIER, active: true, onShift: true } }),
       this.prisma.order.findMany({
@@ -847,7 +868,7 @@ export class OrdersService {
         where: { id: orderId },
         data: { status: 'requiere_atencion' },
       });
-      await this.prisma.orderStatusHistory.create({
+      await orderHistory(this.prisma).create({
         data: {
           companyId: order.companyId, orderId,
           fromStatus: 'confirmado', toStatus: 'requiere_atencion',
@@ -870,7 +891,7 @@ export class OrdersService {
       where: { id: orderId },
       data: { status: 'programado', ...(order.trackingToken ? {} : { trackingToken: newTrackingToken() }) },
     });
-    await this.prisma.orderStatusHistory.create({
+    await orderHistory(this.prisma).create({
       data: {
         companyId: order.companyId, orderId,
         fromStatus: 'confirmado', toStatus: 'programado',
@@ -927,7 +948,7 @@ export class OrdersService {
       await this.prisma.order.update({ where: { id: orderId }, data });
     }
     if (changes.length) {
-      await this.prisma.orderStatusHistory.create({
+      await orderHistory(this.prisma).create({
         data: {
           companyId: order.companyId, orderId,
           fromStatus: order.status, toStatus: order.status,

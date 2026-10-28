@@ -12,9 +12,11 @@
  *         la vista de su área de producción)
  */
 import { PrismaClient } from '@prisma/client';
+import { loadApiEnv, prepareSeed } from './seed-guard';
 import * as bcrypt from 'bcryptjs';
 import { seedPassword } from './seed-passwords';
 
+loadApiEnv();
 const prisma = new PrismaClient();
 const PASSWORD = bcrypt.hashSync(seedPassword('SEED_PASSWORD_NEXUS'), 10);
 
@@ -26,6 +28,7 @@ function at(daysFromNow: number, hour: number, minute = 0): Date {
 }
 
 async function main() {
+  await prepareSeed(prisma, 'seed-nexus', process.env, { scoped: true });
   // ── Limpiar SOLO el tenant nexus (idempotente) ──
   const existing = await prisma.company.findUnique({ where: { slug: 'nexus' } });
   if (existing) {

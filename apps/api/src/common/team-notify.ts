@@ -1,3 +1,5 @@
+import { isProduction } from './runtime-env';
+
 /**
  * Correos del equipo de BackOffice (SIGNUP_NOTIFY_EMAIL en Dev Tools o .env).
  * Lo usan los avisos de registros, citas y salud de la plataforma.
@@ -10,7 +12,7 @@ export async function teamEmails(prisma: any): Promise<string[]> {
   return [...new Set(String(raw).split(',').map((e) => e.trim().toLowerCase()).filter((e) => /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(e)))].slice(0, 10);
 }
 
-/** ¿Este proceso es el de producción? (Render define RENDER=true) */
+/** ¿Este proceso es el de producción? (Render define RENDER=true; ver runtime-env) */
 export function isProductionHost(): boolean {
-  return process.env.RENDER === 'true' || process.env.HEALTH_ENV === 'prod';
+  return isProduction();
 }
