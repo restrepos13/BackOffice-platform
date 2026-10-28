@@ -28,6 +28,9 @@ const MFA_AUDIENCE = 'backoffice-mfa';
 const DECOY_HASH = bcrypt.hashSync('decoy-password-no-usable', 10);
 
 /** Campos que jamás salen del API. */
+/** Recorridos guiados que el panel puede marcar como vistos (además del de bienvenida). */
+export const TOURS = ['ads'];
+
 const PRIVATE_FIELDS = ['passwordHash', 'failedLogins', 'lockedUntil', 'mfaSecretEnc', 'mfaRecoveryJson', 'mfaLastStep', 'sessionVersion'] as const;
 export function publicUser<T extends Record<string, any>>(user: T) {
   const out: Record<string, any> = { ...user };
@@ -52,7 +55,7 @@ export class AuthService {
       token,
       user: {
         id: user.id, email: user.email, name: user.name, role: user.role, companyId: user.companyId,
-        company: user.company, jobTitle: user.jobTitle, tourDoneAt: user.tourDoneAt, mfaEnabled: !!user.mfaEnabled,
+        company: user.company, jobTitle: user.jobTitle, tourDoneAt: user.tourDoneAt, toursJson: user.toursJson ?? null, mfaEnabled: !!user.mfaEnabled,
       },
     };
   }
@@ -268,13 +271,25 @@ export class AuthService {
     return { ok: true, ...(await this.issue(updated)) };
   }
 
-  /** Marca el tour de bienvenida como visto (no se vuelve a mostrar). */
-  async completeTour(userId: string) {
-    await this.prisma.user.update({
-      where: { id: userId },
-      data: { tourDoneAt: new Date() },
-    });
-    return { ok: true };
+  /** Marca un recorrido como visto (no se vuelve a mostrar). Sin `tour`, el de bienvenida. */
+  async completeTour(userId: string, tour?: string) {
+    if (tour === undefined || tour === null || tour === '' || tour === 'welcome') {
+      await this.prisma.user.update({ where: { id: userId }, data: { tourDoneAt: new Date() } });
+      return { ok: true };
+    }
+    if (!TOURS.includes(tour)) throw new BadRequestException('Recorrido desconocido');
+    const user = await this.prisma.user.findUniqueOrThrow({ where: { id: userId }, select: { toursJson: true } });
+    let seen: Record<string, string> = {};
+    try {
+      seen = JSON.parse(user.toursJson ?? '{}') ?? {};
+    } catch {
+      seen = {};
+    }
+    if (!seen[tour]) {
+      seen[tour] = new Date().toISOString();
+      await this.prisma.user.update({ where: { id: userId }, data: { toursJson: JSON.stringify(seen) } });
+    }
+    return { ok: true, tours: seen };
   }
 
   static hashPassword(plain: string): string {

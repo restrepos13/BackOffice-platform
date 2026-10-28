@@ -9,6 +9,23 @@ import {
  */
 
 export const META_ADS_SCOPES = ['ads_read', 'ads_management', 'business_management'];
+
+/**
+ * Qué permite una conexión según lo que Meta concedió de verdad:
+ * scopes de la app (/me/permissions) y tareas del usuario en la cuenta (user_tasks).
+ * Sin datos verificados (conexiones viejas) se informa como «sin verificar».
+ */
+export function accessFrom(stored: string[]) {
+  const scopes = stored.filter((s) => !s.startsWith('task:') && s !== 'manual');
+  const tasks = stored.filter((s) => s.startsWith('task:')).map((s) => s.slice(5));
+  const verified = scopes.length > 0;
+  const read = !verified || scopes.includes('ads_read') || scopes.includes('ads_management');
+  // Gestionar exige el permiso de la app Y poder anunciar en la cuenta (si Meta informó las tareas)
+  const canAdvertise = !tasks.length || tasks.includes('MANAGE') || tasks.includes('ADVERTISE');
+  const manage = verified && scopes.includes('ads_management') && canAdvertise;
+  const missing = verified ? META_ADS_SCOPES.filter((s) => !scopes.includes(s)) : [];
+  return { verified, read, manage, missing, tasks, accountRoleLimited: tasks.length > 0 && !canAdvertise };
+}
 export const metaAdsVersion = () => (process.env.META_ADS_API_VERSION || 'v24.0').replace(/[^v0-9.]/g, '');
 const MAX_PAGES = 25;
 
@@ -124,21 +141,32 @@ export class MetaAdsProvider implements AdsProvider {
   }
 
   async listAccounts(token: string): Promise<RemoteAccount[]> {
-    const rows = await this.all('/me/adaccounts', token, { fields: 'account_id,name,currency,timezone_name,account_status', limit: '100' });
+    const rows = await this.all('/me/adaccounts', token, { fields: 'account_id,name,currency,timezone_name,account_status,user_tasks', limit: '100' });
     return rows.map((r) => ({
       externalId: `act_${String(r.account_id).replace(/^act_/, '')}`,
       name: String(r.name ?? r.account_id),
       currency: String(r.currency ?? 'USD'),
       timezone: r.timezone_name ?? null,
       active: Number(r.account_status) === 1,
+      tasks: Array.isArray(r.user_tasks) ? r.user_tasks.map(String) : undefined,
     }));
+  }
+
+  /** Permisos que Meta concedió a este token (null si no se pudieron consultar). */
+  async grantedScopes(token: string): Promise<string[] | null> {
+    try {
+      const rows = await this.all('/me/permissions', token, {});
+      return rows.filter((r) => r?.status === 'granted' && typeof r?.permission === 'string').map((r) => String(r.permission));
+    } catch {
+      return null;
+    }
   }
 
   async fetchEntities(account: AccountRef, token: string): Promise<RemoteEntity[]> {
     const act = account.externalId;
     const [campaigns, adsets, ads] = await Promise.all([
-      this.all(`/${act}/campaigns`, token, { fields: 'id,name,status,effective_status,objective,daily_budget,lifetime_budget,updated_time', limit: '200' }),
-      this.all(`/${act}/adsets`, token, { fields: 'id,name,campaign_id,status,effective_status,daily_budget,lifetime_budget,optimization_goal,updated_time', limit: '200' }),
+      this.all(`/${act}/campaigns`, token, { fields: 'id,name,status,effective_status,objective,daily_budget,lifetime_budget,start_time,stop_time,updated_time', limit: '200' }),
+      this.all(`/${act}/adsets`, token, { fields: 'id,name,campaign_id,status,effective_status,daily_budget,lifetime_budget,optimization_goal,start_time,end_time,updated_time', limit: '200' }),
       this.all(`/${act}/ads`, token, { fields: 'id,name,campaign_id,adset_id,status,effective_status,updated_time,issues_info,ad_review_feedback', limit: '200' }),
     ]);
     const base = (r: any, level: AdLevel): RemoteEntity => ({

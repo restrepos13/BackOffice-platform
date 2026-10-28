@@ -36,6 +36,8 @@ model User {
   lockedUntil      DateTime?
   // Tour de bienvenida: se muestra solo hasta que el usuario lo termina
   tourDoneAt       DateTime?
+  /// Recorridos de cada sección ya vistos: { "ads": "2026-10-28T…" }
+  toursJson        String?
   /// Versión de los términos y condiciones que aceptó (y cuándo)
   termsVersion     Int?
   termsAcceptedAt  DateTime?
@@ -2586,4 +2588,35 @@ model AuthToken {
 
   @@index([companyId, kind])
   @@index([email, kind])
+}
+
+/// Anuncio completo que un CLIENTE crea desde Ads (campaña → conjunto →
+/// creativo → anuncio en su cuenta de Meta). Se crea siempre en PAUSA; activar
+/// es otra decisión. Cada id de Meta se guarda apenas llega: un reintento
+/// continúa donde quedó y nunca crea dos veces.
+model AdLaunch {
+  id              String    @id @map("_id")
+  companyId       String
+  accountId       String
+  /// CREATING | PAUSED | ACTIVE | FAILED | ARCHIVED
+  status          String
+  draftJson       String
+  /// Imagen de la biblioteca (BrandAsset) y su hash en la cuenta de Meta
+  assetId         String
+  imageHash       String?
+  pageId          String
+  instagramUserId String?
+  idsJson         String    @default("{}")
+  /// Última revisión (código y, si hubo, IA) con la que se creó
+  reviewJson      String?
+  utmCampaign     String
+  link            String?
+  error           String?
+  historyJson     String    @default("[]")
+  lockUntil       DateTime?
+  createdBy       String
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @default(now())
+
+  @@index([companyId, createdAt])
 }

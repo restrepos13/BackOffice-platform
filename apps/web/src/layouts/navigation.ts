@@ -144,19 +144,20 @@ export function creativeGroups(ctx: NavContext): NavGroup[] {
 
 export function adsGroups(ctx: NavContext): NavGroup[] {
   return clean([
-    { id: 'resumen', title: 'Resumen publicitario', items: [{ to: '/app/ads?tab=resumen', label: 'Resultados', icon: TrendingUp }] },
+    { id: 'resumen', title: 'Resumen publicitario', items: [{ to: '/app/ads?tab=resumen', label: 'Resultados', icon: TrendingUp, tour: 'ads-resumen' }] },
     {
       id: 'campanas', title: 'Campañas y cuentas', items: [
-        { to: '/app/ads?tab=campanas', label: 'Campañas', icon: Target },
-        { to: '/app/ads?tab=nueva', label: 'Nueva campaña', icon: Rocket },
-        { to: '/app/ads?tab=cuentas', label: 'Cuentas publicitarias', icon: Plug },
+        { to: '/app/ads?tab=campanas', label: 'Campañas', icon: Target, tour: 'ads-campanas' },
+        { to: '/app/ads?tab=nueva', label: 'Crear anuncio', icon: Rocket, tour: 'ads-crear' },
+        { to: '/app/ads?tab=semana', label: 'Programación semanal', icon: CalendarDays, tour: 'ads-semana' },
+        { to: '/app/ads?tab=cuentas', label: 'Cuentas publicitarias', icon: Plug, tour: 'ads-cuentas' },
       ],
     },
     { id: 'recursos', title: 'Creatividades y recursos', items: [{ to: '/app/biblioteca', label: 'Imágenes y videos', icon: FolderOpen }] },
-    { id: 'inteligencia', title: 'Inteligencia y oportunidades', items: [{ to: '/app/ads?tab=oportunidades', label: 'Oportunidades', icon: Radar }] },
+    { id: 'inteligencia', title: 'Inteligencia y oportunidades', items: [{ to: '/app/ads?tab=oportunidades', label: 'Oportunidades', icon: Radar, tour: 'ads-oportunidades' }] },
     // Reglas sobre anuncios (pausar con aprobación): no son los flujos de Automation
-    { id: 'autopilot', title: 'Automatización publicitaria', items: [{ to: '/app/ads?tab=autopilot', label: 'Autopilot y reglas', icon: Sparkles }] },
-    { id: 'atribucion', title: 'Leads, ventas y atribución', items: [{ to: '/app/ads?tab=leads', label: 'Leads y ventas', icon: Wallet }] },
+    { id: 'autopilot', title: 'Automatización publicitaria', items: [{ to: '/app/ads?tab=autopilot', label: 'Autopilot y reglas', icon: Sparkles, tour: 'ads-autopilot' }] },
+    { id: 'atribucion', title: 'Leads, ventas y atribución', items: [{ to: '/app/ads?tab=leads', label: 'Leads y ventas', icon: Wallet, tour: 'ads-leads' }] },
   ], ctx);
 }
 

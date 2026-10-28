@@ -233,7 +233,7 @@ export default function AppShell() {
       })()}
 
       <ChangePasswordModal open={changingPassword} onClose={() => setChangingPassword(false)} />
-      <Tour />
+      <Tour products={activeCompany?.products} />
 
       {/* ─── Contenido ─── */}
       <div className="min-w-0 flex-1">

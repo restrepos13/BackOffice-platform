@@ -16,6 +16,8 @@ export interface AuthUser {
   jobTitle?: string | null;
   /** null/undefined = todavía no vio el tour de bienvenida */
   tourDoneAt?: string | null;
+  /** Recorridos de sección ya vistos (JSON { ads: fecha }) */
+  toursJson?: string | null;
 }
 
 /* ─── Marketing ─────────────────────────────────────────────────────── */

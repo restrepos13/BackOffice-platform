@@ -245,7 +245,8 @@ describe('Ads · métricas', () => {
     const acc = await connectReal(svc, metaAccount());
     await svc.sync(A, acc.id, 'coA');
     const o: any = await svc.overview(A, { days: '7', mode: 'REAL' });
-    expect(o.period.current).toEqual({ since: '2026-10-21', until: '2026-10-27' });
+    // Hoy (27) va a medias: el periodo termina en el último día completo
+    expect(o.period.current).toEqual({ since: '2026-10-20', until: '2026-10-26' });
     expect(o.totals).toMatchObject({ reach: 4000, frequency: 2.5, results: null, costPerResult: null });
     expect(o.notes.join(' ')).toMatch(/objetivos distintos/);
     const chat = o.campaigns.find((c: any) => c.externalId === '22200');
@@ -259,6 +260,72 @@ describe('Ads · métricas', () => {
     // Filtrando una campaña sí hay un tipo único
     const only: any = await svc.overview(A, { days: '7', mode: 'REAL', campaign: '22200' });
     expect(only.totals).toMatchObject({ resultType: 'conversations', results: 28, costPerResult: 5000, reach: 1500 });
+  });
+});
+
+describe('Ads · permisos reales de la conexión', () => {
+  /** Meta con permisos y tareas configurables */
+  function withGrants(perms: string[], tasks?: string[]) {
+    return graph((u) => {
+      if (u.pathname === '/me/permissions') return { data: perms.map((permission) => ({ permission, status: 'granted' })).concat([{ permission: 'leads_retrieval', status: 'declined' }]) };
+      if (u.pathname === '/me/adaccounts') return { data: [{ account_id: '90011', name: 'Real A', currency: 'COP', timezone_name: 'America/Bogota', account_status: 1, ...(tasks ? { user_tasks: tasks } : {}) }] };
+      return { data: [] };
+    });
+  }
+
+  it('con permisos completos y rol de anunciante: puede leer y gestionar', async () => {
+    const { svc } = world();
+    const acc: any = await connectReal(svc, withGrants(['ads_management', 'ads_read', 'business_management'], ['MANAGE', 'ADVERTISE', 'ANALYZE']));
+    expect(acc.access).toMatchObject({ verified: true, read: true, manage: true, missing: [] });
+    expect(acc.scopes).toEqual(['ads_management', 'ads_read', 'business_management']); // las declinadas no se cuentan
+  });
+
+  it('solo ads_read: lee pero no gestiona y dice qué falta', async () => {
+    const { svc } = world();
+    const acc: any = await connectReal(svc, withGrants(['ads_read']));
+    expect(acc.access).toMatchObject({ verified: true, read: true, manage: false, missing: ['ads_management', 'business_management'] });
+  });
+
+  it('permiso de la app pero rol de solo análisis en la cuenta: no gestiona', async () => {
+    const { svc } = world();
+    const acc: any = await connectReal(svc, withGrants(['ads_management', 'ads_read', 'business_management'], ['ANALYZE']));
+    expect(acc.access).toMatchObject({ manage: false, accountRoleLimited: true });
+  });
+
+  it('si Meta no informa permisos, la conexión queda «sin verificar» (no se inventa)', async () => {
+    const { svc } = world();
+    const acc: any = await connectReal(svc, metaAccount());
+    expect(acc.access).toMatchObject({ verified: false, manage: false });
+  });
+});
+
+describe('Ads · días en la zona horaria de la cuenta', () => {
+  it('la sincronización pide los días de la cuenta, no los de UTC', async () => {
+    const { svc } = world();
+    // 03:00 UTC del 27 = 20:00 del 26 en Los Ángeles
+    svc.now = () => new Date('2026-10-27T03:00:00Z');
+    const g = metaAccount();
+    const acc = await connectReal(svc, g);
+    const { prisma } = (svc as any);
+    await prisma.adAccount.update({ where: { id: acc.id }, data: { timezone: 'America/Los_Angeles' } });
+    await svc.sync(A, acc.id, 'coA');
+    const ranges = g.calls.filter((c) => c.path.endsWith('/insights') && c.params.get('time_increment') === '1').map((c) => JSON.parse(c.params.get('time_range') ?? '{}'));
+    expect(ranges.length).toBeGreaterThan(0);
+    expect(ranges.reduce((m, r) => (r.until > m ? r.until : m), '')).toBe('2026-10-26');
+    // Alcance y frecuencia: ventanas que terminan en el último día completo
+    const stats = g.calls.filter((c) => c.path.endsWith('/insights') && c.params.get('level') === 'account').map((c) => JSON.parse(c.params.get('time_range') ?? '{}').until);
+    expect(new Set(stats)).toEqual(new Set(['2026-10-25']));
+  });
+
+  it('el día de hoy (a medias) no entra en totales ni comparaciones', async () => {
+    const { svc } = world();
+    const acc = await connectReal(svc, metaAccount());
+    await svc.sync(A, acc.id, 'coA');
+    const o: any = await svc.overview(A, { days: '7', mode: 'REAL' });
+    expect(o.period.current.until).toBe('2026-10-26');
+    // 7 días completos × (10.000 + 20.000): la fila de hoy (27) no suma
+    expect(o.totals.spend).toBe(7 * 30000);
+    expect(o.daily.some((d: any) => d.date === '2026-10-27')).toBe(false);
   });
 });
 

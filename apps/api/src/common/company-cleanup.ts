@@ -52,7 +52,7 @@ export const CLEANED_MODELS = [
 export const ORPHANED_MODELS = [
   'bookingLock', 'bookingNotice', 'addonTouch', 'receivable', 'salesAudit', 'incident', 'signupSession', 'socialUsage', 'storedFile',
   'agentCall', 'brandProfile', 'brandAsset', 'adAssetLink', 'creativeDesign', 'creativeDesignVersion', 'creativeCreditMove', 'creativeWallet',
-  'adAccount', 'adEntity', 'adInsightDaily', 'adSyncRun', 'opportunity', 'companyContext', 'adSettings', 'adRule', 'adActionLog', 'adBrief', 'adLead',
+  'adAccount', 'adEntity', 'adInsightDaily', 'adSyncRun', 'opportunity', 'companyContext', 'adSettings', 'adRule', 'adActionLog', 'adBrief', 'adLead', 'adLaunch',
   'creativeEvent', 'calendarConnection', 'calendarEventLink', 'authToken', 'conversationNote', 'inboundReceipt', 'subscriptionEvent', 'aiIncludedCounter',
 ] as const;
 

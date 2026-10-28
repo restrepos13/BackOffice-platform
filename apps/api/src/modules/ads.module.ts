@@ -13,7 +13,11 @@ import { exchangeCode, oauthUrl, signState, verifyState } from '../common/meta-p
 import { publicWebUrl } from '../common/tracking';
 import { DEFAULT_STAGES } from '../common/pipelines';
 import { AccountRef, AdLevel, AdsProvider, AdsProviderError, FetchLike, PeriodStats, ProviderErrorKind, ProviderKey, RemoteEntity, RemoteInsight, addDays, isoDay } from '../common/ads/provider';
-import { META_ADS_SCOPES } from '../common/ads/meta-ads-provider';
+import { todayIn } from '../common/ads/launch';
+import { AdsCreateController, AdsCreateService } from './ads-create';
+import { AI_PROVIDER } from '../ai/types';
+import { DeepInfraProvider } from '../ai/deepinfra.provider';
+import { META_ADS_SCOPES, MetaAdsProvider, accessFrom } from '../common/ads/meta-ads-provider';
 import { DemoAdsProvider } from '../common/ads/demo-provider';
 import { PROVIDER_KEYS, providerFor } from '../common/ads/registry';
 import {
@@ -124,7 +128,8 @@ export class AdsService {
     const ageH = a.lastSyncAt ? Math.round((this.now().getTime() - new Date(a.lastSyncAt).getTime()) / 36e5) : null;
     const { syncLockUntil, periodStatsJson: _p, ...pub } = rest;
     return {
-      ...pub, hasToken: !!a.tokenEnc, scopes: parseJson<string[]>(a.scopesJson, []), dataAgeHours: ageH, stale: ageH === null || ageH > SYNC_EVERY_H * 2,
+      ...pub, hasToken: !!a.tokenEnc, scopes: parseJson<string[]>(a.scopesJson, []).filter((s) => !s.startsWith('task:')), dataAgeHours: ageH, stale: ageH === null || ageH > SYNC_EVERY_H * 2,
+      access: a.mode === 'DEMO' ? { verified: true, read: true, manage: true, missing: [], tasks: [], accountRoleLimited: false } : accessFrom(parseJson<string[]>(a.scopesJson, [])),
       // La credencial nunca sale: solo se dice que existe y cómo se guardó
       credential: a.mode === 'DEMO' ? 'Sin credencial (demostración)' : a.tokenEnc ? 'Guardada cifrada · no se muestra' : 'Sin credencial',
       syncing: !!syncLockUntil && new Date(syncLockUntil).getTime() > this.now().getTime(),
@@ -138,9 +143,14 @@ export class AdsService {
     await this.companyOf(user, companyId);
     const app = await this.metaApp();
     const metaReady = !!(app.appId && app.appSecret);
+    const partnerId = ((await this.prisma.platformSetting.findUnique({ where: { key: 'META_BUSINESS_ID' } }).catch(() => null))?.value?.trim() || process.env.META_BUSINESS_ID || '').replace(/\D/g, '');
     return PROVIDER_KEYS.map((k) => {
       const p = this.provider(k, 'REAL', metaReady);
-      return { key: k, label: p.label, capabilities: p.capabilities, missing: p.missingConfig(), oauth: k === 'META' && metaReady, demoAvailable: true };
+      return {
+        key: k, label: p.label, capabilities: p.capabilities, missing: p.missingConfig(), oauth: k === 'META' && metaReady, demoAvailable: true,
+        // Para la guía de conexión: a quién agregar como socio de la cuenta publicitaria
+        ...(k === 'META' ? { partnerBusinessId: partnerId || null, requiredScopes: META_ADS_SCOPES } : {}),
+      };
     });
   }
 
@@ -173,7 +183,7 @@ export class AdsService {
     const raw = clip(dto?.accountId, 40).replace(/^act_/, '');
     if (!/^\d{5,25}$/.test(raw)) throw new BadRequestException('El ID de la cuenta publicitaria son solo números (act_1234567890)');
     const token = clip(dto?.token, 1000);
-    if (token.length < 20) throw new BadRequestException('Pega el token de acceso (con permiso ads_read o ads_management)');
+    if (token.length < 20) throw new BadRequestException('Pega el token de acceso (con los permisos ads_management, ads_read y business_management)');
     const p = this.provider('META', 'REAL');
     let list;
     try {
@@ -183,7 +193,10 @@ export class AdsService {
     }
     const remote = list.find((a) => a.externalId === `act_${raw}`);
     if (!remote) throw new BadRequestException('Ese token no tiene acceso a esa cuenta publicitaria');
-    return this.saveAccount(user, c.id, remote, token, ['manual']);
+    // Se guarda lo que Meta concedió de verdad (permisos de la app y tareas en la cuenta), no lo que se pidió
+    const granted = p instanceof MetaAdsProvider ? await p.grantedScopes(token) : null;
+    const scopes = [...(granted?.length ? granted : ['manual']), ...(remote.tasks ?? []).map((t) => `task:${t}`)];
+    return this.saveAccount(user, c.id, remote, token, scopes);
   }
 
   private async saveAccount(user: AuthUser | null, companyId: string, remote: { externalId: string; name: string; currency: string; timezone: string | null }, token: string, scopes: string[]) {
@@ -269,8 +282,11 @@ export class AdsService {
     const chosen = p.accounts.filter((a) => wanted.has(a.externalId));
     if (!chosen.length) throw new BadRequestException('Elige al menos una cuenta');
     const token = decryptSecret(p.tokenEnc);
+    // Lo que la persona aceptó de verdad en Facebook (puede desmarcar permisos al autorizar)
+    const meta = this.provider('META', 'REAL');
+    const granted = meta instanceof MetaAdsProvider ? await meta.grantedScopes(token) : null;
     const out: any[] = [];
-    for (const a of chosen) out.push(await this.saveAccount(user, c.id, a, token, META_ADS_SCOPES));
+    for (const a of chosen) out.push(await this.saveAccount(user, c.id, a, token, [...(granted?.length ? granted : META_ADS_SCOPES), ...((a.tasks ?? []) as string[]).map((t) => `task:${t}`)]));
     await this.prisma.platformSetting.delete({ where: { key: `ADS_PENDING_${c.id}` } }).catch(() => undefined);
     return out;
   }
@@ -312,9 +328,11 @@ export class AdsService {
   private async runSync(user: AuthUser | null, a: any, runId: string, start: Date) {
     const companyId = a.companyId as string;
     const p = this.provider(a.provider, a.mode);
-    const until = a.mode === 'DEMO' ? addDays(isoDay(start), -1) : isoDay(start);
-    const floor = addDays(isoDay(start), -(FIRST_SYNC_DAYS - 1));
-    const wanted = a.lastSyncAt ? addDays(isoDay(new Date(a.lastSyncAt)), -RESYNC_DAYS) : floor;
+    // Los días son los de la zona horaria de la cuenta (como los muestra Meta), no UTC
+    const today = todayIn(a.timezone, start);
+    const until = a.mode === 'DEMO' ? addDays(today, -1) : today;
+    const floor = addDays(today, -(FIRST_SYNC_DAYS - 1));
+    const wanted = a.lastSyncAt ? addDays(todayIn(a.timezone, new Date(a.lastSyncAt)), -RESYNC_DAYS) : floor;
     const since = wanted < floor ? floor : wanted;
     const counts = { entities: 0, insights: 0, since, until, chunksOk: 0, chunks: 0, warnings: [] as string[] };
     let failure: { kind: ProviderErrorKind; message: string } | null = null;
@@ -332,7 +350,8 @@ export class AdsService {
       // Alcance y frecuencia del periodo (no se pueden sumar día a día): opcional
       if (p.fetchPeriodStats) {
         try {
-          await this.savePeriodStats(a, p, token, until);
+          // Alcance y frecuencia de periodos que terminan en el último día completo (los que se muestran)
+          await this.savePeriodStats(a, p, token, a.mode === 'DEMO' ? until : addDays(until, -1));
         } catch (err: any) {
           counts.warnings.push(`Alcance y frecuencia no disponibles: ${String(err?.message ?? err).slice(0, 160)}`);
         }
@@ -519,6 +538,18 @@ export class AdsService {
     return rows.reduce((m, r) => (r.date > m ? r.date : m), '') || addDays(isoDay(this.now()), -1);
   }
 
+  /**
+   * Último día COMPLETO con datos, en la zona horaria de las cuentas: el día de
+   * hoy todavía va a medias y no entra en totales, comparaciones, hallazgos ni reglas.
+   */
+  private completeUntil(rows: Array<{ date: string }>, accounts: Array<{ timezone: string | null }>) {
+    const yesterday = (accounts.length ? accounts : [{ timezone: null }])
+      .map((a) => addDays(todayIn(a.timezone, this.now()), -1))
+      .reduce((m, d) => (d < m ? d : m));
+    const last = rows.reduce((m, r) => (r.date > m ? r.date : m), '');
+    return last && last < yesterday ? last : yesterday;
+  }
+
   /** Tipo de resultado de cada campaña según su objetivo (lo que se cuenta como "resultado"). */
   private typeOfFn(entities: Array<{ level: string; externalId: string; objective: string | null }>) {
     const map = new Map(entities.filter((e) => e.level === 'CAMPAIGN').map((e) => [e.externalId, resultTypeFor(e.objective)]));
@@ -545,7 +576,7 @@ export class AdsService {
     const days = [7, 14, 30, 60].includes(Number(q.days)) ? Number(q.days) : 30;
     const { accounts, entities, rows: all } = await this.data(c.id, mode, q.accountId);
     const rows = q.campaign ? all.filter((r) => r.campaignExternalId === q.campaign) : all;
-    const until = this.lastDay(rows);
+    const until = this.completeUntil(rows, accounts);
     const p = periods(until, days);
     const typeOf = this.typeOfFn(entities);
     const now = mixedTotals(rows.filter((r) => inRange(r.date, p.current)), typeOf);
@@ -609,8 +640,8 @@ export class AdsService {
     const c = await this.companyOf(user, q.companyId);
     const mode = await this.modeFor(c.id, q.mode);
     const days = [7, 14, 30, 60].includes(Number(q.days)) ? Number(q.days) : 30;
-    const { entities, rows } = await this.data(c.id, mode, q.accountId);
-    const p = periods(this.lastDay(rows), days).current;
+    const { accounts, entities, rows } = await this.data(c.id, mode, q.accountId);
+    const p = periods(this.completeUntil(rows, accounts), days).current;
     const cur = rows.filter((r) => inRange(r.date, p));
     const byAd = groupBy(cur, (r) => r.externalId);
     const typeOf = this.typeOfFn(entities);
@@ -669,14 +700,14 @@ export class AdsService {
           this.prisma.adInsightDaily.findMany({ where: { companyId, accountId: a.id, date: { gte: addDays(isoDay(this.now()), -60) } } }),
         ]);
         if (!rows.length && !entities.length) continue;
-        const until = this.lastDay(rows);
+        const until = this.completeUntil(rows, [a]);
         const w7 = periods(until, 7).current;
         const conv7 = totals(rows.filter((r) => inRange(r.date, w7))).conversations;
         // Los datos del CRM solo se cruzan con cuentas reales
         const crm = mode === 'REAL' ? await this.crmStats(companyId, conv7, w7) : undefined;
         const drafts = audit(
           entities.map((e) => ({ ...e, issues: parseJson<string[]>(e.issuesJson, []) })),
-          rows, { until, currency: a.currency, minSpend: 0, typeOf: this.typeOfFn(entities) }, crm,
+          rows.filter((r) => r.date <= until), { until, untilComplete: true, currency: a.currency, minSpend: 0, typeOf: this.typeOfFn(entities) }, crm,
         );
         const platform = mode === 'DEMO' ? 'Datos de demostración (simulados)' : `${a.provider === 'META' ? 'Meta Ads' : a.provider} (reportado por la plataforma)`;
         const opps: OppDraft[] = drafts.map((d) => ({
@@ -947,8 +978,9 @@ export class AdsService {
     const r = await this.prisma.adRule.findUnique({ where: { id } });
     if (!r || r.companyId !== c.id) throw new NotFoundException('Regla no encontrada');
     const mode = await this.modeFor(c.id, q.mode);
-    const { entities, rows } = await this.data(c.id, mode);
-    return { mode, matches: evaluateRule(r as unknown as RuleLike, entities, rows, this.lastDay(rows), this.ruleCtx(entities)) };
+    const { accounts, entities, rows } = await this.data(c.id, mode);
+    const until = this.completeUntil(rows, accounts);
+    return { mode, matches: evaluateRule(r as unknown as RuleLike, entities, rows.filter((x) => x.date <= until), until, this.ruleCtx(entities)) };
   }
 
   private ruleCtx(entities: any[]) {
@@ -969,8 +1001,8 @@ export class AdsService {
       for (const mode of ['REAL', 'DEMO'] as const) {
         const { accounts, entities, rows } = await this.data(companyId, mode);
         if (!accounts.length) continue;
-        const until = this.lastDay(rows);
-        for (const m of evaluateRule(rule as unknown as RuleLike, entities, rows, until, this.ruleCtx(entities))) {
+        const until = this.completeUntil(rows, accounts);
+        for (const m of evaluateRule(rule as unknown as RuleLike, entities, rows.filter((x) => x.date <= until), until, this.ruleCtx(entities))) {
           const entity = entities.find((e) => e.level === rule.level && e.externalId === m.externalId)!;
           const account = accounts.find((a) => a.id === entity.accountId)!;
           const ageH = account.lastSyncAt ? (this.now().getTime() - account.lastSyncAt.getTime()) / 36e5 : null;
@@ -1272,8 +1304,8 @@ export class AdsPublicController {
 
 @Module({
   imports: [AuditModule],
-  providers: [AdsService, AdLeadsService],
-  controllers: [AdsController, AdsPublicController],
+  providers: [AdsService, AdLeadsService, AdsCreateService, { provide: AI_PROVIDER, useClass: DeepInfraProvider }],
+  controllers: [AdsController, AdsPublicController, AdsCreateController],
   exports: [AdsService, AdLeadsService],
 })
 export class AdsModule {}

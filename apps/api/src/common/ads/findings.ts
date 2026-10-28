@@ -69,6 +69,8 @@ export interface FindingDraft {
 export interface AuditOptions {
   /** Último día con datos (en la zona de la cuenta) */
   until: string;
+  /** true si `until` ya es un día completo (el servicio excluye el de hoy, que va a medias) */
+  untilComplete?: boolean;
   currency: string;
   /** Días recientes que no se juzgan por resultados (retraso de atribución) */
   attributionLagDays?: number;
@@ -314,7 +316,7 @@ export function audit(entities: EntityLike[], rows: InsightLike[], opts: AuditOp
   }
 
   // ── Caída del gasto: se mira el último día COMPLETO (el de hoy puede ir a medias) ──
-  const full = addDays(opts.until, -1);
+  const full = opts.untilComplete ? opts.until : addDays(opts.until, -1);
   const fullSpend = totals(byDay.get(full) ?? []).spend;
   const before7: number[] = [];
   for (let i = 1; i <= 7; i++) before7.push(totals(byDay.get(addDays(full, -i)) ?? []).spend);

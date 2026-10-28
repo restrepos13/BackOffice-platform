@@ -46,6 +46,7 @@ const SETTING_GROUPS: Array<{ group: string; keys: string[]; purpose: string }> 
   { group: 'Web pública', keys: ['PUBLIC_WEB_URL'], purpose: 'Dominio de la web: links de seguimiento de pedidos (/t/…) que recibe el cliente' },
   { group: 'IA de BackOffice', keys: ['DEEPINFRA_API_KEY'], purpose: 'Llave propia para empresas en modo IA revendida (las BYOK usan la suya)' },
   { group: 'Meta', keys: ['META_APP_ID', 'META_VERIFY_TOKEN', 'META_APP_SECRET'], purpose: 'Canales Meta (WhatsApp Cloud, Instagram, Messenger): verificación y firma de webhooks' },
+  { group: 'Meta Ads', keys: ['META_BUSINESS_ID'], purpose: 'ID del portafolio comercial de BackOffice: el que el cliente agrega como socio de su cuenta publicitaria (guía de conexión de Ads)' },
   { group: 'Registro web', keys: ['GEMINI_API_KEYS', 'SIGNUP_NOTIFY_EMAIL'], purpose: 'IA genérica (Gemini, llaves solo en el .env, rotan solas) que arma las empresas nuevas y las acompaña; correo que recibe cada registro' },
   { group: 'Google Calendar', keys: ['GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET'], purpose: 'Cliente OAuth 2.0 (Google Cloud) para que cada empresa conecte su calendario; URI de redirección: <web>/api/public/calendar/google/callback' },
   { group: 'Correo', keys: ['SMTP_HOST', 'SMTP_PORT', 'SMTP_USER', 'SMTP_PASS', 'SMTP_FROM'], purpose: 'Envío real de correos (sin esto quedan en cola)' },

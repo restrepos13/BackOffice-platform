@@ -8,6 +8,10 @@ import { AdsSpendChart } from '../../../components/charts';
 import { Badge, Button, Card, EmptyState, Field, Input, Loading, Modal, PageHeader, Select, Stat, Switch, Tabs } from '../../../components/ui';
 import { PickCompany, useCompanyScope, withScope } from '../shared';
 import { OpportunityList } from '../../../components/opportunities/Opportunities';
+import { AdsTour } from '../../../components/Tour';
+import { AccessBadge, CapabilitiesCard, MetaConnectGuide, type AccountAccess } from './MetaConnectGuide';
+import { CreateAd } from './CreateAd';
+import { Week } from './Week';
 
 /**
  * Publicidad (BackOffice Creative Ads): resultados, cuentas, campañas,
@@ -20,7 +24,7 @@ type Mode = 'REAL' | 'DEMO';
 interface Totals { spend: number; impressions: number; clicks: number; results: number | null; leads: number; conversations: number; purchases: number; purchaseValue: number; ctr: number | null; cpc: number | null; cpm: number | null; costPerResult: number | null; platformRoas: number | null; days: number; resultLabel?: string; reach?: number | null; frequency?: number | null }
 interface Account {
   id: string; provider: string; mode: Mode; externalId: string; name: string; currency: string; status: string; lastSyncAt: string | null; lastError: string | null; dataAgeHours: number | null; stale: boolean; hasToken: boolean;
-  lastSyncStatus?: 'OK' | 'PARTIAL' | 'ERROR' | null; lastErrorKind?: string | null; errorHelp?: string | null; nextSyncAt?: string | null; credential?: string; syncing?: boolean; scopes?: string[];
+  lastSyncStatus?: 'OK' | 'PARTIAL' | 'ERROR' | null; lastErrorKind?: string | null; errorHelp?: string | null; nextSyncAt?: string | null; credential?: string; syncing?: boolean; scopes?: string[]; access?: AccountAccess;
 }
 interface Overview {
   mode: Mode; modes: { real: number; demo: number }; days: number; period: { current: { since: string; until: string }; previous: { since: string; until: string } };
@@ -34,14 +38,15 @@ interface Overview {
 const TABS = [
   { id: 'resumen', label: 'Resultados' }, { id: 'cuentas', label: 'Cuentas' }, { id: 'campanas', label: 'Campañas' },
   { id: 'oportunidades', label: 'Oportunidades' }, { id: 'autopilot', label: 'Autopilot' }, { id: 'leads', label: 'Leads y ventas' },
-  { id: 'nueva', label: 'Nueva campaña' },
+  { id: 'nueva', label: 'Crear anuncio' }, { id: 'semana', label: 'Semana' },
 ];
 
 /** Secciones de Ads Intelligence (el menú lateral las lista; aquí solo se titula la pantalla). */
 const SECTIONS: Record<string, { kicker: string; title: string }> = {
   resumen: { kicker: 'Resumen publicitario', title: 'Resultados' },
   campanas: { kicker: 'Campañas y cuentas', title: 'Campañas' },
-  nueva: { kicker: 'Campañas y cuentas', title: 'Nueva campaña' },
+  nueva: { kicker: 'Campañas y cuentas', title: 'Crear anuncio' },
+  semana: { kicker: 'Campañas y cuentas', title: 'Programación semanal' },
   cuentas: { kicker: 'Campañas y cuentas', title: 'Cuentas publicitarias' },
   oportunidades: { kicker: 'Inteligencia y oportunidades', title: 'Oportunidades' },
   autopilot: { kicker: 'Automatización publicitaria', title: 'Autopilot y reglas' },
@@ -99,6 +104,7 @@ export default function AdsHome() {
   const [params, setParams] = useSearchParams();
   const tab = (params.get('tab') ?? 'resumen') in SECTIONS ? (params.get('tab') ?? 'resumen') : 'resumen';
   const [mode, setMode] = useState<Mode | undefined>(undefined);
+  const [tourReplay, setTourReplay] = useState(false);
   const overview = useQuery({
     queryKey: ['ads-overview', q, mode],
     queryFn: () => api.get<Overview>(`/ads/overview${qs(q, { mode })}`),
@@ -112,7 +118,9 @@ export default function AdsHome() {
     <>
       {isPlatform
         ? <PageHeader kicker="Anuncios conectados a tus ventas" title="Publicidad" accent="que se entiende" />
-        : <PageHeader kicker={`Ads Intelligence · ${SECTIONS[tab].kicker}`} title={SECTIONS[tab].title} />}
+        : <PageHeader kicker={`Ads Intelligence · ${SECTIONS[tab].kicker}`} title={SECTIONS[tab].title}
+            actions={<Button size="sm" variant="outline" onClick={() => setTourReplay(true)}>¿Cómo funciona?</Button>} />}
+      {!isPlatform && <AdsTour replay={tourReplay} onClose={() => setTourReplay(false)} />}
       {o && o.modes.real > 0 && o.modes.demo > 0 && (
         <div className="mb-4 flex items-center gap-2 text-sm">
           <span className="text-ink-3">Ver:</span>
@@ -123,14 +131,15 @@ export default function AdsHome() {
       )}
       {isPlatform && <Tabs tabs={TABS.map((t) => ({ ...t, badge: t.id === 'oportunidades' ? o?.openFindings || undefined : t.id === 'autopilot' ? o?.pendingActions || undefined : undefined }))} active={tab} onChange={(t) => setParams({ tab: t })} />}
       <div className={isPlatform ? 'mt-5' : undefined}>
-        {tab !== 'cuentas' && tab !== 'nueva' && o && <DemoBanner mode={effective} />}
+        {!['cuentas', 'nueva', 'semana'].includes(tab) && o && <DemoBanner mode={effective} />}
         {tab === 'resumen' && (o ? <Summary q={q} mode={effective} base={o} /> : <Loading />)}
         {tab === 'cuentas' && <Accounts q={q} />}
         {tab === 'campanas' && <Campaigns q={q} mode={effective} currency={o?.currency ?? 'COP'} />}
         {tab === 'oportunidades' && <Findings q={q} mode={effective} />}
         {tab === 'autopilot' && <Autopilot q={q} mode={effective} currency={o?.currency ?? 'COP'} />}
         {tab === 'leads' && <Revenue q={q} />}
-        {tab === 'nueva' && <Studio q={q} accounts={o?.accounts ?? []} />}
+        {tab === 'nueva' && <CreateAd q={q} />}
+        {tab === 'semana' && <Week q={q} />}
       </div>
     </>
   );
@@ -254,7 +263,7 @@ function StatusBadge({ s }: { s: string | null | undefined }) {
 
 /* ── Cuentas ── */
 
-interface ProviderInfo { key: string; label: string; capabilities: Record<string, boolean>; missing: string[]; oauth: boolean }
+interface ProviderInfo { key: string; label: string; capabilities: Record<string, boolean>; missing: string[]; oauth: boolean; partnerBusinessId?: string | null }
 
 function Accounts({ q }: { q: string }) {
   const queryClient = useQueryClient();
@@ -273,7 +282,16 @@ function Accounts({ q }: { q: string }) {
   const demo = useMutation({ mutationFn: (provider: string) => api.post(withScope('/ads/accounts/demo', q), { provider }), onSuccess: () => { refresh(); toast.success('Cuenta de demostración lista'); }, onError: err });
   const oauth = useMutation({ mutationFn: () => api.get<{ url: string }>(withScope('/ads/meta/oauth', q)), onSuccess: (r) => { window.location.href = r.url; }, onError: err });
   const select = useMutation({ mutationFn: () => api.post(withScope('/ads/meta/select', q), { externalIds: chosen }), onSuccess: () => { refresh(); setParams({ tab: 'cuentas' }); toast.success('Cuentas conectadas. Sincronízalas para traer los datos.'); }, onError: err });
-  const connect = useMutation({ mutationFn: () => api.post(withScope('/ads/accounts/manual', q), manual), onSuccess: () => { refresh(); setManual({ accountId: '', token: '' }); toast.success('Cuenta conectada'); }, onError: err });
+  const connect = useMutation({
+    mutationFn: () => api.post<Account>(withScope('/ads/accounts/manual', q), manual),
+    onSuccess: (acc) => {
+      refresh();
+      setManual({ accountId: '', token: '' });
+      if (acc?.access?.verified && !acc.access.manage) toast.warning('Cuenta conectada en solo lectura: revisa los permisos que faltan.');
+      else toast.success('Cuenta conectada. Sincronízala para traer los datos.');
+    },
+    onError: err,
+  });
   const [history, setHistory] = useState<string | null>(null);
   const sync = useMutation({
     mutationFn: (id: string) => api.post<{ status: string; entities: number; insights: number; note?: string; help?: string }>(withScope(`/ads/accounts/${id}/sync`, q)),
@@ -321,7 +339,8 @@ function Accounts({ q }: { q: string }) {
                     {a.mode === 'REAL' && a.status !== 'DISCONNECTED' && (a.nextSyncAt ? ` · próximo intento: ${new Date(a.nextSyncAt).toLocaleString('es-CO', { dateStyle: 'short', timeStyle: 'short' })}` : a.status === 'EXPIRED' ? ' · sin reintentos hasta reconectar' : '')}
                   </span>
                   {(a.errorHelp || a.lastError) && <span className="block text-xs text-bad">{a.errorHelp ?? ''}{a.lastError ? ` (${a.lastError})` : ''}</span>}
-                  {a.credential && <span className="block text-[11px] text-ink-3">Credencial: {a.credential}{a.scopes?.length ? ` · permisos: ${a.scopes.join(', ')}` : ''}</span>}
+                  {a.mode === 'REAL' && a.status !== 'DISCONNECTED' && <AccessBadge access={a.access} />}
+                  {a.credential && <span className="block text-[11px] text-ink-3">Credencial: {a.credential}{a.scopes?.filter((s) => s !== 'manual').length ? ` · permisos: ${a.scopes.filter((s) => s !== 'manual').join(', ')}` : ''}</span>}
                   <button type="button" className="mt-1 cursor-pointer text-xs font-semibold text-ink-2 underline-offset-2 hover:underline" aria-expanded={history === a.id} onClick={() => setHistory(history === a.id ? null : a.id)}>{history === a.id ? 'Ocultar historial' : 'Historial de sincronizaciones'}</button>
                 </span>
                 {canWrite && a.status !== 'DISCONNECTED' && (
@@ -336,22 +355,16 @@ function Accounts({ q }: { q: string }) {
           </ul>
         )}
       </Card>
+      {accounts.some((a) => a.mode === 'REAL' && a.status !== 'DISCONNECTED') && (
+        <CapabilitiesCard access={accounts.find((a) => a.mode === 'REAL' && a.status !== 'DISCONNECTED')?.access} />
+      )}
       {canWrite && (
         <div className="grid gap-6 lg:grid-cols-2">
-          <Card kicker="Meta Ads" title="Conectar Facebook / Instagram Ads">
-            <p className="mb-3 text-sm text-ink-2">Es distinto de conectar tu página para publicar: aquí damos acceso de lectura y gestión a tu cuenta publicitaria. BackOffice nunca activa campañas ni sube presupuestos sin tu confirmación.</p>
-            {meta?.oauth
-              ? <Button disabled={oauth.isPending} onClick={() => oauth.mutate()}>Continuar con Facebook</Button>
-              : <p className="mb-3 border-2 border-warn bg-paper px-3 py-2 text-xs">El botón de Facebook se activa cuando el equipo de BackOffice configure la app de Meta. Mientras tanto puedes conectar con un token de usuario del sistema.</p>}
-            <details className="mt-4 text-sm">
-              <summary className="cursor-pointer font-semibold">Conectar con token (avanzado)</summary>
-              <div className="mt-3 space-y-2">
-                <Field label="ID de la cuenta publicitaria"><Input placeholder="act_1234567890" value={manual.accountId} onChange={(e) => setManual({ ...manual, accountId: e.target.value })} /></Field>
-                <Field label="Token de acceso" hint="Se guarda cifrado y nunca se vuelve a mostrar"><Input type="password" autoComplete="off" value={manual.token} onChange={(e) => setManual({ ...manual, token: e.target.value })} /></Field>
-                <Button size="sm" disabled={connect.isPending || !manual.accountId || !manual.token} onClick={() => connect.mutate()}>Verificar y conectar</Button>
-              </div>
-            </details>
-          </Card>
+          <MetaConnectGuide
+            oauth={!!meta?.oauth} partnerBusinessId={meta?.partnerBusinessId ?? null}
+            onOAuth={() => oauth.mutate()} oauthPending={oauth.isPending}
+            manual={manual} setManual={setManual} onConnect={() => connect.mutate()} connectPending={connect.isPending}
+          />
           <Card kicker="Sin riesgo" title="Probar con datos de demostración">
             <p className="mb-3 text-sm text-ink-2">Crea una cuenta simulada para recorrer el producto: resultados, oportunidades y Autopilot. Se marca como demostración y nunca se mezcla con tus datos reales.</p>
             <Button variant="outline" disabled={demo.isPending} onClick={() => demo.mutate('META')}>Abrir demostración</Button>
@@ -778,118 +791,5 @@ function LeadForms({ q, summary }: { q: string; summary?: RevenueRes['leadForms'
         </>
       )}
     </Card>
-  );
-}
-
-/* ── Nueva campaña (Campaign Studio) ── */
-
-interface BriefRow { id: string; title: string; status: string; createdAt: string; createdExternalId: string | null; data: any; proposal: any }
-
-function Studio({ q, accounts }: { q: string; accounts: Account[] }) {
-  const queryClient = useQueryClient();
-  const { canWrite } = useCompanyScope();
-  const [f, setF] = useState<any>({ goal: 'MESSAGES', product: '', location: '', audience: '', dailyBudget: '', durationDays: '14', averageTicket: '', marginPct: '', leadCapacityPerDay: '', offer: '', destination: '' });
-  const [current, setCurrent] = useState<BriefRow | null>(null);
-  const [account, setAccount] = useState('');
-  const [confirmOpen, setConfirmOpen] = useState(false);
-  const { data: briefs } = useQuery({ queryKey: ['ads-briefs', q], queryFn: () => api.get<BriefRow[]>(withScope('/ads/briefs', q)) });
-  const usable = useMemo(() => accounts.filter((a) => a.status === 'CONNECTED'), [accounts]);
-  const err = (e: unknown) => toast.error(e instanceof Error ? e.message : 'Error');
-  const propose = useMutation({ mutationFn: () => api.post<BriefRow>(withScope('/ads/briefs', q), f), onSuccess: (b) => { setCurrent(b); queryClient.invalidateQueries({ queryKey: ['ads-briefs'] }); }, onError: err });
-  const create = useMutation({
-    mutationFn: () => api.post<{ externalId: string; demo: boolean }>(withScope(`/ads/briefs/${current!.id}/create`, q), { accountId: account, confirm: true }),
-    onSuccess: (r) => { setConfirmOpen(false); setCurrent(null); queryClient.invalidateQueries({ queryKey: ['ads-briefs'] }); toast.success(r.demo ? 'Campaña creada en pausa (simulada)' : `Campaña creada en pausa (${r.externalId}). Complétala y actívala en Meta.`); },
-    onError: err,
-  });
-  const p = current?.proposal;
-  const cur = accounts.find((a) => a.id === account)?.currency ?? 'COP';
-  // Abandono: empezó el brief y se fue sin ver la propuesta (solo el paso, sin datos)
-  const started = useRef(false);
-  const proposed = useRef(false);
-  started.current = !!(f.product || f.location || f.dailyBudget);
-  proposed.current = proposed.current || !!current;
-  useEffect(() => () => {
-    if (started.current && !proposed.current && canWrite) void api.post(withScope('/creative/events', q), { type: 'abandon_step', step: 'campaign_brief' }).catch(() => undefined);
-  }, []);
-  const set = (k: string) => (e: any) => setF({ ...f, [k]: e.target.value });
-  return (
-    <div className="space-y-6">
-      {!p ? (
-        <Card kicker="Paso 1" title="Cuéntanos qué quieres lograr">
-          <fieldset disabled={!canWrite} className="grid gap-3 text-sm sm:grid-cols-2">
-            <Field label="Objetivo"><Select value={f.goal} onChange={set('goal')}><option value="MESSAGES">Conversaciones por WhatsApp</option><option value="LEADS">Formularios de contacto</option><option value="SALES">Ventas en la web</option><option value="TRAFFIC">Visitas a la web</option><option value="AWARENESS">Que me conozcan</option></Select></Field>
-            <Field label="Producto o servicio"><Input value={f.product} onChange={set('product')} placeholder="Café de origen 250 g" /></Field>
-            <Field label="Ubicación"><Input value={f.location} onChange={set('location')} placeholder="Medellín, 5 km de Laureles" /></Field>
-            <Field label="Público (opcional)"><Input value={f.audience} onChange={set('audience')} placeholder="25-40, les gusta el café" /></Field>
-            <Field label="Presupuesto diario"><Input inputMode="numeric" value={f.dailyBudget} onChange={set('dailyBudget')} placeholder="30000" /></Field>
-            <Field label="Duración (días)"><Input type="number" min={1} max={365} value={f.durationDays} onChange={set('durationDays')} /></Field>
-            <Field label="Destino" hint="Link de la web o número de WhatsApp"><Input value={f.destination} onChange={set('destination')} /></Field>
-            <Field label="Oferta confirmada (opcional)" hint="Solo si es real y vigente"><Input value={f.offer} onChange={set('offer')} /></Field>
-            <Field label="Valor promedio de venta (opcional)"><Input inputMode="numeric" value={f.averageTicket} onChange={set('averageTicket')} /></Field>
-            <Field label="Margen % (opcional)"><Input inputMode="numeric" value={f.marginPct} onChange={set('marginPct')} /></Field>
-            <Field label="¿Cuántos leads atiende tu equipo al día? (opcional)"><Input inputMode="numeric" value={f.leadCapacityPerDay} onChange={set('leadCapacityPerDay')} /></Field>
-            <div className="sm:col-span-2"><Button disabled={propose.isPending} onClick={() => propose.mutate()}>{propose.isPending ? 'Armando propuesta…' : 'Ver propuesta'}</Button></div>
-          </fieldset>
-        </Card>
-      ) : (
-        <Card kicker="Paso 2 · revisa antes de crear" title="Propuesta">
-          <div className="grid gap-5 text-sm md:grid-cols-2">
-            <div>
-              <p className="kicker mb-1">Recomendación</p>
-              <p><b>Objetivo:</b> {OBJECTIVE[p.recommendation.objective] ?? p.recommendation.objective} en {p.recommendation.platform === 'META' ? 'Meta (Facebook e Instagram)' : p.recommendation.platform}</p>
-              <p className="text-ink-2">{p.recommendation.why}</p>
-              <p className="kicker mb-1 mt-3">Estructura sugerida</p>
-              <ul className="list-disc pl-5">{p.recommendation.structure.map((s: any) => <li key={s.name}>{s.name} · {money(s.dailyBudget, p.recommendation.budget.currency)}/día</li>)}</ul>
-              <p className="kicker mb-1 mt-3">Variantes para probar (una hipótesis cada una)</p>
-              <ul className="list-disc pl-5">{p.recommendation.variants.map((v: any) => <li key={v.hypothesis}><b>{v.hypothesis.replace(/_/g, ' ').toLowerCase()}:</b> {v.idea}</li>)}</ul>
-              <p className="mt-3"><b>Cómo se mide:</b> {p.recommendation.metrics.join(' · ')}</p>
-            </div>
-            <div>
-              <p className="kicker mb-1">Presupuesto</p>
-              <p className="display text-2xl">{money(p.recommendation.budget.total, p.recommendation.budget.currency)}</p>
-              <p className="text-ink-2">{money(p.recommendation.budget.daily, p.recommendation.budget.currency)} al día durante {p.recommendation.budget.days} días. Lo cobra Meta a tu medio de pago, aparte de BackOffice.</p>
-              <p className="mt-2 text-ink-2">{p.recommendation.expectations}</p>
-              {p.recommendation.breakEvenCostPerSale && <p className="mt-1 text-ink-2">Para no perder, cada venta debería costar menos de {money(p.recommendation.breakEvenCostPerSale, p.recommendation.budget.currency)}.</p>}
-              <p className="kicker mb-1 mt-3">Riesgos</p><ul className="list-disc pl-5 text-ink-2">{p.risks.map((r: string) => <li key={r}>{r}</li>)}</ul>
-              {p.missing.length > 0 && <><p className="kicker mb-1 mt-3">Datos que faltan</p><p className="text-ink-2">{p.missing.join(' · ')}</p></>}
-              <p className="kicker mb-1 mt-3">Supuestos</p><p className="text-ink-2">{p.assumptions.join(' · ')}</p>
-            </div>
-          </div>
-          <div className="mt-5 border-t-2 border-line pt-4 text-sm">
-            <p className="kicker mb-1">Lo que se enviará a la plataforma</p>
-            <p>Campaña «{p.providerConfig.name}» · objetivo {OBJECTIVE[p.providerConfig.objective] ?? p.providerConfig.objective} · <b>en PAUSA</b>.</p>
-            <p className="text-xs text-ink-3">Después hay que completar en Meta: {p.pendingInPlatform.join(' · ')}.</p>
-            {canWrite && (
-              <div className="mt-3 flex flex-wrap items-end gap-2">
-                {usable.length ? (
-                  <>
-                    <Field label="Cuenta"><Select value={account} onChange={(e) => setAccount(e.target.value)} className="!w-64"><option value="">Elegir…</option>{usable.map((a) => <option key={a.id} value={a.id}>{a.name}{a.mode === 'DEMO' ? ' (demostración)' : ''}</option>)}</Select></Field>
-                    <Button disabled={!account} onClick={() => setConfirmOpen(true)}>Crear en pausa</Button>
-                  </>
-                ) : <p className="text-sm">Conecta una cuenta publicitaria para crearla. <Link to="?tab=cuentas" className="underline">Ir a Cuentas</Link></p>}
-                <Button variant="ghost" onClick={() => setCurrent(null)}>Editar brief</Button>
-              </div>
-            )}
-          </div>
-        </Card>
-      )}
-      <Card kicker="Historial" title="Briefs y campañas">
-        {!briefs?.length ? <p className="text-sm text-ink-3">Sin briefs todavía.</p> : (
-          <ul className="divide-y divide-line text-sm">
-            {briefs.map((b) => (
-              <li key={b.id} className="flex flex-wrap items-center justify-between gap-2 py-2">
-                <span><b>{b.title}</b> <Badge tone={b.status === 'CREATED' ? 'ok' : 'neutral'}>{b.status === 'CREATED' ? 'Creada en pausa' : 'Propuesta'}</Badge><span className="block text-xs text-ink-3">{new Date(b.createdAt).toLocaleDateString('es-CO')}{b.createdExternalId ? ` · ID ${b.createdExternalId}` : ''}</span></span>
-                {b.status !== 'CREATED' && <Button size="sm" variant="outline" onClick={() => setCurrent(b)}>Ver propuesta</Button>}
-              </li>
-            ))}
-          </ul>
-        )}
-      </Card>
-      <Confirm open={confirmOpen} title="Crear campaña en pausa" cta="Crear en pausa" busy={create.isPending} onClose={() => setConfirmOpen(false)} onConfirm={() => create.mutate()}>
-        <p>Se creará «{p?.providerConfig.name}» en la cuenta elegida, <b>en pausa</b>: no gasta nada hasta que la completes y la actives.</p>
-        <p>Presupuesto planeado: {money(p?.recommendation.budget.daily, cur)} al día ({money(p?.recommendation.budget.total, cur)} en total), que activarás tú en la plataforma.</p>
-        {accounts.find((a) => a.id === account)?.mode === 'DEMO' && <p className="text-info">Es una cuenta de demostración: la creación es simulada.</p>}
-      </Confirm>
-    </div>
   );
 }

@@ -46,6 +46,8 @@ export interface RemoteAccount {
   currency: string;
   timezone: string | null;
   active: boolean;
+  /** Lo que el usuario del token puede hacer en la cuenta (Meta: MANAGE, ADVERTISE, ANALYZE…) */
+  tasks?: string[];
 }
 
 export interface RemoteEntity {

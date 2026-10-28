@@ -20,6 +20,8 @@ interface AuthContextValue {
   /** Entra con una sesión ya emitida (registro por la web). */
   adopt: (token: string, user: AuthUser) => void;
   logout: () => void;
+  /** Marca un recorrido de sección como visto (en el servidor y en la sesión abierta). */
+  markTourSeen: (tour: string) => void;
   /** Rol de plataforma (SUPER_ADMIN o DEV): acceso a todas las empresas. */
   isPlatform: boolean;
   /** Puede escribir (todo menos COMPANY_VIEWER). */
@@ -65,6 +67,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(next);
   }, []);
 
+  const markTourSeen = useCallback((tour: string) => {
+    setUser((u) => {
+      if (!u) return u;
+      let seen: Record<string, string> = {};
+      try {
+        seen = JSON.parse(u.toursJson ?? '{}') ?? {};
+      } catch {
+        seen = {};
+      }
+      return seen[tour] ? u : { ...u, toursJson: JSON.stringify({ ...seen, [tour]: new Date().toISOString() }) };
+    });
+    void api.post('/auth/tour-done', { tour }).catch(() => undefined);
+  }, []);
+
   const logout = useCallback(() => {
     // Cierra la sesión también en el servidor: el token deja de servir aunque alguien lo haya copiado
     if (getToken()) void api.post('/auth/logout').catch(() => undefined);
@@ -83,11 +99,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       verifyMfa,
       adopt,
       logout,
+      markTourSeen,
       isPlatform,
       canWrite: !!user && user.role !== 'COMPANY_VIEWER',
       hasRole: (...roles: Role[]) => !!user && roles.includes(user.role),
     };
-  }, [user, loading, login, verifyMfa, adopt, logout]);
+  }, [user, loading, login, verifyMfa, adopt, logout, markTourSeen]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

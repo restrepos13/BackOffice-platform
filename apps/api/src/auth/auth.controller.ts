@@ -110,9 +110,9 @@ export class AuthController {
     return this.auth.changePassword(user.id, dto.currentPassword, dto.newPassword);
   }
 
-  /** El tour de bienvenida se muestra una sola vez por usuario. */
+  /** Cada recorrido (bienvenida, Ads…) se muestra una sola vez por usuario. */
   @Post('tour-done')
-  tourDone(@CurrentUser() user: AuthUser) {
-    return this.auth.completeTour(user.id);
+  tourDone(@CurrentUser() user: AuthUser, @Body() body: any) {
+    return this.auth.completeTour(user.id, typeof body?.tour === 'string' ? body.tour : undefined);
   }
 }
