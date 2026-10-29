@@ -2609,6 +2609,8 @@ model AdLaunch {
   idsJson         String    @default("{}")
   /// Última revisión (código y, si hubo, IA) con la que se creó
   reviewJson      String?
+  /// Diseño de Creative del que salió la imagen (si vino de Creative)
+  designId        String?
   utmCampaign     String
   link            String?
   error           String?

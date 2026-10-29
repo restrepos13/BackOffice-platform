@@ -455,6 +455,29 @@ describe('Laboratorio visual · segunda ronda', () => {
   });
 });
 
+describe('Palabras largas (medidas en el navegador)', () => {
+  // Peor ancho real / estimado de una palabra sola, medido con canvas en oct-2026
+  const REAL: Record<string, number> = { Anton: 1.215, Inter: 1.206, Poppins: 1.166, Montserrat: 1.211, 'Playfair Display': 1.201, Lora: 1.289, Pacifico: 1.399, 'Bebas Neue': 1.071 };
+  const pairs: Array<[string, string]> = [['Anton', 'Inter'], ['Poppins', 'Inter'], ['Montserrat', 'Inter'], ['Playfair Display', 'Lora'], ['Pacifico', 'Poppins'], ['Bebas Neue', 'Inter']];
+  it.each(pairs)('«Hamburguesas» no se parte en ninguna familia (%s + %s)', (title, body) => {
+    const { charWidth } = require('../src/common/creative/text-fit');
+    for (const personality of [['ENERGICA'], ['ELEGANTE'], ['DIVERTIDA']]) {
+      const id = ident({ visual: sanitizeVisual({ personality }), fonts: [title, body] });
+      for (const family of FAMILIES) {
+        for (const format of ['IG_POST', 'STORY'] as FormatKey[]) {
+          const doc = compose(family, tokensFor(id, format, 7, 'X'), { headline: 'Hamburguesas artesanales', price: '$15.000', cta: 'Pide por WhatsApp', photos: ['p1'] }, 0, dims);
+          for (const e of doc.elements.filter((x: any) => x.type === 'text' && x.role === 'headline') as any[]) {
+            const longest = e.text.split(/\s+/).reduce((m: string, w: string) => (w.length > m.length ? w : m), '');
+            const upper = e.text === e.text.toUpperCase();
+            const real = charWidth(e.fontFamily, e.fontSize, /bold/.test(e.fontStyle), upper) * longest.length * (REAL[e.fontFamily] ?? 1.3);
+            expect({ family, format, font: e.fontFamily, fits: real <= e.width + 1 }).toEqual({ family, format, font: e.fontFamily, fits: true });
+          }
+        }
+      }
+    }
+  });
+});
+
 describe('Laboratorio visual · tercera ronda', () => {
   it('un precio como "$15.000" no se parte dentro del sello', () => {
     const id = ident({ visual: sanitizeVisual({ personality: ['ENERGICA'] }), fonts: ['Anton', 'Inter'] });

@@ -25,7 +25,7 @@ interface Asset {
   width: number | null;
   height: number | null;
   durationSec: number | null;
-  source: 'UPLOAD' | 'CATALOG' | 'DESIGN';
+  source: 'UPLOAD' | 'CATALOG' | 'DESIGN' | 'CUTOUT';
   originModule: 'CREATIVE' | 'ADS';
   designId: string | null;
   designVersion: number | null;
@@ -56,6 +56,8 @@ const mb = (n: number) => `${(n / 1024 / 1024).toFixed(n < 1024 * 1024 ? 2 : 1)}
 function sourceLabel(a: Asset) {
   if (a.source === 'DESIGN') return `Diseño de Creative · v${a.designVersion ?? '?'}`;
   if (a.source === 'CATALOG') return 'Foto del catálogo';
+  // Derivado: el original se conserva y no se borra mientras exista el recorte
+  if (a.source === 'CUTOUT') return 'Recorte sin fondo (derivado; el original se conserva)';
   return `Subido en ${ORIGIN[a.originModule]}`;
 }
 

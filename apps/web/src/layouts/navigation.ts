@@ -125,13 +125,14 @@ export function automationGroups(ctx: NavContext): NavGroup[] {
 
 export function creativeGroups(ctx: NavContext): NavGroup[] {
   return clean([
-    { id: 'inicio', title: 'Inicio', items: [{ to: '/app/creative?tab=inicio', label: 'Inicio de Creative', icon: LayoutDashboard }] },
+    { id: 'crear', title: 'Crear', items: [{ to: '/app/creative?tab=crear', label: 'Crear para vender', icon: Sparkles }] },
+    { id: 'inicio', title: 'Inicio', items: [{ to: '/app/creative?tab=inicio', label: 'Oportunidades y avance', icon: LayoutDashboard }] },
     { id: 'disenos', title: 'Diseños', items: [{ to: '/app/creative?tab=disenos', label: 'Mis diseños', icon: Layers }] },
     { id: 'marca', title: 'Marca', items: [{ to: '/app/creative?tab=marca', label: 'Identidad de marca', icon: SwatchBook }] },
     { id: 'biblioteca', title: 'Biblioteca creativa', items: [{ to: '/app/biblioteca', label: 'Imágenes, logos y versiones', icon: FolderOpen }] },
     {
       id: 'publicacion', title: 'Calendario y publicación', items: [
-        { to: '/app/creative?tab=calendario', label: 'Calendario', icon: CalendarDays },
+        { to: '/app/creative?tab=calendario', label: 'Calendario orgánico', icon: CalendarDays },
         { to: '/app/creative?tab=reglas', label: 'Reglas de publicación', icon: ShieldCheck },
         { to: '/app/marketing', label: 'Piezas y redes', icon: Megaphone, module: 'marketing' },
         { to: '/app/creative?tab=creditos', label: 'Créditos de contenido', icon: Sparkles },
@@ -245,7 +246,7 @@ export function isItemActive(item: NavItem, pathname: string, search: string): b
   // El editor de un diseño pertenece a "Mis diseños"
   if (pathname.startsWith('/app/creative/editor')) return want === 'disenos';
   const have = new URLSearchParams(search).get('tab');
-  const defaults: Record<string, string> = { '/app/creative': 'inicio', '/app/ads': 'resumen' };
+  const defaults: Record<string, string> = { '/app/creative': 'crear', '/app/ads': 'resumen' };
   return (have ?? defaults[path]) === want;
 }
 

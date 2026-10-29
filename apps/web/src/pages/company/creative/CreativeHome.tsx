@@ -11,6 +11,7 @@ import { Badge, Button, Card, EmptyState, Field, Input, Loading, Modal, PageHead
 import { PickCompany, useCompanyScope, withScope } from '../shared';
 import { AssetThumb } from './Editor';
 import CreativeStart from './CreativeStart';
+import CreateForSale from './CreateForSale';
 import { ArtDirector } from './ArtDirector';
 import { VisualIdentityCard } from './VisualIdentity';
 import { OpportunityList } from '../../../components/opportunities/Opportunities';
@@ -37,12 +38,13 @@ interface Piece {
 
 /** Pestañas de la vista del equipo BackOffice (como siempre). */
 const TABS = [
-  { id: 'inicio', label: 'Inicio' }, { id: 'oportunidades', label: 'Oportunidades' }, { id: 'disenos', label: 'Diseños' }, { id: 'marca', label: 'Marca' }, { id: 'recursos', label: 'Recursos' },
+  { id: 'crear', label: 'Crear' }, { id: 'inicio', label: 'Inicio' }, { id: 'oportunidades', label: 'Oportunidades' }, { id: 'disenos', label: 'Diseños' }, { id: 'marca', label: 'Marca' }, { id: 'recursos', label: 'Recursos' },
   { id: 'calendario', label: 'Calendario' }, { id: 'reglas', label: 'Reglas' }, { id: 'creditos', label: 'Créditos' },
 ];
 
 /** Secciones de Creative (el menú lateral las lista; aquí solo se titula la pantalla). */
 const SECTIONS: Record<string, { kicker: string; title: string }> = {
+  crear: { kicker: 'BackOffice Creative', title: 'Crear para vender' },
   inicio: { kicker: 'BackOffice Creative', title: 'Inicio' },
   oportunidades: { kicker: 'Inicio', title: 'Oportunidades' },
   disenos: { kicker: 'Diseños', title: 'Mis diseños' },
@@ -55,8 +57,9 @@ const SECTIONS: Record<string, { kicker: string; title: string }> = {
 export default function CreativeHome() {
   const { ready, q, canWrite, isPlatform } = useCompanyScope();
   const [params, setParams] = useSearchParams();
-  const raw = params.get('tab') ?? 'inicio';
-  const tab = raw in SECTIONS ? raw : raw === 'recursos' ? raw : 'inicio';
+  // «Crear» es la entrada principal: describir, elegir fotos y obtener una propuesta
+  const raw = params.get('tab') ?? 'crear';
+  const tab = raw in SECTIONS ? raw : raw === 'recursos' ? raw : 'crear';
   const brand = useQuery({ queryKey: ['brand', q], queryFn: () => api.get<Brand>(withScope('/creative/brand', q)), enabled: ready, retry: false });
   // Los recursos viven en la Biblioteca compartida (antes había una lista aparte aquí)
   if (tab === 'recursos' && !isPlatform) return <Navigate to="/app/biblioteca" replace />;
@@ -71,6 +74,7 @@ export default function CreativeHome() {
         </>
       ) : <PageHeader kicker={SECTIONS[tab].kicker} title={SECTIONS[tab].title} />}
       <div className={isPlatform ? 'mt-5' : undefined}>
+        {tab === 'crear' && <CreateForSale q={q} />}
         {tab === 'inicio' && <CreativeStart q={q} />}
         {tab === 'oportunidades' && <OpportunityList scope={(p) => withScope(p, q)} query={{ source: params.get('source') ?? undefined }} canWrite={canWrite} />}
         {tab === 'disenos' && <Designs q={q} />}

@@ -28,6 +28,18 @@ function digitFactor(text: string, font: string) {
   return 1 + (digits / Math.max(1, text.replace(/\s/g, '').length)) * (CONDENSED.includes(font) ? 0.35 : 0.12);
 }
 
+/**
+ * Una palabra sola es más ancha que el promedio (no tiene espacios y suelen
+ * pesar las letras anchas: M, W, N). Peor caso medido por fuente en el
+ * navegador (oct-2026: 20 palabras de 9 a 14 letras, en minúsculas y
+ * mayúsculas, normal y negrita) contra charWidth; con un 3 % de holgura.
+ * Sin esto «HAMBURGUESAS» se partía en «HAMBURGUES / AS».
+ */
+const WORD: Record<string, number> = {
+  Inter: 1.24, Montserrat: 1.25, Poppins: 1.2, Roboto: 1.19, Raleway: 1.22, Nunito: 1.24, Lato: 1.3,
+  'Playfair Display': 1.24, Lora: 1.33, 'DM Serif Display': 1.2, Anton: 1.25, 'Bebas Neue': 1.1, Oswald: 1.09, 'Archivo Black': 1.15, Pacifico: 1.44,
+};
+
 export function wrap(text: string, size: number, width: number, font: string, bold = false, upper = false): string[] {
   const cw = charWidth(font, size, bold, upper) * digitFactor(text, font);
   const maxChars = Math.max(1, Math.floor(width / cw));
@@ -53,11 +65,12 @@ export function textHeight(text: string, size: number, width: number, font: stri
 /** Mayor tamaño (entre min y max) con el que el texto entra en la caja. */
 export function fitSize(text: string, o: { width: number; maxHeight: number; font: string; lineHeight: number; max: number; min: number; bold?: boolean; upper?: boolean; maxLines?: number }) {
   // Nunca partir una palabra a la mitad: la más larga tiene que entrar entera en el ancho
-  // (si ni al mínimo entra, se permite bajar hasta el 70 % del mínimo antes de rendirse)
+  // (si ni al mínimo entra, se permite bajar hasta el 60 % del mínimo antes de rendirse: una
+  // columna angosta, como la de MODULAR, prefiere letra algo menor a una palabra partida)
   const longest = text.split(/\s+/).reduce((m, w) => (w.length > m.length ? w : m), '');
-  const perChar = charWidth(o.font, 1, o.bold, o.upper) * digitFactor(text, o.font);
+  const perChar = charWidth(o.font, 1, o.bold, o.upper) * digitFactor(text, o.font) * (WORD[o.font] ?? 1.3);
   const wordCap = longest ? Math.floor(o.width / (perChar * longest.length)) : o.max;
-  const floor = Math.min(o.min, Math.max(o.min * 0.7, wordCap));
+  const floor = Math.min(o.min, Math.max(o.min * 0.6, wordCap));
   o = { ...o, max: Math.min(o.max, Math.max(floor, wordCap)), min: Math.min(o.min, Math.max(floor, wordCap)) };
   let size = Math.round(o.max);
   while (size > o.min) {

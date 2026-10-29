@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { clsx } from 'clsx';
 import type Konva from 'konva';
 import {
-  ArrowDown, ArrowLeft, ArrowUp, Bold, Circle, Copy, Download, Eye, EyeOff, FolderOpen, ImagePlus, Italic, Lock, Minus, Redo2,
+  ArrowDown, ArrowLeft, ArrowUp, Bold, Circle, Copy, Download, Eye, EyeOff, FolderOpen, ImagePlus, Italic, Lock, Megaphone, Minus, Redo2,
   Save, Send, Square, Trash2, Type, Undo2, Unlock,
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -67,6 +67,9 @@ export default function Editor() {
     setDoc(loaded.doc);
     setName(loaded.name);
     setVersion(loaded.version);
+    versionRef.current = loaded.version;
+    savedDoc.current = loaded.doc;
+    savedName.current = loaded.name;
     try {
       const raw = localStorage.getItem(draftKey);
       if (raw) {
@@ -139,24 +142,45 @@ export default function Editor() {
   const redo = () => { if (!doc) return; const n = history.current.redo(doc); if (n) { setDoc(n); setSaveState('dirty'); force((x) => x + 1); } };
 
   /* ── Guardado automático con control de versión ── */
-  const saving = useRef(false);
-  const save = useCallback(async () => {
-    if (!doc || saving.current || !canWrite) return;
-    saving.current = true;
-    setSaveState('saving');
-    try {
-      const r = await api.put<{ version: number }>(`/creative/designs/${id}`, { doc, expectedVersion: version, name });
-      setVersion(r.version);
-      setSaveState('saved');
-      try { localStorage.removeItem(draftKey); } catch { /* nada */ }
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : '';
-      setSaveState(/otra pestaña|otra persona/.test(msg) ? 'conflict' : 'error');
-      if (!/otra pestaña/.test(msg)) toast.error(msg || 'No se pudo guardar');
-    } finally {
-      saving.current = false;
-    }
-  }, [doc, id, version, name, canWrite, draftKey]);
+  // La versión guardada y el documento que corresponde a ella (refs: las exportaciones las leen tras esperar el guardado)
+  const versionRef = useRef(1);
+  const savedDoc = useRef<DesignDoc | null>(null);
+  const savedName = useRef('');
+  const inflight = useRef<Promise<number | null> | null>(null);
+  /** Guarda el documento actual; devuelve la versión guardada o null si no se pudo. */
+  const save = useCallback(async (): Promise<number | null> => {
+    if (!doc || !canWrite) return null;
+    // Un guardado en curso se espera (antes se ignoraba y la exportación seguía sin esperar)
+    while (inflight.current) await inflight.current;
+    if (doc === savedDoc.current && name === savedName.current) return versionRef.current;
+    const run = (async () => {
+      setSaveState('saving');
+      try {
+        const r = await api.put<{ version: number }>(`/creative/designs/${id}`, { doc, expectedVersion: versionRef.current, name });
+        versionRef.current = r.version;
+        savedDoc.current = doc;
+        savedName.current = name;
+        setVersion(r.version);
+        setSaveState('saved');
+        try { localStorage.removeItem(draftKey); } catch { /* nada */ }
+        return r.version;
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : '';
+        setSaveState(/otra pestaña|otra persona/.test(msg) ? 'conflict' : 'error');
+        if (!/otra pestaña/.test(msg)) toast.error(msg || 'No se pudo guardar');
+        return null;
+      }
+    })();
+    inflight.current = run;
+    try { return await run; } finally { inflight.current = null; }
+  }, [doc, id, name, canWrite, draftKey]);
+
+  /** Antes de exportar o compartir: lo que se exporta tiene que estar guardado (y se dice qué versión es). */
+  const ensureSaved = async () => {
+    const v = await save();
+    if (v == null) throw new Error('No se pudo guardar el diseño, así que no exportamos una versión sin guardar. Revisa el aviso de guardado e intenta de nuevo.');
+    return v;
+  };
 
   useEffect(() => {
     if (saveState !== 'dirty' || !doc) return;
@@ -222,14 +246,14 @@ export default function Editor() {
   };
   const exportMut = useMutation({
     mutationFn: async (mime: 'image/png' | 'image/jpeg') => {
-      if (saveState !== 'saved') await save();
+      const v = await ensureSaved();
       const blob = await renderBlob(mime);
       const ext = mime === 'image/png' ? 'png' : 'jpg';
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
       a.download = `${(name || 'diseno').replace(/[^\w-]+/g, '-')}.${ext}`;
       a.click();
-      await uploadFile(withScope(`/creative/designs/${id}/export`, ''), 'file', new File([blob], `export.${ext}`, { type: mime }));
+      await uploadFile(withScope(`/creative/designs/${id}/export`, ''), 'file', new File([blob], `export.${ext}`, { type: mime }), { expectedVersion: String(v) });
     },
     onSuccess: () => {
       toast.success('Imagen exportada');
@@ -242,11 +266,11 @@ export default function Editor() {
   // Biblioteca compartida: guarda ESTA versión como recurso (la anterior queda intacta) sin descargar nada
   const toLibrary = useMutation({
     mutationFn: async () => {
-      if (saveState !== 'saved') await save();
+      const v = await ensureSaved();
       const r = await api.post<{ blocking: boolean }>(`/creative/designs/${id}/check`, { doc, forExport: true });
       if (r.blocking) throw new Error('Hay problemas por corregir (usa «Revisar y exportar» para verlos).');
       const blob = await renderBlob('image/png');
-      await uploadFile(withScope(`/creative/designs/${id}/export`, q), 'file', new File([blob], 'export.png', { type: 'image/png' }));
+      await uploadFile(withScope(`/creative/designs/${id}/export`, q), 'file', new File([blob], 'export.png', { type: 'image/png' }), { expectedVersion: String(v) });
       return api.post<{ created: boolean }>(withScope(`/library/from-design/${id}`, q));
     },
     onSuccess: (r) => {
@@ -258,9 +282,27 @@ export default function Editor() {
     onError: (e) => toast.error(e instanceof Error ? e.message : 'No se pudo llevar a la Biblioteca'),
   });
 
+  // Del diseño al flujo de Ads: misma exportación que la biblioteca y Ads valida y crea en pausa
+  const toAds = useMutation({
+    mutationFn: async () => {
+      const v = await ensureSaved();
+      const r = await api.post<{ blocking: boolean }>(`/creative/designs/${id}/check`, { doc, forExport: true, forAds: true });
+      if (r.blocking) throw new Error('Hay problemas por corregir antes de usarla en un anuncio (usa «Revisar y exportar» para verlos).');
+      const blob = await renderBlob('image/png');
+      await uploadFile(withScope(`/creative/designs/${id}/export`, q), 'file', new File([blob], 'export.png', { type: 'image/png' }), { expectedVersion: String(v) });
+      return api.post<{ asset: { id: string }; ads: { contracted: boolean; connected: boolean; url: string | null; note: string | null } }>(withScope(`/creative/create/to-ads/${id}`, q));
+    },
+    onSuccess: (r) => {
+      queryClient.invalidateQueries({ queryKey: ['library'] });
+      if (r.ads.url) navigate(r.ads.url);
+      else toast.info(r.ads.note ?? 'La imagen quedó en tu biblioteca.', { action: { label: 'Ver', onClick: () => navigate('/app/biblioteca') } });
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : 'No se pudo preparar la imagen para Ads'),
+  });
+
   const adapt = useMutation({
     mutationFn: async (to: FormatKey) => {
-      if (saveState !== 'saved') await save();
+      await ensureSaved();
       return api.post<{ id: string; method: 'RECOMPOSED' | 'SCALED' }>(`/creative/designs/${id}/adapt`, { format: to });
     },
     onSuccess: (r) => {
@@ -275,7 +317,7 @@ export default function Editor() {
   const [review, setReview] = useState<{ url: string; issues: Issue[]; blocking: boolean } | null>(null);
   const openReview = useMutation({
     mutationFn: async () => {
-      if (saveState !== 'saved') await save();
+      await ensureSaved();
       const blob = await renderBlob('image/png');
       // Altura real de cada texto tal como lo dibuja el lienzo (manda sobre la estimación del servidor)
       const measured: Record<string, number> = {};
@@ -345,7 +387,8 @@ export default function Editor() {
         {canWrite && <Button size="sm" variant="outline" disabled={saveState === 'saving'} onClick={() => void save()}><Save size={14} /> Guardar</Button>}
         <Button size="sm" variant="outline" disabled={openReview.isPending || exportMut.isPending} onClick={() => openReview.mutate()}><Download size={14} /> {openReview.isPending ? 'Revisando…' : 'Revisar y exportar'}</Button>
         {canWrite && <Button size="sm" variant="outline" disabled={toLibrary.isPending} onClick={() => toLibrary.mutate()} title="Guarda esta versión como recurso para tus anuncios"><FolderOpen size={14} /> {toLibrary.isPending ? 'Guardando…' : 'A la biblioteca'}</Button>}
-        {canWrite && <Button size="sm" onClick={() => setToCalendar(true)}><Send size={14} /> Al calendario</Button>}
+        {canWrite && <Button size="sm" variant="outline" disabled={toAds.isPending} onClick={() => toAds.mutate()} title="Abre Crear anuncio en Ads con esta imagen (se crea en pausa)"><Megaphone size={14} /> {toAds.isPending ? 'Preparando…' : 'Usar en anuncio'}</Button>}
+        {canWrite && <Button size="sm" onClick={() => setToCalendar(true)} title="Publicación orgánica en Facebook e Instagram (no es un anuncio pagado)"><Send size={14} /> Al calendario</Button>}
       </header>
 
       {saveState === 'error' && (
@@ -598,7 +641,7 @@ export default function Editor() {
       <ToCalendar open={toCalendar} onClose={() => setToCalendar(false)} designId={id} name={name}
         beforeSend={async () => {
           // Mismo control que al exportar: lo bloqueante no pasa al calendario
-          if (saveState !== 'saved') await save();
+          await ensureSaved();
           const r = await api.post<{ blocking: boolean }>(`/creative/designs/${id}/check`, { doc, forExport: true });
           if (r.blocking) throw new Error('Hay problemas por corregir (usa «Revisar y exportar» para verlos).');
           await exportMut.mutateAsync('image/png');

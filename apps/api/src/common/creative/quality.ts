@@ -30,6 +30,8 @@ export interface QualityContext {
   recentPrints?: Fingerprint[];
   /** Zonas de las historias que tapa la interfaz (píxeles sobre 1920 de alto) */
   storySafe?: { top: number; bottom: number };
+  /** Pieza para vender o para un anuncio: debe decir qué hacer (llamado a la acción) */
+  expectCta?: boolean;
 }
 
 interface Rect { x: number; y: number; w: number; h: number }
@@ -187,6 +189,10 @@ export function checkQuality(doc: DesignDoc, ctx: QualityContext): Issue[] {
     if (biggest && headlineEl.fontSize < biggest * 1.3) push({ code: 'WEAK_HIERARCHY', severity: 'INFO', kind: 'HEURISTIC', message: 'El titular casi no se distingue del resto del texto: agrándalo o acorta el texto de apoyo.', elementId: headlineEl.id, elementName: headlineEl.name });
   }
 
+  // Pieza para vender sin llamado a la acción visible
+  if (ctx.expectCta && !visible.some((e) => e.role === 'cta' && (e.type !== 'text' || (e as TextElement).text.trim()))) {
+    push({ code: 'MISSING_CTA', severity: 'WARN', kind: 'VERIFIED', message: 'No hay un llamado a la acción («Pide por WhatsApp», «Reserva»…): la gente no sabe qué hacer después de verla.' });
+  }
 
   // Ordenar: bloqueantes primero; sin duplicar el mismo aviso para el mismo elemento
   const seen = new Set<string>();

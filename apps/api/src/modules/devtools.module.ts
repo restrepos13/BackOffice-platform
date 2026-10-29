@@ -46,6 +46,8 @@ const SETTING_GROUPS: Array<{ group: string; keys: string[]; purpose: string }> 
   { group: 'Web pública', keys: ['PUBLIC_WEB_URL'], purpose: 'Dominio de la web: links de seguimiento de pedidos (/t/…) que recibe el cliente' },
   { group: 'IA de BackOffice', keys: ['DEEPINFRA_API_KEY'], purpose: 'Llave propia para empresas en modo IA revendida (las BYOK usan la suya)' },
   { group: 'Meta', keys: ['META_APP_ID', 'META_VERIFY_TOKEN', 'META_APP_SECRET'], purpose: 'Canales Meta (WhatsApp Cloud, Instagram, Messenger): verificación y firma de webhooks' },
+  { group: 'Creative · imágenes', keys: ['REMOVE_BG_API_KEY'], purpose: 'Quitar el fondo de fotos (remove.bg). Sin llave, Creative muestra la función como no configurada; cada recorte usa créditos de contenido' },
+  { group: 'Ads · revisión con IA', keys: ['ADS_VISION_MODEL'], purpose: 'Modelo de visión (DeepInfra) que revisa las imágenes de anuncios con la llave de cada empresa; por defecto Llama-3.2-11B-Vision' },
   { group: 'Meta Ads', keys: ['META_BUSINESS_ID'], purpose: 'ID del portafolio comercial de BackOffice: el que el cliente agrega como socio de su cuenta publicitaria (guía de conexión de Ads)' },
   { group: 'Registro web', keys: ['GEMINI_API_KEYS', 'SIGNUP_NOTIFY_EMAIL'], purpose: 'IA genérica (Gemini, llaves solo en el .env, rotan solas) que arma las empresas nuevas y las acompaña; correo que recibe cada registro' },
   { group: 'Google Calendar', keys: ['GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET'], purpose: 'Cliente OAuth 2.0 (Google Cloud) para que cada empresa conecte su calendario; URI de redirección: <web>/api/public/calendar/google/callback' },

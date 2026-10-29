@@ -22,7 +22,7 @@ describe('Arquitectura de información', () => {
   });
 
   it('Creative y Ads tienen sus grupos; la biblioteca es la misma en los dos (no hay otra)', () => {
-    expect(creativeGroups(ALL).map((g) => g.title)).toEqual(['Inicio', 'Diseños', 'Marca', 'Biblioteca creativa', 'Calendario y publicación']);
+    expect(creativeGroups(ALL).map((g) => g.title)).toEqual(['Crear', 'Inicio', 'Diseños', 'Marca', 'Biblioteca creativa', 'Calendario y publicación']);
     expect(adsGroups(ALL).map((g) => g.title)).toEqual(['Resumen publicitario', 'Campañas y cuentas', 'Creatividades y recursos', 'Inteligencia y oportunidades', 'Automatización publicitaria', 'Leads, ventas y atribución']);
     const lib = (gs: ReturnType<typeof adsGroups>) => gs.flatMap((g) => g.items).filter((i) => i.to === '/app/biblioteca');
     expect(lib(creativeGroups(ALL))).toHaveLength(1);
@@ -81,8 +81,12 @@ describe('Producto activo según la ruta', () => {
     expect(isItemActive(pedidos, '/app/orders/reports', '')).toBe(false);
     const cr = creativeGroups(ALL).flatMap((g) => g.items);
     const inicio = cr.find((i) => i.to.endsWith('tab=inicio'))!;
+    const crear = cr.find((i) => i.to.endsWith('tab=crear'))!;
     const disenos = cr.find((i) => i.to.endsWith('tab=disenos'))!;
-    expect(isItemActive(inicio, '/app/creative', '')).toBe(true);
+    // «Crear» es la entrada por defecto de Creative
+    expect(isItemActive(crear, '/app/creative', '')).toBe(true);
+    expect(isItemActive(inicio, '/app/creative', '')).toBe(false);
+    expect(isItemActive(inicio, '/app/creative', '?tab=inicio')).toBe(true);
     expect(isItemActive(disenos, '/app/creative', '?tab=disenos')).toBe(true);
     expect(isItemActive(disenos, '/app/creative/editor/abc', '')).toBe(true);
     expect(isItemActive(inicio, '/app/creative/editor/abc', '')).toBe(false);

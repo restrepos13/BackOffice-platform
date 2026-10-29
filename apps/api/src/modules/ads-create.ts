@@ -292,14 +292,24 @@ export class AdsCreateService {
     const ctx = await this.context(c, a, dto);
     const errors = validateClientDraft(draft, { ...ctx, hasImage: !!dto?.assetId });
     if (errors.length) throw new BadRequestException({ message: 'Revisa el anuncio', errors });
-    await this.assetBytes(c.id, dto.assetId); // existe y es una imagen válida de la empresa
+    const { asset } = await this.assetBytes(c.id, dto.assetId); // existe y es una imagen válida de la empresa
+    // Si viene de Creative: el diseño es de la empresa y la imagen es una exportación de ESE diseño
+    let designId: string | null = null;
+    if (dto?.designId) {
+      const design = await this.prisma.creativeDesign.findUnique({ where: { id: String(dto.designId) } });
+      if (!design || design.companyId !== c.id) throw new NotFoundException('Diseño no encontrado');
+      if ((asset as any).designId !== design.id) throw new BadRequestException('La imagen no corresponde a ese diseño');
+      // El diseño cambió después de llevarlo a Ads: la imagen ya no es la versión actual
+      if ((asset as any).designVersion !== design.version) throw new BadRequestException('El diseño cambió después de traerlo a Ads. Vuelve a usar «Usar en anuncio» desde el editor para traer la versión actual.');
+      designId = design.id;
+    }
     const plan = buildClientLaunch(draft, { ...ctx, imageHash: '' });
     const id = randomBytes(9).toString('hex');
     const launch = await this.prisma.adLaunch.create({
       data: {
         id, companyId: c.id, accountId: a.id, status: 'CREATING', draftJson: JSON.stringify(draft), assetId: String(dto.assetId),
         pageId: ctx.pageId!, instagramUserId: ctx.instagramUserId, utmCampaign: plan.utmCampaign, link: plan.link,
-        reviewJson: dto?.review ? JSON.stringify(dto.review).slice(0, 20000) : null,
+        reviewJson: dto?.review ? JSON.stringify(dto.review).slice(0, 20000) : null, designId,
         historyJson: JSON.stringify([{ at: this.now().toISOString(), by: user.name, event: 'Anuncio preparado' }]),
         lockUntil: new Date(this.now().getTime() + LOCK_MS), createdBy: user.name, createdAt: this.now(), updatedAt: this.now(),
       },
@@ -425,7 +435,7 @@ export class AdsCreateService {
     const review = parseJson<ReviewResult | null>(l.reviewJson, null);
     return {
       id: l.id, status: l.status, accountId: l.accountId, draft, goalLabel: CLIENT_GOALS[draft.goal]?.label ?? draft.goal,
-      ids: parseJson<Record<string, string>>(l.idsJson, {}), assetId: l.assetId, link: l.link, error: l.error ?? null,
+      ids: parseJson<Record<string, string>>(l.idsJson, {}), assetId: l.assetId, designId: l.designId ?? null, link: l.link, error: l.error ?? null,
       history: parseJson<any[]>(l.historyJson, []), createdBy: l.createdBy, createdAt: l.createdAt,
       reviewScore: review?.code?.score ?? null, reviewedWithAi: review?.ai?.status === 'OK',
       processing: !!l.lockUntil && new Date(l.lockUntil).getTime() > this.now().getTime(),

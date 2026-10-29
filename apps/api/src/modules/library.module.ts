@@ -246,6 +246,8 @@ export class LibraryService {
     const d = await this.prisma.creativeDesign.findUnique({ where: { id: designId } });
     if (!d || d.companyId !== company.id) throw new NotFoundException('Diseño no encontrado');
     if (!d.exportFile) throw new BadRequestException('Exporta el diseño antes de llevarlo a la biblioteca');
+    // La exportación tiene que ser de la versión actual: si el diseño cambió, se vuelve a exportar
+    if (exportedVersion(d.exportFile) !== d.version) throw new BadRequestException('El diseño cambió después de exportarlo: expórtalo de nuevo');
     const same = await this.prisma.brandAsset.findFirst({ where: { companyId: company.id, designId: d.id, designVersion: d.version } });
     if (same) return { created: false, asset: assetView(same, (await this.linkCounts(company.id, [same.id])).get(same.id) ?? 0) };
     const path = await ensureFile(this.prisma, company.id, d.exportFile);
@@ -269,10 +271,22 @@ export class LibraryService {
   }
 }
 
+/** Versión que dice el nombre de la exportación (design-<id>-v<n>-…); null si no la trae. */
+export function exportedVersion(fileName: string | null | undefined): number | null {
+  const m = /-v(\d+)-/.exec(fileName ?? '');
+  return m ? Number(m[1]) : null;
+}
+
 /** Un recurso usado en una campaña o anuncio no se borra (primero hay que desvincularlo). */
 export async function assertAssetDeletable(prisma: any, companyId: string, assetId: string) {
   const used = await prisma.adAssetLink.count({ where: { companyId, assetId } });
   if (used) throw new ConflictException(`Este recurso está vinculado a ${used} ${used === 1 ? 'campaña o anuncio' : 'campañas o anuncios'}. Desvincúlalo antes de borrarlo.`);
+  // Un anuncio creado desde Ads lo necesita para reintentar o auditar
+  const launches = await prisma.adLaunch.count({ where: { companyId, assetId, status: { not: 'ARCHIVED' } } });
+  if (launches) throw new ConflictException('Este recurso lo usa un anuncio creado en BackOffice. Quita el anuncio de la lista antes de borrarlo.');
+  // Un recorte o derivado conserva su original: no se borra el original mientras tenga derivados
+  const derived = await prisma.brandAsset.count({ where: { companyId, derivedFromId: assetId, source: 'CUTOUT' } });
+  if (derived) throw new ConflictException('Esta foto tiene un recorte que depende de ella. Borra primero el recorte.');
 }
 
 @Products('CREATIVE', 'ADS')

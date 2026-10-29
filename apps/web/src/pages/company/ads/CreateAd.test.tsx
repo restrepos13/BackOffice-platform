@@ -11,6 +11,7 @@ const get = vi.fn(async (path: string): Promise<unknown> => {
   if (path.startsWith('/ads/create/setup')) return setup;
   if (path.startsWith('/ads/create/launches')) return launches;
   if (path.startsWith('/ads/create/week')) return week;
+  if (path.startsWith('/library/assets/a1')) return { id: 'a1', name: 'Tacos fin de semana · v2', width: 1080, height: 1080, available: true, designId: 'd1', kind: 'IMAGE' };
   return {};
 });
 const post = vi.fn(async (path: string, _b?: unknown): Promise<unknown> => {
@@ -130,5 +131,19 @@ describe('Ads · programación semanal', () => {
     expect(filled(rows[0])).toEqual([1, 1, 1, 1, 0, 0, 0]);
     expect(filled(rows[1])).toEqual([0, 0, 0, 0, 0, 1, 1]);
     expect(within(rows[1]).getByText(/Creado en BackOffice · en pausa/)).toBeTruthy();
+  });
+});
+
+describe('Ads · imagen que llega desde Creative', () => {
+  it('precarga la imagen del diseño y envía el diseño de origen al crear (Ads valida y crea en pausa)', async () => {
+    render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><MemoryRouter initialEntries={['/app/ads?tab=nueva&asset=a1&design=d1']}><CreateAd q="" /></MemoryRouter></QueryClientProvider>);
+    expect((await screen.findByTestId('from-creative')).textContent).toMatch(/Tacos fin de semana · v2/);
+    fireEvent.change(screen.getByPlaceholderText(/2x1 martes/), { target: { value: 'Tacos finde' } });
+    for (let i = 0; i < 5; i++) fireEvent.click(screen.getByText('Siguiente →'));
+    fireEvent.click(screen.getByText('Verificar todo'));
+    await screen.findByTestId('ready');
+    fireEvent.click(screen.getByText('Crear en Meta (en pausa)'));
+    fireEvent.click(screen.getByText('Sí, crear en pausa'));
+    await waitFor(() => expect(post).toHaveBeenCalledWith('/ads/create/launches', expect.objectContaining({ assetId: 'a1', designId: 'd1', confirm: true })));
   });
 });

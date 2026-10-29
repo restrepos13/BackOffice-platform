@@ -24,6 +24,10 @@ import { CATALOG as ART_CATALOG, GOALS, GOAL_LABEL, Goal, propose } from '../com
 import { checkQuality } from '../common/creative/quality';
 import { fingerprint } from '../common/creative/similarity';
 import { adaptDesign, readComposition } from '../common/creative/adapt';
+import { LibraryModule } from './library.module';
+import { CreativeCreateController, CreativeCreateService } from './creative-create';
+import { AI_PROVIDER } from '../ai/types';
+import { DeepInfraProvider } from '../ai/deepinfra.provider';
 import { AuditModule, AuditService } from './audit.module';
 import { Products } from '../auth/products.guard';
 import { assertAssetDeletable } from './library.module';
@@ -545,7 +549,8 @@ export class CreativeService {
     // El propio diseño no cuenta como repetición de sí mismo
     const recent = ctx.recent.slice(comp ? 1 : 0);
     const recentPrints = ctx.recentPrints.filter((r: any) => r.id !== d.id);
-    const issues = checkQuality(doc, { ...this.qualityCtx({ ...ctx, recent, recentPrints }, ctx.brand.logos.map((l: any) => l.assetId), comp?.family ?? null), measured });
+    const expectCta = dto?.forAds === true || ['PRODUCT', 'PROMO'].includes(comp?.goal ?? '');
+    const issues = checkQuality(doc, { ...this.qualityCtx({ ...ctx, recent, recentPrints }, ctx.brand.logos.map((l: any) => l.assetId), comp?.family ?? null), measured, expectCta });
     if (dto?.forExport) await this.event(d.companyId, 'quality_warnings', d.id, comp?.family ?? null, { block: issues.filter((i) => i.severity === 'BLOCK').length, warn: issues.filter((i) => i.severity === 'WARN').length, codes: [...new Set(issues.map((i) => i.code))] });
     return { issues, blocking: issues.some((i) => i.severity === 'BLOCK') };
   }
@@ -601,9 +606,13 @@ export class CreativeService {
     return { since: since.toISOString(), byFamily: by, note: 'Cuenta uso (sugerido, elegido, exportado, en campaña). No indica qué diseño vende más.' };
   }
 
-  async uploadExport(user: AuthUser, designId: string, file: Express.Multer.File | undefined) {
+  async uploadExport(user: AuthUser, designId: string, file: Express.Multer.File | undefined, expectedVersion?: unknown) {
     const d = await this.designOf(user, designId);
     if (!file?.buffer?.length) throw new BadRequestException('Falta la imagen exportada');
+    // El editor dice qué versión dibujó: si el diseño cambió entretanto, la imagen no es de esta versión
+    if (expectedVersion !== undefined && expectedVersion !== '' && Number(expectedVersion) !== d.version) {
+      throw new ConflictException('El diseño cambió mientras se exportaba. Vuelve a intentarlo.');
+    }
     if (file.size > MAX_EXPORT_BYTES) throw new BadRequestException('La exportación pesa demasiado');
     const info = imageInfo(file.buffer);
     if (!info || info.mime === 'image/webp') throw new BadRequestException('La exportación debe ser PNG o JPEG');
@@ -611,8 +620,13 @@ export class CreativeService {
     if (info.width !== f.width || info.height !== f.height) throw new BadRequestException(`La imagen debe medir ${f.width}×${f.height}`);
     const fileName = `design-${d.id}-v${d.version}-${randomBytes(4).toString('hex')}.${info.mime === 'image/png' ? 'png' : 'jpg'}`;
     await saveFile(this.prisma, d.companyId, fileName, file.buffer, info.mime);
+    // Solo si nadie guardó otra versión mientras tanto (si no, el nombre diría una versión equivocada)
+    const res = await this.prisma.creativeDesign.updateMany({ where: { id: d.id, version: d.version }, data: { exportFile: fileName, exportMime: info.mime } });
+    if (res.count === 0) {
+      await removeFile(this.prisma, d.companyId, fileName);
+      throw new ConflictException('El diseño cambió mientras se exportaba. Vuelve a intentarlo.');
+    }
     if (d.exportFile) await removeFile(this.prisma, d.companyId, d.exportFile);
-    await this.prisma.creativeDesign.update({ where: { id: d.id }, data: { exportFile: fileName, exportMime: info.mime } });
     // Exportar no es éxito comercial: solo se registra que se exportó
     await this.event(d.companyId, 'export_completed', d.id, readComposition(d.compositionJson)?.family ?? null, { format: d.format, version: d.version });
     return { ok: true, version: d.version };
@@ -923,8 +937,8 @@ export class CreativeController {
   @Roles(...WRITE)
   @Throttle({ default: { ttl: 60_000, limit: 20 } })
   @UseInterceptors(FileInterceptor('file', { limits: { fileSize: MAX_EXPORT_BYTES, files: 1 } }))
-  uploadExport(@CurrentUser() user: AuthUser, @Param('id') id: string, @UploadedFile() file: Express.Multer.File) {
-    return this.creative.uploadExport(user, id, file);
+  uploadExport(@CurrentUser() user: AuthUser, @Param('id') id: string, @UploadedFile() file: Express.Multer.File, @Body('expectedVersion') expectedVersion?: string) {
+    return this.creative.uploadExport(user, id, file, expectedVersion);
   }
 
   @Get('designs/:id/export')
@@ -974,9 +988,9 @@ export class CreativeController {
 }
 
 @Module({
-  imports: [AuditModule],
-  controllers: [CreativeController],
-  providers: [CreativeService],
+  imports: [AuditModule, LibraryModule],
+  controllers: [CreativeController, CreativeCreateController],
+  providers: [CreativeService, CreativeCreateService, { provide: AI_PROVIDER, useClass: DeepInfraProvider }],
   exports: [CreativeService],
 })
 export class CreativeModule {}

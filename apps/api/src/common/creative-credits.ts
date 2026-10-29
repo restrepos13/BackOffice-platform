@@ -1,3 +1,4 @@
+import { deterministicId } from './automation/run-signals';
 /**
  * Créditos de BackOffice Creative. Dos bolsas:
  *  - MONTHLY: el cupo del plan (complemento "Redes sociales con IA"), contador
@@ -24,10 +25,14 @@ async function moveByKey(prisma: any, key: string) {
   return prisma.creativeCreditMove.findUnique({ where: { idempotencyKey: key } });
 }
 
-/** Crea el movimiento; si otro proceso ya lo creó (llave única), devuelve false. */
+/**
+ * Crea el movimiento; si otro proceso ya lo creó, devuelve false. El _id sale
+ * de la llave de idempotencia: aunque Atlas no tenga el índice único de
+ * idempotencyKey, dos movimientos con la misma llave chocan en _id.
+ */
 async function record(prisma: any, data: Record<string, any>): Promise<boolean> {
   try {
-    await prisma.creativeCreditMove.create({ data });
+    await prisma.creativeCreditMove.create({ data: { id: deterministicId('ccm', String(data.idempotencyKey)), ...data } });
     return true;
   } catch (err: any) {
     if (err?.code === 'P2002') return false;

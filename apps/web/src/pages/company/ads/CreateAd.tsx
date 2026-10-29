@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { clsx } from 'clsx';
 import { useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import { api, uploadFile } from '../../../lib/api';
 import { authedBlobUrl } from '../../../lib/creative';
@@ -65,6 +65,22 @@ export function CreateAd({ q }: { q: string }) {
   });
   const set = (patch: Partial<typeof f>) => setF((x) => ({ ...x, ...patch }));
   const [asset, setAsset] = useState<{ id: string; name: string; width: number | null; height: number | null } | null>(null);
+  // Imagen que llega desde Creative (?asset=…&design=…): se valida en el servidor al crear
+  const [params] = useSearchParams();
+  const fromAsset = params.get('asset');
+  const [designId, setDesignId] = useState<string | null>(params.get('design'));
+  const incoming = useQuery({
+    queryKey: ['library-asset', fromAsset, q],
+    queryFn: () => api.get<{ id: string; name: string; width: number | null; height: number | null; available: boolean; designId: string | null; kind: string }>(withScope(`/library/assets/${fromAsset}`, q)),
+    enabled: !!fromAsset, retry: false,
+  });
+  useEffect(() => {
+    const a = incoming.data;
+    if (!a) return;
+    if (!a.available) { toast.error('La imagen de Creative ya no está disponible: vuelve a usarla desde el editor.'); return; }
+    setAsset({ id: a.id, name: a.name, width: a.width, height: a.height });
+    if (a.designId && a.designId !== designId) setDesignId(a.designId);
+  }, [incoming.data]); // eslint-disable-line react-hooks/exhaustive-deps
   const [preview, setPreview] = useState<string | null>(null);
   const [review, setReview] = useState<Review | null>(null);
   const [cap, setCap] = useState('');
@@ -91,13 +107,13 @@ export function CreateAd({ q }: { q: string }) {
     ageMin: Number(f.ageMin), ageMax: Number(f.ageMax), gender: f.gender, dailyBudget: f.dailyBudget,
     startDate: f.startDate || undefined, endDate: f.endDate || undefined, primaryText: f.primaryText, headline: f.headline, description: f.description || undefined,
   }), [f]);
-  const body = { accountId: s?.account?.id, pageId: f.pageId, instagramUserId: f.instagramUserId || undefined, assetId: asset?.id, draft };
+  const body = { accountId: s?.account?.id, pageId: f.pageId, instagramUserId: f.instagramUserId || undefined, assetId: asset?.id, designId: designId ?? undefined, draft };
 
   const err = (e: unknown) => toast.error(e instanceof Error ? e.message : 'Error');
   const refresh = () => { queryClient.invalidateQueries({ queryKey: ['ads-launches'] }); queryClient.invalidateQueries({ queryKey: ['ads-week'] }); };
   const upload = useMutation({
     mutationFn: (file: File) => uploadFile<{ asset: { id: string; name: string; width: number | null; height: number | null } }>(withScope('/library/assets', q), 'file', file, { name: file.name.replace(/\.[^.]+$/, ''), kind: 'IMAGE', module: 'ADS' }),
-    onSuccess: (r) => { setAsset(r.asset); setReview(null); toast.success('Imagen guardada en tu biblioteca'); },
+    onSuccess: (r) => { setAsset(r.asset); setDesignId(null); setReview(null); toast.success('Imagen guardada en tu biblioteca'); },
     onError: err,
   });
   const doReview = useMutation({ mutationFn: () => api.post<Review>(withScope('/ads/create/review', q), body), onSuccess: setReview, onError: err });
@@ -136,6 +152,12 @@ export function CreateAd({ q }: { q: string }) {
       <LaunchList launches={launches.data ?? []} currency={currency} canWrite={canWrite} onAction={(id, action) => (action === 'activate' ? setActivate((launches.data ?? []).find((l) => l.id === id) ?? null) : act.mutate({ id, action }))} busy={act.isPending} />
 
       <Card kicker="De la mano de BackOffice" title="Crear un anuncio">
+        {designId && asset && (
+          <p className="mb-4 border-2 border-info bg-paper px-3 py-2 text-sm" data-testid="from-creative">
+            Imagen de Creative: <b>{asset.name}</b>. Ya está cargada en el paso 5; completa cuenta, objetivo, público, presupuesto y fechas.
+          </p>
+        )}
+        {fromAsset && incoming.error && <p className="mb-4 text-sm text-bad">No pudimos cargar la imagen de Creative: {incoming.error instanceof Error ? incoming.error.message : 'no disponible'}.</p>}
         {!canManage && (
           <p className="mb-4 border-2 border-bad bg-paper px-3 py-2 text-sm" role="alert">
             Tu conexión con Meta no tiene permiso para crear anuncios. <Link to="/app/ads?tab=cuentas" className="underline">Vuelve a conectarla con permisos completos</Link>.
