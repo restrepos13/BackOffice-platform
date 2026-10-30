@@ -20,7 +20,10 @@ const Reactivation = lazy(() => import('./pages/company/Reactivation'));
 const Collections = lazy(() => import('./pages/company/Collections'));
 const SalesAudit = lazy(() => import('./pages/company/SalesAudit'));
 const Incidents = lazy(() => import('./pages/platform/Incidents'));
-const PublicTerms = lazy(() => import('./components/Terms').then((m) => ({ default: m.PublicTerms })));
+const LegalTerms = lazy(() => import('./pages/public/Legal').then((m) => ({ default: m.Terms })));
+const Privacy = lazy(() => import('./pages/public/Legal').then((m) => ({ default: m.Privacy })));
+const DataDeletion = lazy(() => import('./pages/public/Legal').then((m) => ({ default: m.DataDeletion })));
+const Contact = lazy(() => import('./pages/public/Legal').then((m) => ({ default: m.Contact })));
 const TermsAdmin = lazy(() => import('./pages/platform/TermsAdmin'));
 const Ventas = lazy(() => import('./pages/platform/Ventas'));
 const Subscriptions = lazy(() => import('./pages/platform/Subscriptions'));
@@ -132,7 +135,10 @@ export default function App() {
       <Route path="/recuperar" element={<ForgotPassword />} />
       <Route path="/restablecer" element={<ResetPassword />} />
       <Route path="/invitacion" element={<AcceptInvitation />} />
-      <Route path="/terminos" element={<PublicTerms />} />
+      <Route path="/terminos" element={<LegalTerms />} />
+      <Route path="/privacidad" element={<Privacy />} />
+      <Route path="/eliminacion-de-datos" element={<DataDeletion />} />
+      <Route path="/contacto" element={<Contact />} />
       {CreativeLab && <Route path="/lab/creative" element={<CreativeLab />} />}
       <Route path="/print/order/:id" element={<RequireAuth><PrintOrder /></RequireAuth>} />
       {/* App móvil del domiciliario (fuera del panel) */}

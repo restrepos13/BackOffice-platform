@@ -3,6 +3,7 @@ import { Link, Navigate, useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { useAuth } from '../lib/auth';
 import { Button, Field, Input } from '../components/ui';
+import { LegalFooterLinks } from './public/legal-links';
 
 export default function Login() {
   const { user, login, verifyMfa, loading } = useAuth();
@@ -125,6 +126,7 @@ export default function Login() {
         <p className="kicker mt-2 text-center">
           <Link to="/" className="hover:underline">← Volver al inicio</Link>
         </p>
+        <LegalFooterLinks className="mt-6 justify-center text-xs text-ink-3" />
       </div>
     </div>
   );
