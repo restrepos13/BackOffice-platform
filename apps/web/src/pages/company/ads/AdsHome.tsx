@@ -321,7 +321,9 @@ function Accounts({ q }: { q: string }) {
       const r = params.get(k);
       if (r === 'error') {
         const motivo = params.get('motivo');
-        toast.error(`No se pudo conectar ${label}. Intenta de nuevo.`, motivo ? { description: `Motivo: ${motivo}` } : undefined);
+        const hint = motivo?.includes('NOT_ADS_USER') ? 'Ese usuario de Google no tiene acceso a ninguna cuenta de Google Ads: entra con el correo que administra la cuenta. '
+          : motivo?.includes('TWO_STEP_VERIFICATION') ? 'Google Ads exige la verificación en dos pasos en ese usuario de Google: actívala y vuelve a conectar. ' : '';
+        toast.error(`No se pudo conectar ${label}. Intenta de nuevo.`, motivo ? { description: `${hint}Motivo: ${motivo}` } : undefined);
       }
       if (r === 'permisos') toast.error(`${label} no dio el permiso para ver tus campañas. Vuelve a conectar y acepta el acceso.`);
       if (r === 'sin-cuentas') toast.info(`Tu usuario de ${label} no tiene cuentas publicitarias. Entra con el usuario que administra la cuenta de la empresa.`);

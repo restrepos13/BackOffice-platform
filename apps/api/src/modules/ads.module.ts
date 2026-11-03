@@ -421,7 +421,7 @@ export class AdsService {
     } catch (err: any) {
       this.logger.warn(`OAuth ${provider} (${stage}): ${err?.kind ?? ''} ${String(err?.message ?? '').slice(0, 160)}`);
       if (err instanceof AdsProviderError && err.kind === 'NOT_CONFIGURED') return back('no-habilitado');
-      const google = /invalid_client|invalid_grant|redirect_uri_mismatch|unauthorized_client|invalid_request|DEVELOPER_TOKEN_INVALID|NOT_ADS_USER|CUSTOMER_NOT_ENABLED|PERMISSION_DENIED|UNIMPLEMENTED|INVALID_ARGUMENT/.exec(`${err?.message ?? ''} ${err?.providerCode ?? ''}`)?.[0];
+      const google = /invalid_client|invalid_grant|redirect_uri_mismatch|unauthorized_client|invalid_request/.exec(String(err?.message ?? ''))?.[0] ?? (/^[A-Za-z_]{3,60}$/.test(String(err?.providerCode ?? '')) ? String(err.providerCode) : undefined);
       return back('error', [stage, err?.kind, google].filter(Boolean).join('-').slice(0, 80));
     }
   }

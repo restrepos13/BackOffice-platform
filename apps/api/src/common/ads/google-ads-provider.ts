@@ -49,7 +49,11 @@ export function classifyGoogleError(body: any, httpStatus: number): AdsProviderE
   const err = body?.error ?? body?.[0]?.error ?? {};
   const message = String(err.message ?? `Google Ads respondió ${httpStatus}`).slice(0, 300);
   const details = JSON.stringify(err.details ?? '');
-  const code = String(err.status ?? httpStatus);
+  // El motivo concreto de Google (p. ej. authenticationError: NOT_ADS_USER) viaja como código
+  const reason = /"(?:authenticationError|authorizationError)":"([A-Z_]+)"/.exec(details)?.[1];
+  const code = reason ?? String(err.status ?? httpStatus);
+  if (reason === 'NOT_ADS_USER') return new AdsProviderError('AUTH', 'Ese usuario de Google no tiene acceso a ninguna cuenta de Google Ads: entra con el correo que administra la cuenta.', code);
+  if (reason === 'TWO_STEP_VERIFICATION_NOT_ENROLLED') return new AdsProviderError('AUTH', 'Google Ads exige la verificación en dos pasos en ese usuario de Google: actívala y vuelve a conectar.', code);
   if (httpStatus === 401 || /UNAUTHENTICATED|invalid_grant/.test(code + details)) return new AdsProviderError('AUTH', 'La autorización de Google venció o fue retirada: vuelve a conectar la cuenta.', code);
   if (/DEVELOPER_TOKEN_NOT_APPROVED|DEVELOPER_TOKEN_PROHIBITED/.test(details)) return new AdsProviderError('NOT_CONFIGURED', 'El developer token de BackOffice todavía no tiene acceso a cuentas reales (pide el acceso básico en el API Center).', code);
   if (httpStatus === 403 || /PERMISSION_DENIED|USER_PERMISSION_DENIED/.test(code + details)) return new AdsProviderError('PERMISSION', 'Tu usuario de Google no tiene permiso suficiente en esa cuenta de Google Ads.', code);
