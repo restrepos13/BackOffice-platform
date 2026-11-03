@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { Link, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import { api } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
@@ -14,11 +14,38 @@ import { PersonaPicker } from '../../components/PersonaPicker';
 import { ModelSelect } from '../../components/media';
 import { useCompanyScope } from './shared';
 import { AgentConfig, AgentSimulator } from '../../components/AgentConfig';
+import ScheduleCall from '../../components/ScheduleCall';
+import { useActiveCompany } from '../../lib/products';
+
+const CHANNEL_LABELS: Record<string, string> = { WHATSAPP: 'WhatsApp', WHATSAPP_TWILIO: 'WhatsApp', MESSENGER: 'Facebook Messenger', FACEBOOK: 'Facebook Messenger', INSTAGRAM: 'Instagram', TELEGRAM: 'Telegram', WEBCHAT: 'Chat de tu web' };
+
+/** Nombre legible del modelo (sin el proveedor delante). */
+function modelName(model: string) {
+  const short = String(model ?? '').split('/').pop() ?? model;
+  return short.replace(/-Instruct.*$/i, '').replace(/-/g, ' ');
+}
+
+function payerMode(aiSource: string, companyMode?: string | null) {
+  return aiSource && aiSource !== 'INHERIT' ? aiSource : companyMode || 'BYOK';
+}
+
+function payerLabel(aiSource: string, companyMode?: string | null) {
+  return ({ BYOK: 'Tu empresa, con su propia cuenta de IA', PLATFORM: 'Incluida en tu plan de BackOffice', HYBRID: 'Tu cuenta de IA, con respaldo de BackOffice' } as Record<string, string>)[payerMode(aiSource, companyMode)] ?? 'Según tu plan';
+}
+
+function payerHint(aiSource: string, companyMode?: string | null) {
+  return ({
+    BYOK: 'Tu empresa paga directamente al proveedor de IA (DeepInfra u OpenRouter) lo que consume el asistente. BackOffice no cobra ese consumo.',
+    PLATFORM: 'BackOffice te da la IA dentro de tu plan o paquete. Ves el consumo en «Costo del asistente».',
+    HYBRID: 'Se usa tu cuenta de IA y, si falla o se queda sin saldo, responde la de BackOffice para no dejar clientes sin respuesta.',
+  } as Record<string, string>)[payerMode(aiSource, companyMode)] ?? '';
+}
 
 export default function BotDetail() {
   const { id = '' } = useParams();
   const { canWrite, isPlatform } = useAuth();
   const { q, companyId } = useCompanyScope();
+  const { company } = useActiveCompany();
   const queryClient = useQueryClient();
   const [tab, setTab] = useState('personalidad');
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -197,50 +224,54 @@ export default function BotDetail() {
         )}
 
         {tab === 'modelo' && (
-          <Card kicker="Motor" title="Modelo IA">
-            <div className="grid gap-4 md:grid-cols-3">
-              <Field
-                label="Modelo (DeepInfra)"
-                hint="El costo por millón de tokens se declara al cliente tal cual"
-              >
-                <ModelSelect value={form.model} onChange={(v) => set({ model: v })} disabled={!canWrite} />
-              </Field>
-              <Field label="Temperatura" hint="0 = predecible · 1 = creativo">
-                <Input
-                  type="number" min={0} max={1} step={0.1}
-                  value={form.temperature}
-                  onChange={(e) => set({ temperature: e.target.value })}
-                />
-              </Field>
-              <Field label="Máx. tokens por respuesta">
-                <Input
-                  type="number" min={128} max={8192}
-                  value={form.maxTokens}
-                  onChange={(e) => set({ maxTokens: e.target.value })}
-                />
-              </Field>
+          <Card kicker="Motor" title="La IA de tu asistente">
+            {/* El cliente ve qué IA usa y quién la paga en palabras simples; cambiarlo lo hace el equipo */}
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="border-2 border-line bg-bone px-4 py-3">
+                <p className="kicker">Modelo</p>
+                <p className="text-sm font-semibold">{modelName(bot.model)}</p>
+                <p className="mt-1 text-xs text-ink-3">Es el «cerebro» que escribe las respuestas. Lo elegimos para que responda bien y rápido sin gastar de más.</p>
+              </div>
+              <div className="border-2 border-line bg-bone px-4 py-3">
+                <p className="kicker">Quién paga la IA</p>
+                <p className="text-sm font-semibold">{payerLabel(form.aiSource, company?.aiBillingMode)}</p>
+                <p className="mt-1 text-xs text-ink-3">{payerHint(form.aiSource, company?.aiBillingMode)}</p>
+              </div>
             </div>
-            <div className="mt-4 border-2 border-line bg-bone px-4 py-3">
-              <p className="text-sm font-semibold">Quién paga la IA de este asistente</p>
-              <p className="mb-2 text-xs text-ink-3">
-                Por defecto, lo que tenga la empresa. BackOffice puede vender este asistente con su propia IA
-                aunque la empresa use su cuenta de DeepInfra para los demás.
-              </p>
-              {isPlatform ? (
-                <Select value={form.aiSource} onChange={(e) => set({ aiSource: e.target.value })}>
-                  {['INHERIT', 'BYOK', 'PLATFORM', 'HYBRID'].map((v) => (
-                    <option key={v} value={v}>{AI_MODE_LABELS[v]}</option>
-                  ))}
-                </Select>
-              ) : (
-                <Badge tone="neutral">{AI_MODE_LABELS[form.aiSource] ?? form.aiSource}</Badge>
-              )}
-            </div>
+            {!isPlatform && (
+              <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-2 border-line px-4 py-3">
+                <p className="text-sm text-ink-2">¿Quieres otro modelo o cambiar cómo se paga la IA? Lo ajusta el equipo de BackOffice según tu plan.</p>
+                <ScheduleCall q={q} topic="AI" label="Hablar con el equipo" variant="outline" size="sm" />
+              </div>
+            )}
+            {isPlatform && (
+              <div className="mt-4 space-y-4 border-2 border-dashed border-line px-4 py-3">
+                <p className="kicker">Solo equipo BackOffice</p>
+                <div className="grid gap-4 md:grid-cols-3">
+                  <Field label="Modelo (DeepInfra / OpenRouter)" hint="El costo por millón de tokens se declara al cliente tal cual">
+                    <ModelSelect value={form.model} onChange={(v) => set({ model: v })} disabled={!canWrite} />
+                  </Field>
+                  <Field label="Temperatura" hint="0 = predecible · 1 = creativo">
+                    <Input type="number" min={0} max={1} step={0.1} value={form.temperature} onChange={(e) => set({ temperature: e.target.value })} />
+                  </Field>
+                  <Field label="Máx. tokens por respuesta">
+                    <Input type="number" min={128} max={8192} value={form.maxTokens} onChange={(e) => set({ maxTokens: e.target.value })} />
+                  </Field>
+                </div>
+                <Field label="Quién paga la IA de este asistente" hint="Por defecto, lo que tenga la empresa. BackOffice puede vender este asistente con su propia IA aunque la empresa use su cuenta para los demás.">
+                  <Select value={form.aiSource} onChange={(e) => set({ aiSource: e.target.value })}>
+                    {['INHERIT', 'BYOK', 'PLATFORM', 'HYBRID'].map((v) => (
+                      <option key={v} value={v}>{AI_MODE_LABELS[v]}</option>
+                    ))}
+                  </Select>
+                </Field>
+              </div>
+            )}
             <div className="mt-4 flex items-center justify-between border-2 border-line bg-bone px-4 py-3">
               <div>
                 <p className="text-sm font-semibold">Memoria de largo plazo</p>
                 <p className="text-xs text-ink-3">
-                  El asistente recuerda cada conversación: nada de charlas genéricas y repetitivas.
+                  El asistente recuerda lo que cada cliente ya le contó: no vuelve a preguntar lo mismo.
                 </p>
               </div>
               <Switch
@@ -338,30 +369,36 @@ export default function BotDetail() {
       </fieldset>
 
       {tab === 'canales' && (
-        <div className="mt-0 grid gap-4 md:grid-cols-2">
-          {bot.integrations?.map((integration) => (
-            <Card key={integration.id}>
-              <div className="flex items-start justify-between">
-                <div>
-                  <p className="kicker">{integration.type}</p>
-                  <h3 className="display text-lg">{integration.name}</h3>
+        <div className="mt-6 space-y-4">
+          <p className="text-sm text-ink-2">
+            Por dónde responde este asistente. Cada canal (un número de WhatsApp, una página de Facebook, una cuenta de Instagram) se conecta
+            en <Link to="/app/integrations" className="font-semibold underline">Canales e integraciones</Link> y ahí eliges qué asistente lo atiende.
+          </p>
+          <div className="grid gap-4 md:grid-cols-2">
+            {bot.integrations?.map((integration) => (
+              <Card key={integration.id}>
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="kicker">{CHANNEL_LABELS[integration.type] ?? integration.type}</p>
+                    <h3 className="display truncate text-lg">{integration.name}</h3>
+                  </div>
+                  <Badge tone={statusTone(integration.status)}>
+                    {INTEGRATION_STATUS_LABELS[integration.status] ?? integration.status}
+                  </Badge>
                 </div>
-                <Badge tone={statusTone(integration.status)}>
-                  {INTEGRATION_STATUS_LABELS[integration.status]}
-                </Badge>
-              </div>
-              {integration.config.displayPhone && (
-                <p className="mt-2 font-mono text-sm">{integration.config.displayPhone}</p>
-              )}
-              <p className="mt-1 text-xs text-ink-3">
-                {integration.lastSyncAt ? `Última sync ${timeAgo(integration.lastSyncAt)}` : 'Nunca sincronizada'}
-              </p>
-            </Card>
-          ))}
+                {integration.config?.displayPhone && (
+                  <p className="mt-2 font-mono text-sm">{integration.config.displayPhone}</p>
+                )}
+                <p className="mt-1 text-xs text-ink-3">
+                  {integration.lastSyncAt ? `Último mensaje ${timeAgo(integration.lastSyncAt)}` : 'Todavía sin mensajes'}
+                </p>
+              </Card>
+            ))}
+          </div>
           {(bot.integrations?.length ?? 0) === 0 && (
-            <p className="text-sm text-ink-3">
-              Este asistente no tiene canales asignados. Vincúlalos desde Integraciones.
-            </p>
+            <div className="border-2 border-dashed border-line px-4 py-6 text-center text-sm text-ink-3">
+              Este asistente todavía no atiende ningún canal. <Link to="/app/integrations" className="font-semibold underline">Conecta uno</Link> y asígnaselo.
+            </div>
           )}
         </div>
       )}

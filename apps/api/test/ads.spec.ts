@@ -204,6 +204,28 @@ describe('Ads · cuentas, sincronización y aislamiento', () => {
     const rev = await svc.revenue(A, {});
     expect(rev.totals.spend).toBeLessThanOrEqual(777);
   });
+
+  it('salir de la demostración borra solo lo simulado; lo real queda intacto y se puede volver a abrir', async () => {
+    const { svc, db } = world();
+    await svc.connectDemo(A, {});
+    db.adAccount.push({ id: 'real1', companyId: 'coA', provider: 'META', mode: 'REAL', externalId: 'act_1', name: 'Real', currency: 'COP', status: 'CONNECTED', tokenEnc: encryptSecret('t'), lastSyncAt: new Date() });
+    db.adInsightDaily.push({ id: 'i1', companyId: 'coA', accountId: 'real1', mode: 'REAL', level: 'AD', externalId: 'x', campaignExternalId: 'c', date: '2026-10-01', currency: 'COP', spend: 777, impressions: 0, reach: 0, clicks: 0, linkClicks: 0, leads: 0, conversations: 0, purchases: 0, purchaseValue: 0 });
+    expect(db.adInsightDaily.some((r: any) => r.mode === 'DEMO')).toBe(true);
+    // Otra empresa con demostración: no se toca
+    await svc.connectDemo(B, {});
+    const otherDemo = db.adAccount.filter((a: any) => a.companyId !== 'coA').length;
+    const r = await svc.exitDemo(A);
+    expect(r.removed).toBeGreaterThan(0);
+    expect(db.adAccount.filter((a: any) => a.companyId === 'coA').map((a: any) => a.id)).toEqual(['real1']);
+    expect(db.adInsightDaily.filter((x: any) => x.companyId === 'coA').map((x: any) => x.id)).toEqual(['i1']);
+    expect(db.adEntity.some((x: any) => x.companyId === 'coA' && x.mode === 'DEMO')).toBe(false);
+    expect(db.opportunity.some((x: any) => x.companyId === 'coA' && x.mode === 'DEMO')).toBe(false);
+    expect(db.adAccount.filter((a: any) => a.companyId !== 'coA')).toHaveLength(otherDemo);
+    const overview = await svc.overview(A, {});
+    expect(overview.modes.demo).toBe(0);
+    await svc.connectDemo(A, {});
+    expect(db.adAccount.some((a: any) => a.companyId === 'coA' && a.mode === 'DEMO')).toBe(true);
+  });
 });
 
 describe('Ads · auditoría', () => {

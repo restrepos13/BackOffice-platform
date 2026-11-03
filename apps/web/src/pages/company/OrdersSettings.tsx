@@ -1,3 +1,4 @@
+import { useSample } from '../../lib/useSample';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, Crosshair, MapPin, Plus, Search, Sparkles, Trash2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
@@ -163,6 +164,7 @@ function ProductModal({ product, areas, companyId, onClose }: {
   companyId: string | null;
   onClose: () => void;
 }) {
+  const sampleText = useSample();
   const queryClient = useQueryClient();
   const [name, setName] = useState(product?.name ?? '');
   const [category, setCategory] = useState(product?.category ?? '');
@@ -202,10 +204,10 @@ function ProductModal({ product, areas, companyId, onClose }: {
         </Field>
         <div className="grid gap-4 md:grid-cols-2">
           <Field label="Categoría" hint="Sirve para las reglas de distribución">
-            <Input value={category ?? ''} onChange={(e) => setCategory(e.target.value)} placeholder="desayunos, almuerzos…" />
+            <Input value={category ?? ''} onChange={(e) => setCategory(e.target.value)} placeholder={sampleText('category')} />
           </Field>
           <Field label="Unidad">
-            <Input value={unit} onChange={(e) => setUnit(e.target.value)} placeholder="porción, unidad, bandeja…" />
+            <Input value={unit} onChange={(e) => setUnit(e.target.value)} placeholder={sampleText('unit')} />
           </Field>
         </div>
         <Field label="Precio unitario" hint="Lo cotiza el agente por WhatsApp. Vacío = «precio a confirmar con el equipo»">
@@ -220,7 +222,7 @@ function ProductModal({ product, areas, companyId, onClose }: {
           </Select>
         </Field>
         <Field label="Presentaciones" hint="Separadas por coma">
-          <Input value={presentations} onChange={(e) => setPresentations(e.target.value)} placeholder="individual, bandeja x10…" />
+          <Input value={presentations} onChange={(e) => setPresentations(e.target.value)} placeholder={sampleText('presentation')} />
         </Field>
         <Field label="Descripción" hint="La IA la usa para ofrecer el producto">
           <Textarea rows={2} value={description ?? ''} onChange={(e) => setDescription(e.target.value)} />

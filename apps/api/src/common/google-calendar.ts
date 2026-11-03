@@ -93,12 +93,12 @@ async function call(fetchImpl: FetchLike, url: string, init: { method?: string; 
 const form = (data: Record<string, string>) => new URLSearchParams(data).toString();
 const FORM = { 'Content-Type': 'application/x-www-form-urlencoded' };
 
-export function authUrl(app: GoogleApp, state: string): string {
+export function authUrl(app: GoogleApp, state: string, scopes: string[] = GOOGLE_SCOPES): string {
   const qs = new URLSearchParams({
     client_id: app.clientId,
     redirect_uri: app.redirectUri,
     response_type: 'code',
-    scope: GOOGLE_SCOPES.join(' '),
+    scope: scopes.join(' '),
     // offline + consent: Google entrega el refresh token (necesario para sincronizar sin el usuario)
     access_type: 'offline',
     prompt: 'consent',

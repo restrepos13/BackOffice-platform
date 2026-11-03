@@ -31,7 +31,7 @@ import { DeepInfraProvider } from '../ai/deepinfra.provider';
 import { AuditModule, AuditService } from './audit.module';
 import { Products } from '../auth/products.guard';
 import { assertAssetDeletable } from './library.module';
-import { ProductInactiveError, hasProduct } from '../common/products';
+import { ProductInactiveError, ProductKey, hasAnyProduct, hasProduct } from '../common/products';
 
 /**
  * BackOffice Creative: identidad de marca, recursos, diseños editables por
@@ -49,6 +49,9 @@ const HEX = /^#[0-9a-fA-F]{6}$/;
 const clip = (v: unknown, max: number) => (typeof v === 'string' ? v.trim().slice(0, max) : '');
 const list = (v: unknown, max: number, len: number) => (Array.isArray(v) ? v.map((x) => clip(x, len)).filter(Boolean).slice(0, max) : []);
 
+/** Publicar y programar vive en Ads; el calendario y sus reglas los ven las dos. */
+const PUBLISHING: ProductKey[] = ['CREATIVE', 'ADS'];
+
 @Injectable()
 export class CreativeService {
   constructor(
@@ -59,12 +62,13 @@ export class CreativeService {
   /* ── Acceso ── */
 
   /** Empresa sobre la que actúa el usuario (la de su sesión; plataforma la elige). Exige plan. */
-  async companyOf(user: AuthUser, companyId?: string) {
+  /** `allow`: productos que dan acceso (el calendario y las reglas de publicación también los usa Ads). */
+  async companyOf(user: AuthUser, companyId?: string, allow: ProductKey[] = ['CREATIVE']) {
     const id = isPlatformRole(user.role) ? companyId : user.companyId;
     if (!id) throw new ForbiddenException('Falta companyId');
     const company = await this.prisma.company.findUnique({ where: { id } });
     if (!company) throw new NotFoundException('Empresa no encontrada');
-    if (!isPlatformRole(user.role) && !hasProduct(company, 'CREATIVE')) throw new ForbiddenException(ProductInactiveError.body(['CREATIVE'], company));
+    if (!isPlatformRole(user.role) && !hasAnyProduct(company, allow)) throw new ForbiddenException(ProductInactiveError.body(allow, company));
     return company;
   }
 
@@ -126,7 +130,7 @@ export class CreativeService {
   }
 
   async brand(user: AuthUser, companyId?: string) {
-    const company = await this.companyOf(user, companyId);
+    const company = await this.companyOf(user, companyId, PUBLISHING);
     const b = await this.prisma.brandProfile.findUnique({ where: { companyId: company.id } });
     return this.brandView(b, company);
   }
@@ -204,7 +208,7 @@ export class CreativeService {
   }
 
   async savePolicy(user: AuthUser, dto: any, companyId?: string) {
-    const company = await this.companyOf(user, companyId);
+    const company = await this.companyOf(user, companyId, PUBLISHING);
     const policy = readPolicy(dto);
     const b = await this.prisma.brandProfile.findUnique({ where: { companyId: company.id } });
     if (b) await this.prisma.brandProfile.update({ where: { companyId: company.id }, data: { policyJson: JSON.stringify(policy), updatedAt: new Date(), updatedBy: user.name } });
@@ -708,7 +712,7 @@ export class CreativeService {
 
   /** Cola de aprobaciones y calendario (con filtros). */
   async calendar(user: AuthUser, q: { companyId?: string; status?: string; from?: string; to?: string; network?: string }) {
-    const company = await this.companyOf(user, q.companyId);
+    const company = await this.companyOf(user, q.companyId, PUBLISHING);
     const where: any = { companyId: company.id };
     if (q.status) where.status = String(q.status);
     if (q.from || q.to) where.scheduledAt = { ...(q.from ? { gte: new Date(q.from) } : {}), ...(q.to ? { lte: new Date(q.to) } : {}) };
@@ -840,6 +844,7 @@ export class CreativeController {
   }
 
   @Get('brand')
+  @Products('CREATIVE', 'ADS')
   brand(@CurrentUser() user: AuthUser, @Query('companyId') companyId?: string) {
     return this.creative.brand(user, companyId);
   }
@@ -858,6 +863,7 @@ export class CreativeController {
   }
 
   @Put('policy')
+  @Products('CREATIVE', 'ADS')
   @Roles(...WRITE)
   policy(@CurrentUser() user: AuthUser, @Body() dto: any, @Query('companyId') companyId?: string) {
     return this.creative.savePolicy(user, dto, companyId);
@@ -953,23 +959,27 @@ export class CreativeController {
   }
 
   @Get('calendar')
+  @Products('CREATIVE', 'ADS')
   calendar(@CurrentUser() user: AuthUser, @Query() q: any) {
     return this.creative.calendar(user, q);
   }
 
   @Post('pieces/:id/submit')
+  @Products('CREATIVE', 'ADS')
   @Roles(...WRITE)
   submit(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: any) {
     return this.creative.submit(user, id, dto);
   }
 
   @Post('pieces/:id/approve')
+  @Products('CREATIVE', 'ADS')
   @Roles(ROLES.SUPER_ADMIN, ROLES.DEV, ROLES.COMPANY_ADMIN)
   approve(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.creative.approve(user, id);
   }
 
   @Post('pieces/:id/reject')
+  @Products('CREATIVE', 'ADS')
   @Roles(ROLES.SUPER_ADMIN, ROLES.DEV, ROLES.COMPANY_ADMIN)
   reject(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: any) {
     return this.creative.reject(user, id, dto);

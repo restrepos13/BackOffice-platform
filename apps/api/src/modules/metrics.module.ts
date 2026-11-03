@@ -128,7 +128,7 @@ export class MetricsService {
         this.prisma.conversation.findMany({
           where: { companyId: scoped },
           select: {
-            status: true, needsAttention: true, channel: true,
+            id: true, status: true, needsAttention: true, channel: true,
             lastMessageAt: true, createdAt: true, integrationId: true,
           },
         }),
@@ -157,15 +157,27 @@ export class MetricsService {
         configJson: true, bot: { select: { name: true } },
       },
     });
+    // Mensajes de 30 días por línea en UNA consulta agrupada por conversación (usa el índice
+    // conversationId+createdAt). Antes era un count por línea con filtro por relación, que en
+    // MongoDB cruza todos los mensajes con sus conversaciones: lo más lento del resumen.
+    const lineOf = new Map(conversations.filter((c) => c.integrationId && lines.some((l) => l.id === c.integrationId)).map((c) => [c.id, c.integrationId!]));
+    const perConversation = lineOf.size
+      ? ((await this.prisma.message.aggregateRaw({
+          pipeline: [
+            { $match: { conversationId: { $in: [...lineOf.keys()] }, createdAt: { $gte: { $date: since.toISOString() } } } },
+            { $group: { _id: '$conversationId', n: { $sum: 1 } } },
+          ],
+        })) as unknown as Array<{ _id: string; n: number }>)
+      : [];
+    const perLine = new Map<string, number>();
+    for (const r of perConversation) {
+      const line = lineOf.get(String(r._id));
+      if (line) perLine.set(line, (perLine.get(line) ?? 0) + Number(r.n));
+    }
     const lineStats = await Promise.all(
       lines.map(async (line) => {
         const convos = conversations.filter((c) => c.integrationId === line.id);
-        const messages30d = await this.prisma.message.count({
-          where: {
-            conversation: { integrationId: line.id },
-            createdAt: { gte: since },
-          },
-        });
+        const messages30d = perLine.get(line.id) ?? 0;
         let displayPhone = '';
         try {
           displayPhone = JSON.parse(line.configJson).displayPhone ?? '';

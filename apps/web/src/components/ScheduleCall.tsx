@@ -12,7 +12,7 @@ import { withScope } from '../pages/company/shared';
  * nosotros en una llamada. Día y hora en dos toques, sin formularios largos.
  */
 
-export type CallTopic = 'SETUP' | 'AI' | 'WHATSAPP' | 'TEMPLATES' | 'PLAN' | 'TEAM' | 'OTHER';
+export type CallTopic = 'SETUP' | 'AI' | 'WHATSAPP' | 'TEMPLATES' | 'SOCIAL' | 'ADS' | 'CALENDAR' | 'PLAN' | 'TEAM' | 'OTHER';
 
 export interface AgentCallView {
   id: string; topic: CallTopic; topicLabel: string; slotAt: string; when: string; phone: string;

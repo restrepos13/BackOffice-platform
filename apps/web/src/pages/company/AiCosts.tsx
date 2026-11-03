@@ -1,3 +1,4 @@
+import ScheduleCall from '../../components/ScheduleCall';
 import { useQuery } from '@tanstack/react-query';
 import { clsx } from 'clsx';
 import { Info } from 'lucide-react';
@@ -95,6 +96,21 @@ export default function AiCosts() {
     <>
       <PageHeader kicker="Transparencia total" title="Cuánto cuesta" accent="tu IA" />
 
+      {/* La respuesta corta primero: cuánto y por qué, sin tecnicismos */}
+      <div className="mb-6 border-2 border-ink bg-ink px-5 py-4 text-bone">
+        <p className="kicker text-bone/70">En resumen</p>
+        <p className="mt-1 text-lg leading-snug">
+          Atender a <b>{daily ?? data.inputs.dailyChats} clientes al día</b> con tu asistente cuesta cerca de{' '}
+          <b>{fmtMoney((current ?? cheapest).perMonth.cop)} al mes</b>: unos <b>{cop((current ?? cheapest).perConversation.cop)} por cada cliente atendido</b>.
+        </p>
+        <p className="mt-2 text-sm text-bone/80">
+          {managed
+            ? 'Ese valor se suma a tu factura de BackOffice a fin de mes, en pesos.'
+            : 'Ese valor lo pagas directo a tu proveedor de IA con tu tarjeta; BackOffice no te lo cobra.'}{' '}
+          Es como el minuto de una llamada: pagas solo lo que tu asistente conversa. Mueve la barra de abajo para ver cuánto sería con más o menos clientes.
+        </p>
+      </div>
+
       <Card className="mb-6">
         <div className="grid gap-6 md:grid-cols-[minmax(0,1fr)_280px]">
           <div className="space-y-3 text-[15px] leading-relaxed">
@@ -150,7 +166,9 @@ export default function AiCosts() {
         </div>
       </div>
 
-      <Card kicker="Compara modelos con tus números" title="Modelos disponibles" className="mb-6">
+      <details className="mb-6 border-2 border-line bg-paper">
+        <summary className="cursor-pointer px-4 py-3 text-sm font-semibold">Comparar con otros modelos de IA (el equipo de BackOffice los cambia según tu plan)</summary>
+      <Card kicker="Compara modelos con tus números" title="Modelos disponibles" className="m-3">
         <div className="overflow-x-auto">
           <table className="w-full min-w-[760px] text-sm">
             <thead>
@@ -194,6 +212,7 @@ export default function AiCosts() {
           </table>
         </div>
       </Card>
+      </details>
 
       <div className="grid gap-6 lg:grid-cols-2">
         <Card kicker="Dos formas de pagar la IA" title="¿Cuál te conviene?">
@@ -211,6 +230,10 @@ export default function AiCosts() {
                 Pagas la IA directo al proveedor (DeepInfra u OpenRouter) con tu tarjeta, en dólares, y los mensajes de WhatsApp directo a Meta vía Twilio.
                 La mensualidad es más baja. Los modelos premium de Anthropic solo están en Todo incluido.
               </p>
+            </div>
+            <div className="flex flex-wrap items-center justify-between gap-2 border-t-2 border-line pt-3">
+              <span className="text-xs text-ink-3">¿Quieres cambiar de forma de pago o de modelo? Lo hace el equipo contigo.</span>
+              <ScheduleCall q={q} topic="AI" label="Hablar con el equipo" variant="outline" size="sm" />
             </div>
           </div>
         </Card>

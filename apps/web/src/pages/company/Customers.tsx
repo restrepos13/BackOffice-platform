@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { MapPin, Phone, Plus, Search } from 'lucide-react';
+import { MapPin, Phone, Search } from 'lucide-react';
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { toast } from 'sonner';
@@ -221,7 +221,6 @@ export default function Customers() {
   const { ready, q, canWrite, companyId } = useCompanyScope();
   const [search, setSearch] = useState('');
   const [editing, setEditing] = useState<Customer | null>(null);
-  const [creating, setCreating] = useState(false);
 
   const listPath = withScope(`/customers?x=1${search ? `&search=${encodeURIComponent(search)}` : ''}`, q);
   const { data: customers, isLoading } = useQuery({
@@ -234,17 +233,11 @@ export default function Customers() {
 
   return (
     <>
-      <PageHeader
-        kicker="Módulo de pedidos"
-        title="Clientes"
-        actions={
-          canWrite ? (
-            <Button size="sm" onClick={() => setCreating(true)}>
-              <Plus size={13} /> Nuevo cliente
-            </Button>
-          ) : undefined
-        }
-      />
+      <PageHeader kicker="Ventas y clientes" title="Clientes" />
+      {/* Los clientes nacen solos de las conversaciones y los pedidos: aquí se completan y corrigen, no se crean a mano */}
+      <p className="mb-4 max-w-2xl text-sm text-ink-2">
+        La ficha de cada cliente se crea sola cuando te compra por primera vez. Aquí la completas o corriges: nombre de la empresa, direcciones y condiciones.
+      </p>
 
       <div className="mb-4 flex max-w-md items-center gap-2 border-2 border-ink bg-bone px-3">
         <Search size={14} className="shrink-0 text-ink-3" />
@@ -261,8 +254,7 @@ export default function Customers() {
       ) : (customers?.length ?? 0) === 0 ? (
         <EmptyState
           title="Sin clientes"
-          hint="La IA crea la ficha automáticamente cuando un cliente nuevo hace su primer pedido, o créalos a mano."
-          action={canWrite ? <Button onClick={() => setCreating(true)}>Crear el primero</Button> : undefined}
+          hint="La ficha se crea sola cuando un cliente nuevo hace su primer pedido por WhatsApp. Aparecerá aquí para que la completes."
         />
       ) : (
         <div className="space-y-4">
@@ -277,10 +269,10 @@ export default function Customers() {
         </div>
       )}
 
-      {(creating || editing) && (
+      {editing && (
         <CustomerModal
           open
-          onClose={() => { setCreating(false); setEditing(null); }}
+          onClose={() => setEditing(null)}
           customer={editing}
           q={q}
           companyId={companyId}

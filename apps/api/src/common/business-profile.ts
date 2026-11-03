@@ -8,7 +8,7 @@ import { Rubro } from './rubros';
 
 export type ProfileKey =
   | 'ROPA' | 'COMIDA' | 'BELLEZA' | 'SALUD' | 'EDUCACION' | 'INMOBILIARIA'
-  | 'TIENDA' | 'TALLER' | 'WEBCAM' | 'SERVICIOS' | 'RESERVAS' | 'GENERAL';
+  | 'TIENDA' | 'TALLER' | 'WEBCAM' | 'SERVICIOS' | 'RESERVAS' | 'CONSTRUCCION' | 'GENERAL';
 
 export interface BusinessProfile {
   key: ProfileKey;
@@ -24,6 +24,12 @@ export interface BusinessProfile {
   roles: string[];
   /** Lo que más le quita tiempo (primeros pasos) */
   pains: string[];
+  /**
+   * Venta consultiva: lo que vende depende de cada caso (obra, inmueble,
+   * diagnóstico, asesoría). La IA no cotiza ni promete precios: muestra los
+   * servicios, despierta interés, recoge lo que necesita y agenda una cita.
+   */
+  consultative?: boolean;
 }
 
 const FOOD_TOOLS = ['menu', 'production', 'delivery'];
@@ -65,7 +71,7 @@ export const PROFILES: Record<ProfileKey, BusinessProfile> = {
     pains: ['Responder fechas y precios', 'Inscribir y cobrar', 'Llenar los cupos', 'Recordar clases'],
   },
   INMOBILIARIA: {
-    key: 'INMOBILIARIA', label: 'Inmobiliaria', shipping: 'NINGUNO', deny: FOOD_TOOLS,
+    key: 'INMOBILIARIA', label: 'Inmobiliaria', shipping: 'NINGUNO', deny: [...FOOD_TOOLS, 'orders'], consultative: true,
     ask: 'arriendo o venta, zonas, presupuesto del cliente, visitas, documentos para estudio, comisiones',
     never: 'menú, cocina, domicilios ni tallas',
     roles: ['Asesores comerciales', 'Captación de inmuebles', 'Visitas', 'Contratos y documentos', 'Administración'],
@@ -79,7 +85,7 @@ export const PROFILES: Record<ProfileKey, BusinessProfile> = {
     pains: ['Responder precios y disponibilidad', 'Organizar pedidos', 'Cobrar', 'Hacer seguimiento a quien no compra'],
   },
   TALLER: {
-    key: 'TALLER', label: 'Taller y servicio técnico', shipping: 'NINGUNO', deny: ['menu', 'delivery'],
+    key: 'TALLER', label: 'Taller y servicio técnico', shipping: 'NINGUNO', deny: ['menu', 'delivery'], consultative: true,
     ask: 'servicios y diagnósticos, citas o recepción de equipos, tiempos de entrega, repuestos, garantías',
     never: 'menú, cocina ni tallas',
     roles: ['Técnicos', 'Recepción', 'Repuestos', 'Entregas', 'Administración'],
@@ -93,7 +99,7 @@ export const PROFILES: Record<ProfileKey, BusinessProfile> = {
     pains: ['Atender muchos chats a la vez', 'Vender contenido', 'Saber cuánto vende cada perfil'],
   },
   SERVICIOS: {
-    key: 'SERVICIOS', label: 'Servicios', shipping: 'NINGUNO', deny: FOOD_TOOLS,
+    key: 'SERVICIOS', label: 'Servicios', shipping: 'NINGUNO', deny: FOOD_TOOLS, consultative: true,
     ask: 'servicios y precios, citas o visitas, requisitos, anticipos, seguimiento después del servicio',
     never: 'menú, cocina, domicilios ni tallas',
     roles: ['Profesionales o técnicos', 'Agenda y atención', 'Ventas', 'Administración'],
@@ -105,6 +111,13 @@ export const PROFILES: Record<ProfileKey, BusinessProfile> = {
     never: 'menú, cocina, domicilios, tallas, envíos ni catálogo de productos si no lo mencionó',
     roles: ['Reservas y atención', 'Mantenimiento de los espacios', 'Caja y cobros', 'Administración'],
     pains: ['Responder disponibilidad todo el día', 'Separar y confirmar reservas', 'Cobrar anticipos', 'Clientes que no llegan'],
+  },
+  CONSTRUCCION: {
+    key: 'CONSTRUCCION', label: 'Construcción y remodelación', shipping: 'NINGUNO', deny: [...FOOD_TOOLS, 'orders', 'media'], consultative: true,
+    ask: 'tipos de obra que hace (remodelación, construcción, acabados, diseño), zonas donde trabaja, visitas técnicas, tiempos aproximados, fotos de trabajos anteriores, cómo se cotiza',
+    never: 'menú, cocina, domicilios, pedidos, tallas, envíos ni precios cerrados por chat',
+    roles: ['Comercial y visitas', 'Arquitectura o diseño', 'Obra y maestros', 'Compras de materiales', 'Administración'],
+    pains: ['Filtrar a los interesados de verdad', 'Agendar visitas técnicas', 'Responder «¿cuánto cuesta?» sin ver la obra', 'Hacer seguimiento a las cotizaciones'],
   },
   GENERAL: {
     key: 'GENERAL', label: 'Negocio', shipping: 'CUALQUIERA', deny: ['menu', 'production'],
@@ -127,6 +140,7 @@ const KEYWORDS: Record<Exclude<ProfileKey, 'GENERAL'>, string[]> = {
   WEBCAM: ['webcam', 'modelos webcam', 'creador de contenido', 'onlyfans', 'chaturbate', 'stripchat', 'estudio de modelos'],
   // Lo que se alquila o reserva por turnos (canchas, salones, estudios, consultorios por horas…)
   RESERVAS: ['cancha', 'reserva', 'reservas', 'alquiler de', 'alquilamos', 'alquilo', 'por hora', 'turnos de', 'salon de eventos', 'coworking', 'sala de ensayo', 'estudio de grabacion', 'piscina', 'futbol 5', 'futbol 8', 'padel', 'squash', 'escenario deportivo', 'glamping', 'cabana'],
+  CONSTRUCCION: ['construccion', 'constructora', 'remodelacion', 'remodelaciones', 'obra civil', 'obras', 'contratista', 'arquitectura', 'arquitecto', 'acabados', 'drywall', 'enchape', 'impermeabilizacion', 'diseno de interiores', 'cocinas integrales', 'mamposteria', 'ingenieria civil'],
   SERVICIOS: ['cita', 'asesoria', 'consultoria', 'abogado', 'contador', 'agencia', 'eventos', 'fotografia', 'limpieza', 'gimnasio', 'entrenador'],
 };
 
@@ -162,6 +176,32 @@ export function profileOfCompany(ob: Record<string, any>, rubro?: Rubro | string
   if (rubro === 'SERVICIOS') return PROFILES.SERVICIOS;
   if (rubro === 'VENTAS') return PROFILES.TIENDA;
   return found;
+}
+
+/** Perfil de una empresa a partir de su registro (o del tipo de negocio que guardó la plataforma). */
+export function companyProfile(company: { onboardingJson?: string | null; industry?: string | null }): BusinessProfile {
+  let ob: Record<string, any> = {};
+  try { ob = company.onboardingJson ? JSON.parse(company.onboardingJson) : {}; } catch { ob = {}; }
+  return profileOfCompany({ ...ob, businessType: ob.businessType ?? company.industry ?? undefined }, ob.rubro);
+}
+
+/**
+ * Política comercial del asistente según el negocio. En venta consultiva la
+ * IA no cotiza: ofrece, entiende la necesidad y agenda. Va al final de la
+ * instrucción del asistente (manda sobre lo que diga el catálogo).
+ */
+export function salesPolicy(profile: BusinessProfile): string {
+  if (!profile.consultative) return '';
+  return `
+
+POLÍTICA COMERCIAL DE ESTE NEGOCIO (${profile.label}) — obligatoria:
+- El precio depende de cada caso. NUNCA des precios cerrados, cotizaciones, presupuestos, rangos de precio ni promesas
+  como «no cuesta más de…», aunque el cliente insista o aparezca un valor en el catálogo. Explica con amabilidad que el
+  valor se define después de conocer el caso (visita, diagnóstico o reunión).
+- Tu trabajo es: mostrar los servicios que sí se ofrecen, despertar interés con ejemplos de lo que el negocio hace,
+  entender qué necesita la persona (qué, dónde, cuándo, fotos si aplica) y proponer una cita o visita.
+- Si no estás seguro de que el negocio haga algo, no lo prometas: di que lo consultas con el equipo.
+- Cierra pidiendo el siguiente paso (agendar) y pregunta qué le pareció la atención para tener su opinión.`;
 }
 
 /** Contexto corto para la IA de la entrevista (no gasta casi tokens). */

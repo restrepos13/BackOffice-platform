@@ -108,6 +108,8 @@ export interface AdsProvider {
   readonly capabilities: ProviderCapabilities;
   /** Qué falta configurar para operar en modo real (vacío = listo). */
   missingConfig(): string[];
+  /** Igual, cuando la configuración se lee de la base (Google, TikTok). */
+  missingConfigAsync?(): Promise<string[]>;
   listAccounts(token: string): Promise<RemoteAccount[]>;
   fetchEntities(account: AccountRef, token: string): Promise<RemoteEntity[]>;
   fetchInsights(account: AccountRef, token: string, since: string, until: string): Promise<RemoteInsight[]>;

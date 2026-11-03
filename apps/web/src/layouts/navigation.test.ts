@@ -17,16 +17,32 @@ describe('Arquitectura de información', () => {
     const groups = automationGroups(ALL);
     expect(groups.map((g) => g.title)).toEqual(['Inicio', 'Atención y canales', 'Ventas y clientes', 'Automatización', 'Operaciones']);
     const all = labels(groups);
-    expect(all).toEqual(expect.arrayContaining(['Conversaciones', 'Contactos', 'Oportunidades', 'Reactivación', 'Cobranza', 'Auditor de ventas', 'Asistentes IA', 'Flujos y reglas', 'Pedidos', 'Agenda', 'Domicilios']));
+    expect(all).toEqual(expect.arrayContaining(['Reportes', 'Conversaciones', 'Contactos', 'Reactivación', 'Cobranza', 'Auditor de ventas', 'Asistentes IA', 'Flujos y reglas', 'Pedidos', 'Agenda', 'Domicilios']));
+    // Analítica, reporte a gerencia y oportunidades se unificaron en «Reportes»
+    expect(all).not.toEqual(expect.arrayContaining(['Analítica']));
+    expect(all).not.toContain('Reporte a gerencia');
+    expect(all).not.toContain('Oportunidades');
     expect(all).not.toEqual(expect.arrayContaining(['Mis diseños', 'Calendario', 'Campañas', 'Biblioteca']));
   });
 
   it('Creative y Ads tienen sus grupos; la biblioteca es la misma en los dos (no hay otra)', () => {
-    expect(creativeGroups(ALL).map((g) => g.title)).toEqual(['Crear', 'Inicio', 'Diseños', 'Marca', 'Biblioteca creativa', 'Calendario y publicación']);
-    expect(adsGroups(ALL).map((g) => g.title)).toEqual(['Resumen publicitario', 'Campañas y cuentas', 'Creatividades y recursos', 'Inteligencia y oportunidades', 'Automatización publicitaria', 'Leads, ventas y atribución']);
+    // Creative diseña; publicar, programar y las oportunidades publicitarias están en Ads (sin duplicados)
+    expect(creativeGroups(ALL).map((g) => g.title)).toEqual(['Crear', 'Diseños', 'Marca', 'Biblioteca creativa', 'Contenido']);
+    expect(labels(creativeGroups(ALL))).not.toEqual(expect.arrayContaining(['Oportunidades y avance']));
+    expect(labels(creativeGroups(ALL)).some((l) => /Calendario|Reglas de publicación/.test(l))).toBe(false);
+    expect(adsGroups(ALL).map((g) => g.title)).toEqual(['Resumen publicitario', 'Campañas y cuentas', 'Publicaciones en redes', 'Creatividades y recursos', 'Inteligencia y oportunidades', 'Automatización publicitaria', 'Leads, ventas y atribución']);
     const lib = (gs: ReturnType<typeof adsGroups>) => gs.flatMap((g) => g.items).filter((i) => i.to === '/app/biblioteca');
     expect(lib(creativeGroups(ALL))).toHaveLength(1);
     expect(lib(adsGroups(ALL))).toHaveLength(1);
+  });
+
+  it('el tipo de negocio manda: a una constructora no le aparecen pedidos aunque tenga la sección', () => {
+    const construction: NavContext = { ...ALL, hides: ['menu', 'production', 'delivery', 'orders', 'media'] };
+    const all = labels(automationGroups(construction));
+    expect(all).not.toContain('Pedidos');
+    expect(all).not.toContain('Clientes');
+    expect(all).not.toContain('Domicilios');
+    expect(all).toEqual(expect.arrayContaining(['Agenda', 'Contactos', 'Reportes']));
   });
 
   it('las secciones del rubro mandan: sin pedidos ni campañas no aparecen; los grupos vacíos se quitan', () => {
@@ -80,16 +96,16 @@ describe('Producto activo según la ruta', () => {
     expect(isItemActive(pedidos, '/app/orders', '')).toBe(true);
     expect(isItemActive(pedidos, '/app/orders/reports', '')).toBe(false);
     const cr = creativeGroups(ALL).flatMap((g) => g.items);
-    const inicio = cr.find((i) => i.to.endsWith('tab=inicio'))!;
+    const resultados = cr.find((i) => i.to.endsWith('tab=resultados'))!;
     const crear = cr.find((i) => i.to.endsWith('tab=crear'))!;
     const disenos = cr.find((i) => i.to.endsWith('tab=disenos'))!;
     // «Crear» es la entrada por defecto de Creative
     expect(isItemActive(crear, '/app/creative', '')).toBe(true);
-    expect(isItemActive(inicio, '/app/creative', '')).toBe(false);
-    expect(isItemActive(inicio, '/app/creative', '?tab=inicio')).toBe(true);
+    expect(isItemActive(resultados, '/app/creative', '')).toBe(false);
+    expect(isItemActive(resultados, '/app/creative', '?tab=resultados')).toBe(true);
     expect(isItemActive(disenos, '/app/creative', '?tab=disenos')).toBe(true);
     expect(isItemActive(disenos, '/app/creative/editor/abc', '')).toBe(true);
-    expect(isItemActive(inicio, '/app/creative/editor/abc', '')).toBe(false);
+    expect(isItemActive(resultados, '/app/creative/editor/abc', '')).toBe(false);
   });
 });
 

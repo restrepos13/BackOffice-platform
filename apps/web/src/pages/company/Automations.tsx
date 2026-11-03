@@ -1,3 +1,6 @@
+import { Explainer } from '../../components/Explainer';
+import { automationExamples, usesOrders } from '../../lib/business';
+import { useActiveCompany } from '../../lib/products';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useMemo, useState } from 'react';
 import { toast } from 'sonner';
@@ -56,6 +59,7 @@ const emptyDraft = (): DefinitionDraft => ({ trigger: { type: '', config: {} }, 
 
 export default function Automations() {
   const { ready, q, canWrite, companyId } = useCompanyScope();
+  const { company } = useActiveCompany();
   const [tab, setTab] = useState<'list' | 'runs'>('list');
   const [editing, setEditing] = useState<{ id?: string; status?: AutomationRow['status']; name: string; description: string; definition: DefinitionDraft } | null>(null);
   const [runsFor, setRunsFor] = useState<string>('');
@@ -74,6 +78,21 @@ export default function Automations() {
         title="Automatizaciones"
         actions={canWrite && cat ? <Button onClick={() => setEditing({ name: '', description: '', definition: emptyDraft() })}>+ Nueva automatización</Button> : undefined}
       />
+      <Explainer
+        id="automations"
+        title="¿Qué es una automatización?"
+        summary={<>Es una regla del tipo <b>«cuando pase esto, haz esto otro»</b> que BackOffice cumple solo, sin que nadie tenga que acordarse. No le escribe nada raro a tus clientes por su cuenta: hace tareas internas (asignar, etiquetar, avisar al equipo, crear seguimientos) y, si tú lo pides, envía un mensaje que tú escribiste.</>}
+        steps={[
+          <><b>Cuándo:</b> el evento que la activa (llega un contacto nuevo, cambia de etapa{usesOrders(company) ? ', cambia el estado de un pedido' : ''}…).</>,
+          <><b>Solo si:</b> condiciones opcionales para que no se active con todos (por ejemplo, solo los de cierta ciudad).</>,
+          <><b>Qué hacer:</b> una o varias acciones. Puedes probarla con un contacto real antes de activarla.</>,
+        ]}
+      >
+        <p className="mt-3 text-xs font-semibold text-ink-2">Ideas para tu negocio:</p>
+        <ul className="mt-1 list-disc space-y-0.5 pl-5 text-xs text-ink-2">
+          {automationExamples(company).map((e) => <li key={e}>{e}</li>)}
+        </ul>
+      </Explainer>
       <Tabs tabs={[{ id: 'list', label: 'Automatizaciones' }, { id: 'runs', label: 'Historial de ejecuciones' }]} active={tab} onChange={(t) => setTab(t as 'list' | 'runs')} />
       <div className="mt-4">
         {tab === 'list' ? (
@@ -120,7 +139,7 @@ function AutomationList({ rows, catalog, canWrite, q, onEdit, onHistory, onCreat
     return (
       <EmptyState
         title="Nada automatizado todavía"
-        hint="Elige un evento (contacto nuevo, cambio de etapa, estado de pedido), pon condiciones y las acciones internas que deben ocurrir."
+        hint={`Elige un evento (contacto nuevo, cambio de etapa${catalog?.triggers.some((t) => t.record === 'order') ? ', estado de pedido' : ''}), pon condiciones y las acciones internas que deben ocurrir.`}
         action={canWrite ? <Button onClick={onCreate}>Crear la primera</Button> : undefined}
       />
     );

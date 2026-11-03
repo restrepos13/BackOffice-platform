@@ -131,6 +131,8 @@ export interface Company {
   brandColor?: string | null;
   notes?: string | null;
   modules: string[];
+  /** Tipo de negocio detectado: oculta lo que no le sirve (pedidos, ejemplos de restaurante…) */
+  businessProfile?: { key: string; label: string; consultative: boolean; hides: string[] };
   /** Productos activos (Automation, Creative, Ads Intelligence); el servidor también los exige */
   products?: Array<'AUTOMATION' | 'CREATIVE' | 'ADS'>;
   productStates?: Array<{ key: 'AUTOMATION' | 'CREATIVE' | 'ADS'; name: string; short: string; home: string; summary: string; enabled: boolean; since?: string | null; until?: string | null; requestedAt?: string | null; requestedBy?: string | null }>;

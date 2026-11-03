@@ -1,3 +1,4 @@
+import { useSample } from '../lib/useSample';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { clsx } from 'clsx';
 import { CalendarRange, ExternalLink, ImagePlus, Link2, Send, Sparkles, Unplug } from 'lucide-react';
@@ -204,6 +205,7 @@ function ManualConnect({ q, onClose, onDone }: { q: string; onClose: () => void;
 }
 
 function PlanModal({ q, left, onClose, onDone }: { q: string; left: number; onClose: () => void; onDone: () => void }) {
+  const sampleText = useSample();
   const [weekdays, setWeekdays] = useState<number[]>([1, 3, 5]);
   const [time, setTime] = useState('10:00');
   const [count, setCount] = useState(Math.min(8, Math.max(1, left || 8)));
@@ -242,7 +244,7 @@ function PlanModal({ q, left, onClose, onDone }: { q: string; left: number; onCl
           </Field>
         </div>
         <Field label="Enfoque del mes" hint="Lanzamiento, temporada, promoción, producto estrella…">
-          <Textarea rows={3} value={topic} onChange={(e) => setTopic(e.target.value)} placeholder="Este mes queremos impulsar los almuerzos ejecutivos para empresas" />
+          <Textarea rows={3} value={topic} onChange={(e) => setTopic(e.target.value)} placeholder={sampleText('contentGoal')} />
         </Field>
         <Field label="Dónde">
           <div className="flex gap-4 text-sm">

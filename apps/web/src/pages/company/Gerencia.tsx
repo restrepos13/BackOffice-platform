@@ -26,7 +26,7 @@ function Delta({ current, prev }: { current: number; prev: number }) {
   );
 }
 
-export default function Gerencia() {
+export default function Gerencia({ embedded = false }: { embedded?: boolean }) {
   const { ready, q } = useCompanyScope();
   const { data, isLoading } = useQuery({
     queryKey: ['executive', q],
@@ -48,12 +48,12 @@ export default function Gerencia() {
 
   return (
     <>
-      <PageHeader
+      {!embedded && <PageHeader
         kicker="Tu operación auditada, en tiempo real"
         title="Reporte a"
         accent="gerencia."
         actions={<p className="kicker self-center">Actualizado {timeAgo(data.generatedAt)}</p>}
-      />
+      />}
 
       {/* Ahorro estimado — el titular del reporte */}
       <div className="grid gap-4 lg:grid-cols-[1.2fr_1fr]">

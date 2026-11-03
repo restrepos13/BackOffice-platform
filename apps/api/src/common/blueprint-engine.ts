@@ -297,7 +297,7 @@ const our = (noun: string) => (noun === 'menú' || noun === 'contenido' ? `nuest
 
 const NOUN: Record<ProfileKey, string> = {
   ROPA: 'prendas', COMIDA: 'menú', BELLEZA: 'servicios', SALUD: 'servicios', EDUCACION: 'cursos', INMOBILIARIA: 'inmuebles',
-  TIENDA: 'productos', TALLER: 'servicios', WEBCAM: 'contenido', SERVICIOS: 'servicios', RESERVAS: 'espacios', GENERAL: 'productos',
+  TIENDA: 'productos', TALLER: 'servicios', WEBCAM: 'contenido', SERVICIOS: 'servicios', RESERVAS: 'espacios', CONSTRUCCION: 'servicios', GENERAL: 'productos',
 };
 
 type Stage = [string, 'abierta' | 'ganada' | 'perdida'];
@@ -318,6 +318,7 @@ function pipelineFor(f: Facts): Stage[] {
     return [['Contacto inicial', 'abierta'], ['Información enviada', 'abierta'], ...(f.documents.length ? [['Documentos solicitados', 'abierta'] as Stage] : []), ['Pago pendiente', 'abierta'], ['Inscrito y pagado', 'ganada'], ...(/certificad/.test(plain(f.wishes.join(' ') + f.documents.join(' '))) || f.reminders ? [['Certificado entregado', 'ganada'] as Stage] : []), ['No se inscribió', 'perdida']];
   }
   if (k === 'INMOBILIARIA') return [['Interesado inicial', 'abierta'], ['Información enviada', 'abierta'], ['Visita agendada', 'abierta'], ['Documentos solicitados', 'abierta'], ['Estudio en proceso', 'abierta'], ['Arriendo o venta exitosa', 'ganada'], ['No califica o desiste', 'perdida']];
+  if (k === 'CONSTRUCCION') return [['Interesado', 'abierta'], ['Visita técnica agendada', 'abierta'], ['Propuesta enviada', 'abierta'], ['En negociación', 'abierta'], ['Obra contratada', 'ganada'], ['No continuó', 'perdida']];
   if (k === 'TALLER') return [['Contacto inicial', 'abierta'], ['Revisión y cotización', 'abierta'], ['Servicio en proceso', 'abierta'], ['Listo para entrega y pago', 'abierta'], ['Entregado', 'ganada'], ['Cotización no aceptada', 'perdida']];
   if (k === 'WEBCAM') return [['Nuevo fan', 'abierta'], ['Enviando catálogo', 'abierta'], ['Esperando pago', 'abierta'], ['Contenido entregado', 'ganada'], ['Sin compra', 'perdida']];
   if (k === 'SERVICIOS') {
@@ -338,6 +339,7 @@ function clientDataFor(f: Facts): string[] {
   if (f.delivery.shipping && /todo el pais|ciudad|nacional/.test(plain(f.delivery.sentence))) out.push('Ciudad');
   if (k === 'COMIDA' && (f.anticipation || f.deposit)) out.push('Detalles del pedido', 'Fecha y hora de entrega o recogida');
   if (k === 'INMOBILIARIA') out.push('Tipo de inmueble (arriendo o venta)', 'Presupuesto aproximado', 'Zona de interés');
+  if (k === 'CONSTRUCCION') out.push('Tipo de obra', 'Ciudad o barrio de la obra', 'Para cuándo la necesita');
   if (k === 'TALLER' && /moto|carro|vehiculo/.test(plain(f.businessType))) out.push(`Marca y modelo de la ${/carro|vehiculo/.test(plain(f.businessType)) ? 'vehículo' : 'moto'}`, 'Servicio solicitado');
   if (f.appointments && ['BELLEZA', 'SALUD', 'TALLER'].includes(k)) out.push('Servicio deseado', 'Fecha y hora de la cita');
   if (/evento/.test(t)) out.push('Fecha del evento', 'Lugar del evento', 'Tipo de evento');
@@ -407,6 +409,7 @@ function flowFor(f: Facts, noun: string, business: string): string[] {
   else if (names.length) steps.push(`Muestra ${the(noun)} (${humanList(names)}) con sus precios.`);
   else steps.push(`Da información sobre ${the(noun)} disponibles.`);
   if (f.asks.length) steps.push(`Responde preguntas sobre ${humanList(f.asks.slice(0, 3))}.`);
+  if (k === 'CONSTRUCCION') steps.push('Pregunta qué obra necesita, dónde y para cuándo; pide fotos del espacio si las tiene.', 'Muestra trabajos parecidos que ya hizo el negocio (sin dar precios).', 'Agenda la visita técnica con el equipo.');
   if (k === 'INMOBILIARIA') steps.push('Pregunta presupuesto, zona y número de habitaciones para filtrar opciones.', 'Envía fotos de los inmuebles que coinciden.', 'Agenda la visita con un asesor.');
   else if (k === 'EDUCACION') steps.push(`Solicita los documentos para la inscripción${f.documents.length ? ` (${humanList(f.documents.slice(0, 3).map((d) => d.toLowerCase()))})` : ''}.`);
   else if (f.quotes) steps.push(`Pregunta los detalles${f.collect.length ? ` (${humanList(f.collect.slice(0, 3))})` : ''} y envía la cotización.`);
@@ -569,6 +572,7 @@ const TOPICS: Topic[] = [
         EDUCACION: ['Fechas y cupos', 'Precio', 'Requisitos', 'Si dan certificado'],
         INMOBILIARIA: ['Precio', 'Zona', 'Habitaciones', 'Requisitos para arrendar'],
         RESERVAS: ['Disponibilidad', 'El precio por hora', 'Si piden anticipo', 'Dónde queda'],
+        CONSTRUCCION: ['Qué tipo de obra hacen', 'Si van a ver la obra', 'Cuánto se demoran', 'Trabajos anteriores'],
       } as Partial<Record<ProfileKey, string[]>>)[f.profile.key] ?? ['El precio', 'Disponibilidad', 'Cómo pagar', 'Tiempos de entrega'],
     }),
   },

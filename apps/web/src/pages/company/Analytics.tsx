@@ -7,7 +7,7 @@ import { Badge, Card, Loading, PageHeader, Stat, Table, statusTone } from '../..
 import { BarsChart, CostChart, MessagesChart } from '../../components/charts';
 import { PickCompany, useCompanyScope, withScope } from './shared';
 
-export default function Analytics() {
+export default function Analytics({ embedded = false }: { embedded?: boolean }) {
   const { ready, q } = useCompanyScope();
   const { data, isLoading } = useQuery({
     queryKey: ['metrics-company', q],
@@ -25,7 +25,7 @@ export default function Analytics() {
 
   return (
     <>
-      <PageHeader kicker="Últimos 30 días" title="Analytics" />
+      {!embedded && <PageHeader kicker="Últimos 30 días" title="Analytics" />}
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
         <Stat label="Mensajes recibidos" value={fmtNum(totalIn)} />

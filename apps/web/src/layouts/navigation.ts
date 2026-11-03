@@ -53,20 +53,22 @@ export interface NavContext {
   /** Domicilios configurados aunque no tenga la sección "delivery" */
   deliveryEnabled?: boolean;
   onboarding?: boolean;
+  /** Secciones que el tipo de negocio no usa (una constructora no toma pedidos) */
+  hides?: string[];
 }
 
 /* ── Automation ── */
 
 export function automationGroups(ctx: NavContext): NavGroup[] {
-  const has = (m: string) => ctx.modules.includes(m);
+  const has = (m: string) => ctx.modules.includes(m) && !(ctx.hides ?? []).includes(m);
   const hasOrders = has('orders');
-  const hasDelivery = has('delivery') || !!ctx.deliveryEnabled;
+  const hasDelivery = (has('delivery') || !!ctx.deliveryEnabled) && !(ctx.hides ?? []).includes('delivery');
   const groups: NavGroup[] = [
     {
       id: 'inicio', title: 'Inicio', items: [
         { to: '/app', label: 'Resumen', icon: LayoutDashboard, end: true },
-        { to: '/app/analytics', label: 'Analítica', icon: BarChart3, module: 'analytics' },
-        { to: '/app/gerencia', label: 'Reporte a gerencia', icon: ClipboardCheck, module: 'gerencia' },
+        // Analítica, reporte a gerencia y oportunidades quedaron en una sola pantalla
+        { to: '/app/reportes', label: 'Reportes', icon: BarChart3 },
       ],
     },
     {
@@ -81,7 +83,6 @@ export function automationGroups(ctx: NavContext): NavGroup[] {
       id: 'ventas', title: 'Ventas y clientes', items: [
         { to: '/app/contacts', label: 'Contactos', icon: Contact },
         ...(hasOrders ? [{ to: '/app/customers', label: 'Clientes', icon: Store }] : []),
-        { to: '/app/oportunidades', label: 'Oportunidades', icon: Radar },
         { to: '/app/campaigns', label: 'Campañas por WhatsApp', icon: Send, module: 'campaigns' },
         { to: '/app/reactivacion', label: 'Reactivación', icon: RefreshCcw, module: 'reactivation' },
         { to: '/app/cobranza', label: 'Cobranza', icon: HandCoins, module: 'collections' },
@@ -125,15 +126,18 @@ export function automationGroups(ctx: NavContext): NavGroup[] {
 
 export function creativeGroups(ctx: NavContext): NavGroup[] {
   return clean([
+    // Creative diseña y aprende de los resultados; publicar, programar y las oportunidades viven en Ads
     { id: 'crear', title: 'Crear', items: [{ to: '/app/creative?tab=crear', label: 'Crear para vender', icon: Sparkles }] },
-    { id: 'inicio', title: 'Inicio', items: [{ to: '/app/creative?tab=inicio', label: 'Oportunidades y avance', icon: LayoutDashboard }] },
-    { id: 'disenos', title: 'Diseños', items: [{ to: '/app/creative?tab=disenos', label: 'Mis diseños', icon: Layers }] },
+    {
+      id: 'disenos', title: 'Diseños', items: [
+        { to: '/app/creative?tab=disenos', label: 'Mis diseños', icon: Layers },
+        { to: '/app/creative?tab=resultados', label: 'Qué te funciona', icon: TrendingUp },
+      ],
+    },
     { id: 'marca', title: 'Marca', items: [{ to: '/app/creative?tab=marca', label: 'Identidad de marca', icon: SwatchBook }] },
     { id: 'biblioteca', title: 'Biblioteca creativa', items: [{ to: '/app/biblioteca', label: 'Imágenes, logos y versiones', icon: FolderOpen }] },
     {
-      id: 'publicacion', title: 'Calendario y publicación', items: [
-        { to: '/app/creative?tab=calendario', label: 'Calendario orgánico', icon: CalendarDays },
-        { to: '/app/creative?tab=reglas', label: 'Reglas de publicación', icon: ShieldCheck },
+      id: 'contenido', title: 'Contenido', items: [
         { to: '/app/marketing', label: 'Piezas y redes', icon: Megaphone, module: 'marketing' },
         { to: '/app/creative?tab=creditos', label: 'Créditos de contenido', icon: Sparkles },
       ],
@@ -152,6 +156,13 @@ export function adsGroups(ctx: NavContext): NavGroup[] {
         { to: '/app/ads?tab=nueva', label: 'Crear anuncio', icon: Rocket, tour: 'ads-crear' },
         { to: '/app/ads?tab=semana', label: 'Programación semanal', icon: CalendarDays, tour: 'ads-semana' },
         { to: '/app/ads?tab=cuentas', label: 'Cuentas publicitarias', icon: Plug, tour: 'ads-cuentas' },
+      ],
+    },
+    {
+      // Publicaciones normales (no pagadas) en Facebook e Instagram: antes estaban en Creative
+      id: 'redes', title: 'Publicaciones en redes', items: [
+        { to: '/app/ads?tab=organico', label: 'Publicaciones programadas', icon: CalendarDays },
+        { to: '/app/ads?tab=reglas', label: 'Reglas de publicación', icon: ShieldCheck },
       ],
     },
     { id: 'recursos', title: 'Creatividades y recursos', items: [{ to: '/app/biblioteca', label: 'Imágenes y videos', icon: FolderOpen }] },
@@ -212,7 +223,7 @@ export function activeWorkspace(pathname: string, available: Workspace[], last: 
 /** Inicio de cada espacio (cuando no hay una ruta recordada). */
 export const WORKSPACE_HOME: Record<Workspace, string> = {
   AUTOMATION: '/app',
-  CREATIVE: '/app/creative?tab=inicio',
+  CREATIVE: '/app/creative?tab=crear',
   ADS: '/app/ads?tab=resumen',
   PLATFORM: '/platform',
 };
@@ -253,7 +264,7 @@ export function isItemActive(item: NavItem, pathname: string, search: string): b
 /** Quita lo que la empresa no tiene (secciones del rubro) y los grupos vacíos. */
 function clean(groups: NavGroup[], ctx: NavContext): NavGroup[] {
   return groups
-    .map((g) => ({ ...g, items: g.items.filter((i) => !i.module || ctx.modules.includes(i.module)) }))
+    .map((g) => ({ ...g, items: g.items.filter((i) => !i.module || (ctx.modules.includes(i.module) && !(ctx.hides ?? []).includes(i.module))) }))
     .filter((g) => g.items.length > 0);
 }
 

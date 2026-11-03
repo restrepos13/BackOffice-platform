@@ -7,15 +7,17 @@ import { PickCompany, useCompanyScope, withScope } from './shared';
  * sin seguimiento, clientes para reactivar. Es el mismo Radar que ya existía
  * (antes solo se veía dentro de Creative); aquí se filtra a la fuente CRM.
  */
-export default function Opportunities() {
+export default function Opportunities({ embedded = false }: { embedded?: boolean }) {
   const { ready, q, canWrite } = useCompanyScope();
   if (!ready) return <PickCompany />;
   return (
     <>
-      <PageHeader kicker="Ventas y clientes" title="Oportunidades" />
-      <p className="mb-4 max-w-3xl text-sm text-ink-2">
-        Lo que el sistema encontró en tus conversaciones y contactos: quién espera respuesta, a quién hacerle seguimiento y qué clientes reactivar. Cada una dice cómo lo sabemos y qué hacer.
-      </p>
+      {!embedded && <PageHeader kicker="Ventas y clientes" title="Qué atender hoy" />}
+      {!embedded && (
+        <p className="mb-4 max-w-3xl text-sm text-ink-2">
+          Lo que el sistema encontró en tus conversaciones y contactos: quién espera respuesta, a quién hacerle seguimiento y qué clientes reactivar. Cada una dice cómo lo sabemos y qué hacer.
+        </p>
+      )}
       <OpportunityList
         scope={(p) => withScope(p, q)}
         query={{ source: 'CRM' }}

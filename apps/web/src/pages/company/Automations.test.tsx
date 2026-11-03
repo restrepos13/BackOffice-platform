@@ -45,6 +45,7 @@ const get = vi.fn(async (path: string): Promise<unknown> => {
 });
 const post = vi.fn(async (_path: string, _body?: unknown): Promise<unknown> => ({}));
 const patch = vi.fn(async (_path: string, _body?: unknown): Promise<unknown> => ({}));
+vi.mock('../../lib/products', async (orig) => ({ ...(await orig<Record<string, unknown>>()), useActiveCompany: () => ({ company: null, states: [], isLoading: false }) }));
 vi.mock('../../lib/api', () => {
   class ApiError extends Error {
     constructor(message: string, readonly status: number, readonly field?: string, readonly code?: string, readonly errors?: string[]) { super(message); }

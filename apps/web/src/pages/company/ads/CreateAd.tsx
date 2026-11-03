@@ -1,3 +1,4 @@
+import { useSample } from '../../../lib/useSample';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { clsx } from 'clsx';
 import { useEffect, useMemo, useState } from 'react';
@@ -53,6 +54,7 @@ const STATUS: Record<Launch['status'], { label: string; tone: 'ok' | 'warn' | 'b
 const LEVEL: Record<CheckItem['level'], { tone: 'ok' | 'warn' | 'bad'; label: string }> = { OK: { tone: 'ok', label: 'Bien' }, WARN: { tone: 'warn', label: 'Mejorable' }, BAD: { tone: 'bad', label: 'Corregir' } };
 
 export function CreateAd({ q }: { q: string }) {
+  const sampleText = useSample();
   const queryClient = useQueryClient();
   const { canWrite } = useCompanyScope();
   const [accountId, setAccountId] = useState('');
@@ -191,7 +193,7 @@ export function CreateAd({ q }: { q: string }) {
               ) : <Input placeholder="ID de la página (solo números)" value={f.pageId} onChange={(e) => set({ pageId: e.target.value.replace(/\D/g, '') })} />}
             </Field>
             <Field label="Nombre de la campaña" hint="Solo lo ves tú; ayuda a encontrarla en Meta y en los reportes.">
-              <Input value={f.name} maxLength={120} placeholder="Ej.: 2x1 martes de hamburguesas" onChange={(e) => set({ name: e.target.value })} />
+              <Input value={f.name} maxLength={120} placeholder={sampleText('adOffer')} onChange={(e) => set({ name: e.target.value })} />
             </Field>
           </div>
         )}
@@ -284,7 +286,7 @@ export function CreateAd({ q }: { q: string }) {
               )}
             </div>
             <div className="space-y-3">
-              <Field label={`Texto principal (${f.primaryText.length}/125 visibles)`}><Textarea rows={4} value={f.primaryText} maxLength={600} onChange={(e) => set({ primaryText: e.target.value })} placeholder="2x1 en hamburguesas todos los martes. Escríbenos y reserva tu mesa." /></Field>
+              <Field label={`Texto principal (${f.primaryText.length}/125 visibles)`}><Textarea rows={4} value={f.primaryText} maxLength={600} onChange={(e) => set({ primaryText: e.target.value })} placeholder={sampleText('adText')} /></Field>
               <Field label={`Título (${f.headline.length}/40 visibles)`}><Input value={f.headline} maxLength={100} onChange={(e) => set({ headline: e.target.value })} placeholder="Martes 2x1" /></Field>
               <Field label="Descripción (opcional)"><Input value={f.description} maxLength={120} onChange={(e) => set({ description: e.target.value })} /></Field>
               <div className="border-2 border-line bg-paper p-3 text-xs text-ink-2">

@@ -48,6 +48,7 @@ import { AiCostModule } from './modules/ai-cost.module';
 import { TermsModule } from './modules/terms.module';
 import { CheckoutModule } from './modules/checkout.module';
 import { MetaAdsModule } from './modules/meta-ads.module';
+import { MetaDevModule } from './modules/meta-dev.module';
 import { IncidentsModule } from './modules/incidents.module';
 import { CommerceModule } from './modules/commerce.module';
 import { AddonEnginesModule } from './modules/addons/addon-engines.module';
@@ -63,6 +64,7 @@ import { CalendarSyncModule } from './modules/calendar-sync.module';
 import { ProductionsModule } from './modules/productions/productions.module';
 import { AccountModule } from './modules/account.module';
 import { ProductsModule } from './modules/products.module';
+import { DriveModule } from './modules/drive.module';
 import { OpportunitiesModule } from './modules/opportunities.module';
 import { CreativeModule } from './modules/creative.module';
 import { InboundOrdersModule } from './modules/inbound-orders.module';
@@ -124,6 +126,8 @@ import { schedulersEnabled } from './common/runtime-env';
     TermsModule,
     CheckoutModule,
     MetaAdsModule,
+    // Meta Ads interna del equipo de desarrollo: solo responde con META_DEV_ENABLED=1 fuera de producción
+    MetaDevModule,
     IncidentsModule,
     CommerceModule,
     AddonEnginesModule,
@@ -139,6 +143,7 @@ import { schedulersEnabled } from './common/runtime-env';
     ProductionsModule,
     AccountModule,
     ProductsModule,
+    DriveModule,
     OpportunitiesModule,
     InboundOrdersModule,
     AiSetupModule,

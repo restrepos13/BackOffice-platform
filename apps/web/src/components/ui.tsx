@@ -85,7 +85,7 @@ export function Stat({
   hint,
   tone,
 }: {
-  label: string;
+  label: ReactNode;
   value: ReactNode;
   hint?: string;
   tone?: 'ok' | 'warn' | 'bad';

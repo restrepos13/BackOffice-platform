@@ -14,12 +14,15 @@ let revenue: any;
 let leads: any[] = [];
 let syncs: any[] = [];
 let partnerBusinessId: string | null = null;
+let googleReady = false;
 
 const get = vi.fn(async (path: string): Promise<unknown> => {
   if (path.startsWith('/ads/overview')) return overview;
   if (path.startsWith('/ads/accounts/acc1/syncs')) return syncs;
   if (path.startsWith('/ads/accounts')) return overview.accounts;
-  if (path.startsWith('/ads/providers')) return [{ key: 'META', label: 'Meta Ads', capabilities: {}, missing: [], oauth: false, partnerBusinessId }, { key: 'GOOGLE', label: 'Google Ads', capabilities: {}, missing: ['Developer token'], oauth: false }];
+  if (path.startsWith('/ads/providers')) return [{ key: 'META', label: 'Meta Ads', capabilities: {}, missing: [], oauth: false, partnerBusinessId }, { key: 'GOOGLE', label: 'Google Ads', capabilities: {}, missing: googleReady ? [] : ['Developer token'], oauth: googleReady }, { key: 'TIKTOK', label: 'TikTok Ads', capabilities: {}, missing: ['App'], oauth: false }];
+  if (path.startsWith('/ads/google/pending')) return [{ externalId: '5550005555', name: 'Constructora Google', currency: 'COP', active: true }];
+  if (path.startsWith('/ads/google/oauth')) return { url: 'https://accounts.google.com/o/oauth2/v2/auth?x=1' };
   if (path.startsWith('/ads/settings')) return { autonomy: 'RECOMMEND', globalPause: false, autoActions: [], maxDailyBudget: null, maxDataAgeHours: 6 };
   if (path.startsWith('/ads/rules')) return { rules: [], metrics: { SPEND: { label: 'Gasto', unit: 'money' } } };
   if (path.startsWith('/ads/actions')) return actions;
@@ -29,12 +32,18 @@ const get = vi.fn(async (path: string): Promise<unknown> => {
   return [];
 });
 const post = vi.fn(async (_path: string, _body?: unknown): Promise<unknown> => ({}));
-vi.mock('../../../lib/api', () => ({ api: { get: (p: string) => get(p), post: (p: string, b?: unknown) => post(p, b), put: vi.fn(), delete: vi.fn() } }));
-vi.mock('../shared', () => ({
-  useCompanyScope: () => ({ ready: true, q: '', canWrite: true, companyId: null, isPlatform: false }),
+const del = vi.fn(async (_path: string): Promise<unknown> => ({ removed: 1 }));
+vi.mock('../../../lib/products', async (orig) => ({ ...(await orig<Record<string, unknown>>()), useActiveCompany: () => ({ company: null, states: [], isLoading: false }) }));
+vi.mock('../../../lib/api', () => ({ api: { get: (p: string) => get(p), post: (p: string, b?: unknown) => post(p, b), put: vi.fn(), delete: (p: string) => del(p) } }));
+vi.mock('../shared', async () => {
+  const { useMemo } = await import('react');
+  return {
+  // Usa un hook de verdad, como el real: así una lectura de estado después de un «return» rompe la prueba (pantalla en blanco)
+  useCompanyScope: () => useMemo(() => ({ ready: true, q: '', canWrite: true, companyId: null, isPlatform: false }), []),
   withScope: (p: string) => p,
   PickCompany: () => null,
-}));
+  };
+});
 // Usuario de la empresa; por defecto ya vio el recorrido de Ads
 let authUser: any;
 const markTourSeen = vi.fn();
@@ -44,9 +53,9 @@ vi.mock('../../../components/charts', () => ({ AdsSpendChart: (p: any) => <p dat
 
 import AdsHome from './AdsHome';
 
-function mount(tab: string) {
+function mount(tab: string, extra = '') {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  return render(<QueryClientProvider client={client}><MemoryRouter initialEntries={[`/app/ads?tab=${tab}`]}><AdsHome /></MemoryRouter></QueryClientProvider>);
+  return render(<QueryClientProvider client={client}><MemoryRouter initialEntries={[`/app/ads?tab=${tab}${extra}`]}><AdsHome /></MemoryRouter></QueryClientProvider>);
 }
 
 beforeEach(() => {
@@ -63,6 +72,7 @@ beforeEach(() => {
   authUser = { id: 'u1', role: 'COMPANY_ADMIN', toursJson: JSON.stringify({ ads: '2026-10-01T00:00:00Z' }) };
   markTourSeen.mockClear();
   partnerBusinessId = null;
+  googleReady = false;
   actions = [];
   leads = [];
   syncs = [];
@@ -79,7 +89,7 @@ describe('Ads · resultados', () => {
     expect(screen.getByTestId('chart').textContent).toBe('solo gasto');
     // Sin alcance reportado no aparecen tarjetas ni columna de alcance
     expect(screen.queryByText('Alcance (personas)')).toBeNull();
-    expect(screen.queryByText('Alcance · frec.')).toBeNull();
+    expect(screen.queryByText('frec.')).toBeNull();
     expect(screen.getByText('conversaciones iniciadas')).toBeTruthy();
   });
 
@@ -91,7 +101,7 @@ describe('Ads · resultados', () => {
     mount('resumen');
     expect(await screen.findByText('Alcance (personas)')).toBeTruthy();
     expect(screen.getByText('2,5 veces')).toBeTruthy();
-    expect(screen.getByText('Alcance · frec.')).toBeTruthy();
+    expect(screen.getByText('frec.')).toBeTruthy();
     expect(screen.getByTestId('chart').textContent).toBe('con resultados');
   });
 });
@@ -109,8 +119,10 @@ describe('Ads · cuentas', () => {
     const h = await screen.findByTestId('sync-history');
     expect(within(h).getByText('Incompleta')).toBeTruthy();
     expect(within(h).getByText(/1\/2 tramos/)).toBeTruthy();
-    // Google sin integración real: pendiente, nunca "disponible"
-    expect(screen.getByText('Pendiente de habilitar')).toBeTruthy();
+    // Google sin integración real: se ofrece hablar con el equipo, nunca se muestra como «disponible»
+    expect(screen.getByText('Google Ads')).toBeTruthy();
+    expect(screen.getByText(/Estamos terminando la aprobación de Google/)).toBeTruthy();
+    expect(screen.queryByText('Disponible: el equipo te ayuda a conectarla.')).toBeNull();
   });
 });
 
@@ -219,3 +231,42 @@ describe('Ads · conexión con Meta', () => {
     expect(screen.getByTestId('guide-token')).toBeTruthy();
   });
 });
+
+describe('Ads · demostración y glosario', () => {
+  it('con datos de prueba se puede salir de la demostración (confirma y borra solo lo simulado)', async () => {
+    overview = { ...overview, mode: 'DEMO', modes: { real: 0, demo: 1 }, accounts: [account({ mode: 'DEMO' })] };
+    mount('resumen');
+    expect(await screen.findByText(/Datos de demostración/)).toBeTruthy();
+    fireEvent.click(screen.getByText('Salir de la demostración'));
+    expect(screen.getByText(/Tus cuentas y datos reales no se tocan/)).toBeTruthy();
+    fireEvent.click(screen.getByText('Sí, quitar los datos de prueba'));
+    await waitFor(() => expect(del).toHaveBeenCalledWith('/ads/demo'));
+  });
+
+  it('los términos técnicos tienen su explicación corta', async () => {
+    mount('resumen');
+    const cpc = await screen.findByLabelText(/^CPC: Costo por clic/);
+    expect(cpc.textContent).toContain('CPC');
+    expect(screen.getAllByLabelText(/^CTR: De cada 100 personas/).length).toBeGreaterThan(0);
+    expect(screen.getByLabelText(/^CPM: Lo que cuesta mostrar tu anuncio 1\.000 veces/)).toBeTruthy();
+  });
+});
+
+describe('Ads · Google Ads y TikTok Ads', () => {
+  it('habilitado: Google muestra «Conectar con Google Ads»; TikTok sin habilitar ofrece hablar con el equipo', async () => {
+    googleReady = true;
+    mount('cuentas');
+    expect(await screen.findByText('Conectar con Google Ads')).toBeTruthy();
+    expect(screen.queryByText('Conectar con TikTok Ads')).toBeNull();
+    expect(screen.getByText(/aprobación de TikTok/)).toBeTruthy();
+  });
+
+  it('al volver de Google se eligen las cuentas y se conectan con la ruta de Google', async () => {
+    googleReady = true;
+    mount('cuentas', '&google=elegir');
+    fireEvent.click(await screen.findByLabelText(/Constructora Google/));
+    fireEvent.click(screen.getByText('Conectar seleccionadas'));
+    await waitFor(() => expect(post).toHaveBeenCalledWith('/ads/google/select', { externalIds: ['5550005555'] }));
+  });
+});
+

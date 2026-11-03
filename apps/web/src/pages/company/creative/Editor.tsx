@@ -1,3 +1,4 @@
+import { useActiveCompany } from '../../../lib/products';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { clsx } from 'clsx';
 import type Konva from 'konva';
@@ -37,7 +38,9 @@ export default function Editor() {
   const { id = '' } = useParams();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { q, canWrite } = useCompanyScope();
+  const { q, canWrite, isPlatform } = useCompanyScope();
+  const { company } = useActiveCompany();
+  const hasAds = isPlatform || (company?.products ?? []).includes('ADS');
   const { data: loaded, isLoading, error } = useQuery({ queryKey: ['design', id], queryFn: () => api.get<DesignRes>(`/creative/designs/${id}`), staleTime: Infinity });
   const { data: brand } = useQuery({ queryKey: ['brand', q], queryFn: () => api.get<Brand>(withScope('/creative/brand', q)) });
   const { data: assets } = useQuery({ queryKey: ['brand-assets', q], queryFn: () => api.get<Asset[]>(withScope('/creative/assets', q)) });
@@ -174,6 +177,17 @@ export default function Editor() {
     inflight.current = run;
     try { return await run; } finally { inflight.current = null; }
   }, [doc, id, name, canWrite, draftKey]);
+
+  // Volver: a la pantalla de donde viniste (diseños, crear, Ads…); si se abrió directo, a «Mis diseños».
+  // Antes se iba siempre al inicio de Creative y parecía que el botón no hacía nada.
+  const goBack = async () => {
+    if (saveState === 'dirty' || saveState === 'saving') {
+      const v = await save();
+      if (v == null && !window.confirm('No se pudo guardar el último cambio. ¿Salir de todas formas?')) return;
+    }
+    if ((window.history.state?.idx ?? 0) > 0) navigate(-1);
+    else navigate('/app/creative?tab=disenos');
+  };
 
   /** Antes de exportar o compartir: lo que se exporta tiene que estar guardado (y se dice qué versión es). */
   const ensureSaved = async () => {
@@ -378,7 +392,7 @@ export default function Editor() {
     <div className="fixed inset-0 z-40 flex flex-col bg-bone">
       {/* Barra superior */}
       <header className="flex flex-wrap items-center gap-2 border-b-2 border-ink bg-paper px-3 py-2">
-        <Link to="/app/creative" className="inline-flex items-center gap-1 text-sm underline"><ArrowLeft size={14} /> Creative</Link>
+        <button type="button" onClick={goBack} className="inline-flex cursor-pointer items-center gap-1 text-sm underline" aria-label="Volver"><ArrowLeft size={14} /> Volver</button>
         <input value={name} disabled={!canWrite} onChange={(e) => { setName(e.target.value); setSaveState('dirty'); }} className="min-w-0 flex-1 border-2 border-transparent bg-transparent px-2 py-1 text-sm font-semibold hover:border-line focus:border-ink" aria-label="Nombre del diseño" />
         <Badge tone={status[saveState].tone}>{status[saveState].t}</Badge>
         <span className="hidden text-xs text-ink-3 sm:inline">{FORMATS[doc.format].label} · {doc.width}×{doc.height} · v{version}</span>
@@ -388,7 +402,8 @@ export default function Editor() {
         <Button size="sm" variant="outline" disabled={openReview.isPending || exportMut.isPending} onClick={() => openReview.mutate()}><Download size={14} /> {openReview.isPending ? 'Revisando…' : 'Revisar y exportar'}</Button>
         {canWrite && <Button size="sm" variant="outline" disabled={toLibrary.isPending} onClick={() => toLibrary.mutate()} title="Guarda esta versión como recurso para tus anuncios"><FolderOpen size={14} /> {toLibrary.isPending ? 'Guardando…' : 'A la biblioteca'}</Button>}
         {canWrite && <Button size="sm" variant="outline" disabled={toAds.isPending} onClick={() => toAds.mutate()} title="Abre Crear anuncio en Ads con esta imagen (se crea en pausa)"><Megaphone size={14} /> {toAds.isPending ? 'Preparando…' : 'Usar en anuncio'}</Button>}
-        {canWrite && <Button size="sm" onClick={() => setToCalendar(true)} title="Publicación orgánica en Facebook e Instagram (no es un anuncio pagado)"><Send size={14} /> Al calendario</Button>}
+        {/* Publicar en redes es de Ads: sin Ads, Creative diseña y exporta pero no publica */}
+        {canWrite && hasAds && <Button size="sm" onClick={() => setToCalendar(true)} title="Programa la publicación orgánica en Facebook e Instagram desde Ads (no es un anuncio pagado)"><Send size={14} /> Programar publicación</Button>}
       </header>
 
       {saveState === 'error' && (

@@ -27,6 +27,7 @@ import { AuditService, AuditModule } from './audit.module';
 import { Products } from '../auth/products.guard';
 import { ProductionsModule } from './productions/productions.module';
 import { OrdersModule, courierAssignmentOwner } from './orders.module';
+import { companyProfile } from '../common/business-profile';
 import { AutomationEngineService, RUN_KIND } from './automations/automation-engine.service';
 
 const STATUSES = ['DRAFT', 'ACTIVE', 'PAUSED', 'ARCHIVED'] as const;
@@ -150,10 +151,14 @@ export class AutomationsService {
     const delivery = parseJson<Record<string, any>>((company as any)?.orderConfigJson, {}).delivery ?? {};
     const base = catalog();
     const deliveryReady = !!(delivery.enabled && delivery.autoAssign);
+    // Una empresa que no toma pedidos (o cuyo negocio no los usa: obras, inmuebles…) no ve disparadores ni acciones de pedidos
+    const modules = parseJson<string[]>((company as any)?.modulesJson, []);
+    const usesOrders = modules.includes('orders') && !(company ? companyProfile(company as any).deny.includes('orders') : false);
     return {
       ...base,
+      triggers: base.triggers.filter((t: any) => usesOrders || t.record !== 'order'),
       // Solo se ofrece lo que esta empresa puede usar
-      actions: base.actions.filter((a) => a.type !== 'assign_courier' || deliveryReady),
+      actions: base.actions.filter((a: any) => (a.type !== 'assign_courier' || deliveryReady) && (usesOrders || a.needs !== 'order')),
       stages: [
         { pipelineId: null, name: 'Embudo estándar', stages: DEFAULT_STAGES.map((s) => ({ key: s.key, label: s.label })) },
         ...pipelines.map((p: any) => ({ pipelineId: p.id, name: p.name, stages: parseJson<Array<{ key: string; label: string }>>(p.stagesJson, []).map((s) => ({ key: s.key, label: s.label })) })),

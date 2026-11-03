@@ -1750,6 +1750,8 @@ model BrandAsset {
   designVersion Int?
   /// Versión anterior de la que deriva (el original nunca se pisa)
   derivedFromId String?
+  /// Id del archivo en el origen externo (Google Drive) para saber qué ya se trajo
+  externalId    String?
   /// Huella del contenido para no guardar dos veces el mismo archivo
   sha256        String?
   /// Video: duración en segundos (si se pudo leer del archivo)
@@ -2621,4 +2623,123 @@ model AdLaunch {
   updatedAt       DateTime  @default(now())
 
   @@index([companyId, createdAt])
+}
+
+// ─── Integración interna Meta Ads (SOLO equipo de desarrollo, localhost) ───
+// Datos de la cuenta de pruebas del equipo. No tienen companyId: no pertenecen
+// a ninguna empresa y ninguna pantalla, reporte, radar ni proceso automático de
+// clientes los lee. Todas las filas llevan scope = "DEV_INTERNAL".
+
+/// Conexión del equipo con la app de Meta (una sola fila, id "internal-dev").
+model MetaDevConnection {
+  id                  String    @id @map("_id")
+  scope               String    @default("DEV_INTERNAL")
+  /// Token de usuario cifrado (enc:v1:…, AES-256-GCM); nunca sale por el API ni a logs
+  tokenEnc            String?
+  longLived           Boolean?
+  tokenExpiresAt      DateTime?
+  dataAccessExpiresAt DateTime?
+  scopesJson          String    @default("[]")
+  declinedJson        String    @default("[]")
+  metaUserId          String?
+  metaUserName        String?
+  appId               String?
+  /// CONNECTED | EXPIRED | REVOKED | DISCONNECTED
+  status              String    @default("DISCONNECTED")
+  selectedAccountId   String?
+  selectedAccountName String?
+  accountCurrency     String?
+  accountTimezone     String?
+  lastSyncAt          DateTime?
+  /// OK | PARTIAL | ERROR
+  lastSyncStatus      String?
+  lastError           String?
+  lastErrorKind       String?
+  syncLockUntil       DateTime?
+  connectedBy         String?
+  connectedAt         DateTime?
+  updatedAt           DateTime  @default(now())
+}
+
+/// State de OAuth de un solo uso (anti-CSRF). El _id es el SHA-256 del nonce, no el nonce.
+model MetaDevOAuthState {
+  id        String    @id @map("_id")
+  userId    String
+  createdAt DateTime  @default(now())
+  expiresAt DateTime
+  usedAt    DateTime?
+}
+
+/// Cuenta, campaña, conjunto o anuncio leído de la cuenta de pruebas.
+model MetaDevObject {
+  id              String   @id @map("_id")
+  scope           String   @default("DEV_INTERNAL")
+  /// act_… de la cuenta de pruebas (para ACCOUNT es la propia cuenta)
+  accountId       String
+  /// ACCOUNT | CAMPAIGN | ADSET | AD
+  level           String
+  externalId      String
+  campaignId      String?
+  adsetId         String?
+  name            String
+  status          String?
+  effectiveStatus String?
+  objective       String?
+  currency        String?
+  timezone        String?
+  /// Huella de los campos para distinguir nuevo / actualizado / sin cambios
+  hash            String
+  rawJson         String   @default("{}")
+  firstSeenAt     DateTime @default(now())
+  syncedAt        DateTime @default(now())
+
+  @@index([accountId, level])
+}
+
+/// Insights por campaña y día tal como los reporta Meta (null = Meta no lo informó).
+model MetaDevInsight {
+  id           String   @id @map("_id")
+  scope        String   @default("DEV_INTERNAL")
+  accountId    String
+  level        String   @default("CAMPAIGN")
+  campaignId   String
+  campaignName String?
+  dateStart    String
+  dateStop     String
+  impressions  Int?
+  clicks       Int?
+  spend        Float?
+  cpc          Float?
+  cpm          Float?
+  ctr          Float?
+  reach        Int?
+  actionsJson  String   @default("[]")
+  currency     String?
+  hash         String
+  rawJson      String   @default("{}")
+  syncedAt     DateTime @default(now())
+
+  @@index([accountId, dateStart])
+}
+
+/// Cada sincronización manual con sus conteos y las llamadas a Meta (sin credenciales).
+model MetaDevSyncRun {
+  id           String    @id @default(cuid()) @map("_id")
+  scope        String    @default("DEV_INTERNAL")
+  accountId    String
+  days         Int
+  since        String?
+  until        String?
+  /// RUNNING | OK | PARTIAL | ERROR
+  status       String    @default("RUNNING")
+  countsJson   String    @default("{}")
+  callsJson    String    @default("[]")
+  warningsJson String    @default("[]")
+  error        String?
+  errorKind    String?
+  startedBy    String?
+  startedAt    DateTime  @default(now())
+  finishedAt   DateTime?
+
+  @@index([accountId, startedAt])
 }
