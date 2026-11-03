@@ -387,24 +387,29 @@ export class AdsService {
   async oauthCallbackFor(provider: ProviderKey, code?: string, state?: string): Promise<string> {
     const web = await this.publicBase();
     const param = provider.toLowerCase();
-    const back = (r: string) => `${web}/app/ads?tab=cuentas&${param}=${r}`;
+    // motivo: código corto (nunca credenciales) para que la persona y el equipo sepan qué falló
+    const back = (r: string, motivo?: string) => `${web}/app/ads?tab=cuentas&${param}=${r}${motivo ? `&motivo=${encodeURIComponent(motivo)}` : ''}`;
     const data = verifyState<{ c: string; u: string; k: string }>(String(state ?? ''), process.env.JWT_SECRET ?? 'dev');
-    if (!data || data.k !== `ads-${param}` || !code) return back('error');
+    if (!data || data.k !== `ads-${param}`) return back('error', 'estado');
+    if (!code) return back('error', 'sin-codigo');
+    let stage = 'canje';
     try {
       let credential: string;
       let accounts: Array<RemoteAccount & { loginCustomerId?: string | null }>;
       if (provider === 'GOOGLE') {
         const cfg = await this.googleConfig();
-        if (!cfg) return back('error');
+        if (!cfg) return back('error', 'config');
         const t = await googleExchangeCode({ clientId: cfg.clientId, clientSecret: cfg.clientSecret, redirectUri: `${web}/api/public/ads/google/callback` }, code, this.fetchImpl as any);
         if (!t.scope.split(' ').includes(GOOGLE_ADS_SCOPE)) return back('permisos');
-        if (!t.refreshToken) return back('error');
+        if (!t.refreshToken) return back('error', 'sin-refresh');
         credential = t.refreshToken;
+        stage = 'cuentas';
         accounts = await this.provider('GOOGLE', 'REAL').listAccounts(encodeGoogleCredential(t.refreshToken));
       } else {
         const tiktok = this.provider('TIKTOK', 'REAL') as TikTokAdsProvider;
         const t = await tiktok.exchangeCode(code);
         credential = t.accessToken;
+        stage = 'cuentas';
         accounts = await tiktok.listAccounts(t.accessToken);
       }
       await this.prisma.platformSetting.upsert({
@@ -414,8 +419,10 @@ export class AdsService {
       });
       return back(accounts.length ? 'elegir' : 'sin-cuentas');
     } catch (err: any) {
-      this.logger.warn(`OAuth ${provider}: ${err?.kind ?? ''} ${String(err?.message ?? '').slice(0, 160)}`);
-      return back(err instanceof AdsProviderError && err.kind === 'NOT_CONFIGURED' ? 'no-habilitado' : 'error');
+      this.logger.warn(`OAuth ${provider} (${stage}): ${err?.kind ?? ''} ${String(err?.message ?? '').slice(0, 160)}`);
+      if (err instanceof AdsProviderError && err.kind === 'NOT_CONFIGURED') return back('no-habilitado');
+      const google = /invalid_client|invalid_grant|redirect_uri_mismatch|unauthorized_client|invalid_request|DEVELOPER_TOKEN_INVALID|NOT_ADS_USER|CUSTOMER_NOT_ENABLED|PERMISSION_DENIED|UNIMPLEMENTED|INVALID_ARGUMENT/.exec(`${err?.message ?? ''} ${err?.providerCode ?? ''}`)?.[0];
+      return back('error', [stage, err?.kind, google].filter(Boolean).join('-').slice(0, 80));
     }
   }
 

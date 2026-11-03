@@ -319,7 +319,10 @@ function Accounts({ q }: { q: string }) {
     if (params.get('meta') === 'error') toast.error('No se pudo conectar con Facebook. Intenta de nuevo.');
     for (const [k, label] of [['google', 'Google Ads'], ['tiktok', 'TikTok Ads']] as const) {
       const r = params.get(k);
-      if (r === 'error') toast.error(`No se pudo conectar ${label}. Intenta de nuevo.`);
+      if (r === 'error') {
+        const motivo = params.get('motivo');
+        toast.error(`No se pudo conectar ${label}. Intenta de nuevo.`, motivo ? { description: `Motivo: ${motivo}` } : undefined);
+      }
       if (r === 'permisos') toast.error(`${label} no dio el permiso para ver tus campañas. Vuelve a conectar y acepta el acceso.`);
       if (r === 'sin-cuentas') toast.info(`Tu usuario de ${label} no tiene cuentas publicitarias. Entra con el usuario que administra la cuenta de la empresa.`);
       if (r === 'no-habilitado') toast.error(`${label} todavía no está habilitado en BackOffice.`);
