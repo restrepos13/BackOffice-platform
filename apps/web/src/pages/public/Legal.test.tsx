@@ -54,7 +54,7 @@ describe('páginas legales públicas', () => {
   it('la privacidad declara el uso limitado de Google y los permisos que se piden', () => {
     mount('/privacidad');
     expect(screen.getByText(/requisitos de Uso limitado/)).toBeTruthy();
-    expect(screen.getByText('drive.readonly, userinfo.email')).toBeTruthy();
+    expect(screen.getByText('drive.file, userinfo.email')).toBeTruthy();
     expect(screen.getByText('adwords')).toBeTruthy();
   });
 

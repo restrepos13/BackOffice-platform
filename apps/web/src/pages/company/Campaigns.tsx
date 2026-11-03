@@ -1,3 +1,4 @@
+import { useSample } from '../../lib/useSample';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
@@ -11,6 +12,7 @@ import {
   Switch, Table, Tabs, Textarea,
 } from '../../components/ui';
 import { PickCompany, useCompanyScope, withScope } from './shared';
+import { Explainer } from '../../components/Explainer';
 
 const STATUS: Record<Broadcast['status'], { label: string; tone: 'ok' | 'warn' | 'info' | 'neutral' | 'bad' }> = {
   DRAFT: { label: 'Borrador', tone: 'neutral' },
@@ -29,6 +31,7 @@ function SegmentBuilder({ value, onChange, q }: {
   onChange: (s: CampaignSegment) => void;
   q: string;
 }) {
+  const sampleText = useSample();
   const { data: pipelines } = useQuery({
     queryKey: ['pipelines', q],
     queryFn: () => api.get<Pipeline[]>(withScope('/pipelines', q)),
@@ -65,7 +68,7 @@ function SegmentBuilder({ value, onChange, q }: {
         <Field label="Etiquetas" hint="Separadas por coma">
           <Input
             value={(value.tags ?? []).join(', ')}
-            placeholder="vip, almuerzos"
+            placeholder={sampleText('tags')}
             onChange={(e) => onChange({ ...value, tags: e.target.value.split(',').map((t) => t.trim()).filter(Boolean) })}
           />
         </Field>
@@ -104,6 +107,7 @@ function NewCampaignModal({ open, onClose, q, lines }: {
   q: string;
   lines: Integration[];
 }) {
+  const sampleText = useSample();
   const queryClient = useQueryClient();
   const [name, setName] = useState('');
   const [integrationId, setIntegrationId] = useState('');
@@ -151,7 +155,7 @@ function NewCampaignModal({ open, onClose, q, lines }: {
         <div className="space-y-4">
           <div className="grid gap-3 sm:grid-cols-2">
             <Field label="Nombre interno" required>
-              <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Menú de la semana" />
+              <Input value={name} onChange={(e) => setName(e.target.value)} placeholder={sampleText('campaignName')} />
             </Field>
             <Field label="Línea que envía" required>
               <Select value={integrationId} onChange={(e) => setIntegrationId(e.target.value)}>
@@ -365,6 +369,7 @@ function FollowUps({ companyId, canWrite }: { companyId: string | null; canWrite
 /* ─── Página ────────────────────────────────────────────────────────── */
 
 export default function Campaigns() {
+  const sampleText = useSample();
   const { q, ready, canWrite, companyId } = useCompanyScope();
   const [tab, setTab] = useState('campanas');
   const [creating, setCreating] = useState(false);
@@ -393,6 +398,18 @@ export default function Campaigns() {
           <Button disabled={!lines.length} onClick={() => setCreating(true)}>+ Nueva campaña</Button>
         )}
       />
+      <Explainer
+        id="campaigns"
+        title="¿Qué es una campaña por WhatsApp?"
+        summary={<>Es un mensaje que le envías <b>a muchos contactos a la vez</b> por WhatsApp: una promoción, una novedad o un recordatorio. Eliges a quién (por ejemplo, «los que preguntaron y no compraron»), escribes el mensaje y BackOffice lo envía de a poco para no saturar tu número. Si alguien responde, le contesta tu asistente como en cualquier chat.</>}
+        steps={[
+          <>Elige a quién le llega: por etapa del contacto, por lo que compró o por cuándo te escribió.</>,
+          <>Escribe el mensaje. Meta exige usar una <b>plantilla aprobada</b> para escribirle a quien no te ha hablado en las últimas 24 horas, y cobra un valor por mensaje (lo ves antes de enviar).</>,
+          <>Revisa cuántos lo recibirán y el costo, y envíala ya o prográmala. Después ves cuántos lo leyeron y respondieron.</>,
+        ]}
+      >
+        <p className="mt-3 text-xs text-ink-3"><b>Seguimiento automático</b> (la otra pestaña): mensajes que salen solos cuando un contacto lleva días sin responder, para no dejar ventas a medias.</p>
+      </Explainer>
       <Tabs
         tabs={[{ id: 'campanas', label: 'Campañas' }, { id: 'seguimiento', label: 'Seguimiento automático' }]}
         active={tab}
@@ -423,7 +440,7 @@ export default function Campaigns() {
             ) : (
               <EmptyState
                 title="Aún no hay campañas"
-                hint="Envía el menú de la semana, reactiva clientes que no piden hace días o anuncia una promoción."
+                hint={sampleText('campaignHint')}
               />
             )}
           </>

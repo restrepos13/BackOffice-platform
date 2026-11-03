@@ -109,6 +109,22 @@ describe('Inbox · lista, filtros y paginación', () => {
     await expect(convs.inbox(ADMIN_A, { cursor: 'basura|x' })).rejects.toBeInstanceOf(BadRequestException);
   });
 
+  it('cada conversación muestra su último mensaje (no el de otra ni uno viejo)', async () => {
+    const { db, convs } = world();
+    chat(db, 'x1', {}, 0);
+    chat(db, 'x2', {}, 1);
+    const t = Date.now();
+    db.message.push(
+      { id: 'm1', conversationId: 'x1', direction: 'IN', author: 'CONTACT', content: 'primero', type: 'TEXT', createdAt: new Date(t + 60000) },
+      { id: 'm2', conversationId: 'x1', direction: 'OUT', author: 'BOT', content: 'el último de x1', type: 'TEXT', createdAt: new Date(t + 90000) },
+      { id: 'm3', conversationId: 'x2', direction: 'IN', author: 'CONTACT', content: 'el último de x2', type: 'TEXT', createdAt: new Date(t + 70000) },
+    );
+    const r = await convs.inbox(ADMIN_A, {});
+    const last = (id: string) => r.items.find((c: any) => c.id === id)?.messages?.[0]?.content;
+    expect(last('x1')).toBe('el último de x1');
+    expect(last('x2')).toBe('el último de x2');
+  });
+
   it('filtra por canal, modo, responsable, no leídos, estado y busca por nombre, teléfono o identificador', async () => {
     const { db, convs } = world();
     chat(db, 'w1', { name: 'Laura Gómez', phone: '+573001112233', assignedToId: 'uA', unreadCount: 1 });

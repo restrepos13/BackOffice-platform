@@ -1,3 +1,4 @@
+import { integrationView } from '../common/integration-view';
 import {
   Body,
   Controller,
@@ -36,26 +37,7 @@ export class IntegrationsService {
   ) {}
 
   private serialize(i: any) {
-    // Los secretos cifrados JAMÁS salen del API (ni cifrados): se quita el
-    // configJson CRUDO y cualquier variante de credencial del config parseado.
-    const { configJson: _raw, ...row } = i;
-    const {
-      authTokenEnc,
-      authToken: _plain,
-      authTokenEncrypted: _legacy,
-      accessTokenEnc,
-      accessToken: _metaPlain,
-      ...config
-    } = parseJson<Record<string, any>>(i.configJson, {});
-    return {
-      ...row,
-      config: { ...config, twilioConfigured: !!authTokenEnc, metaConfigured: !!accessTokenEnc },
-      overridePersonality: parseJson<Record<string, string>>(
-        i.overridePersonalityJson,
-        {},
-      ),
-      overrideSales: parseJson<Record<string, string>>(i.overrideSalesJson, {}),
-    };
+    return integrationView(i);
   }
 
   /** Mezcla la config nueva con la existente y cifra los secretos entrantes.

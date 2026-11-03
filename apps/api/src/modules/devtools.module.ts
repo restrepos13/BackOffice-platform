@@ -53,6 +53,7 @@ const SETTING_GROUPS: Array<{ group: string; keys: string[]; purpose: string }> 
   { group: 'TikTok Ads', keys: ['TIKTOK_APP_ID', 'TIKTOK_APP_SECRET'], purpose: 'App de TikTok for Business Developers con acceso a la Marketing API. URI de redirección: <web>/api/public/ads/tiktok/callback' },
   { group: 'Registro web', keys: ['GEMINI_API_KEYS', 'SIGNUP_NOTIFY_EMAIL'], purpose: 'IA genérica (Gemini, llaves solo en el .env, rotan solas) que arma las empresas nuevas y las acompaña; correo que recibe cada registro' },
   { group: 'Google Calendar', keys: ['GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET'], purpose: 'Cliente OAuth 2.0 (Google Cloud) para que cada empresa conecte su calendario; URI de redirección: <web>/api/public/calendar/google/callback' },
+  { group: 'Google Drive', keys: ['GOOGLE_PICKER_API_KEY'], purpose: 'Usa el mismo cliente OAuth de Google Calendar (permiso drive.file); clave de API del selector de archivos (Picker), restringida a la web; URI de redirección: <web>/api/public/drive/callback' },
   { group: 'Correo', keys: ['SMTP_HOST', 'SMTP_PORT', 'SMTP_USER', 'SMTP_PASS', 'SMTP_FROM'], purpose: 'Envío real de correos (sin esto quedan en cola)' },
   { group: 'Wompi', keys: ['WOMPI_PUBLIC_KEY', 'WOMPI_INTEGRITY_SECRET', 'WOMPI_EVENTS_SECRET'], purpose: 'Pagos Colombia' },
   { group: 'Dólar (TRM)', keys: ['TRM_MARKUP_COP', 'USD_COP_RATE'], purpose: 'TRM oficial en vivo + margen; la tasa de respaldo solo se usa si no hay conexión' },

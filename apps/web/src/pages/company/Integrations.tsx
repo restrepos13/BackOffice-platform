@@ -40,7 +40,7 @@ const TYPE_BLURBS: Record<string, string> = {
 };
 
 // Google Calendar tiene su propia conexión real (tarjeta de abajo), no un canal genérico
-const ADDABLE = ['WHATSAPP', 'INSTAGRAM', 'MESSENGER', 'TELEGRAM', 'META_ADS', 'N8N', 'WEBHOOK'];
+const ADDABLE = ['WHATSAPP', 'TELEGRAM', 'N8N', 'WEBHOOK'];
 
 export default function Integrations() {
   const { ready, q, canWrite, companyId, isPlatform } = useCompanyScope();
@@ -75,6 +75,17 @@ export default function Integrations() {
       setAdding(false);
       setNewName('');
     },
+    onError: (e) => toast.error(e instanceof Error ? e.message : 'Error'),
+  });
+
+  // Facebook e Instagram siempre visibles: si el canal no existe todavía, se crea al conectar
+  const startSocial = useMutation({
+    mutationFn: async (type: 'MESSENGER' | 'INSTAGRAM') => {
+      const found = integrations?.find((i) => i.type === type);
+      if (found) return found;
+      return api.post<Integration>('/integrations', { type, name: CHANNEL_LABELS[type], ...(companyId ? { companyId } : {}) });
+    },
+    onSuccess: (i) => { queryClient.invalidateQueries({ queryKey: ['integrations'] }); setConnectingMeta(i); },
     onError: (e) => toast.error(e instanceof Error ? e.message : 'Error'),
   });
 
@@ -191,20 +202,64 @@ export default function Integrations() {
         )}
       </div>
 
+      {/* ─── Facebook e Instagram ─── */}
+      <div className="mb-3">
+        <p className="kicker">Redes sociales de tu empresa</p>
+        <h2 className="display text-2xl">Facebook e Instagram</h2>
+        <p className="mt-1 max-w-2xl text-sm text-ink-2">Los mensajes que te escriben en tu página de Facebook y por Instagram los responde el mismo asistente, con la misma memoria que WhatsApp.</p>
+      </div>
+      <div className="mb-8 grid gap-4 md:grid-cols-2">
+        {(['MESSENGER', 'INSTAGRAM'] as const).map((type) => {
+          const integration = integrations?.find((i) => i.type === type);
+          const Icon = TYPE_ICONS[type] ?? Link2;
+          const connected = integration?.status === 'CONNECTED';
+          return (
+            <Card key={type}>
+              <div className="flex items-start justify-between">
+                <div className={`flex h-11 w-11 items-center justify-center border-2 border-ink ${connected ? 'bg-ink text-bone' : 'bg-paper'}`}><Icon size={20} /></div>
+                <Badge tone={statusTone(integration?.status ?? 'DISCONNECTED')}>{INTEGRATION_STATUS_LABELS[integration?.status ?? 'DISCONNECTED']}</Badge>
+              </div>
+              <h3 className="display mt-3 text-lg">{type === 'MESSENGER' ? 'Facebook (Messenger)' : 'Instagram'}</h3>
+              <p className="mt-1 text-xs text-ink-2">{TYPE_BLURBS[type]}</p>
+              {integration && (
+                <p className="mt-2 border-t-2 border-line pt-2 text-xs text-ink-3">
+                  Asistente: {integration.bot?.name ?? 'Sin asignar'}
+                  {integration.config?.sandbox && <span className="ml-1 font-semibold text-warn">· Modo prueba: no envía mensajes reales</span>}
+                </p>
+              )}
+              {canWrite && (
+                <div className="mt-3 flex flex-wrap items-center gap-2">
+                  {!connected && !isPlatform && <ScheduleCall q={q} topic="SOCIAL" label="Que lo conecte el equipo" size="sm" />}
+                  <Button size="sm" variant={connected || !isPlatform ? 'outline' : 'primary'} disabled={startSocial.isPending} onClick={() => startSocial.mutate(type)}>
+                    {connected ? 'Configurar' : isPlatform ? 'Conectar →' : 'Lo conecto yo (técnico)'}
+                  </Button>
+                  {integration && <Button size="sm" variant="ghost" onClick={() => setAssigning(integration)}>Asignar asistente</Button>}
+                  {connected && integration && <Button size="sm" variant="ghost" onClick={() => disconnect.mutate(integration.id)}>Desconectar</Button>}
+                </div>
+              )}
+            </Card>
+          );
+        })}
+      </div>
+
       {/* ─── Calendario ─── */}
       <div className="mb-3">
         <p className="kicker">Reservas y agenda</p>
-        <h2 className="display text-2xl">Calendario</h2>
+        <h2 className="display text-2xl">Google Calendar de tu empresa</h2>
+        <p className="mt-1 max-w-2xl text-sm text-ink-2">Cada empresa conecta SU propia cuenta de Google: las citas que agenda el asistente aparecen en tu calendario y lo que tengas ocupado allá no se ofrece a los clientes.</p>
       </div>
       <GoogleCalendarCard q={q} canWrite={canWrite} />
 
       {/* ─── Otros canales ─── */}
       <div className="mb-3">
-        <p className="kicker">Ecosistema</p>
+        <p className="kicker">Para equipos técnicos</p>
         <h2 className="display text-2xl">Otros canales</h2>
       </div>
+      {!integrations?.some((i) => !['WHATSAPP', 'GOOGLE_CALENDAR', 'MESSENGER', 'INSTAGRAM', 'META_SOCIAL', 'META_ADS', 'GOOGLE_DRIVE'].includes(i.type)) && (
+        <p className="mb-4 text-sm text-ink-3">Telegram, n8n o webhooks: agrégalos con «+ Agregar canal» si los necesitas.</p>
+      )}
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-        {integrations?.filter((i) => i.type !== 'WHATSAPP' && i.type !== 'GOOGLE_CALENDAR').map((integration) => {
+        {integrations?.filter((i) => !['WHATSAPP', 'GOOGLE_CALENDAR', 'MESSENGER', 'INSTAGRAM', 'META_SOCIAL', 'META_ADS', 'GOOGLE_DRIVE'].includes(i.type)).map((integration) => {
           const Icon = TYPE_ICONS[integration.type] ?? Link2;
           const connected = integration.status === 'CONNECTED';
           return (

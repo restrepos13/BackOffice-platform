@@ -1,3 +1,4 @@
+import { useSample } from '../../lib/useSample';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Copy, Download, ExternalLink, FileText, Globe, Sparkles, Trash2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
@@ -47,6 +48,7 @@ function promoValue(p: Pick<Promotion, 'kind' | 'value'>) {
 }
 
 export function PromotionsTab({ q, canWrite }: { q: string; canWrite: boolean }) {
+  const sampleText = useSample();
   const queryClient = useQueryClient();
   const [editing, setEditing] = useState<Partial<Promotion> | null>(null);
   const { data: promos, isLoading } = useQuery({
@@ -136,7 +138,7 @@ export function PromotionsTab({ q, canWrite }: { q: string; canWrite: boolean })
           })}
         </Table>
       ) : (
-        <EmptyState title="Sin promociones" hint="Crea un cupón (ALMUERZO10) o una promo automática como domicilio gratis desde $50.000." />
+        <EmptyState title="Sin promociones" hint="Crea un cupón de descuento o una promo automática (por ejemplo, envío gratis desde cierto valor)." />
       )}
 
       <Modal open={!!editing} onClose={() => setEditing(null)} kicker="Promociones" title={editing?.id ? 'Editar promoción' : 'Nueva promoción'}>
@@ -144,7 +146,7 @@ export function PromotionsTab({ q, canWrite }: { q: string; canWrite: boolean })
           <div className="space-y-4">
             <div className="grid gap-3 sm:grid-cols-2">
               <Field label="Nombre" required><Input value={editing.name ?? ''} placeholder="Martes de combo" onChange={(e) => setEditing({ ...editing, name: e.target.value })} /></Field>
-              <Field label="Código de cupón" hint="Vacío = se aplica sola"><Input value={editing.code ?? ''} placeholder="ALMUERZO10" onChange={(e) => setEditing({ ...editing, code: e.target.value.toUpperCase() })} /></Field>
+              <Field label="Código de cupón" hint="Vacío = se aplica sola"><Input value={editing.code ?? ''} placeholder={sampleText('coupon')} onChange={(e) => setEditing({ ...editing, code: e.target.value.toUpperCase() })} /></Field>
               <Field label="Tipo">
                 <Select value={editing.kind} onChange={(e) => setEditing({ ...editing, kind: e.target.value as Promotion['kind'] })}>
                   {Object.entries(PROMO_KIND).map(([k, label]) => <option key={k} value={k}>{label}</option>)}
@@ -230,7 +232,7 @@ export function MenuTab({ q, companyId, canWrite }: { q: string; companyId: stri
           </div>
           <Switch checked={draft.enabled} onChange={(v) => setDraft({ ...draft, enabled: v })} label="Publicado" />
         </div>
-        <Field label="Título" hint="Ej.: Almuerzos de la semana">
+        <Field label="Título" hint="Ej.: lo más vendido, novedades de la semana">
           <Input value={draft.title} onChange={(e) => setDraft({ ...draft, title: e.target.value })} />
         </Field>
         <Field label="Nota" hint="Horario, zonas, medios de pago">
@@ -605,6 +607,7 @@ export function ZonesEditor({ zones, onChange, disabled }: { zones: ZoneDraft[];
 /* ─── Configurar con IA ─────────────────────────────────────────────── */
 
 export function AiSetupWizard({ open, onClose, q }: { open: boolean; onClose: () => void; q: string }) {
+  const sampleText = useSample();
   const queryClient = useQueryClient();
   const [description, setDescription] = useState('');
   const [proposal, setProposal] = useState<SetupProposal | null>(null);
@@ -642,7 +645,7 @@ export function AiSetupWizard({ open, onClose, q }: { open: boolean; onClose: ()
             rows={9}
             value={description}
             onChange={(e) => setDescription(e.target.value)}
-            placeholder={'Vendemos almuerzos ejecutivos en Laureles, de lunes a viernes de 11 a 3. Bandeja paisa 18.000, ajiaco 16.000, menú vegetariano 15.000. Domicilio 3.000 hasta 3 km y 1.000 por km adicional, máximo 6 km. Pagos por Nequi o efectivo…'}
+            placeholder={sampleText('about')}
           />
           <div className="flex items-center justify-between">
             <span className="text-xs text-ink-3">{description.length} caracteres (mín. 30)</span>

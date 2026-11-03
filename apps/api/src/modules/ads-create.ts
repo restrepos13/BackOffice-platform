@@ -75,7 +75,8 @@ export class AdsCreateService {
   }
 
   private async account(companyId: string, accountId?: string) {
-    const accounts = await this.prisma.adAccount.findMany({ where: { companyId, mode: 'REAL', status: { not: 'DISCONNECTED' } }, orderBy: { createdAt: 'asc' } });
+    // «Crear anuncio» publica en Meta: solo cuentas de Meta (la credencial de Google o TikTok no sirve aquí)
+    const accounts = await this.prisma.adAccount.findMany({ where: { companyId, provider: 'META', mode: 'REAL', status: { not: 'DISCONNECTED' } }, orderBy: { createdAt: 'asc' } });
     const a = accountId ? accounts.find((x) => x.id === accountId) : accounts[0];
     if (accountId && !a) throw new NotFoundException('Cuenta publicitaria no encontrada');
     return { a: a ?? null, accounts };
@@ -114,34 +115,30 @@ export class AdsCreateService {
 
   async setup(user: AuthUser, q: { companyId?: string; accountId?: string }) {
     const c = await this.company(user, q.companyId);
-    const { a, accounts } = await this.account(c.id, q.accountId);
+    // Lo independiente va en paralelo: cada viaje a Atlas cuesta ~70 ms
+    const [{ a, accounts }, maxDailyBudget, visionModel] = await Promise.all([this.account(c.id, q.accountId), this.maxDailyBudget(c.id), this.visionModel()]);
     const aiKey = !!readCompanyKey(c.deepinfraApiKey);
     const base = {
       accounts: accounts.map((x) => ({ id: x.id, name: x.name, externalId: x.externalId, currency: x.currency, access: accessFrom(parseJson<string[]>(x.scopesJson, [])) })),
       goals: Object.entries(CLIENT_GOALS).map(([key, g]) => ({ key, label: g.label, resultLabel: g.resultLabel })),
       ctas: Object.entries(CLIENT_CTAS).map(([key, label]) => ({ key, label })),
-      maxDailyBudget: await this.maxDailyBudget(c.id),
+      maxDailyBudget,
       ai: {
         available: aiKey && !!this.ai,
         provider: 'DeepInfra',
-        model: await this.visionModel(),
+        model: visionModel,
         note: aiKey
           ? 'La revisión con IA usa la llave de IA de tu empresa: lo que consuma lo cobra tu proveedor directamente, aparte de BackOffice.'
           : 'Tu empresa no tiene configurado un proveedor de IA. La revisión se hará solo con reglas (código): sirve, pero no entiende la imagen ni la oferta como lo haría una IA.',
       },
     };
     if (!a) return { ...base, account: null, pages: [], pagesError: null, today: todayIn(c.timezone, this.now()), hints: null };
-    let pages: Array<{ id: string; name: string; instagramUserId: string | null }> = [];
-    let pagesError: string | null = null;
-    try {
-      const res = await this.graph('/me/accounts', this.token(a), { fields: 'id,name,instagram_business_account{id}', limit: '100' });
-      pages = (res?.data ?? []).map((p: any) => ({ id: String(p.id), name: String(p.name ?? p.id), instagramUserId: p.instagram_business_account?.id ? String(p.instagram_business_account.id) : null }));
-      if (!pages.length) pagesError = 'Tu conexión no ve ninguna página de Facebook. Asígnale la página al usuario del sistema (o escribe su ID).';
-    } catch (err: any) {
-      pagesError = `No pudimos listar tus páginas: ${String(err?.message ?? 'error').replace(/\.$/, '')}. Escribe el ID de la página a mano.`;
-    }
     const since = addDays(todayIn(a.timezone, this.now()), -60);
-    const rows = await this.prisma.adInsightDaily.findMany({ where: { companyId: c.id, accountId: a.id, level: 'AD', date: { gte: since } } });
+    // Las páginas (Meta) y el historial (Atlas) se piden a la vez
+    const [{ pages, pagesError }, rows] = await Promise.all([
+      this.pagesOf(a),
+      this.prisma.adInsightDaily.findMany({ where: { companyId: c.id, accountId: a.id, level: 'AD', date: { gte: since } } }),
+    ]);
     return {
       ...base,
       account: { id: a.id, name: a.name, externalId: a.externalId, currency: a.currency, timezone: a.timezone, access: accessFrom(parseJson<string[]>(a.scopesJson, [])) },
@@ -149,6 +146,27 @@ export class AdsCreateService {
       today: todayIn(a.timezone, this.now()),
       hints: { WHATSAPP: planHints(rows, 'WHATSAPP', null), WEBSITE: planHints(rows, 'WEBSITE', null) },
     };
+  }
+
+  /**
+   * Páginas de Facebook que ve la conexión. Se guardan 10 minutos por cuenta:
+   * pedirlas a Meta en cada visita a «Crear anuncio» costaba medio segundo.
+   * Un error no se guarda (el siguiente intento vuelve a preguntar).
+   */
+  private pagesCache = new Map<string, { at: number; pages: Array<{ id: string; name: string; instagramUserId: string | null }> }>();
+  private async pagesOf(a: any): Promise<{ pages: Array<{ id: string; name: string; instagramUserId: string | null }>; pagesError: string | null }> {
+    const key = `${a.id}:${a.updatedAt ? new Date(a.updatedAt).getTime() : 0}`;
+    const hit = this.pagesCache.get(key);
+    if (hit && this.now().getTime() - hit.at < 10 * 60_000) return { pages: hit.pages, pagesError: hit.pages.length ? null : 'Tu conexión no ve ninguna página de Facebook. Asígnale la página al usuario del sistema (o escribe su ID).' };
+    try {
+      const res = await this.graph('/me/accounts', this.token(a), { fields: 'id,name,instagram_business_account{id}', limit: '100' });
+      const pages = (res?.data ?? []).map((p: any) => ({ id: String(p.id), name: String(p.name ?? p.id), instagramUserId: p.instagram_business_account?.id ? String(p.instagram_business_account.id) : null }));
+      if (this.pagesCache.size > 500) this.pagesCache.clear();
+      this.pagesCache.set(key, { at: this.now().getTime(), pages });
+      return { pages, pagesError: pages.length ? null : 'Tu conexión no ve ninguna página de Facebook. Asígnale la página al usuario del sistema (o escribe su ID).' };
+    } catch (err: any) {
+      return { pages: [], pagesError: `No pudimos listar tus páginas: ${String(err?.message ?? 'error').replace(/\.$/, '')}. Escribe el ID de la página a mano.` };
+    }
   }
 
   /** Solo el tope diario (sin tocar el resto de la configuración de Autopilot). */

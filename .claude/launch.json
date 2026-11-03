@@ -2,9 +2,23 @@
   "version": "0.0.1",
   "configurations": [
     {
+      "name": "api",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": [
+        "--filter",
+        "@backoffice/api",
+        "dev"
+      ],
+      "port": 4001
+    },
+    {
       "name": "web",
       "runtimeExecutable": "pnpm",
-      "runtimeArgs": ["--filter", "@backoffice/web", "dev"],
+      "runtimeArgs": [
+        "--filter",
+        "@backoffice/web",
+        "dev"
+      ],
       "port": 5173
     }
   ]

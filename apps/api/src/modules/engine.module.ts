@@ -56,6 +56,7 @@ import {
 import { Products } from '../auth/products.guard';
 import { hasProduct } from '../common/products';
 import { orderHistory } from '../common/domain-events';
+import { companyProfile, salesPolicy } from '../common/business-profile';
 
 const UPLOADS_DIR = resolve(process.cwd(), 'uploads');
 
@@ -267,6 +268,8 @@ export class EngineService {
     const session = new AiSession(access);
 
     const effective = resolveEffective(bot, integration);
+    // Venta consultiva (obras, inmuebles, asesorías…): la IA no cotiza, ofrece y agenda
+    effective.systemPrompt += salesPolicy(companyProfile(company));
     const orderConfig = parseJson<Record<string, any>>(company.orderConfigJson, {});
     const threshold = Number(orderConfig.aiConfidenceThreshold ?? 0.8);
 

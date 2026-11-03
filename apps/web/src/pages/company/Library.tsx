@@ -9,6 +9,7 @@ import { authedBlobUrl } from '../../lib/creative';
 import { fmtDate } from '../../lib/format';
 import { Badge, Button, Card, EmptyState, Input, Loading, Modal, PageHeader, Select } from '../../components/ui';
 import { PickCompany, useCompanyScope, withScope } from './shared';
+import { DriveCard } from './DriveCard';
 
 /**
  * Biblioteca de recursos compartida por Creative y Ads Intelligence.
@@ -25,7 +26,7 @@ interface Asset {
   width: number | null;
   height: number | null;
   durationSec: number | null;
-  source: 'UPLOAD' | 'CATALOG' | 'DESIGN' | 'CUTOUT';
+  source: 'UPLOAD' | 'CATALOG' | 'DESIGN' | 'CUTOUT' | 'DRIVE';
   originModule: 'CREATIVE' | 'ADS';
   designId: string | null;
   designVersion: number | null;
@@ -58,6 +59,7 @@ function sourceLabel(a: Asset) {
   if (a.source === 'CATALOG') return 'Foto del catálogo';
   // Derivado: el original se conserva y no se borra mientras exista el recorte
   if (a.source === 'CUTOUT') return 'Recorte sin fondo (derivado; el original se conserva)';
+  if (a.source === 'DRIVE') return 'Traído de tu Google Drive';
   return `Subido en ${ORIGIN[a.originModule]}`;
 }
 
@@ -143,6 +145,7 @@ export default function Library() {
       />
       <p className="mb-1 max-w-3xl text-sm text-ink-2">{intro}</p>
       <p className="mb-4 text-xs text-ink-3">Sube solo archivos que tengas derecho a usar. Son privados de tu empresa.</p>
+      <DriveCard q={q} canWrite={canWrite} />
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <Input placeholder="Buscar por nombre" value={text} onChange={(e) => setText(e.target.value)} className="max-w-xs" aria-label="Buscar recursos" />
         <Select value={kind} onChange={(e) => setKind(e.target.value)} aria-label="Tipo" className="max-w-[200px]">

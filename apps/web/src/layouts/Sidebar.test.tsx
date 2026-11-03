@@ -58,9 +58,9 @@ describe('Selector de producto', () => {
     renderAt('/app/inbox');
     expect(link('Conversaciones')).toBeTruthy();
     fireEvent.click(within(switcher()).getByText('Creative'));
-    expect(where).toBe('/app/creative?tab=inicio');
+    expect(where).toBe('/app/creative?tab=crear');
     expect(link('Mis diseños')).toBeTruthy();
-    expect(link('Calendario')).toBeTruthy();
+    expect(link('Qué te funciona')).toBeTruthy();
     expect(link('Conversaciones')).toBeNull();
   });
 

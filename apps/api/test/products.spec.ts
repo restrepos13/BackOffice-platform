@@ -306,7 +306,9 @@ describe('Productos · cada uno funciona sin los otros', () => {
     const { creative, ads } = world();
     await ads.connectDemo(ADS_ONLY, {});
     expect((await ads.accounts(ADS_ONLY)).length).toBeGreaterThan(0);
-    await expect(creative.brand(ADS_ONLY)).rejects.toThrow(/Creative/);
+    // Creative (créditos, diseños) no se abre sin el producto; la marca y las reglas de publicación sí, porque Ads publica
+    await expect(creative.credits(ADS_ONLY)).rejects.toThrow(/Creative/);
+    await expect(creative.brand(ADS_ONLY)).resolves.toMatchObject({ policy: expect.any(Object) });
   });
 
   it('Radar: cada empresa ve solo las fuentes de sus productos (ni por id)', async () => {
@@ -325,3 +327,20 @@ describe('Productos · cada uno funciona sin los otros', () => {
     await expect(opps.context(CREATIVE_ONLY)).resolves.toBeTruthy();
   });
 });
+
+describe('Productos · publicar es de Ads', () => {
+  it('programar y publicar en redes exige Ads; el calendario y sus reglas los ven Creative y Ads', () => {
+    const { PRODUCTS_KEY } = require('../src/auth/products.guard');
+    const { SocialController } = require('../src/modules/social.module');
+    const { CreativeController } = require('../src/modules/creative.module');
+    const meta = (cls: any, m: string) => Reflect.getMetadata(PRODUCTS_KEY, cls.prototype[m]);
+    expect(meta(SocialController, 'schedule')).toEqual(['ADS']);
+    expect(meta(SocialController, 'publish')).toEqual(['ADS']);
+    expect(meta(CreativeController, 'calendar')).toEqual(['CREATIVE', 'ADS']);
+    expect(meta(CreativeController, 'policy')).toEqual(['CREATIVE', 'ADS']);
+    // Diseñar sigue siendo solo de Creative (decorador de la clase)
+    expect(meta(CreativeController, 'credits')).toBeUndefined();
+    expect(Reflect.getMetadata(PRODUCTS_KEY, CreativeController)).toEqual(['CREATIVE']);
+  });
+});
+

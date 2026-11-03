@@ -18,6 +18,11 @@ import { CatalogItem, Intent, MAX_DESCRIPTION, artRequestFrom, intentMessages, i
 import { ImageOpError, RemoveBgProvider, validateCutout, type CutoutProvider, type FetchLike } from '../common/creative/cutout';
 import { CreativeService } from './creative.module';
 import { LibraryService, exportedVersion } from './library.module';
+import { CATALOG as ART_CATALOG } from '../common/creative/art-direction';
+import { DesignResult, MIN_IMPRESSIONS, group, recommend } from '../common/creative/what-works';
+import { FORMATS } from '../common/design-doc';
+
+const FORMAT_LABELS: Record<string, string> = Object.fromEntries(Object.entries(FORMATS).map(([k, f]: [string, any]) => [k, f.label]));
 
 /**
  * «Crear para vender»: la entrada principal de Creative.
@@ -275,6 +280,55 @@ export class CreativeCreateService {
     };
   }
 
+  /**
+   * Qué te funciona: resultados reales de Meta de los anuncios hechos con tus
+   * diseños, agrupados por estilo y formato, con recomendaciones por código.
+   * Solo lectura: aquí no se publica ni se pauta nada.
+   */
+  async whatWorks(user: AuthUser, companyId?: string) {
+    const company = await this.creative.companyOf(user, companyId);
+    const [accounts, social] = await Promise.all([
+      this.prisma.adAccount.findMany({ where: { companyId: company.id, status: { not: 'DISCONNECTED' } }, select: { id: true, mode: true, name: true } }),
+      this.prisma.integration.findFirst({ where: { companyId: company.id, type: 'META_SOCIAL' }, select: { id: true } }),
+    ]);
+    const real = accounts.filter((a) => a.mode === 'REAL');
+    const launches = await this.prisma.adLaunch.findMany({ where: { companyId: company.id, designId: { not: null } }, orderBy: { createdAt: 'desc' }, take: 200 });
+    const designIds = [...new Set(launches.map((l) => l.designId!))];
+    const designs = designIds.length ? await this.prisma.creativeDesign.findMany({ where: { id: { in: designIds }, companyId: company.id }, select: { id: true, name: true, format: true, compositionJson: true } }) : [];
+    const results: DesignResult[] = [];
+    for (const d of designs) {
+      const adIds = launches.filter((l) => l.designId === d.id).map((l) => ({ account: l.accountId, ad: parseJson<Record<string, string>>(l.idsJson, {}).ad })).filter((x) => x.ad);
+      const rows = adIds.length ? await this.prisma.adInsightDaily.findMany({ where: { companyId: company.id, level: 'AD', OR: adIds.map((x) => ({ accountId: x.account, externalId: x.ad })) } }) : [];
+      const family = parseJson<any>(d.compositionJson, null)?.family ?? null;
+      results.push({
+        designId: d.id, name: d.name, family, familyLabel: family ? (ART_CATALOG as any)[family]?.label ?? family : null, format: d.format,
+        impressions: rows.reduce((n, r) => n + r.impressions, 0), clicks: rows.reduce((n, r) => n + (r.linkClicks || r.clicks), 0), spend: rows.reduce((n, r) => n + r.spend, 0),
+        conversations: rows.reduce((n, r) => n + r.conversations, 0), leads: rows.reduce((n, r) => n + r.leads, 0), days: new Set(rows.map((r) => r.date)).size,
+      });
+    }
+    const byFamily = group(results, (r) => r.family, (k) => (ART_CATALOG as any)[k]?.label ?? k);
+    const byFormat = group(results, (r) => r.format, (k) => FORMAT_LABELS[k] ?? k);
+    const withData = results.filter((r) => r.impressions > 0);
+    return {
+      connection: {
+        adsContracted: hasProduct(company, 'ADS'),
+        adAccounts: real.length,
+        demoOnly: !real.length && accounts.length > 0,
+        pageConnected: !!social,
+      },
+      designsInAds: results.length,
+      designsWithResults: withData.length,
+      byFamily, byFormat,
+      top: [...withData].sort((a, b) => (b.clicks / Math.max(1, b.impressions)) - (a.clicks / Math.max(1, a.impressions))).slice(0, 6),
+      recommendations: recommend(byFamily, byFormat),
+      note: !results.length
+        ? 'Todavía no hay anuncios hechos con tus diseños. Cuando uses «Usar en anuncio» y Meta reporte resultados, aquí verás qué estilos y formatos te funcionan.'
+        : withData.length < 2 ? 'Meta todavía reporta pocos resultados de tus diseños: con más días de pauta aparecerán las comparaciones.' : null,
+      minImpressions: MIN_IMPRESSIONS,
+      currency: company.currency ?? 'COP',
+    };
+  }
+
   /** Dónde se usó un diseño en anuncios y qué se sabe de sus resultados (sin inventar). */
   async adUsage(user: AuthUser, designId: string, companyId?: string) {
     const company = await this.creative.companyOf(user, companyId);
@@ -318,6 +372,9 @@ export class CreativeCreateController {
 
   @Post('to-ads/:designId') @Roles(...WRITE) @Throttle({ default: { ttl: 60_000, limit: 10 } })
   toAds(@CurrentUser() u: AuthUser, @Param('designId') id: string, @Query('companyId') c?: string) { return this.s.toAds(u, id, c); }
+
+  @Get('what-works') @Roles(...READ)
+  whatWorks(@CurrentUser() u: AuthUser, @Query('companyId') c?: string) { return this.s.whatWorks(u, c); }
 
   @Get('ad-usage/:designId') @Roles(...READ)
   adUsage(@CurrentUser() u: AuthUser, @Param('designId') id: string, @Query('companyId') c?: string) { return this.s.adUsage(u, id, c); }

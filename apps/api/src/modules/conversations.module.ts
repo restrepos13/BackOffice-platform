@@ -189,10 +189,9 @@ export class ConversationsService {
         bot: { select: { id: true, name: true } },
         integration: { select: { id: true, name: true } },
         company: { select: { name: true, slug: true } },
-        messages: { orderBy: { createdAt: 'desc' }, take: 1 },
       },
       take: 200,
-    });
+    }).then((rows) => this.withLastMessage(rows));
   }
 
   /** Detalle. Con withoutMessages la bandeja pide el historial aparte, por páginas. */
@@ -440,27 +439,47 @@ export class ConversationsService {
       include: {
         contact: { select: { id: true, name: true, phone: true, stage: true, externalId: true, customer: { select: { id: true, name: true } } } },
         integration: { select: { id: true, name: true, type: true } },
-        messages: { orderBy: { createdAt: 'desc' }, take: 1 },
       },
       take: limit + 1,
     });
-    const page = rows.slice(0, limit);
+    const page = await this.withLastMessage(rows.slice(0, limit));
     const ids = [...new Set(page.map((c: any) => c.assignedToId).filter(Boolean))] as string[];
-    const users = ids.length ? await this.prisma.user.findMany({ where: { id: { in: ids } }, select: { id: true, name: true } }) : [];
-    const names = new Map(users.map((u) => [u.id, u.name]));
     const base = scoped ? { companyId: scoped } : {};
-    const [unread, mine, unassigned, attention] = await Promise.all([
+    // Responsables y contadores en paralelo (antes iban en fila)
+    const [users, unread, mine, unassigned, attention] = await Promise.all([
+      ids.length ? this.prisma.user.findMany({ where: { id: { in: ids } }, select: { id: true, name: true } }) : Promise.resolve([] as Array<{ id: string; name: string }>),
       this.prisma.conversation.count({ where: { ...base, unreadCount: { gt: 0 }, status: { not: 'RESOLVED' } } }),
       this.prisma.conversation.count({ where: { ...base, assignedToId: user.id, status: { not: 'RESOLVED' } } }),
       this.prisma.conversation.count({ where: { ...base, status: { not: 'RESOLVED' }, OR: [{ assignedToId: null }, { assignedToId: { isSet: false } }] } }),
       this.prisma.conversation.count({ where: { ...base, needsAttention: true } }),
     ]);
+    const names = new Map(users.map((u) => [u.id, u.name]));
     const last = page[page.length - 1] as any;
     return {
       items: page.map((c: any) => ({ ...c, assignedToName: c.assignedToId ? names.get(c.assignedToId) ?? null : null, aiStateJson: undefined })),
       nextCursor: rows.length > limit && last ? `${new Date(last.lastMessageAt).toISOString()}|${last.id}` : null,
       counts: { unread, mine, unassigned, attention },
     };
+  }
+
+  /**
+   * Último mensaje de cada conversación de una lista, en UNA consulta que usa
+   * el índice (conversationId, createdAt). Con `include: { messages: { take: 1 } }`
+   * Prisma sobre MongoDB traía TODOS los mensajes de las conversaciones de la
+   * página (con $expr, sin índice) y recortaba en memoria: era lo más lento de la bandeja.
+   */
+  private async withLastMessage<T extends { id: string }>(rows: T[]): Promise<Array<T & { messages: any[] }>> {
+    if (!rows.length) return [];
+    const raw = (await this.prisma.message.aggregateRaw({
+      pipeline: [
+        { $match: { conversationId: { $in: rows.map((r) => r.id) } } },
+        { $sort: { conversationId: -1, createdAt: -1 } },
+        { $group: { _id: '$conversationId', id: { $first: '$_id' }, content: { $first: '$content' }, direction: { $first: '$direction' }, author: { $first: '$author' }, authorName: { $first: '$authorName' }, type: { $first: '$type' }, deliveryStatus: { $first: '$deliveryStatus' }, createdAt: { $first: '$createdAt' } } },
+      ],
+    })) as unknown as Array<Record<string, any>>;
+    const date = (v: any) => (v?.$date ? new Date(v.$date) : v instanceof Date ? v : v ? new Date(v) : null);
+    const byConv = new Map(raw.map((m) => [String(m._id), { id: String(m.id), conversationId: String(m._id), content: m.content ?? '', direction: m.direction, author: m.author, authorName: m.authorName ?? null, type: m.type, deliveryStatus: m.deliveryStatus ?? null, createdAt: date(m.createdAt) }]));
+    return rows.map((r) => ({ ...r, messages: byConv.has(r.id) ? [byConv.get(r.id)] : [] }));
   }
 
   /** Historial por páginas (los más recientes primero en la consulta; se devuelven en orden cronológico). */

@@ -11,13 +11,14 @@ import { CreativeModule } from '../src/modules/creative.module';
 import { CreativeCreateService } from '../src/modules/creative-create';
 import { AdsModule } from '../src/modules/ads.module';
 import { AdsCreateService } from '../src/modules/ads-create';
+import { DriveModule, DriveService } from '../src/modules/drive.module';
 import { createMockPrisma } from './helpers/mock-prisma';
 
 @Global()
 @Module({ providers: [{ provide: PrismaService, useValue: createMockPrisma().prisma }], exports: [PrismaService] })
 class FakePrismaModule {}
 
-@Module({ imports: [FakePrismaModule, CreativeModule, AdsModule] })
+@Module({ imports: [FakePrismaModule, CreativeModule, AdsModule, DriveModule] })
 class AppUnderTest {}
 
 describe('inyección de dependencias', () => {
@@ -29,6 +30,7 @@ describe('inyección de dependencias', () => {
       expect((create as any).library).toBeDefined();
       expect((create as any).ai).toBeDefined();
       expect((app.get(AdsCreateService) as any).ai).toBeDefined();
+      expect((app.get(DriveService) as any).library).toBeDefined();
     } finally {
       await app.close();
     }

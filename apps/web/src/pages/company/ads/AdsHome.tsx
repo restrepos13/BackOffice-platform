@@ -12,6 +12,10 @@ import { AdsTour } from '../../../components/Tour';
 import { AccessBadge, CapabilitiesCard, MetaConnectGuide, type AccountAccess } from './MetaConnectGuide';
 import { CreateAd } from './CreateAd';
 import { Week } from './Week';
+import { Term } from '../../../components/Term';
+import { Explainer } from '../../../components/Explainer';
+import ScheduleCall from '../../../components/ScheduleCall';
+import { Calendar, Rules, type Policy } from '../creative/Publishing';
 
 /**
  * Publicidad (BackOffice Creative Ads): resultados, cuentas, campañas,
@@ -47,6 +51,8 @@ const SECTIONS: Record<string, { kicker: string; title: string }> = {
   campanas: { kicker: 'Campañas y cuentas', title: 'Campañas' },
   nueva: { kicker: 'Campañas y cuentas', title: 'Crear anuncio' },
   semana: { kicker: 'Campañas y cuentas', title: 'Programación semanal' },
+  organico: { kicker: 'Publicaciones en redes', title: 'Publicaciones programadas' },
+  reglas: { kicker: 'Publicaciones en redes', title: 'Reglas de publicación' },
   cuentas: { kicker: 'Campañas y cuentas', title: 'Cuentas publicitarias' },
   oportunidades: { kicker: 'Inteligencia y oportunidades', title: 'Oportunidades' },
   autopilot: { kicker: 'Automatización publicitaria', title: 'Autopilot y reglas' },
@@ -76,12 +82,38 @@ function Delta({ v, inverse, neutral }: { v: number | null | undefined; inverse?
   return <span className={clsx('font-semibold', Math.abs(v) < 1 || neutral ? 'text-ink-2' : good ? 'text-ok' : 'text-bad')}>{v > 0 ? '+' : ''}{v.toLocaleString('es-CO', { maximumFractionDigits: 1 })} % vs. periodo anterior</span>;
 }
 
-function DemoBanner({ mode }: { mode: Mode }) {
+function DemoBanner({ mode, q }: { mode: Mode; q: string }) {
   if (mode !== 'DEMO') return null;
   return (
-    <div className="mb-5 border-2 border-info bg-info-soft px-4 py-3 text-sm text-info">
-      <b>Datos de demostración.</b> Son simulados para que conozcas el producto: no vienen de ninguna cuenta real y las acciones no tocan campañas reales.
+    <div className="mb-5 flex flex-wrap items-center gap-3 border-2 border-info bg-info-soft px-4 py-3 text-sm text-info">
+      <span className="min-w-0 flex-1"><b>Datos de demostración.</b> Son simulados para que conozcas el producto: no vienen de ninguna cuenta real y las acciones no tocan campañas reales.</span>
+      <ExitDemo q={q} />
     </div>
+  );
+}
+
+/** Deja de ver la demostración: borra solo lo simulado (lo real no se toca) y se puede volver a abrir. */
+function ExitDemo({ q, label = 'Salir de la demostración' }: { q: string; label?: string }) {
+  const { canWrite } = useCompanyScope();
+  const queryClient = useQueryClient();
+  const [open, setOpen] = useState(false);
+  const exit = useMutation({
+    mutationFn: () => api.delete<{ removed: number }>(withScope('/ads/demo', q)),
+    onSuccess: () => {
+      ['ads-overview', 'ads-accounts', 'ads-campaigns', 'ads-findings', 'ads-actions'].forEach((k) => queryClient.invalidateQueries({ queryKey: [k] }));
+      setOpen(false);
+      toast.success('Listo: ya no ves datos de prueba. Puedes volver a abrir la demostración cuando quieras.');
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : 'Error'),
+  });
+  if (!canWrite) return null;
+  return (
+    <>
+      <Button size="sm" variant="outline" onClick={() => setOpen(true)}>{label}</Button>
+      <Confirm open={open} title="Salir de la demostración" cta="Sí, quitar los datos de prueba" busy={exit.isPending} onClose={() => setOpen(false)} onConfirm={() => exit.mutate()}>
+        <p>Se borran la cuenta de demostración y sus números simulados. <b>Tus cuentas y datos reales no se tocan.</b></p>
+      </Confirm>
+    </>
   );
 }
 
@@ -127,11 +159,12 @@ export default function AdsHome() {
           {(['REAL', 'DEMO'] as Mode[]).map((m) => (
             <button key={m} type="button" onClick={() => setMode(m)} className={clsx('cursor-pointer border-2 px-3 py-1', effective === m ? 'border-ink bg-ink text-bone' : 'border-line')}>{m === 'REAL' ? 'Cuentas reales' : 'Demostración'}</button>
           ))}
+          <span className="ml-auto"><ExitDemo q={q} label="Quitar la demostración" /></span>
         </div>
       )}
       {isPlatform && <Tabs tabs={TABS.map((t) => ({ ...t, badge: t.id === 'oportunidades' ? o?.openFindings || undefined : t.id === 'autopilot' ? o?.pendingActions || undefined : undefined }))} active={tab} onChange={(t) => setParams({ tab: t })} />}
       <div className={isPlatform ? 'mt-5' : undefined}>
-        {!['cuentas', 'nueva', 'semana'].includes(tab) && o && <DemoBanner mode={effective} />}
+        {!['cuentas', 'nueva', 'semana', 'organico', 'reglas'].includes(tab) && o && <DemoBanner mode={effective} q={q} />}
         {tab === 'resumen' && (o ? <Summary q={q} mode={effective} base={o} /> : <Loading />)}
         {tab === 'cuentas' && <Accounts q={q} />}
         {tab === 'campanas' && <Campaigns q={q} mode={effective} currency={o?.currency ?? 'COP'} />}
@@ -140,6 +173,8 @@ export default function AdsHome() {
         {tab === 'leads' && <Revenue q={q} />}
         {tab === 'nueva' && <CreateAd q={q} />}
         {tab === 'semana' && <Week q={q} />}
+        {tab === 'organico' && <OrganicPosts q={q} />}
+        {tab === 'reglas' && <PublishingRules q={q} />}
       </div>
     </>
   );
@@ -183,20 +218,20 @@ function Summary({ q, mode, base }: { q: string; mode: Mode; base: Overview }) {
       {o.accounts.some((a) => a.lastSyncStatus === 'PARTIAL') && <p className="mb-3 border-2 border-warn bg-paper px-3 py-2 text-sm">Una cuenta quedó con la última sincronización incompleta: puede faltar algún día. <Link to="?tab=cuentas" className="underline">Ver detalle</Link></p>}
       {o.accounts.some((a) => a.stale && a.mode === 'REAL') && <p className="mb-3 border-2 border-warn bg-paper px-3 py-2 text-sm">Algunos datos tienen más de 12 horas. <Link to="?tab=cuentas" className="underline">Sincronizar</Link></p>}
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <Stat label="Gasto" value={money(t.spend, cur)} hint={undefined} />
-        <Stat label="Resultados" value={num(t.results)} hint={t.results === null ? 'Objetivos distintos: míralos por campaña' : o.resultLabel ?? undefined} />
-        <Stat label="Costo por resultado" value={money(t.costPerResult, cur)} hint={t.results === null ? 'No hay un costo único' : undefined} />
-        <Stat label="CTR" value={pct(t.ctr)} />
+        <Stat label={<Term id="spend">Gasto</Term>} value={money(t.spend, cur)} hint={undefined} />
+        <Stat label={<Term id="conversions">Resultados</Term>} value={num(t.results)} hint={t.results === null ? 'Objetivos distintos: míralos por campaña' : o.resultLabel ?? undefined} />
+        <Stat label={<Term id="cpa">Costo por resultado</Term>} value={money(t.costPerResult, cur)} hint={t.results === null ? 'No hay un costo único' : undefined} />
+        <Stat label={<Term id="ctr">CTR</Term>} value={pct(t.ctr)} />
       </div>
       <div className="mt-1 grid gap-3 text-xs sm:grid-cols-2 lg:grid-cols-4">
         <Delta v={o.deltas.spend} neutral /><Delta v={o.deltas.results} /><Delta v={o.deltas.costPerResult} inverse /><Delta v={o.deltas.ctr} />
       </div>
       <div className="mt-4 grid gap-3 sm:grid-cols-3 lg:grid-cols-6">
-        <MiniStat label="CPC" value={money(t.cpc, cur)} /><MiniStat label="CPM" value={money(t.cpm, cur)} />
-        <MiniStat label="Leads" value={num(t.leads)} /><MiniStat label="Conversaciones" value={num(t.conversations)} />
-        <MiniStat label="Compras" value={num(t.purchases)} /><MiniStat label="ROAS (plataforma)" value={t.platformRoas === null ? '—' : `${t.platformRoas}x`} />
-        {t.reach != null && <MiniStat label="Alcance (personas)" value={num(t.reach)} />}
-        {t.frequency != null && <MiniStat label="Frecuencia" value={`${t.frequency.toLocaleString('es-CO', { maximumFractionDigits: 2 })} veces`} />}
+        <MiniStat label={<Term id="cpc">CPC</Term>} value={money(t.cpc, cur)} /><MiniStat label={<Term id="cpm">CPM</Term>} value={money(t.cpm, cur)} />
+        <MiniStat label={<Term id="leads">Leads</Term>} value={num(t.leads)} /><MiniStat label={<Term id="conversations">Conversaciones</Term>} value={num(t.conversations)} />
+        <MiniStat label="Compras" value={num(t.purchases)} /><MiniStat label={<Term id="roas">ROAS (plataforma)</Term>} value={t.platformRoas === null ? '—' : `${t.platformRoas}x`} />
+        {t.reach != null && <MiniStat label={<Term id="reach">Alcance (personas)</Term>} value={num(t.reach)} />}
+        {t.frequency != null && <MiniStat label={<Term id="frequency">Frecuencia</Term>} value={`${t.frequency.toLocaleString('es-CO', { maximumFractionDigits: 2 })} veces`} />}
       </div>
       <p className="mt-1 text-[11px] text-ink-3">Cifras reportadas por la plataforma; CTR, CPC, CPM y costos los calcula BackOffice con ellas. Las ventas confirmadas en tu CRM están en «Leads y ventas».</p>
       {!!o.notes?.length && (
@@ -212,7 +247,7 @@ function Summary({ q, mode, base }: { q: string; mode: Mode; base: Overview }) {
         <Link to="?tab=oportunidades" className="border-2 border-ink bg-paper p-3 hover:bg-bone-2"><p className="kicker">Oportunidades abiertas</p><p className="display text-2xl">{o.openFindings}</p></Link>
         <Link to="?tab=autopilot" className="border-2 border-ink bg-paper p-3 hover:bg-bone-2"><p className="kicker">Propuestas por revisar</p><p className="display text-2xl">{o.pendingActions}</p></Link>
         <div className="border-2 border-ink bg-paper p-3"><p className="kicker">Acciones ejecutadas</p><p className="display text-2xl">{o.executedActions}</p></div>
-        <div className="border-2 border-ink bg-paper p-3"><p className="kicker">Presupuesto diario activo</p><p className="display text-2xl">{money(o.configuredDailyBudget, cur)}</p></div>
+        <div className="border-2 border-ink bg-paper p-3"><p className="kicker"><Term id="budget">Presupuesto diario</Term> activo</p><p className="display text-2xl">{money(o.configuredDailyBudget, cur)}</p></div>
       </div>
       <Card kicker="Por campaña" title="Rendimiento" className="mt-6">
         <CampaignTable rows={o.campaigns} currency={cur} />
@@ -221,7 +256,7 @@ function Summary({ q, mode, base }: { q: string; mode: Mode; base: Overview }) {
   );
 }
 
-function MiniStat({ label, value }: { label: string; value: string }) {
+function MiniStat({ label, value }: { label: ReactNode; value: string }) {
   return <div className="border-2 border-line bg-paper px-3 py-2"><p className="text-[10px] uppercase tracking-wider text-ink-3">{label}</p><p className="font-semibold tabular-nums">{value}</p></div>;
 }
 
@@ -232,7 +267,7 @@ function CampaignTable({ rows, currency }: { rows: Overview['campaigns']; curren
   return (
     <div className="overflow-x-auto">
       <table className="w-full min-w-[760px] text-sm">
-        <thead><tr className="border-b-2 border-ink text-left text-[11px] uppercase tracking-wider text-ink-3"><th className="p-2">Campaña</th><th className="p-2">Estado</th><th className="p-2 text-right">Gasto</th><th className="p-2 text-right">Resultados</th><th className="p-2 text-right">Costo/resultado</th><th className="p-2 text-right">CTR</th>{withReach && <th className="p-2 text-right">Alcance · frec.</th>}<th className="p-2 text-right">Ppto. diario</th></tr></thead>
+        <thead><tr className="border-b-2 border-ink text-left text-[11px] uppercase tracking-wider text-ink-3"><th className="p-2">Campaña</th><th className="p-2">Estado</th><th className="p-2 text-right">Gasto</th><th className="p-2 text-right">Resultados</th><th className="p-2 text-right"><Term id="cpa">Costo/resultado</Term></th><th className="p-2 text-right"><Term id="ctr">CTR</Term></th>{withReach && <th className="p-2 text-right"><Term id="reach">Alcance</Term> · <Term id="frequency">frec.</Term></th>}<th className="p-2 text-right"><Term id="budget">Ppto. diario</Term></th></tr></thead>
         <tbody>
           {rows.map((c) => (
             <tr key={c.id} className="border-b border-line">
@@ -267,7 +302,8 @@ interface ProviderInfo { key: string; label: string; capabilities: Record<string
 
 function Accounts({ q }: { q: string }) {
   const queryClient = useQueryClient();
-  const { canWrite } = useCompanyScope();
+  // Todos los hooks antes del primer return (si no, React se rompe al terminar de cargar)
+  const { canWrite, isPlatform } = useCompanyScope();
   const [params, setParams] = useSearchParams();
   const refresh = () => { queryClient.invalidateQueries({ queryKey: ['ads-accounts'] }); queryClient.invalidateQueries({ queryKey: ['ads-overview'] }); };
   const { data: accounts, isLoading } = useQuery({ queryKey: ['ads-accounts', q], queryFn: () => api.get<Account[]>(withScope('/ads/accounts', q)) });
@@ -389,19 +425,25 @@ function Accounts({ q }: { q: string }) {
                       <Button className="mt-3" size="sm" disabled={oauthOther.isPending} onClick={() => oauthOther.mutate(slug)}>Conectar con {label}</Button>
                     </>
                   ) : (
-                    <p className="mt-2 text-xs text-ink-3">Estamos terminando la aprobación de {label.split(' ')[0]} para conectar cuentas. Si ya pautas ahí, avísanos y lo conectamos contigo apenas esté listo.</p>
+                    <>
+                      <p className="mt-2 text-xs text-ink-3">Estamos terminando la aprobación de {label.split(' ')[0]} para conectar cuentas. Si ya pautas ahí, avísanos y lo conectamos contigo apenas esté listo.</p>
+                      <div className="mt-3"><ScheduleCall q={q} topic="ADS" label={`Quiero conectar ${label}`} size="sm" variant="outline" /></div>
+                    </>
                   )}
                 </Card>
               );
             })}
             <Card kicker="Sin riesgo" title="Probar con datos de demostración">
               <p className="mb-3 text-sm text-ink-2">Crea una cuenta simulada para recorrer el producto: resultados, oportunidades y Autopilot. Se marca como demostración y nunca se mezcla con tus datos reales.</p>
-              <Button variant="outline" disabled={demo.isPending} onClick={() => demo.mutate('META')}>Abrir demostración</Button>
+              <div className="flex flex-wrap gap-2">
+                {!accounts.some((a) => a.mode === 'DEMO') && <Button variant="outline" disabled={demo.isPending} onClick={() => demo.mutate('META')}>Abrir demostración</Button>}
+                {accounts.some((a) => a.mode === 'DEMO') && <ExitDemo q={q} />}
+              </div>
             </Card>
           </div>
         </div>
       )}
-      <Card kicker="Plataformas" title="Qué está disponible">
+      {isPlatform && <Card kicker="Plataformas (solo equipo)" title="Qué está disponible">
         <ul className="divide-y divide-line text-sm">
           {(providers ?? []).map((p) => (
             <li key={p.key} className="py-2">
@@ -411,7 +453,7 @@ function Accounts({ q }: { q: string }) {
             </li>
           ))}
         </ul>
-      </Card>
+      </Card>}
       <Confirm open={!!disc} title="Desconectar cuenta" cta="Desconectar" danger busy={disconnect.isPending} onClose={() => setDisc(null)} onConfirm={() => disc && disconnect.mutate(disc.id)}>
         <p>Se borra la credencial de <b>{disc?.name}</b>. El historial de métricas y acciones se conserva. Tus campañas en la plataforma no cambian.</p>
       </Confirm>
@@ -491,7 +533,7 @@ function Campaigns({ q, mode, currency }: { q: string; mode: Mode; currency: str
       </div>
       <div className="overflow-x-auto border-2 border-ink bg-paper">
         <table className="w-full min-w-[820px] text-sm">
-          <thead><tr className="border-b-2 border-ink text-left text-[11px] uppercase tracking-wider text-ink-3"><th className="p-2">Nombre</th><th className="p-2">Estado</th><th className="p-2 text-right">Gasto</th><th className="p-2 text-right">Resultados</th><th className="p-2 text-right">Costo/resultado</th><th className="p-2 text-right">CTR</th><th className="p-2" /></tr></thead>
+          <thead><tr className="border-b-2 border-ink text-left text-[11px] uppercase tracking-wider text-ink-3"><th className="p-2">Nombre</th><th className="p-2">Estado</th><th className="p-2 text-right">Gasto</th><th className="p-2 text-right">Resultados</th><th className="p-2 text-right"><Term id="cpa">Costo/resultado</Term></th><th className="p-2 text-right"><Term id="ctr">CTR</Term></th><th className="p-2" /></tr></thead>
           <tbody>{data.campaigns.flatMap((c) => [row(c, 0), ...c.adsets.flatMap((s) => [row(s, 1), ...s.ads.map((a) => row(a, 2))])])}</tbody>
         </table>
       </div>
@@ -561,6 +603,18 @@ function Autopilot({ q, mode, currency }: { q: string; mode: Mode; currency: str
   if (!s || !form || !rules || !log) return <Loading />;
   return (
     <div className="space-y-6">
+      <Explainer
+        id="ads-autopilot"
+        title="¿Cómo funciona el Autopilot?"
+        summary={<>Es un vigilante de tus anuncios. Revisa los números varias veces al día y, cuando un anuncio <b>gasta sin traer resultados</b> o se pone muy caro, te avisa o propone pausarlo. <b>Nunca activa anuncios ni sube presupuestos</b>: eso siempre lo decide una persona.</>}
+        steps={[
+          <><b>Tú pones las reglas.</b> Ejemplo: «si una campaña gasta más de {money(20000, currency)} en 7 días sin conseguir mensajes, avísame».</>,
+          <><b>Eliges cuánta libertad tiene:</b> solo avisar, proponer la pausa para que tú la apruebes, o pausar sola lo que autorices.</>,
+          <><b>Todo queda anotado</b> abajo, con el motivo. Una pausa se puede revertir con un clic.</>,
+        ]}
+      >
+        <p className="mt-3 text-xs text-ink-2"><b>Tope de presupuesto diario por campaña:</b> es el máximo que BackOffice deja poner a una campaña por día. Si pones {money(50000, currency)}, nadie puede crear desde BackOffice una campaña que gaste más que eso al día. No cambia lo que hagas directamente en Meta.</p>
+      </Explainer>
       <Card kicker="Seguridad primero" title="Nivel de autonomía">
         <fieldset disabled={!canWrite} className="space-y-4 text-sm">
           <div className="grid gap-2 md:grid-cols-3">
@@ -573,8 +627,8 @@ function Autopilot({ q, mode, currency }: { q: string; mode: Mode; currency: str
           {form.autonomy === 'AUTHORIZED' && <Switch checked={form.autoActions.includes('PAUSE')} onChange={(v) => setForm({ ...form, autoActions: v ? ['PAUSE'] : [] })} label="Permitir que el Autopilot pause anuncios y campañas" showLabel />}
           <p className="text-xs text-ink-3">El Autopilot nunca activa campañas ni sube presupuestos. Eso siempre lo decide una persona.</p>
           <div className="grid gap-3 sm:grid-cols-2">
-            <Field label={`Tope de presupuesto diario por campaña (${currency})`} hint="BackOffice nunca crea ni deja una campaña por encima de esto"><Input inputMode="numeric" value={form.maxDailyBudget ?? ''} onChange={(e) => setForm({ ...form, maxDailyBudget: e.target.value ? Number(e.target.value.replace(/\D/g, '')) : null })} /></Field>
-            <Field label="Antigüedad máxima de los datos (horas)" hint="Con datos más viejos, nada se ejecuta solo"><Input type="number" min={1} max={48} value={form.maxDataAgeHours} onChange={(e) => setForm({ ...form, maxDataAgeHours: Number(e.target.value) })} /></Field>
+            <Field label={`Tope de presupuesto diario por campaña (${currency})`} hint="El máximo diario que BackOffice deja configurar en una campaña. Vacío = sin tope"><Input inputMode="numeric" value={form.maxDailyBudget ?? ''} onChange={(e) => setForm({ ...form, maxDailyBudget: e.target.value ? Number(e.target.value.replace(/\D/g, '')) : null })} /></Field>
+            <Field label="Antigüedad máxima de los datos (horas)" hint="Si los números de Meta tienen más horas que esto, el Autopilot no hace nada solo (evita decidir con datos viejos)"><Input type="number" min={1} max={48} value={form.maxDataAgeHours} onChange={(e) => setForm({ ...form, maxDataAgeHours: Number(e.target.value) })} /></Field>
           </div>
           <div className={clsx('border-2 p-3', form.globalPause ? 'border-bad bg-bad-soft' : 'border-line')}>
             <Switch checked={form.globalPause} onChange={(v) => setForm({ ...form, globalPause: v })} label="Pausa global: detener todo el Autopilot de inmediato" showLabel />
@@ -717,13 +771,13 @@ function Revenue({ q }: { q: string }) {
         <MiniStat label="Costo por lead (calculado)" value={money(t.costPerLead, cur)} />
         <MiniStat label="Costo por lead calificado" value={money(t.costPerQualified, cur)} />
         <MiniStat label="Costo de adquisición (CAC)" value={money(t.cac, cur)} />
-        <MiniStat label="ROAS con ventas reales" value={t.roas === null ? '—' : `${t.roas}x`} />
+        <MiniStat label={<Term id="roas">ROAS con ventas reales</Term>} value={t.roas === null ? '—' : `${t.roas}x`} />
       </div>
       <Card kicker="Por campaña" title="Del anuncio a la venta" className="mt-6">
         {!data.campaigns.length ? <p className="text-sm text-ink-3">Aún no hay leads ni gasto que cruzar en este periodo.</p> : (
           <div className="overflow-x-auto">
             <table className="w-full min-w-[860px] text-sm">
-              <thead><tr className="border-b-2 border-ink text-left text-[11px] uppercase tracking-wider text-ink-3"><th className="p-2">Campaña</th><th className="p-2 text-right">Gasto (plataforma)</th><th className="p-2 text-right">Leads</th><th className="p-2 text-right">Calificados</th><th className="p-2 text-right">Clientes</th><th className="p-2 text-right">Ventas</th><th className="p-2 text-right">CPL</th><th className="p-2 text-right">CAC</th><th className="p-2 text-right">ROAS</th></tr></thead>
+              <thead><tr className="border-b-2 border-ink text-left text-[11px] uppercase tracking-wider text-ink-3"><th className="p-2">Campaña</th><th className="p-2 text-right">Gasto (plataforma)</th><th className="p-2 text-right">Leads</th><th className="p-2 text-right">Calificados</th><th className="p-2 text-right">Clientes</th><th className="p-2 text-right">Ventas</th><th className="p-2 text-right"><Term id="cpl">CPL</Term></th><th className="p-2 text-right"><Term id="cac">CAC</Term></th><th className="p-2 text-right"><Term id="roas">ROAS</Term></th></tr></thead>
               <tbody>
                 {data.campaigns.map((c) => (
                   <tr key={c.campaignExternalId ?? 'x'} className="border-b border-line">
@@ -822,4 +876,25 @@ function LeadForms({ q, summary }: { q: string; summary?: RevenueRes['leadForms'
       )}
     </Card>
   );
+}
+
+/* ── Publicaciones en redes (venían de Creative: Creative diseña, Ads publica) ── */
+
+function OrganicPosts({ q }: { q: string }) {
+  return (
+    <>
+      <Explainer
+        id="ads-organic"
+        title="Publicaciones normales (no pagadas)"
+        summary={<>Aquí programas lo que se publica en tu página de Facebook y tu Instagram <b>sin pagar pauta</b>. Las piezas salen de Creative con «Programar publicación» y, según tus reglas, pasan por aprobación antes de publicarse.</>}
+      />
+      <Calendar q={q} />
+    </>
+  );
+}
+
+function PublishingRules({ q }: { q: string }) {
+  const brand = useQuery({ queryKey: ['brand', q], queryFn: () => api.get<{ policy: Policy }>(withScope('/creative/brand', q)) });
+  if (!brand.data) return <Loading />;
+  return <Rules q={q} policy={brand.data.policy} />;
 }

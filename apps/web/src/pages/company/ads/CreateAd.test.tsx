@@ -21,6 +21,7 @@ const post = vi.fn(async (path: string, _b?: unknown): Promise<unknown> => {
   return {};
 });
 const upload = vi.fn(async () => ({ asset: { id: 'asset1', name: 'hamburguesa', width: 1080, height: 1350 } }));
+vi.mock('../../../lib/products', async (orig) => ({ ...(await orig<Record<string, unknown>>()), useActiveCompany: () => ({ company: null, states: [], isLoading: false }) }));
 vi.mock('../../../lib/api', () => ({ api: { get: (p: string) => get(p), post: (p: string, b?: unknown) => post(p, b), put: vi.fn(async () => ({})), delete: vi.fn(async () => ({})) }, uploadFile: () => upload() }));
 vi.mock('../../../lib/creative', () => ({ authedBlobUrl: async () => 'blob:x' }));
 vi.mock('../shared', () => ({ useCompanyScope: () => ({ ready: true, q: '', canWrite: true }), withScope: (p: string) => p }));
@@ -53,7 +54,7 @@ afterEach(cleanup);
 describe('Ads · crear anuncio', () => {
   it('guía paso a paso, recomienda con el historial y crea en pausa con confirmación', async () => {
     mount(<CreateAd q="" />);
-    fireEvent.change(await screen.findByPlaceholderText(/2x1 martes/), { target: { value: 'Martes 2x1' } });
+    fireEvent.change(await screen.findByPlaceholderText(/lo que quieres promocionar/), { target: { value: 'Martes 2x1' } });
     fireEvent.click(screen.getByText('Siguiente →'));
     expect(screen.getByText(/vinculada a tu número de WhatsApp Business/)).toBeTruthy();
     fireEvent.click(screen.getByText('Siguiente →'));
@@ -93,7 +94,7 @@ describe('Ads · crear anuncio', () => {
     expect(within(panel).getByText(/Una hamburguesa doble/)).toBeTruthy();
     expect(within(panel).getByText(/Recomendaciones de la IA \(tu proveedor\)/)).toBeTruthy();
     fireEvent.click(within(panel).getAllByText('Usar')[0]);
-    expect((screen.getByPlaceholderText(/2x1 en hamburguesas/) as HTMLTextAreaElement).value).toBe('2x1 los martes. ¡Reserva!');
+    expect((screen.getByPlaceholderText(/Cuenta en una o dos frases/) as HTMLTextAreaElement).value).toBe('2x1 los martes. ¡Reserva!');
   });
 
   it('sin permiso de gestión lo advierte y no deja crear', async () => {
@@ -138,7 +139,7 @@ describe('Ads · imagen que llega desde Creative', () => {
   it('precarga la imagen del diseño y envía el diseño de origen al crear (Ads valida y crea en pausa)', async () => {
     render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><MemoryRouter initialEntries={['/app/ads?tab=nueva&asset=a1&design=d1']}><CreateAd q="" /></MemoryRouter></QueryClientProvider>);
     expect((await screen.findByTestId('from-creative')).textContent).toMatch(/Tacos fin de semana · v2/);
-    fireEvent.change(screen.getByPlaceholderText(/2x1 martes/), { target: { value: 'Tacos finde' } });
+    fireEvent.change(screen.getByPlaceholderText(/lo que quieres promocionar/), { target: { value: 'Tacos finde' } });
     for (let i = 0; i < 5; i++) fireEvent.click(screen.getByText('Siguiente →'));
     fireEvent.click(screen.getByText('Verificar todo'));
     await screen.findByTestId('ready');

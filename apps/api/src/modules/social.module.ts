@@ -653,12 +653,16 @@ export class SocialController {
   }
 
   @Post('social/pieces/:id/schedule')
+  // Publicar y programar en redes es de Ads: Creative diseña, Ads publica
+  @Products('ADS')
   @Roles(...WRITE)
   schedule(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: any) {
     return this.social.schedule(user, id, dto);
   }
 
   @Post('social/pieces/:id/publish')
+  // Publicar y programar en redes es de Ads: Creative diseña, Ads publica
+  @Products('ADS')
   @Roles(...WRITE)
   @Throttle({ default: { ttl: 60_000, limit: 10 } })
   publish(@CurrentUser() user: AuthUser, @Param('id') id: string) {

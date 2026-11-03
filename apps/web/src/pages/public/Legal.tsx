@@ -125,8 +125,8 @@ const CONNECTIONS: Array<{ who: string; scopes: string; data: string }> = [
   },
   {
     who: 'Google Drive',
-    scopes: 'drive.readonly, userinfo.email',
-    data: 'Correo de la cuenta conectada, carpetas e imágenes o videos de la carpeta que el negocio elige. Solo se descargan los archivos que el negocio decide importar a su biblioteca. Nunca se modifica ni se borra nada en Drive.',
+    scopes: 'drive.file, userinfo.email',
+    data: 'Correo de la cuenta conectada y solo las imágenes o videos que el negocio elige en el selector de archivos de Google para importar a su biblioteca. BackOffice no ve el resto del Drive y nunca modifica ni borra nada en él.',
   },
   {
     who: 'Google Ads',

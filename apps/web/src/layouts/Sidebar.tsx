@@ -55,6 +55,7 @@ export function navContextOf(company?: Company): NavContext {
     modules: company?.modules ?? [],
     deliveryEnabled: !!company?.orderConfig?.delivery?.enabled,
     onboarding: company?.status === 'ONBOARDING',
+    hides: company?.businessProfile?.hides ?? [],
   };
 }
 

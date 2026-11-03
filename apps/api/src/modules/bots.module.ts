@@ -1,3 +1,4 @@
+import { integrationView } from '../common/integration-view';
 import { isOpenRouterModel } from '../ai/model-routing';
 import { effectiveAiMode } from '../ai/ai-access';
 import {
@@ -46,6 +47,8 @@ export class BotsService {
       personality: parseJson<Record<string, string>>(bot.personalityJson, {}),
       sales: parseJson<Record<string, string>>(bot.salesJson, {}),
       tools: sanitizeToolsConfig(parseJson<any[]>(bot.toolsJson, [])),
+      // Las líneas del asistente sin secretos ni configJson crudo
+      ...(Array.isArray(bot.integrations) ? { integrations: bot.integrations.map((i: any) => (i.configJson === undefined ? i : integrationView(i))) } : {}),
     };
   }
 

@@ -1750,6 +1750,8 @@ model BrandAsset {
   designVersion Int?
   /// Versión anterior de la que deriva (el original nunca se pisa)
   derivedFromId String?
+  /// Id del archivo en el origen externo (Google Drive) para saber qué ya se trajo
+  externalId    String?
   /// Huella del contenido para no guardar dos veces el mismo archivo
   sha256        String?
   /// Video: duración en segundos (si se pudo leer del archivo)

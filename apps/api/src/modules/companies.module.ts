@@ -1,3 +1,5 @@
+import { integrationView } from '../common/integration-view';
+import { companyProfile } from '../common/business-profile';
 import { hasPlan, modulesWithAddons, readAddonStates } from '../common/addons';
 import {
   BadRequestException,
@@ -195,6 +197,8 @@ export class CompaniesService {
     const { deepinfraApiKey, paymentConfigJson, einvoiceConfigJson, ...rest } = company;
     return {
       ...rest,
+      // Integraciones sin secretos (ni cifrados) ni configJson crudo
+      ...(Array.isArray(company.integrations) ? { integrations: company.integrations.map(integrationView) } : {}),
       // Pagos y facturación electrónica: solo el estado, jamás los secretos
       paymentConfig: serializePaymentConfig(paymentConfigJson),
       einvoiceConfig: serializeEinvoiceConfig(einvoiceConfigJson),
@@ -209,6 +213,8 @@ export class CompaniesService {
       hasDeepinfraKey: !!deepinfraApiKey,
       deepinfraKeyMasked: maskCompanyKey(deepinfraApiKey),
       orderConfig: parseJson<Record<string, any>>(company.orderConfigJson, {}),
+      // Tipo de negocio: decide qué pantallas y ejemplos tienen sentido (una constructora no ve pedidos ni ejemplos de restaurante)
+      businessProfile: (() => { const p = companyProfile(company); return { key: p.key, label: p.label, consultative: !!p.consultative, hides: p.deny }; })(),
       waTemplates: parseJson<any[]>(company.waTemplatesJson, []),
     };
   }

@@ -42,7 +42,6 @@ const ProductionsList = lazy(() => import('./pages/company/productions/List'));
 const ProductionDetail = lazy(() => import('./pages/company/productions/Detail'));
 const ProductionResources = lazy(() => import('./pages/company/productions/Resources'));
 const ProductionSettings = lazy(() => import('./pages/company/productions/Settings'));
-const Gerencia = lazy(() => import('./pages/company/Gerencia'));
 const LineDetail = lazy(() => import('./pages/company/LineDetail'));
 const Dashboard = lazy(() => import('./pages/company/Dashboard'));
 const Inbox = lazy(() => import('./pages/company/Inbox'));
@@ -51,7 +50,7 @@ const Bots = lazy(() => import('./pages/company/Bots'));
 const BotDetail = lazy(() => import('./pages/company/BotDetail'));
 const Automations = lazy(() => import('./pages/company/Automations'));
 const Integrations = lazy(() => import('./pages/company/Integrations'));
-const Analytics = lazy(() => import('./pages/company/Analytics'));
+const Reports = lazy(() => import('./pages/company/Reports'));
 const Billing = lazy(() => import('./pages/company/Billing'));
 const Team = lazy(() => import('./pages/company/Team'));
 const CompanySettings = lazy(() => import('./pages/company/Settings'));
@@ -80,7 +79,6 @@ const ResetPassword = lazy(() => import('./pages/public/Account').then((m) => ({
 const AcceptInvitation = lazy(() => import('./pages/public/Account').then((m) => ({ default: m.AcceptInvitation })));
 const Onboarding = lazy(() => import('./pages/company/Onboarding'));
 const Library = lazy(() => import('./pages/company/Library'));
-const AutomationOpportunities = lazy(() => import('./pages/company/Opportunities'));
 
 function RequireAuth({ children }: { children: ReactNode }) {
   const { user, loading } = useAuth();
@@ -190,7 +188,7 @@ export default function App() {
         <Route path="/app/ads" element={<RequireProduct any={['ADS']}><BlockArea><AdsHome /></BlockArea></RequireProduct>} />
         <Route path="/app/creative/editor/:id" element={<RequireProduct any={['CREATIVE']}><BlockArea><CreativeEditor /></BlockArea></RequireProduct>} />
         <Route path="/app/area" element={<RequireProduct any={['AUTOMATION']}><AreaView /></RequireProduct>} />
-        <Route path="/app/oportunidades" element={<RequireProduct any={['AUTOMATION']}><BlockArea><AutomationOpportunities /></BlockArea></RequireProduct>} />
+        <Route path="/app/oportunidades" element={<Navigate to="/app/reportes?tab=atender" replace />} />
         <Route path="/app/contacts" element={<RequireProduct any={['AUTOMATION']}><Contacts /></RequireProduct>} />
         <Route path="/app/campaigns" element={<RequireProduct any={['AUTOMATION']}><BlockArea><Campaigns /></BlockArea></RequireProduct>} />
         <Route path="/app/bienvenida" element={<BlockArea><Onboarding /></BlockArea>} />
@@ -212,8 +210,10 @@ export default function App() {
         <Route path="/app/productions/resources" element={<RequireProduct any={['AUTOMATION']}><ProductionResources /></RequireProduct>} />
         <Route path="/app/productions/settings" element={<RequireProduct any={['AUTOMATION']}><ProductionSettings /></RequireProduct>} />
         <Route path="/app/productions/:id" element={<RequireProduct any={['AUTOMATION']}><ProductionDetail /></RequireProduct>} />
-        <Route path="/app/gerencia" element={<RequireProduct any={['AUTOMATION']}><Gerencia /></RequireProduct>} />
-        <Route path="/app/analytics" element={<RequireProduct any={['AUTOMATION']}><Analytics /></RequireProduct>} />
+        <Route path="/app/reportes" element={<RequireProduct any={['AUTOMATION']}><Reports /></RequireProduct>} />
+        {/* Las dos pantallas viejas quedaron unificadas en Reportes */}
+        <Route path="/app/gerencia" element={<Navigate to="/app/reportes?tab=semana" replace />} />
+        <Route path="/app/analytics" element={<Navigate to="/app/reportes?tab=tendencias" replace />} />
         <Route path="/app/billing" element={<Billing />} />
         <Route path="/app/team" element={<Team />} />
         <Route path="/app/settings" element={<CompanySettings />} />
