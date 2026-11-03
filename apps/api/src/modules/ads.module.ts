@@ -1,3 +1,6 @@
+import { GOOGLE_ADS_SCOPE, GoogleAdsConfig, encodeGoogleCredential } from '../common/ads/google-ads-provider';
+import { TIKTOK_AUTH_URL, TikTokAdsConfig, TikTokAdsProvider } from '../common/ads/tiktok-ads-provider';
+import { authUrl as googleAuthUrl, exchangeCode as googleExchangeCode } from '../common/google-calendar';
 import {
   BadRequestException, Body, ConflictException, Controller, Delete, ForbiddenException, Get, Injectable, Logger, Module, NotFoundException,
   Param, Post, Put, Query, Res,
@@ -12,7 +15,7 @@ import { decryptSecret, encryptSecret } from '../common/crypto';
 import { exchangeCode, oauthUrl, signState, verifyState } from '../common/meta-publish';
 import { publicWebUrl } from '../common/tracking';
 import { DEFAULT_STAGES } from '../common/pipelines';
-import { AccountRef, AdLevel, AdsProvider, AdsProviderError, FetchLike, PeriodStats, ProviderErrorKind, ProviderKey, RemoteEntity, RemoteInsight, addDays, isoDay } from '../common/ads/provider';
+import { AccountRef, AdLevel, AdsProvider, AdsProviderError, FetchLike, PeriodStats, ProviderErrorKind, ProviderKey, RemoteAccount, RemoteEntity, RemoteInsight, addDays, isoDay } from '../common/ads/provider';
 import { todayIn } from '../common/ads/launch';
 import { AdsCreateController, AdsCreateService } from './ads-create';
 import { AI_PROVIDER } from '../ai/types';
@@ -48,6 +51,12 @@ import { ProductInactiveError, hasProduct } from '../common/products';
 
 const WRITE = [ROLES.SUPER_ADMIN, ROLES.DEV, ROLES.COMPANY_ADMIN] as const;
 const READ = [ROLES.SUPER_ADMIN, ROLES.DEV, ROLES.COMPANY_ADMIN, ROLES.COMPANY_VIEWER] as const;
+const PROVIDER_LABEL: Record<ProviderKey, string> = { META: 'Meta Ads', GOOGLE: 'Google Ads', TIKTOK: 'TikTok Ads' };
+const providerParam = (p: string): ProviderKey => {
+  const k = String(p ?? '').toUpperCase();
+  if (k === 'META' || k === 'GOOGLE' || k === 'TIKTOK') return k;
+  throw new BadRequestException('Plataforma desconocida');
+};
 const FIRST_SYNC_DAYS = 60;
 
 /*
@@ -105,7 +114,33 @@ export class AdsService {
   }
 
   private provider(key: string, mode: string, metaConfigured = true): AdsProvider {
-    return providerFor(key as ProviderKey, mode === 'DEMO' ? 'DEMO' : 'REAL', { fetchImpl: this.fetchImpl, metaConfigured: () => metaConfigured });
+    return providerFor(key as ProviderKey, mode === 'DEMO' ? 'DEMO' : 'REAL', {
+      fetchImpl: this.fetchImpl, metaConfigured: () => metaConfigured,
+      google: () => this.googleConfig(), tiktok: () => this.tiktokConfig(),
+    });
+  }
+
+  /** Ajustes de plataforma (Dev Tools) con respaldo en variables de entorno. */
+  private async platformValues(keys: string[]) {
+    const rows = await this.prisma.platformSetting.findMany({ where: { key: { in: keys } } });
+    return (k: string) => rows.find((r) => r.key === k)?.value?.trim() || process.env[k]?.trim() || '';
+  }
+
+  /** Google Ads: developer token y cliente OAuth (el propio o, si no, el de Calendar/Drive). */
+  async googleConfig(): Promise<GoogleAdsConfig | null> {
+    const get = await this.platformValues(['GOOGLE_ADS_DEVELOPER_TOKEN', 'GOOGLE_ADS_CLIENT_ID', 'GOOGLE_ADS_CLIENT_SECRET', 'GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET', 'GOOGLE_ADS_API_VERSION']);
+    const cfg = {
+      developerToken: get('GOOGLE_ADS_DEVELOPER_TOKEN'),
+      clientId: get('GOOGLE_ADS_CLIENT_ID') || get('GOOGLE_CLIENT_ID'),
+      clientSecret: get('GOOGLE_ADS_CLIENT_SECRET') || get('GOOGLE_CLIENT_SECRET'),
+      version: /^v\d+$/.test(get('GOOGLE_ADS_API_VERSION')) ? get('GOOGLE_ADS_API_VERSION') : 'v26',
+    };
+    return cfg.developerToken || cfg.clientId ? cfg : null;
+  }
+
+  async tiktokConfig(): Promise<TikTokAdsConfig | null> {
+    const get = await this.platformValues(['TIKTOK_APP_ID', 'TIKTOK_APP_SECRET']);
+    return get('TIKTOK_APP_ID') || get('TIKTOK_APP_SECRET') ? { appId: get('TIKTOK_APP_ID'), secret: get('TIKTOK_APP_SECRET') } : null;
   }
 
   private token(a: { tokenEnc: string | null; mode: string }) {
@@ -129,7 +164,10 @@ export class AdsService {
     const { syncLockUntil, periodStatsJson: _p, ...pub } = rest;
     return {
       ...pub, hasToken: !!a.tokenEnc, scopes: parseJson<string[]>(a.scopesJson, []).filter((s) => !s.startsWith('task:')), dataAgeHours: ageH, stale: ageH === null || ageH > SYNC_EVERY_H * 2,
-      access: a.mode === 'DEMO' ? { verified: true, read: true, manage: true, missing: [], tasks: [], accountRoleLimited: false } : accessFrom(parseJson<string[]>(a.scopesJson, [])),
+      // Permisos: Meta los informa por token; Google y TikTok los confirman al pausar o reanudar
+      access: a.mode === 'DEMO' ? { verified: true, read: true, manage: true, missing: [], tasks: [], accountRoleLimited: false }
+        : a.provider !== 'META' ? { verified: false, read: true, manage: true, missing: [], tasks: [], accountRoleLimited: false }
+        : accessFrom(parseJson<string[]>(a.scopesJson, [])),
       // La credencial nunca sale: solo se dice que existe y cómo se guardó
       credential: a.mode === 'DEMO' ? 'Sin credencial (demostración)' : a.tokenEnc ? 'Guardada cifrada · no se muestra' : 'Sin credencial',
       syncing: !!syncLockUntil && new Date(syncLockUntil).getTime() > this.now().getTime(),
@@ -144,14 +182,15 @@ export class AdsService {
     const app = await this.metaApp();
     const metaReady = !!(app.appId && app.appSecret);
     const partnerId = ((await this.prisma.platformSetting.findUnique({ where: { key: 'META_BUSINESS_ID' } }).catch(() => null))?.value?.trim() || process.env.META_BUSINESS_ID || '').replace(/\D/g, '');
-    return PROVIDER_KEYS.map((k) => {
+    return Promise.all(PROVIDER_KEYS.map(async (k) => {
       const p = this.provider(k, 'REAL', metaReady);
+      const missing = p.missingConfigAsync ? await p.missingConfigAsync() : p.missingConfig();
       return {
-        key: k, label: p.label, capabilities: p.capabilities, missing: p.missingConfig(), oauth: k === 'META' && metaReady, demoAvailable: true,
+        key: k, label: p.label, capabilities: p.capabilities, missing, oauth: k === 'META' ? metaReady : !missing.length, demoAvailable: true,
         // Para la guía de conexión: a quién agregar como socio de la cuenta publicitaria
         ...(k === 'META' ? { partnerBusinessId: partnerId || null, requiredScopes: META_ADS_SCOPES } : {}),
       };
-    });
+    }));
   }
 
   async accounts(user: AuthUser, companyId?: string) {
@@ -199,26 +238,48 @@ export class AdsService {
     return this.saveAccount(user, c.id, remote, token, scopes);
   }
 
-  private async saveAccount(user: AuthUser | null, companyId: string, remote: { externalId: string; name: string; currency: string; timezone: string | null }, token: string, scopes: string[]) {
+  private async saveAccount(user: AuthUser | null, companyId: string, remote: { externalId: string; name: string; currency: string; timezone: string | null }, token: string, scopes: string[], provider: ProviderKey = 'META') {
     // Una cuenta publicitaria solo puede estar conectada en una empresa a la vez
-    const elsewhere = await this.prisma.adAccount.findFirst({ where: { provider: 'META', externalId: remote.externalId, mode: 'REAL', status: { not: 'DISCONNECTED' }, NOT: { companyId } } });
+    const elsewhere = await this.prisma.adAccount.findFirst({ where: { provider, externalId: remote.externalId, mode: 'REAL', status: { not: 'DISCONNECTED' }, NOT: { companyId } } });
     if (elsewhere) throw new ConflictException('Esa cuenta publicitaria ya está conectada en otra empresa de BackOffice');
-    const existing = await this.prisma.adAccount.findFirst({ where: { companyId, provider: 'META', externalId: remote.externalId } });
+    const existing = await this.prisma.adAccount.findFirst({ where: { companyId, provider, externalId: remote.externalId } });
     const data = {
       name: remote.name, currency: remote.currency, timezone: remote.timezone, tokenEnc: encryptSecret(token),
       scopesJson: JSON.stringify(scopes), status: 'CONNECTED', lastError: null, connectedBy: user?.name ?? null, updatedAt: this.now(),
     };
-    const id = adAccountId(companyId, 'META', remote.externalId);
+    const id = adAccountId(companyId, provider, remote.externalId);
     const acc = existing
       ? await this.prisma.adAccount.update({ where: { id: existing.id }, data: { ...data, nextSyncAt: this.now(), syncFailures: 0, lastErrorKind: null } })
-      : await this.prisma.adAccount.create({ data: { id, companyId, provider: 'META', mode: 'REAL', externalId: remote.externalId, ...data, nextSyncAt: this.now(), syncFailures: 0 } })
+      : await this.prisma.adAccount.create({ data: { id, companyId, provider, mode: 'REAL', externalId: remote.externalId, ...data, nextSyncAt: this.now(), syncFailures: 0 } })
         .catch(async (err: any) => {
           // Dos conexiones simultáneas de la misma cuenta: queda una sola fila
           if (!isDup(err)) throw err;
           return this.prisma.adAccount.update({ where: { id }, data });
         });
-    await this.audit.log({ actor: user, companyId, action: 'ads.connect', entity: 'AdAccount', entityId: acc.id, detail: `${remote.name} (${remote.externalId})` });
+    await this.audit.log({ actor: user, companyId, action: 'ads.connect', entity: 'AdAccount', entityId: acc.id, detail: `${PROVIDER_LABEL[provider]} · ${remote.name} (${remote.externalId})` });
     return this.view(acc);
+  }
+
+  /**
+   * «Salir de la demostración»: borra SOLO lo simulado de esta empresa (cuentas
+   * en modo DEMO y lo que se generó para ellas). Lo real no se toca. Se puede
+   * volver a abrir la demostración cuando quiera.
+   */
+  async exitDemo(user: AuthUser, companyId?: string) {
+    const c = await this.companyOf(user, companyId);
+    const demo = await this.prisma.adAccount.findMany({ where: { companyId: c.id, mode: 'DEMO' }, select: { id: true } });
+    const ids = demo.map((a) => a.id);
+    if (!ids.length) return { ok: true, removed: 0 };
+    const byAccount = { companyId: c.id, accountId: { in: ids } };
+    await this.prisma.adInsightDaily.deleteMany({ where: { ...byAccount, mode: 'DEMO' } });
+    await this.prisma.adEntity.deleteMany({ where: { ...byAccount, mode: 'DEMO' } });
+    await this.prisma.adActionLog.deleteMany({ where: { ...byAccount, mode: 'DEMO' } });
+    await this.prisma.opportunity.deleteMany({ where: { ...byAccount, mode: 'DEMO' } });
+    await this.prisma.adSyncRun.deleteMany({ where: byAccount });
+    await this.prisma.adBrief.deleteMany({ where: byAccount });
+    await this.prisma.adAccount.deleteMany({ where: { companyId: c.id, mode: 'DEMO', id: { in: ids } } });
+    await this.audit.log({ actor: user, companyId: c.id, action: 'ads.demo_exit', entity: 'AdAccount', detail: `${ids.length} cuenta(s) de demostración` });
+    return { ok: true, removed: ids.length };
   }
 
   async disconnect(user: AuthUser, accountId: string, companyId?: string) {
@@ -265,16 +326,22 @@ export class AdsService {
     }
   }
 
-  async pending(user: AuthUser, companyId?: string) {
+  /** Clave de la autorización pendiente de elegir cuentas (Meta conserva la de siempre). */
+  private pendingKey(provider: ProviderKey, companyId: string) {
+    return provider === 'META' ? `ADS_PENDING_${companyId}` : `ADS_PENDING_${provider}_${companyId}`;
+  }
+
+  async pending(user: AuthUser, companyId?: string, provider: ProviderKey = 'META') {
     const c = await this.companyOf(user, companyId);
-    const row = await this.prisma.platformSetting.findUnique({ where: { key: `ADS_PENDING_${c.id}` } });
+    const row = await this.prisma.platformSetting.findUnique({ where: { key: this.pendingKey(provider, c.id) } });
     const p = parseJson<{ accounts?: any[]; at?: number }>(row?.value, {});
     if (!p.accounts || !p.at || Date.now() - p.at > 30 * 60e3) return [];
     return p.accounts;
   }
 
-  async selectPending(user: AuthUser, dto: { externalIds?: string[] }, companyId?: string) {
+  async selectPending(user: AuthUser, dto: { externalIds?: string[] }, companyId?: string, provider: ProviderKey = 'META') {
     const c = await this.companyOf(user, companyId);
+    if (provider !== 'META') return this.selectPendingOther(user, c.id, provider, dto);
     const row = await this.prisma.platformSetting.findUnique({ where: { key: `ADS_PENDING_${c.id}` } });
     const p = parseJson<{ tokenEnc?: string; accounts?: any[]; at?: number }>(row?.value, {});
     if (!p.tokenEnc || !p.accounts || !p.at || Date.now() - p.at > 30 * 60e3) throw new BadRequestException('La autorización venció. Conecta de nuevo.');
@@ -288,6 +355,87 @@ export class AdsService {
     const out: any[] = [];
     for (const a of chosen) out.push(await this.saveAccount(user, c.id, a, token, [...(granted?.length ? granted : META_ADS_SCOPES), ...((a.tasks ?? []) as string[]).map((t) => `task:${t}`)]));
     await this.prisma.platformSetting.delete({ where: { key: `ADS_PENDING_${c.id}` } }).catch(() => undefined);
+    return out;
+  }
+
+  /* ── OAuth de Google Ads y TikTok Ads ── */
+
+  private async publicBase() {
+    return (await publicWebUrl(this.prisma)).replace(/\/$/, '');
+  }
+
+  /** Inicio de la conexión: la persona entra con SU cuenta de Google o TikTok. */
+  async oauthStartFor(user: AuthUser, provider: ProviderKey, companyId?: string) {
+    const c = await this.companyOf(user, companyId);
+    const p = this.provider(provider, 'REAL');
+    const missing = p.missingConfigAsync ? await p.missingConfigAsync() : [];
+    if (missing.length) throw new BadRequestException(`${PROVIDER_LABEL[provider]} todavía no está habilitado en BackOffice. Pídeselo al equipo.`);
+    const state = signState({ c: c.id, u: user.id, k: `ads-${provider.toLowerCase()}` }, process.env.JWT_SECRET ?? 'dev');
+    const redirectUri = `${await this.publicBase()}/api/public/ads/${provider.toLowerCase()}/callback`;
+    if (provider === 'GOOGLE') {
+      const cfg = (await this.googleConfig())!;
+      return { url: googleAuthUrl({ clientId: cfg.clientId, clientSecret: cfg.clientSecret, redirectUri }, state, [GOOGLE_ADS_SCOPE]) };
+    }
+    const cfg = (await this.tiktokConfig())!;
+    return { url: `${TIKTOK_AUTH_URL}?${new URLSearchParams({ app_id: cfg.appId, state, redirect_uri: redirectUri })}` };
+  }
+
+  /**
+   * Vuelta de Google o TikTok: se guarda la credencial cifrada y las cuentas
+   * que puede ver, pendientes de elegir (la credencial nunca va en la URL).
+   */
+  async oauthCallbackFor(provider: ProviderKey, code?: string, state?: string): Promise<string> {
+    const web = await this.publicBase();
+    const param = provider.toLowerCase();
+    const back = (r: string) => `${web}/app/ads?tab=cuentas&${param}=${r}`;
+    const data = verifyState<{ c: string; u: string; k: string }>(String(state ?? ''), process.env.JWT_SECRET ?? 'dev');
+    if (!data || data.k !== `ads-${param}` || !code) return back('error');
+    try {
+      let credential: string;
+      let accounts: Array<RemoteAccount & { loginCustomerId?: string | null }>;
+      if (provider === 'GOOGLE') {
+        const cfg = await this.googleConfig();
+        if (!cfg) return back('error');
+        const t = await googleExchangeCode({ clientId: cfg.clientId, clientSecret: cfg.clientSecret, redirectUri: `${web}/api/public/ads/google/callback` }, code, this.fetchImpl as any);
+        if (!t.scope.split(' ').includes(GOOGLE_ADS_SCOPE)) return back('permisos');
+        if (!t.refreshToken) return back('error');
+        credential = t.refreshToken;
+        accounts = await this.provider('GOOGLE', 'REAL').listAccounts(encodeGoogleCredential(t.refreshToken));
+      } else {
+        const tiktok = this.provider('TIKTOK', 'REAL') as TikTokAdsProvider;
+        const t = await tiktok.exchangeCode(code);
+        credential = t.accessToken;
+        accounts = await tiktok.listAccounts(t.accessToken);
+      }
+      await this.prisma.platformSetting.upsert({
+        where: { key: this.pendingKey(provider, data.c) },
+        update: { value: JSON.stringify({ tokenEnc: encryptSecret(credential), accounts, at: Date.now() }) },
+        create: { key: this.pendingKey(provider, data.c), value: JSON.stringify({ tokenEnc: encryptSecret(credential), accounts, at: Date.now() }) },
+      });
+      return back(accounts.length ? 'elegir' : 'sin-cuentas');
+    } catch (err: any) {
+      this.logger.warn(`OAuth ${provider}: ${err?.kind ?? ''} ${String(err?.message ?? '').slice(0, 160)}`);
+      return back(err instanceof AdsProviderError && err.kind === 'NOT_CONFIGURED' ? 'no-habilitado' : 'error');
+    }
+  }
+
+  private async selectPendingOther(user: AuthUser, companyId: string, provider: ProviderKey, dto: { externalIds?: string[] }) {
+    const key = this.pendingKey(provider, companyId);
+    const row = await this.prisma.platformSetting.findUnique({ where: { key } });
+    const p = parseJson<{ tokenEnc?: string; accounts?: any[]; at?: number }>(row?.value, {});
+    if (!p.tokenEnc || !p.accounts || !p.at || Date.now() - p.at > 30 * 60e3) throw new BadRequestException('La autorización venció. Conecta de nuevo.');
+    const wanted = new Set((dto?.externalIds ?? []).map(String));
+    const chosen = p.accounts.filter((a) => wanted.has(String(a.externalId)));
+    if (!chosen.length) throw new BadRequestException('Elige al menos una cuenta');
+    const credential = decryptSecret(p.tokenEnc);
+    const scopes = provider === 'GOOGLE' ? [GOOGLE_ADS_SCOPE, 'oauth'] : ['oauth'];
+    const out: any[] = [];
+    for (const a of chosen) {
+      // Google: cada cuenta guarda por qué cuenta administradora se entra (si aplica)
+      const token = provider === 'GOOGLE' ? encodeGoogleCredential(credential, a.loginCustomerId ?? null) : credential;
+      out.push(await this.saveAccount(user, companyId, a, token, scopes, provider));
+    }
+    await this.prisma.platformSetting.delete({ where: { key } }).catch(() => undefined);
     return out;
   }
 
@@ -527,6 +675,32 @@ export class AdsService {
     return { accounts, entities, rows };
   }
 
+  /**
+   * Empresa, modo y datos de una vista en el menor número de viajes a la base:
+   * la empresa y TODAS sus cuentas a la vez (de ahí salen el modo y los
+   * conteos real/demo) y después entidades, métricas y lo que pida la vista,
+   * en paralelo. Antes eran 7 consultas en fila (~0,9 s con Atlas remoto).
+   */
+  private async scoped<T = undefined>(user: AuthUser, q: { companyId?: string; mode?: string; accountId?: string }, also?: (companyId: string, mode: 'REAL' | 'DEMO') => Promise<T>) {
+    const id = isPlatformRole(user.role) ? q.companyId : user.companyId;
+    const [c, all] = await Promise.all([
+      this.companyOf(user, q.companyId),
+      id ? this.prisma.adAccount.findMany({ where: { companyId: id } }) : Promise.resolve([] as any[]),
+    ]);
+    const realCount = all.filter((a) => a.mode === 'REAL').length;
+    const demoCount = all.filter((a) => a.mode === 'DEMO').length;
+    const mode: 'REAL' | 'DEMO' = q.mode === 'DEMO' || q.mode === 'REAL' ? q.mode : realCount ? 'REAL' : 'DEMO';
+    const accounts = all.filter((a) => a.mode === mode && (!q.accountId || a.id === q.accountId));
+    const ids = accounts.map((a) => a.id);
+    const since = addDays(isoDay(this.now()), -120);
+    const [entities, rows, extra] = await Promise.all([
+      this.prisma.adEntity.findMany({ where: { companyId: c.id, accountId: { in: ids } } }),
+      this.prisma.adInsightDaily.findMany({ where: { companyId: c.id, accountId: { in: ids }, date: { gte: since } } }),
+      also ? also(c.id, mode) : Promise.resolve(undefined as T),
+    ]);
+    return { c, mode, accounts, entities, rows, extra: extra as T, realCount, demoCount };
+  }
+
   /** Modo que se muestra: REAL si hay cuentas reales; si solo hay demo, DEMO. Nunca mezclados. */
   private async modeFor(companyId: string, requested?: string): Promise<'REAL' | 'DEMO'> {
     if (requested === 'DEMO' || requested === 'REAL') return requested;
@@ -571,10 +745,13 @@ export class AdsService {
   }
 
   async overview(user: AuthUser, q: { companyId?: string; days?: string; accountId?: string; mode?: string; campaign?: string }) {
-    const c = await this.companyOf(user, q.companyId);
-    const mode = await this.modeFor(c.id, q.mode);
     const days = [7, 14, 30, 60].includes(Number(q.days)) ? Number(q.days) : 30;
-    const { accounts, entities, rows: all } = await this.data(c.id, mode, q.accountId);
+    // Los conteos de la portada viajan junto con las métricas (no dependen del periodo salvo «ejecutadas», que se filtra después)
+    const { c, mode, accounts, entities, rows: all, extra: counts, realCount, demoCount } = await this.scoped(user, q, (companyId, m) => Promise.all([
+      this.prisma.opportunity.count({ where: { companyId, source: 'ADS', mode: m, status: { in: OPEN } } }),
+      this.prisma.adActionLog.count({ where: { companyId, mode: m, status: 'PROPOSED' } }),
+      this.prisma.adActionLog.findMany({ where: { companyId, mode: m, status: 'EXECUTED', createdAt: { gte: new Date(this.now().getTime() - 62 * 86400e3) } }, select: { createdAt: true } }),
+    ]));
     const rows = q.campaign ? all.filter((r) => r.campaignExternalId === q.campaign) : all;
     const until = this.completeUntil(rows, accounts);
     const p = periods(until, days);
@@ -605,13 +782,9 @@ export class AdsService {
         : 'Alcance y frecuencia: la plataforma los reporta para 7 y 30 días terminando en el último día sincronizado; para este periodo no están disponibles.');
     }
     if (!cmp.ok && cmp.reason) notes.push(`Variaciones: ${cmp.reason}`);
-    const [openFindings, pendingActions, executed] = await Promise.all([
-      this.prisma.opportunity.count({ where: { companyId: c.id, source: 'ADS', mode, status: { in: OPEN } } }),
-      this.prisma.adActionLog.count({ where: { companyId: c.id, mode, status: 'PROPOSED' } }),
-      this.prisma.adActionLog.count({ where: { companyId: c.id, mode, status: 'EXECUTED', createdAt: { gte: new Date(Date.parse(`${p.current.since}T00:00:00Z`)) } } }),
-    ]);
-    const realCount = await this.prisma.adAccount.count({ where: { companyId: c.id, mode: 'REAL' } });
-    const demoCount = await this.prisma.adAccount.count({ where: { companyId: c.id, mode: 'DEMO' } });
+    const [openFindings, pendingActions, executedRows] = counts;
+    const sinceExec = Date.parse(`${p.current.since}T00:00:00Z`);
+    const executed = executedRows.filter((r) => new Date(r.createdAt).getTime() >= sinceExec).length;
     const d = (a: number | null, b: number | null) => (cmp.ok ? delta(a, b) : null);
     return {
       mode, modes: { real: realCount, demo: demoCount }, days, period: p, currency: currencies.length === 1 ? currencies[0] : null,
@@ -637,10 +810,8 @@ export class AdsService {
   }
 
   async campaignTree(user: AuthUser, q: { companyId?: string; days?: string; mode?: string; accountId?: string }) {
-    const c = await this.companyOf(user, q.companyId);
-    const mode = await this.modeFor(c.id, q.mode);
     const days = [7, 14, 30, 60].includes(Number(q.days)) ? Number(q.days) : 30;
-    const { accounts, entities, rows } = await this.data(c.id, mode, q.accountId);
+    const { c, mode, accounts, entities, rows } = await this.scoped(user, q);
     const p = periods(this.completeUntil(rows, accounts), days).current;
     const cur = rows.filter((r) => inRange(r.date, p));
     const byAd = groupBy(cur, (r) => r.externalId);
@@ -1243,11 +1414,16 @@ export class AdsController {
   @Post('accounts/demo') @Roles(...WRITE) demo(@CurrentUser() u: AuthUser, @Body() dto: any, @Query('companyId') c?: string) { return this.ads.connectDemo(u, dto, c); }
   @Post('accounts/manual') @Roles(...WRITE) @Throttle({ default: { ttl: 60_000, limit: 10 } })
   manual(@CurrentUser() u: AuthUser, @Body() dto: any, @Query('companyId') c?: string) { return this.ads.connectManual(u, dto, c); }
+  @Delete('demo') @Roles(...WRITE) exitDemo(@CurrentUser() u: AuthUser, @Query('companyId') c?: string) { return this.ads.exitDemo(u, c); }
   @Delete('accounts/:id') @Roles(...WRITE) disconnect(@CurrentUser() u: AuthUser, @Param('id') id: string, @Query('companyId') c?: string) { return this.ads.disconnect(u, id, c); }
   @Post('accounts/:id/sync') @Roles(...WRITE) @Throttle({ default: { ttl: 60_000, limit: 6 } })
   sync(@CurrentUser() u: AuthUser, @Param('id') id: string, @Query('companyId') c?: string) { return this.ads.syncNow(u, id, c); }
   @Get('accounts/:id/syncs') @Roles(...READ) syncs(@CurrentUser() u: AuthUser, @Param('id') id: string, @Query('companyId') c?: string) { return this.ads.syncRuns(u, id, c); }
   @Get('meta/oauth') @Roles(...WRITE) oauth(@CurrentUser() u: AuthUser, @Query('companyId') c?: string) { return this.ads.oauthStart(u, c); }
+  @Get('google/oauth') @Roles(...WRITE) googleOauth(@CurrentUser() u: AuthUser, @Query('companyId') c?: string) { return this.ads.oauthStartFor(u, 'GOOGLE', c); }
+  @Get('tiktok/oauth') @Roles(...WRITE) tiktokOauth(@CurrentUser() u: AuthUser, @Query('companyId') c?: string) { return this.ads.oauthStartFor(u, 'TIKTOK', c); }
+  @Get(':provider/pending') @Roles(...WRITE) pendingFor(@CurrentUser() u: AuthUser, @Param('provider') p: string, @Query('companyId') c?: string) { return this.ads.pending(u, c, providerParam(p)); }
+  @Post(':provider/select') @Roles(...WRITE) selectFor(@CurrentUser() u: AuthUser, @Param('provider') p: string, @Body() dto: any, @Query('companyId') c?: string) { return this.ads.selectPending(u, dto, c, providerParam(p)); }
   @Get('meta/pending') @Roles(...WRITE) pending(@CurrentUser() u: AuthUser, @Query('companyId') c?: string) { return this.ads.pending(u, c); }
   @Post('meta/select') @Roles(...WRITE) select(@CurrentUser() u: AuthUser, @Body() dto: any, @Query('companyId') c?: string) { return this.ads.selectPending(u, dto, c); }
 
@@ -1299,6 +1475,19 @@ export class AdsPublicController {
   @Get('meta/callback')
   async callback(@Query('code') code: string, @Query('state') state: string, @Res() res: Response) {
     res.redirect(await this.ads.oauthCallback(code, state));
+  }
+
+  @Public()
+  @Get('google/callback')
+  async googleCallback(@Query('code') code: string, @Query('state') state: string, @Res() res: Response) {
+    res.redirect(await this.ads.oauthCallbackFor('GOOGLE', code, state));
+  }
+
+  /** TikTok devuelve el código como auth_code (y a veces también como code). */
+  @Public()
+  @Get('tiktok/callback')
+  async tiktokCallback(@Query('auth_code') authCode: string, @Query('code') code: string, @Query('state') state: string, @Res() res: Response) {
+    res.redirect(await this.ads.oauthCallbackFor('TIKTOK', authCode || code, state));
   }
 }
 

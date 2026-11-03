@@ -272,16 +272,28 @@ function Accounts({ q }: { q: string }) {
   const refresh = () => { queryClient.invalidateQueries({ queryKey: ['ads-accounts'] }); queryClient.invalidateQueries({ queryKey: ['ads-overview'] }); };
   const { data: accounts, isLoading } = useQuery({ queryKey: ['ads-accounts', q], queryFn: () => api.get<Account[]>(withScope('/ads/accounts', q)) });
   const { data: providers } = useQuery({ queryKey: ['ads-providers', q], queryFn: () => api.get<ProviderInfo[]>(withScope('/ads/providers', q)) });
-  const pendingOn = params.get('meta') === 'elegir';
-  const { data: pending } = useQuery({ queryKey: ['ads-pending', q], queryFn: () => api.get<Array<{ externalId: string; name: string; currency: string; active: boolean }>>(withScope('/ads/meta/pending', q)), enabled: pendingOn });
+  // Vuelta de Meta, Google o TikTok con cuentas por elegir (?meta=elegir, ?google=elegir, ?tiktok=elegir)
+  const pendingFrom = (['meta', 'google', 'tiktok'] as const).find((k) => params.get(k) === 'elegir') ?? null;
+  const pendingOn = !!pendingFrom;
+  const { data: pending } = useQuery({ queryKey: ['ads-pending', q, pendingFrom], queryFn: () => api.get<Array<{ externalId: string; name: string; currency: string; active: boolean }>>(withScope(`/ads/${pendingFrom}/pending`, q)), enabled: pendingOn });
   const [chosen, setChosen] = useState<string[]>([]);
   const [manual, setManual] = useState({ accountId: '', token: '' });
   const [disc, setDisc] = useState<Account | null>(null);
-  useEffect(() => { if (params.get('meta') === 'error') toast.error('No se pudo conectar con Facebook. Intenta de nuevo.'); }, [params]);
+  useEffect(() => {
+    if (params.get('meta') === 'error') toast.error('No se pudo conectar con Facebook. Intenta de nuevo.');
+    for (const [k, label] of [['google', 'Google Ads'], ['tiktok', 'TikTok Ads']] as const) {
+      const r = params.get(k);
+      if (r === 'error') toast.error(`No se pudo conectar ${label}. Intenta de nuevo.`);
+      if (r === 'permisos') toast.error(`${label} no dio el permiso para ver tus campañas. Vuelve a conectar y acepta el acceso.`);
+      if (r === 'sin-cuentas') toast.info(`Tu usuario de ${label} no tiene cuentas publicitarias. Entra con el usuario que administra la cuenta de la empresa.`);
+      if (r === 'no-habilitado') toast.error(`${label} todavía no está habilitado en BackOffice.`);
+    }
+  }, [params]);
   const err = (e: unknown) => toast.error(e instanceof Error ? e.message : 'Error');
   const demo = useMutation({ mutationFn: (provider: string) => api.post(withScope('/ads/accounts/demo', q), { provider }), onSuccess: () => { refresh(); toast.success('Cuenta de demostración lista'); }, onError: err });
   const oauth = useMutation({ mutationFn: () => api.get<{ url: string }>(withScope('/ads/meta/oauth', q)), onSuccess: (r) => { window.location.href = r.url; }, onError: err });
-  const select = useMutation({ mutationFn: () => api.post(withScope('/ads/meta/select', q), { externalIds: chosen }), onSuccess: () => { refresh(); setParams({ tab: 'cuentas' }); toast.success('Cuentas conectadas. Sincronízalas para traer los datos.'); }, onError: err });
+  const oauthOther = useMutation({ mutationFn: (p: 'google' | 'tiktok') => api.get<{ url: string }>(withScope(`/ads/${p}/oauth`, q)), onSuccess: (r) => { window.location.href = r.url; }, onError: err });
+  const select = useMutation({ mutationFn: () => api.post(withScope(`/ads/${pendingFrom ?? 'meta'}/select`, q), { externalIds: chosen }), onSuccess: () => { refresh(); setParams({ tab: 'cuentas' }); toast.success('Cuentas conectadas. Sincronízalas para traer los datos.'); }, onError: err });
   const connect = useMutation({
     mutationFn: () => api.post<Account>(withScope('/ads/accounts/manual', q), manual),
     onSuccess: (acc) => {
@@ -310,7 +322,7 @@ function Accounts({ q }: { q: string }) {
   return (
     <div className="space-y-6">
       {pendingOn && (
-        <Card kicker="Facebook" title="Elige las cuentas publicitarias">
+        <Card kicker={pendingFrom === 'google' ? 'Google Ads' : pendingFrom === 'tiktok' ? 'TikTok Ads' : 'Facebook'} title="Elige las cuentas publicitarias">
           {!pending ? <Loading /> : !pending.length ? <p className="text-sm">La autorización venció o no tienes cuentas publicitarias. Conecta de nuevo.</p> : (
             <>
               <ul className="space-y-1 text-sm">
@@ -365,10 +377,28 @@ function Accounts({ q }: { q: string }) {
             onOAuth={() => oauth.mutate()} oauthPending={oauth.isPending}
             manual={manual} setManual={setManual} onConnect={() => connect.mutate()} connectPending={connect.isPending}
           />
-          <Card kicker="Sin riesgo" title="Probar con datos de demostración">
-            <p className="mb-3 text-sm text-ink-2">Crea una cuenta simulada para recorrer el producto: resultados, oportunidades y Autopilot. Se marca como demostración y nunca se mezcla con tus datos reales.</p>
-            <Button variant="outline" disabled={demo.isPending} onClick={() => demo.mutate('META')}>Abrir demostración</Button>
-          </Card>
+          <div className="space-y-6">
+            {([['GOOGLE', 'google', 'Google Ads', 'Si también pautas en Google (búsquedas, YouTube, Maps), trae esas campañas al mismo resumen para comparar Meta y Google en un solo lugar.'], ['TIKTOK', 'tiktok', 'TikTok Ads', 'Si pautas en TikTok, trae esas campañas al mismo resumen y contrólalas desde aquí.']] as const).map(([key, slug, label, blurb]) => {
+              const info = providers?.find((p) => p.key === key);
+              return (
+                <Card key={key} kicker={label.split(' ')[0]} title={label}>
+                  <p className="text-sm text-ink-2">{blurb}</p>
+                  {info?.oauth ? (
+                    <>
+                      <p className="mt-2 text-xs text-ink-3">Entras con el usuario de {label.split(' ')[0]} que administra la cuenta de tu empresa y eliges qué cuentas traer. BackOffice ve resultados y puede pausar o reanudar (siempre con tu confirmación); no crea anuncios ahí.</p>
+                      <Button className="mt-3" size="sm" disabled={oauthOther.isPending} onClick={() => oauthOther.mutate(slug)}>Conectar con {label}</Button>
+                    </>
+                  ) : (
+                    <p className="mt-2 text-xs text-ink-3">Estamos terminando la aprobación de {label.split(' ')[0]} para conectar cuentas. Si ya pautas ahí, avísanos y lo conectamos contigo apenas esté listo.</p>
+                  )}
+                </Card>
+              );
+            })}
+            <Card kicker="Sin riesgo" title="Probar con datos de demostración">
+              <p className="mb-3 text-sm text-ink-2">Crea una cuenta simulada para recorrer el producto: resultados, oportunidades y Autopilot. Se marca como demostración y nunca se mezcla con tus datos reales.</p>
+              <Button variant="outline" disabled={demo.isPending} onClick={() => demo.mutate('META')}>Abrir demostración</Button>
+            </Card>
+          </div>
         </div>
       )}
       <Card kicker="Plataformas" title="Qué está disponible">
