@@ -1,6 +1,8 @@
 import { Logger } from '@nestjs/common';
 import type { ChatMessage } from './types';
-import { fingerprint } from './gemini-pool';
+import { cleanModelText, fingerprint } from './openai-compat';
+
+export { cleanModelText };
 
 /**
  * Respaldo GRATIS de la IA de registro: modelos gratuitos de OpenRouter (los
@@ -47,15 +49,6 @@ type FetchLike = (url: string, init?: any) => Promise<{ ok: boolean; status: num
 
 function today(): string {
   return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Bogota' }).format(new Date());
-}
-
-/** Algunos modelos gratis piensan en voz alta o envuelven el JSON en ```. */
-export function cleanModelText(content: string): string {
-  return content
-    .replace(/<think>[\s\S]*?<\/think>/gi, '')
-    .replace(/^\s*```(?:json)?\s*/i, '')
-    .replace(/\s*```\s*$/i, '')
-    .trim();
 }
 
 /** Gratuitos útiles para conversar, del más recomendado al menos. */

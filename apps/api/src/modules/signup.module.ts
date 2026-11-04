@@ -8,6 +8,7 @@ import {
   Logger,
   Module,
   NotFoundException,
+  OnModuleInit,
   Param,
   Patch,
   Post,
@@ -23,7 +24,8 @@ import { CurrentUser, Public, Roles } from '../auth/decorators';
 import { AuthModule } from '../auth/auth.module';
 import { AuthService } from '../auth/auth.service';
 import { AuthUser, NOT_DELETED, ROLES, isPlatformRole, parseJson } from '../common/constants';
-import { ChainEntry, GeminiPool, chainId, isAiUnavailable } from '../ai/gemini-pool';
+import { AiProviderName, CHAIN_PROVIDERS, ChainEntry, GeminiPool, chainId, isAiUnavailable, sanitizeChain } from '../ai/gemini-pool';
+import { KEYED_PROVIDERS, KeyedProviderName } from '../ai/openai-compat';
 import { benchMany } from '../ai/setup-ai-bench';
 import { parseDailyChats } from '../common/ai-cost';
 import { SignupStep, SignupTracker } from './signup-tracking';
@@ -108,8 +110,15 @@ export function fieldError(field: string, message: string, code?: string): BadRe
 
 const esc = (s: unknown) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!));
 
+const PROVIDER_DESCRIPTION: Record<AiProviderName, string> = {
+  GEMINI: 'Google Gemini con las llaves genéricas (rotan solas).',
+  GROQ: 'Groq con las llaves genéricas (GROQ_API_KEYS, rotan solas): respuestas muy rápidas.',
+  CEREBRAS: 'Cerebras con la llave genérica (CEREBRAS_API_KEY): respuestas muy rápidas.',
+  OPENROUTER: '',
+};
+
 @Injectable()
-export class SignupService {
+export class SignupService implements OnModuleInit {
   private readonly logger = new Logger('Signup');
   readonly pool: GeminiPool;
   readonly tracker: SignupTracker;
@@ -124,6 +133,12 @@ export class SignupService {
   ) {
     this.pool = new GeminiPool(prisma);
     this.tracker = new SignupTracker(prisma);
+  }
+
+  /** Al arrancar: catálogo de modelos de cada proveedor con llave (sin bloquear el arranque). */
+  onModuleInit() {
+    if (process.env.JEST_WORKER_ID) return;
+    void this.pool.refreshCatalogs(false).catch((err) => this.logger.warn(`catálogos de IA no leídos: ${err?.message ?? err}`));
   }
 
   /* ── 1. Entrevista con IA (pública) ────────────────────────────── */
@@ -743,17 +758,22 @@ export class SignupService {
       this.pool.status(), this.pool.backup.configured() ? this.pool.backup.account() : Promise.resolve(null),
     ]);
     const meta = new Map(catalog.models.map((m) => [m.id, m]));
+    // Catálogo real (GET /models) de Gemini, Groq y Cerebras: solo se ofrece lo que existe
+    const keyedCatalogs = Object.fromEntries(await Promise.all(
+      KEYED_PROVIDERS.map(async (p) => [p, await this.pool.keyed[p].catalog()] as const),
+    )) as Record<KeyedProviderName, { at: string; ids: string[]; error?: string } | null>;
     const availability = await Promise.all(entries.map((e) => this.pool.availability(e)));
     const rows = entries.map((e, i) => {
       const s = stats[chainId(e)];
       const m = e.provider === 'OPENROUTER' ? meta.get(e.model) : undefined;
+      const keyedIds = e.provider === 'OPENROUTER' ? null : keyedCatalogs[e.provider]?.ids ?? [];
       return {
         ...e,
         id: chainId(e),
         name: m?.name ?? e.model,
         context: m?.context ?? null,
-        description: m?.description ?? (e.provider === 'GEMINI' ? 'Google Gemini con las llaves genéricas (rotan solas).' : ''),
-        inCatalog: e.provider === 'GEMINI' || !catalog.models.length || meta.has(e.model),
+        description: m?.description ?? PROVIDER_DESCRIPTION[e.provider],
+        inCatalog: keyedIds ? !keyedIds.length || keyedIds.includes(e.model) : !catalog.models.length || meta.has(e.model),
         availability: availability[i],
         calls: s ? s.ok + s.fail : 0,
         successRate: s && s.ok + s.fail ? Math.round((s.ok / (s.ok + s.fail)) * 100) : null,
@@ -764,21 +784,57 @@ export class SignupService {
       };
     });
     const inChain = new Set(entries.map((e) => chainId(e)));
-    const suggestions = catalog.ranked
-      .filter((id) => !inChain.has(`OPENROUTER:${id}`))
-      .map((id) => ({ provider: 'OPENROUTER' as const, model: id, name: meta.get(id)?.name ?? id, context: meta.get(id)?.context ?? null, bench: stats[`OPENROUTER:${id}`]?.bench ?? null }));
+    // Sugerencias: Groq y Cerebras primero (rápidos y con llave propia), luego los gratis de OpenRouter
+    const keyedSuggestions = (['GROQ', 'CEREBRAS'] as const).flatMap((p) =>
+      this.pool.keyed[p].configured()
+        ? (keyedCatalogs[p]?.ids ?? [])
+            .filter((id) => !inChain.has(`${p}:${id}`))
+            .map((id) => ({ provider: p, model: id, name: id, context: null, bench: stats[`${p}:${id}`]?.bench ?? null }))
+        : [],
+    );
+    const suggestions = [
+      ...keyedSuggestions,
+      ...catalog.ranked
+        .filter((id) => !inChain.has(`OPENROUTER:${id}`))
+        .map((id) => ({ provider: 'OPENROUTER' as const, model: id, name: meta.get(id)?.name ?? id, context: meta.get(id)?.context ?? null, bench: stats[`OPENROUTER:${id}`]?.bench ?? null })),
+    ];
+    const providerInfo = (p: KeyedProviderName) => ({
+      configured: this.pool.keyed[p].configured(),
+      keyCount: this.pool.keyed[p].keys().length,
+      models: keyedCatalogs[p]?.ids ?? [],
+      catalogAt: keyedCatalogs[p]?.at ?? null,
+      catalogError: keyedCatalogs[p]?.error ?? null,
+    });
     return {
       custom,
       entries: rows,
       suggestions,
+      providers: { GEMINI: providerInfo('GEMINI'), GROQ: providerInfo('GROQ'), CEREBRAS: providerInfo('CEREBRAS') },
       capacity: {
         gemini: status.keys,
+        groq: { configured: this.pool.keyed.GROQ.configured(), keys: status.groq.keys },
+        cerebras: { configured: this.pool.keyed.CEREBRAS.configured(), keys: status.cerebras.keys },
         openrouter: { configured: this.pool.backup.configured(), keys: status.backup.keys, account },
       },
     };
   }
 
+  /** Dev Tools → "Refrescar modelos": GET /models de cada proveedor con llave. */
+  async refreshAiModels(actor: AuthUser) {
+    const result = await this.pool.refreshCatalogs(true);
+    await this.audit.log({
+      actor, action: 'signup.ai_models_refresh', entity: 'PlatformSetting', entityId: 'AI_MODELS',
+      detail: Object.entries(result).map(([p, r]) => `${p}: ${r?.count ?? 0}${r?.error ? ` (${r.error})` : ''}`).join(' · ').slice(0, 300) || 'sin proveedores con llave',
+    });
+    return { refreshed: result, chain: await this.aiChain() };
+  }
+
   async saveAiChain(actor: AuthUser, dto: { entries?: unknown }) {
+    // Groq, Cerebras y Gemini: solo modelos que existen en su catálogo (si ya se leyó)
+    const wanted = sanitizeChain(dto?.entries);
+    const missing: string[] = [];
+    for (const e of wanted) if (e.provider !== 'OPENROUTER' && (await this.pool.inCatalog(e)) === false) missing.push(chainId(e));
+    if (missing.length) throw new BadRequestException(`Estos modelos no existen en el catálogo del proveedor: ${missing.join(', ')}. Toca "Refrescar modelos" o quítalos.`);
     const entries = await this.pool.saveChain(dto?.entries);
     await this.audit.log({
       actor, action: 'signup.ai_chain', entity: 'PlatformSetting', entityId: 'SIGNUP_AI_CHAIN',
@@ -803,7 +859,7 @@ export class SignupService {
         const [provider, ...rest] = id.split(':');
         return { provider: provider as ChainEntry['provider'], model: rest.join(':') };
       })
-      .filter((e) => (e.provider === 'GEMINI' || e.provider === 'OPENROUTER') && e.model);
+      .filter((e) => (CHAIN_PROVIDERS as string[]).includes(e.provider) && e.model);
     if (!targets.length) throw new BadRequestException('Elige al menos un modelo para probar');
     const results = await benchMany(this.pool, targets, 4);
     return { results: results.sort((a, b) => b.score - a.score || a.seconds - b.seconds), chain: await this.aiChain() };
@@ -982,6 +1038,13 @@ export class SignupController {
   @Roles(ROLES.SUPER_ADMIN, ROLES.DEV)
   resetAiChain(@CurrentUser() user: AuthUser, @Body() dto: any) {
     return this.signup.resetAiChain(user, dto);
+  }
+
+  @Post('onboarding/ai-chain/refresh-models')
+  @Roles(ROLES.SUPER_ADMIN, ROLES.DEV)
+  @Throttle({ default: { ttl: 60_000, limit: 6 } })
+  refreshAiModels(@CurrentUser() user: AuthUser) {
+    return this.signup.refreshAiModels(user);
   }
 
   @Post('onboarding/ai-chain/test')

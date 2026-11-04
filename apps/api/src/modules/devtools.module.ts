@@ -50,6 +50,8 @@ const SETTING_GROUPS: Array<{ group: string; keys: string[]; purpose: string }> 
   { group: 'Ads · revisión con IA', keys: ['ADS_VISION_MODEL'], purpose: 'Modelo de visión (DeepInfra) que revisa las imágenes de anuncios con la llave de cada empresa; por defecto Llama-3.2-11B-Vision' },
   { group: 'Meta Ads', keys: ['META_BUSINESS_ID'], purpose: 'ID del portafolio comercial de BackOffice: el que el cliente agrega como socio de su cuenta publicitaria (guía de conexión de Ads)' },
   { group: 'Registro web', keys: ['GEMINI_API_KEYS', 'SIGNUP_NOTIFY_EMAIL'], purpose: 'IA genérica (Gemini, llaves solo en el .env, rotan solas) que arma las empresas nuevas y las acompaña; correo que recibe cada registro' },
+  { group: 'IA genérica · respaldo', keys: ['GROQ_API_KEYS', 'CEREBRAS_API_KEY'], purpose: 'Groq y Cerebras en la misma cadena del registro (llaves SOLO en el .env del API; aquí solo se ve si están cargadas). Orden y modelos en Dev Tools → IA del registro → «Refrescar modelos»' },
+  { group: 'IA genérica · tope por empresa', keys: ['GENERIC_AI_DAILY_PER_COMPANY'], purpose: 'Pedidos diarios por empresa SIN IA propia (sugerir textos de anuncios, resumen del reporte) que van a la cadena genérica gratis, con texto sanitizado y sin cobro. Por defecto 20' },
   { group: 'Google Calendar', keys: ['GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET'], purpose: 'Cliente OAuth 2.0 (Google Cloud) para que cada empresa conecte su calendario; URI de redirección: <web>/api/public/calendar/google/callback' },
   { group: 'Correo', keys: ['SMTP_HOST', 'SMTP_PORT', 'SMTP_USER', 'SMTP_PASS', 'SMTP_FROM'], purpose: 'Envío real de correos (sin esto quedan en cola)' },
   { group: 'Wompi', keys: ['WOMPI_PUBLIC_KEY', 'WOMPI_INTEGRITY_SECRET', 'WOMPI_EVENTS_SECRET'], purpose: 'Pagos Colombia' },
@@ -58,6 +60,11 @@ const SETTING_GROUPS: Array<{ group: string; keys: string[]; purpose: string }> 
 ];
 
 const MASK = '••••';
+
+/** Llaves que viven SOLO en el .env del API: Dev Tools muestra si están cargadas, pero no las guarda. */
+export const ENV_ONLY_KEYS = new Set([
+  'GEMINI_API_KEYS', 'GROQ_API_KEYS', 'GROQ_API_KEY', 'CEREBRAS_API_KEY', 'CEREBRAS_API_KEYS', 'OPENROUTER_API_KEY', 'OPENROUTER_API_KEYS',
+]);
 /** Claves con secretos (la llave pública de Wompi y los ids no lo son). */
 export function isSecretSetting(key: string): boolean {
   return /(SECRET|TOKEN|PASS|PASSWORD|API_KEY|PRIVATE)/.test(key) && !/PUBLIC/.test(key);
@@ -344,6 +351,7 @@ export class DevToolsService {
   async setSettings(actor: AuthUser, values: Record<string, string>) {
     for (const [key, raw] of Object.entries(values ?? {})) {
       if (!/^[A-Z][A-Z0-9_]{1,63}$/.test(key)) continue; // solo claves de configuración válidas
+      if (ENV_ONLY_KEYS.has(key)) continue; // llaves de la IA genérica: solo en el .env, jamás en la base
       const value = String(raw ?? '');
       // Un secreto enmascarado que vuelve sin cambios no se guarda (se conserva el real)
       if (isSecretSetting(key) && value.startsWith(MASK)) continue;
