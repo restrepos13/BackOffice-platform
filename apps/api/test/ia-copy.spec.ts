@@ -50,12 +50,11 @@ function setupCopy(company: Record<string, any> = {}) {
   db.brandProfile.push({ companyId: 'co1', name: 'Doña Rosa', tone: 'cercano', restrictionsJson: JSON.stringify(['competencia']), policyJson: JSON.stringify({ restrictedTopics: ['política'] }) });
   db.contact.push({ id: 'ct1', companyId: 'co1', name: 'Marta Lucía Gómez', phone: '+573001234567' });
   const audit = { log: jest.fn(async () => undefined) };
-  const creative = { companyOf: jest.fn(async () => db.company.find((c: any) => c.id === 'co1')) };
-  return { prisma, db, audit, creative };
+  return { prisma, db, audit };
 }
 
 function copyService(ctx: ReturnType<typeof setupCopy>, pool: any, ai?: any) {
-  const service = new CreativeCopyService(ctx.prisma as any, ctx.audit as any, ctx.creative as any, ai);
+  const service = new CreativeCopyService(ctx.prisma as any, ctx.audit as any, ai);
   (service as any).textAi = new CompanyTextAi(ctx.prisma, ai, pool);
   return service;
 }

@@ -1,11 +1,11 @@
-import { Body, Controller, Get, Inject, Injectable, Logger, NotFoundException, Optional, Post, Query, ServiceUnavailableException, forwardRef } from '@nestjs/common';
+import { Body, Controller, ForbiddenException, Get, Inject, Injectable, Logger, NotFoundException, Optional, Post, Query, ServiceUnavailableException } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { randomUUID } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { CurrentUser, Roles } from '../auth/decorators';
 import { Products } from '../auth/products.guard';
 import { AuthUser, ROLES, isPlatformRole, parseJson } from '../common/constants';
-import { companyProfile } from '../common/business-profile';
+import { profileOfCompany } from '../common/business-profile';
 import { Category, readPolicy, reviewDecision } from '../common/creative-policy';
 import { GOALS, GOAL_LABEL, Goal } from '../common/creative/art-direction';
 import { checkCopy } from '../common/ads/creative-check';
@@ -14,7 +14,6 @@ import { AI_PROVIDER, AiProvider, extractJson } from '../ai/types';
 import { GeminiPool, isAiUnavailable } from '../ai/gemini-pool';
 import { CompanyTextAi, TextAiRoute } from '../ai/company-text-ai';
 import { AuditService } from './audit.module';
-import { CreativeService } from './creative.module';
 
 /**
  * «Sugerir textos»: variaciones de copy para Meta Ads a partir de una pieza de
@@ -52,15 +51,23 @@ export class CreativeCopyService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
-    @Inject(forwardRef(() => CreativeService)) private readonly creative: CreativeService,
     @Optional() @Inject(AI_PROVIDER) ai?: AiProvider,
   ) {
     this.textAi = new CompanyTextAi(prisma, ai, new GeminiPool(prisma));
   }
 
+  /** La empresa del usuario (o la elegida por la plataforma); el guard @Products ya revisó Creative o Ads. */
+  private async companyOf(user: AuthUser, companyId?: string) {
+    const id = isPlatformRole(user.role) ? companyId : user.companyId;
+    if (!id) throw new ForbiddenException('Falta companyId');
+    const company = await this.prisma.company.findUnique({ where: { id } });
+    if (!company) throw new NotFoundException('Empresa no encontrada');
+    return company;
+  }
+
   /** Qué IA se usaría y cuánto cupo gratis queda hoy (para el botón). */
   async status(user: AuthUser, companyId?: string) {
-    const company = await this.creative.companyOf(user, companyId, ['CREATIVE', 'ADS']);
+    const company = await this.companyOf(user, companyId);
     const route = await this.textAi.route(company);
     return {
       source: route.kind,
@@ -82,7 +89,8 @@ export class CreativeCopyService {
     const b = await this.prisma.brandProfile.findUnique({ where: { companyId: company.id } });
     const restrictions = parseJson<string[]>(b?.restrictionsJson, []).map(String).filter(Boolean).slice(0, 20);
     const policy = readPolicy(parseJson(b?.policyJson, {}));
-    const profile = companyProfile(company);
+    const ob = parseJson<Record<string, any>>(company.onboardingJson, {});
+    const profile = profileOfCompany({ ...ob, businessType: ob.businessType ?? company.industry ?? undefined }, ob.rubro);
     return {
       goal,
       policy,
@@ -155,7 +163,7 @@ export class CreativeCopyService {
   }
 
   async suggest(user: AuthUser, dto: any, companyId?: string) {
-    const company = await this.creative.companyOf(user, companyId, ['CREATIVE', 'ADS']);
+    const company = await this.companyOf(user, companyId);
     const { brief, goal, restricted, policy } = await this.brief(company, dto);
     const route = await this.textAi.route(company);
     const quota = route.kind === 'GENERICA' ? await this.textAi.reserveGeneric(company.id) : null;
