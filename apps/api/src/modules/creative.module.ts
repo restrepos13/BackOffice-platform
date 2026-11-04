@@ -26,6 +26,7 @@ import { fingerprint } from '../common/creative/similarity';
 import { adaptDesign, readComposition } from '../common/creative/adapt';
 import { LibraryModule } from './library.module';
 import { CreativeCreateController, CreativeCreateService } from './creative-create';
+import { CreativeCopyController, CreativeCopyService } from './creative-copy';
 import { AI_PROVIDER } from '../ai/types';
 import { DeepInfraProvider } from '../ai/deepinfra.provider';
 import { AuditModule, AuditService } from './audit.module';
@@ -989,8 +990,8 @@ export class CreativeController {
 
 @Module({
   imports: [AuditModule, LibraryModule],
-  controllers: [CreativeController, CreativeCreateController],
-  providers: [CreativeService, CreativeCreateService, { provide: AI_PROVIDER, useClass: DeepInfraProvider }],
+  controllers: [CreativeController, CreativeCreateController, CreativeCopyController],
+  providers: [CreativeService, CreativeCreateService, CreativeCopyService, { provide: AI_PROVIDER, useClass: DeepInfraProvider }],
   exports: [CreativeService],
 })
 export class CreativeModule {}

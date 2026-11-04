@@ -7,6 +7,7 @@ import { api, uploadFile } from '../../../lib/api';
 import { authedBlobUrl } from '../../../lib/creative';
 import { Badge, Button, Card, EmptyState, Field, Input, Loading, Modal, Select, Switch, Textarea } from '../../../components/ui';
 import { useCompanyScope, withScope } from '../shared';
+import { CopySuggestions, SuggestedCopy, adCopyKey } from '../creative/CopySuggestions';
 import type { AccountAccess } from './MetaConnectGuide';
 
 /**
@@ -69,6 +70,18 @@ export function CreateAd({ q }: { q: string }) {
   const [params] = useSearchParams();
   const fromAsset = params.get('asset');
   const [designId, setDesignId] = useState<string | null>(params.get('design'));
+  const useCopy = (v: SuggestedCopy) => set({ primaryText: v.primaryText, headline: v.headline, description: v.description, ...(v.cta !== 'WHATSAPP_MESSAGE' ? { cta: v.cta } : {}) });
+  // Texto elegido en Creative para esta pieza: se carga una vez (y solo si el anuncio aún no tiene texto)
+  useEffect(() => {
+    if (!designId) return;
+    try {
+      const raw = sessionStorage.getItem(adCopyKey(designId));
+      if (!raw) return;
+      sessionStorage.removeItem(adCopyKey(designId));
+      const v = JSON.parse(raw) as SuggestedCopy;
+      setF((x) => (x.primaryText || x.headline ? x : { ...x, primaryText: v.primaryText, headline: v.headline, description: v.description }));
+    } catch { /* sin almacenamiento */ }
+  }, [designId]);
   const incoming = useQuery({
     queryKey: ['library-asset', fromAsset, q],
     queryFn: () => api.get<{ id: string; name: string; width: number | null; height: number | null; available: boolean; designId: string | null; kind: string }>(withScope(`/library/assets/${fromAsset}`, q)),
@@ -284,6 +297,7 @@ export function CreateAd({ q }: { q: string }) {
               )}
             </div>
             <div className="space-y-3">
+              {canWrite && <CopySuggestions q={q} designId={designId} destination={f.goal === 'WEBSITE' ? 'WEBSITE' : 'WHATSAPP'} useLabel="Usar en el anuncio" onUse={useCopy} />}
               <Field label={`Texto principal (${f.primaryText.length}/125 visibles)`}><Textarea rows={4} value={f.primaryText} maxLength={600} onChange={(e) => set({ primaryText: e.target.value })} placeholder="2x1 en hamburguesas todos los martes. Escríbenos y reserva tu mesa." /></Field>
               <Field label={`Título (${f.headline.length}/40 visibles)`}><Input value={f.headline} maxLength={100} onChange={(e) => set({ headline: e.target.value })} placeholder="Martes 2x1" /></Field>
               <Field label="Descripción (opcional)"><Input value={f.description} maxLength={120} onChange={(e) => set({ description: e.target.value })} /></Field>
