@@ -116,7 +116,7 @@ export class CreativeCopyService {
     const knownNames = route.kind === 'GENERICA' ? await this.textAi.knownNames(company.id) : undefined;
     const ask = async (fix?: string[]) => {
       const r = await this.textAi.complete(company, route, {
-        purpose: 'CREATIVE_COPY', requestId, json: true, maxTokens: 1400, temperature: 0.8, messages: copyMessages(brief, fix),
+        purpose: 'CREATIVE_COPY', requestId, json: true, maxTokens: 4000, temperature: 0.8, messages: copyMessages(brief, fix),
       }, { knownNames });
       return { ...parseVariations(extractJson(r.content), brief.destination), model: r.model, source: r.source };
     };

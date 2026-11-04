@@ -122,7 +122,7 @@ export class ReportsService {
       const route = await this.textAi.route(company);
       if (route.kind === 'GENERICA') await this.textAi.reserveGeneric(company.id);
       const r = await this.textAi.complete(company, route, {
-        purpose: 'REPORTE_RESUMEN', requestId: `resumen-${randomUUID()}`, json: true, maxTokens: 500, temperature: 0.3,
+        purpose: 'REPORTE_RESUMEN', requestId: `resumen-${randomUUID()}`, json: true, maxTokens: 2000, temperature: 0.3,
         messages: summaryMessages(kind, facts),
       });
       const text = validSummary((extractJson(r.content) as any)?.resumen, facts);
