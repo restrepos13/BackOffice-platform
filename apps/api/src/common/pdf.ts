@@ -1,4 +1,5 @@
 import PDFDocument from 'pdfkit';
+import { pdfSafe } from './report-summary';
 
 /**
  * PDFs con la identidad de CADA marca: banda del color de la empresa,
@@ -153,6 +154,13 @@ export async function buildDailyReportPdf(company: BrandCompany, data: any): Pro
   const color = company.brandColor || INK;
 
   brandHeader(doc, company, `Reporte operativo · ${data.date}`, 'Reporte diario');
+
+  // Resumen en palabras para gerencia (Helvetica estándar: solo caracteres WinAnsi)
+  if (data.resumen?.text) {
+    doc.fillColor(GRAY).font('Helvetica').fontSize(8).text('RESUMEN', 50, doc.y, { characterSpacing: 0.5 });
+    doc.fillColor(INK).font('Helvetica').fontSize(10).text(pdfSafe(data.resumen.text), 50, doc.y + 3, { width: doc.page.width - 100, lineGap: 2 });
+    doc.y += 14;
+  }
 
   // KPIs en dos columnas
   const kpis: Array<[string, string]> = [
