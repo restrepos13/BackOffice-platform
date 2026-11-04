@@ -1,7 +1,7 @@
 import type Konva from 'konva';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Layer, Stage } from 'react-konva';
-import { type DesignDoc, loadFonts } from '../../lib/creative';
+import { type DesignDoc, fontsOf, loadFonts } from '../../lib/creative';
 import { AssetLoaderContext, Background, DocNodes } from '../company/creative/DocRender';
 
 /**
@@ -103,6 +103,7 @@ function Piece({ c, brand, onDone }: { c: Case; brand: Brand; onDone: (r: { id: 
       await fetch(`${HELPER}/save?name=${encodeURIComponent(`${c.id}.png`)}`, { method: 'POST', body: blob });
       const measured: Record<string, number> = {};
       stage.find('Text').forEach((n) => { if (n.id()) measured[n.id()] = Math.round(n.height()); });
+      stage.find('.richtext, .boxedtext').forEach((n) => { if (n.id()) measured[n.id()] = Math.round(Number(n.getAttr('textHeight')) || 0); });
       onDone({ id: c.id, measured });
     })();
     return () => { cancelled = true; };
@@ -121,7 +122,8 @@ export default function CreativeLab() {
   const [i, setI] = useState(0);
   const [ready, setReady] = useState(false);
   const measured = useRef<Record<string, Record<string, number>>>({});
-  useEffect(() => { loadFonts().then(() => setReady(true)); fetch(`${HELPER}/cases`).then((r) => r.json()).then(setData); }, []);
+  // Todas las fuentes de las piezas antes de dibujar (el editor solo carga las que usa cada diseño)
+  useEffect(() => { fetch(`${HELPER}/cases`).then((r) => r.json()).then((d) => loadFonts([...new Set<string>(d.cases.flatMap((c: Case) => fontsOf(c.doc)))]).then(() => { setData(d); setReady(true); })); }, []);
   const onDone = useMemo(() => (r: { id: string; measured: Record<string, number> }) => {
     measured.current[r.id] = r.measured;
     setI((n) => n + 1);

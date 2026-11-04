@@ -1,4 +1,4 @@
-import { DesignDoc, DesignElement, FORMATS, ImageElement, TextElement } from '../design-doc';
+import { DesignDoc, DesignElement, FORMATS, Gradient, ImageElement, TextElement } from '../design-doc';
 import { contrastRatio } from './identity';
 import { textHeight } from './text-fit';
 import type { Family } from './compose';
@@ -51,23 +51,53 @@ function inter(a: Rect, b: Rect): number {
 }
 const contains = (r: Rect, x: number, y: number) => x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h;
 
+const SOLID_SHAPES = ['rect', 'ellipse', 'polygon', 'star', 'path'];
+const alphaOf = (c: string) => (c.length === 9 ? parseInt(c.slice(7, 9), 16) / 255 : 1);
+
+/** Color y opacidad de un degradado en un punto (la parada más cercana a esa posición). */
+export function gradientAt(g: Gradient, box: { x: number; y: number; w: number; h: number }, px: number, py: number): { color: string; alpha: number } {
+  const cx = box.x + box.w / 2;
+  const cy = box.y + box.h / 2;
+  let pos: number;
+  if (g.kind === 'radial') pos = Math.hypot(px - cx, py - cy) / (Math.hypot(box.w, box.h) / 2);
+  else {
+    const a = (g.angle * Math.PI) / 180;
+    const half = Math.abs((box.w / 2) * Math.cos(a)) + Math.abs((box.h / 2) * Math.sin(a)) || 1;
+    pos = 0.5 + ((px - cx) * Math.cos(a) + (py - cy) * Math.sin(a)) / (2 * half);
+  }
+  pos = Math.max(0, Math.min(1, pos));
+  const st = g.stops;
+  let i = st.findIndex((s) => s.at >= pos);
+  if (i <= 0) return { color: st[Math.max(0, i)].color.slice(0, 7), alpha: alphaOf(st[Math.max(0, i)].color) };
+  const a0 = st[i - 1];
+  const a1 = st[i];
+  const k = (pos - a0.at) / Math.max(1e-6, a1.at - a0.at);
+  return { color: (k < 0.5 ? a0 : a1).color.slice(0, 7), alpha: alphaOf(a0.color) + (alphaOf(a1.color) - alphaOf(a0.color)) * k };
+}
+
 /** Color sólido detrás del centro de un texto (null si hay una foto debajo: no medible). */
 function behind(doc: DesignDoc, idx: number, cx: number, cy: number): string | null | 'IMAGE' {
   for (let i = idx - 1; i >= 0; i--) {
     const e = doc.elements[i];
     if (!e.visible || !contains(bbox(e), cx, cy)) continue;
     if (e.type === 'image') return 'IMAGE';
+    // Un texto con caja de color tapa lo que hay debajo con esa caja
+    if (e.type === 'text') { const bgBox = (e as TextElement).background; if (bgBox && alphaOf(bgBox.color) >= 0.75) return bgBox.color.slice(0, 7); continue; }
     // Transparente = color de 8 dígitos con alfa 00 (un #FF3D00 es naranja, no transparente)
     const fill: string = (e as any).fill ?? '';
-    if ((e.type === 'rect' || e.type === 'ellipse') && fill && !(fill.length === 9 && fill.endsWith('00'))) {
-      if (e.opacity >= 0.75) return (e as any).fill.slice(0, 7);
+    const g: Gradient | undefined = (e as any).gradient;
+    if (SOLID_SHAPES.includes(e.type) && (g || (fill && !(fill.length === 9 && fill.endsWith('00'))))) {
+      // Con degradado se mide el color y la opacidad en ese punto (velos sobre fotos)
+      const at = g ? gradientAt(g, { x: e.x, y: e.y, w: e.width, h: e.height }, cx, cy) : { color: fill.slice(0, 7), alpha: alphaOf(fill) };
+      const op = e.opacity * at.alpha;
+      if (op >= 0.75) return at.color;
       // Semitransparente sobre foto: se considera el velo si es oscuro y denso
       const under = behind(doc, i, cx, cy);
-      if (under === 'IMAGE') return e.opacity >= 0.45 ? (e as any).fill.slice(0, 7) : 'IMAGE';
-      return e.opacity >= 0.5 ? (e as any).fill.slice(0, 7) : (under ?? doc.background.color);
+      if (under === 'IMAGE') return op >= 0.45 ? at.color : 'IMAGE';
+      return op >= 0.5 ? at.color : (under ?? doc.background.color);
     }
   }
-  return doc.background.assetId ? 'IMAGE' : doc.background.color;
+  return doc.background.assetId ? (doc.background.overlay && doc.background.overlay.opacity >= 0.45 ? doc.background.overlay.color.slice(0, 7) : 'IMAGE') : doc.background.color;
 }
 
 const MONEY = /\$\s?(\d{1,3}(?:[.,]\d{3})+|\d+)(?![\d%])/g;
@@ -106,12 +136,17 @@ export function checkQuality(doc: DesignDoc, ctx: QualityContext): Issue[] {
       // Tamaño mínimo legible en el teléfono (heurística: 2,4 % del lado corto ≈ 26 px en 1080)
       if (t.fontSize < S * 0.024 && t.role !== 'decoration') push({ code: 'SMALL_TEXT', severity: 'WARN', kind: 'HEURISTIC', message: `«${name}» es muy pequeño (${t.fontSize}px) para leerse en un teléfono.`, elementId: e.id, elementName: name });
       // Contraste (WCAG): 3:1 para texto grande, 4,5:1 para el resto
-      const bg = behind(doc, idx, r.x + r.w / 2, r.y + Math.min(r.h, t.fontSize) / 2);
+      const bg = t.background ? t.background.color.slice(0, 7) : behind(doc, idx, r.x + r.w / 2, r.y + Math.min(r.h, t.fontSize) / 2);
       if (bg === 'IMAGE') push({ code: 'CONTRAST_UNKNOWN', severity: 'INFO', kind: 'HEURISTIC', message: `«${name}» está sobre una foto: revisa a ojo que se lea bien.`, elementId: e.id, elementName: name });
       else if (bg && t.role !== 'decoration') {
         const large = t.fontSize >= S * 0.045 || (/bold/.test(t.fontStyle) && t.fontSize >= S * 0.035);
         const ratio = contrastRatio(t.fill.slice(0, 7), bg);
         if (ratio < (large ? 3 : 4.5) && t.opacity > 0.5) push({ code: 'LOW_CONTRAST', severity: 'WARN', kind: 'VERIFIED', message: `«${name}» tiene poco contraste con su fondo (${ratio.toFixed(1)}:1; mínimo ${large ? 3 : 4.5}:1).`, elementId: e.id, elementName: name });
+        // La frase destacada se mide contra su resaltador (si tiene) o contra el fondo
+        if (t.accent && t.text.toLowerCase().includes(t.accent.text.toLowerCase())) {
+          const ar = contrastRatio(t.accent.color.slice(0, 7), t.accent.marker ? t.accent.marker.slice(0, 7) : bg);
+          if (ar < (large ? 3 : 4.5) && t.opacity > 0.5) push({ code: 'LOW_CONTRAST', severity: 'WARN', kind: 'VERIFIED', message: `La frase destacada de «${name}» tiene poco contraste (${ar.toFixed(1)}:1; mínimo ${large ? 3 : 4.5}:1).`, elementId: e.id, elementName: name });
+        }
       }
       // Información comercial que no está confirmada en la marca
       for (const m of t.text.matchAll(MONEY)) {

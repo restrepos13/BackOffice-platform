@@ -27,7 +27,7 @@ export function kindOf(e: DesignElement, doc: DesignDoc): Kind | null {
   if (e.role === 'cta') return 'CTA';
   if (e.role === 'badge') return 'PRICE';
   // Formas: solo cuentan las que pesan en la composición (≥ 2 % del lienzo)
-  if ((e.type === 'rect' || e.type === 'ellipse') && (e.width * e.height) / (doc.width * doc.height) >= 0.02 && e.opacity >= 0.3) return 'BLOCK';
+  if (['rect', 'ellipse', 'polygon', 'star', 'path'].includes(e.type) && (e.width * e.height) / (doc.width * doc.height) >= 0.02 && e.opacity >= 0.3) return 'BLOCK';
   return null;
 }
 

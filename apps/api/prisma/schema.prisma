@@ -1741,7 +1741,7 @@ model BrandAsset {
   height        Int?
   createdBy     String?
   createdAt     DateTime @default(now())
-  /// Procedencia: UPLOAD | CATALOG | DESIGN (null = UPLOAD, los anteriores)
+  /// Procedencia: UPLOAD | CATALOG | DESIGN | CUTOUT | DRIVE | STOCK (Pexels) (null = UPLOAD, los anteriores)
   source        String?
   /// Producto desde el que entró: CREATIVE | ADS (null = CREATIVE)
   originModule  String?

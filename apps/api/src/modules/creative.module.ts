@@ -26,6 +26,7 @@ import { fingerprint } from '../common/creative/similarity';
 import { adaptDesign, readComposition } from '../common/creative/adapt';
 import { LibraryModule } from './library.module';
 import { CreativeCreateController, CreativeCreateService } from './creative-create';
+import { CreativeStockController, CreativeStockService } from './creative-stock';
 import { AI_PROVIDER } from '../ai/types';
 import { DeepInfraProvider } from '../ai/deepinfra.provider';
 import { AuditModule, AuditService } from './audit.module';
@@ -444,7 +445,7 @@ export class CreativeService {
     const identity: ResolvedIdentity = resolveIdentity({
       visual: b?.visualJson ? sanitizeVisual(parseJson(b.visualJson, {})) : null,
       sector: profile.key, tone: brand.tone, colors: brand.colors.map((c: any) => c.hex), fonts: brand.fonts,
-      logoAssetId: brand.logos[0]?.assetId ?? null, restrictions: brand.restrictions,
+      logoAssetId: brand.logos[0]?.assetId ?? null, restrictions: brand.restrictions, seed: seedHash(company.id),
     });
     const assets = await this.prisma.brandAsset.findMany({ where: { companyId: company.id }, select: { id: true, kind: true, width: true, height: true }, take: 500 });
     const dims: AssetDims = Object.fromEntries(assets.map((a) => [a.id, { width: a.width, height: a.height }]));
@@ -999,8 +1000,8 @@ export class CreativeController {
 
 @Module({
   imports: [AuditModule, LibraryModule],
-  controllers: [CreativeController, CreativeCreateController],
-  providers: [CreativeService, CreativeCreateService, { provide: AI_PROVIDER, useClass: DeepInfraProvider }],
+  controllers: [CreativeController, CreativeCreateController, CreativeStockController],
+  providers: [CreativeService, CreativeCreateService, CreativeStockService, { provide: AI_PROVIDER, useClass: DeepInfraProvider }],
   exports: [CreativeService],
 })
 export class CreativeModule {}

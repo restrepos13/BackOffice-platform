@@ -26,7 +26,7 @@ interface Asset {
   width: number | null;
   height: number | null;
   durationSec: number | null;
-  source: 'UPLOAD' | 'CATALOG' | 'DESIGN' | 'CUTOUT' | 'DRIVE';
+  source: 'UPLOAD' | 'CATALOG' | 'DESIGN' | 'CUTOUT' | 'DRIVE' | 'STOCK';
   originModule: 'CREATIVE' | 'ADS';
   designId: string | null;
   designVersion: number | null;
@@ -60,6 +60,7 @@ function sourceLabel(a: Asset) {
   // Derivado: el original se conserva y no se borra mientras exista el recorte
   if (a.source === 'CUTOUT') return 'Recorte sin fondo (derivado; el original se conserva)';
   if (a.source === 'DRIVE') return 'Traído de tu Google Drive';
+  if (a.source === 'STOCK') return 'Foto gratis de Pexels (de referencia)';
   return `Subido en ${ORIGIN[a.originModule]}`;
 }
 

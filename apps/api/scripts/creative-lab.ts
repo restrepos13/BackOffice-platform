@@ -137,7 +137,7 @@ export function assetsOf(b: Brand) {
 export function runLab() {
   const cases: any[] = [];
   for (const b of BRANDS) {
-    const identity = resolveIdentity({ visual: b.visual ? sanitizeVisual(b.visual) : null, sector: b.sector, tone: b.tone, colors: b.colors, fonts: b.fonts, logoAssetId: `${b.key}-logo`, restrictions: [] });
+    const identity = resolveIdentity({ visual: b.visual ? sanitizeVisual(b.visual) : null, sector: b.sector, tone: b.tone, colors: b.colors, fonts: b.fonts, logoAssetId: `${b.key}-logo`, restrictions: [], seed: seedHash(b.key) });
     const dims = assetsOf(b);
     const recent: any[] = [];
     const recentPrints: any[] = [];

@@ -120,10 +120,31 @@ function saturation(hex: string) {
   return max === 0 ? 0 : (max - min) / max;
 }
 
-const TITLE_BY_PERSONALITY: Record<Personality, string> = {
-  ELEGANTE: 'Playfair Display', ENERGICA: 'Anton', CALIDA: 'Lora', PROFESIONAL: 'Montserrat', DIVERTIDA: 'Poppins',
-  MINIMALISTA: 'Inter', NATURAL: 'DM Serif Display', AUDAZ: 'Archivo Black',
+/**
+ * Fuentes de titular que encajan con cada personalidad. La primera es la de
+ * siempre; con la semilla de la empresa se elige otra de la lista (dos marcas
+ * elegantes no terminan con la misma tipografía). Solo cuando la marca no
+ * confirmó sus fuentes.
+ */
+const TITLES_BY_PERSONALITY: Record<Personality, string[]> = {
+  ELEGANTE: ['Playfair Display', 'Cormorant Garamond', 'Bodoni Moda', 'Prata', 'Fraunces'],
+  ENERGICA: ['Anton', 'Bebas Neue', 'Barlow Condensed', 'League Spartan', 'Oswald'],
+  CALIDA: ['Lora', 'Fraunces', 'Merriweather', 'DM Serif Display'],
+  PROFESIONAL: ['Montserrat', 'Plus Jakarta Sans', 'Manrope', 'Sora', 'DM Sans'],
+  DIVERTIDA: ['Poppins', 'Fredoka', 'Lilita One', 'Righteous', 'Rubik'],
+  MINIMALISTA: ['Inter', 'DM Sans', 'Space Grotesk', 'Outfit', 'Urbanist'],
+  NATURAL: ['DM Serif Display', 'Fraunces', 'EB Garamond', 'Lora'],
+  AUDAZ: ['Archivo Black', 'Unbounded', 'Alfa Slab One', 'Syne'],
 };
+const SERIF_TITLES = ['Playfair Display', 'Lora', 'DM Serif Display', 'Fraunces', 'Cormorant Garamond', 'Libre Baskerville', 'Merriweather', 'EB Garamond', 'Prata', 'Abril Fatface', 'Yeseva One', 'Cinzel', 'Bodoni Moda', 'Marcellus'];
+const DISPLAY_TITLES = ['Anton', 'Bebas Neue', 'Archivo Black', 'Pacifico', 'Barlow Condensed', 'Unbounded', 'Alfa Slab One', 'Righteous', 'Lilita One', 'Bungee', 'Syne', 'League Spartan', 'Oswald'];
+
+/** Texto de apoyo que acompaña a un titular (legible siempre; varía con la semilla). */
+function bodyFor(title: string, seed: number) {
+  if (SERIF_TITLES.includes(title)) return ['Lato', 'DM Sans', 'Manrope'][seed % 3];
+  if (DISPLAY_TITLES.includes(title)) return ['Inter', 'DM Sans', 'Figtree'][seed % 3];
+  return ['Inter', 'DM Sans'][seed % 2];
+}
 
 export function resolveIdentity(input: {
   visual: VisualIdentityInput | null;
@@ -133,6 +154,8 @@ export function resolveIdentity(input: {
   fonts: string[];
   logoAssetId: string | null;
   restrictions: string[];
+  /** Semilla de la empresa: elige entre las fuentes sugeridas (sin semilla, la de siempre) */
+  seed?: number;
 }): ResolvedIdentity {
   const v = input.visual ?? {};
   const base = SECTOR[input.sector] ?? SECTOR.GENERAL;
@@ -152,8 +175,11 @@ export function resolveIdentity(input: {
   const primary = v.colorRoles?.primary ?? palette.find((c) => c !== light && c !== dark) ?? palette[0] ?? '#1F3A5F';
   const accent = v.colorRoles?.accent ?? [...palette].filter((c) => c !== primary && c !== light && c !== dark).sort((a, b) => saturation(b) - saturation(a))[0] ?? primary;
   const textOn = (bg: string) => (contrastRatio(bg, dark) >= contrastRatio(bg, '#FFFFFF') ? dark : '#FFFFFF');
-  const title = input.fonts[0] && (ALLOWED_FONTS as readonly string[]).includes(input.fonts[0]) ? input.fonts[0] : TITLE_BY_PERSONALITY[personality.value[0]];
-  const body = input.fonts[1] && (ALLOWED_FONTS as readonly string[]).includes(input.fonts[1]) ? input.fonts[1] : ['Anton', 'Bebas Neue', 'Archivo Black', 'Pacifico'].includes(title) ? 'Inter' : title === 'Playfair Display' || title === 'Lora' || title === 'DM Serif Display' ? 'Lato' : 'Inter';
+  const seed = input.seed ?? 0;
+  const options = TITLES_BY_PERSONALITY[personality.value[0]] ?? TITLES_BY_PERSONALITY.CALIDA;
+  const title = input.fonts[0] && (ALLOWED_FONTS as readonly string[]).includes(input.fonts[0]) ? input.fonts[0] : options[input.seed === undefined ? 0 : seed % options.length];
+  const legacyBody = ['Anton', 'Bebas Neue', 'Archivo Black', 'Pacifico'].includes(title) ? 'Inter' : title === 'Playfair Display' || title === 'Lora' || title === 'DM Serif Display' ? 'Lato' : 'Inter';
+  const body = input.fonts[1] && (ALLOWED_FONTS as readonly string[]).includes(input.fonts[1]) ? input.fonts[1] : input.seed === undefined ? legacyBody : bodyFor(title, seed >> 4);
 
   return {
     sector: input.sector,

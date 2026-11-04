@@ -3,8 +3,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { clsx } from 'clsx';
 import type Konva from 'konva';
 import {
-  ArrowDown, ArrowLeft, ArrowUp, Bold, Circle, Copy, Download, Eye, EyeOff, FolderOpen, ImagePlus, Italic, Lock, Megaphone, Minus, Redo2,
-  Save, Send, Square, Trash2, Type, Undo2, Unlock,
+  ArrowDown, ArrowLeft, ArrowUp, Bold, Copy, Download, Eye, EyeOff, FolderOpen, ImagePlus, Images, Italic, Lock, Megaphone, Redo2,
+  Save, Send, Shapes, Trash2, Type, Undo2, Unlock,
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Ellipse, Image as KImage, Layer, Line, Rect, Stage, Text, Transformer } from 'react-konva';
@@ -12,12 +12,13 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import { api, uploadFile } from '../../../lib/api';
 import {
-  CATEGORY_LABELS, type DesignDoc, type El, FONTS, FORMATS, type FormatKey, History, type ImageEl, type ShapeEl, type TextEl,
-  coverCrop, loadAsset, loadFonts, newId,
+  CATEGORY_LABELS, type DesignDoc, type El, FORMATS, type FormatKey, History, type ImageEl, type ShapeEl, type TextEl,
+  coverCrop, fontsOf, loadAsset, loadFonts, newId,
 } from '../../../lib/creative';
 import { Badge, Button, Field, Input, Loading, Modal, Select, Textarea } from '../../../components/ui';
 import { useCompanyScope, withScope } from '../shared';
-import { Background, DocNodes, useAssetImage } from './DocRender';
+import { Background, DocNodes, useAssetImage, useDocFonts } from './DocRender';
+import { BackgroundExtras, FontSelect, ImageExtras, Section, ShadowControl, ShapeExtras, StockPhotos, TextExtras, shapeCatalog } from './EditorPanels';
 
 /**
  * Editor visual por capas de BackOffice Creative. Todo lo determinista
@@ -53,6 +54,8 @@ export default function Editor() {
   const [fontsReady, setFontsReady] = useState(false);
   const [recover, setRecover] = useState<DesignDoc | null>(null);
   const [imagePicker, setImagePicker] = useState(false);
+  const [shapesOpen, setShapesOpen] = useState(false);
+  const [pickerTab, setPickerTab] = useState<'mine' | 'stock'>('mine');
   const [toCalendar, setToCalendar] = useState(false);
   const history = useRef(new History());
   const [, force] = useState(0);
@@ -62,7 +65,9 @@ export default function Editor() {
   const [box, setBox] = useState({ w: 800, h: 600 });
   const draftKey = `creative-draft-${id}`;
 
-  useEffect(() => { loadFonts().then(() => setFontsReady(true)); }, []);
+  // Solo las fuentes que usa el diseño (y las de siempre): las demás se cargan al elegirlas
+  useEffect(() => { if (loaded) loadFonts(['Inter', 'Montserrat', ...fontsOf(loaded.doc)]).then(() => setFontsReady(true)); }, [loaded]);
+  const fontsTick = useDocFonts(doc);
 
   // Carga y recuperación de cambios sin guardar (si el navegador se cerró)
   useEffect(() => {
@@ -240,10 +245,12 @@ export default function Editor() {
     const node = sel && !sel.locked && !isProtected(sel) ? stage.findOne(`#${sel.id}`) : null;
     tr.nodes(node ? [node] : []);
     tr.getLayer()?.batchDraw();
-  }, [sel, doc, isProtected]);
+  }, [sel, doc, isProtected, fontsTick]);
 
   /* ── Exportar ── */
   const renderBlob = async (mime: 'image/png' | 'image/jpeg'): Promise<Blob> => {
+    // Una fuente recién elegida tiene que estar cargada antes de dibujar el archivo
+    await loadFonts(fontsOf(doc));
     const stage = stageRef.current!;
     const prev = selected;
     setSelected(null);
@@ -336,6 +343,8 @@ export default function Editor() {
       // Altura real de cada texto tal como lo dibuja el lienzo (manda sobre la estimación del servidor)
       const measured: Record<string, number> = {};
       stageRef.current?.find('Text').forEach((n) => { if (n.id()) measured[n.id()] = Math.round(n.height()); });
+      // Textos con frase destacada o caja de fondo se dibujan como grupo: su alto real va en un atributo
+      stageRef.current?.find('.richtext, .boxedtext').forEach((n) => { if (n.id()) measured[n.id()] = Math.round(Number(n.getAttr('textHeight')) || 0); });
       const r = await api.post<{ issues: Issue[]; blocking: boolean }>(`/creative/designs/${id}/check`, { doc, measured, forExport: true });
       return { url: URL.createObjectURL(blob), ...r };
     },
@@ -434,12 +443,11 @@ export default function Editor() {
           <aside role="toolbar" aria-label="Herramientas del lienzo" aria-orientation="vertical" className="flex w-16 shrink-0 flex-col items-center gap-1 border-r-2 border-ink bg-paper py-2">
             {[
               { icon: Type, label: 'Texto', short: 'Texto', run: () => addEl({ id: newId('t'), type: 'text', name: 'Texto', text: 'Escribe aquí', x: doc.width * 0.1, y: doc.height * 0.4, width: doc.width * 0.8, height: 120, rotation: 0, opacity: 1, visible: true, locked: false, fontFamily: 'Montserrat', fontSize: Math.round(doc.width * 0.06), fontStyle: 'bold', align: 'center', lineHeight: 1.15, letterSpacing: 0, fill: '#111111', textDecoration: '' }) },
-              { icon: Square, label: 'Rectángulo', short: 'Forma', run: () => addEl({ id: newId('r'), type: 'rect', name: 'Rectángulo', x: doc.width * 0.3, y: doc.height * 0.3, width: doc.width * 0.4, height: doc.width * 0.25, rotation: 0, opacity: 1, visible: true, locked: false, fill: palette[0] ?? '#DDDDDD', stroke: '#00000000', strokeWidth: 0, cornerRadius: 0 }) },
-              { icon: Circle, label: 'Círculo', short: 'Círculo', run: () => addEl({ id: newId('c'), type: 'ellipse', name: 'Círculo', x: doc.width * 0.35, y: doc.height * 0.35, width: doc.width * 0.3, height: doc.width * 0.3, rotation: 0, opacity: 1, visible: true, locked: false, fill: palette[1] ?? '#DDDDDD', stroke: '#00000000', strokeWidth: 0, cornerRadius: 0 }) },
-              { icon: Minus, label: 'Línea', short: 'Línea', run: () => addEl({ id: newId('l'), type: 'line', name: 'Línea', x: doc.width * 0.2, y: doc.height * 0.5, width: doc.width * 0.6, height: 0, rotation: 0, opacity: 1, visible: true, locked: false, fill: '#00000000', stroke: '#111111', strokeWidth: 6, cornerRadius: 0 }) },
-              { icon: ImagePlus, label: 'Imagen de la biblioteca', short: 'Imagen', run: () => setImagePicker(true) },
+              { icon: Shapes, label: 'Formas', short: 'Formas', run: () => setShapesOpen(true) },
+              { icon: ImagePlus, label: 'Imagen de la biblioteca', short: 'Imagen', run: () => { setPickerTab('mine'); setImagePicker(true); } },
+              { icon: Images, label: 'Fotos gratis', short: 'Fotos', run: () => { setSelected(null); setPickerTab('stock'); setImagePicker(true); } },
             ].map((t) => (
-              <button key={t.label} type="button" title={`Agregar ${t.label.toLowerCase()}`} aria-label={`Agregar ${t.label.toLowerCase()}`} onClick={t.run} className="flex h-11 w-12 cursor-pointer flex-col items-center justify-center gap-0.5 border-2 border-transparent text-[10px] leading-none hover:border-ink">
+              <button key={t.label} type="button" title={t.label === 'Formas' ? 'Agregar formas' : `Agregar ${t.label.toLowerCase()}`} aria-label={`Agregar ${t.label.toLowerCase()}`} onClick={t.run} className="flex h-11 w-12 cursor-pointer flex-col items-center justify-center gap-0.5 border-2 border-transparent text-[10px] leading-none hover:border-ink">
                 <t.icon size={16} aria-hidden />{t.short}
               </button>
             ))}
@@ -460,7 +468,7 @@ export default function Editor() {
             >
               <Layer>
                 <Background doc={doc} q={q} />
-                <DocNodes doc={doc} q={q} common={common} />
+                <DocNodes doc={doc} q={q} common={common} fontsTick={fontsTick} />
                 <Transformer ref={trRef} rotateEnabled flipEnabled={false} boundBoxFunc={(o, n) => (n.width < 5 || n.height < 5 ? o : n)} anchorSize={10} borderStroke="#3F6B3A" anchorStroke="#3F6B3A" />
               </Layer>
             </Stage>
@@ -501,7 +509,7 @@ export default function Editor() {
                 <details className="text-sm">
                   <summary className="cursor-pointer text-xs font-semibold uppercase tracking-wider text-ink-2">Fondo y opciones avanzadas</summary>
                   <div className="mt-2 space-y-2">
-                    <ColorInput value={doc.background.color} onChange={(v) => commit({ ...doc, background: { ...doc.background, color: v } })} />
+                    <BackgroundExtras doc={doc} palette={palette} Color={ColorInput} commit={commit} />
                     <Select value={doc.background.assetId ?? ''} disabled={!canWrite} onChange={(e) => commit({ ...doc, background: { ...doc.background, assetId: e.target.value || null } })}>
                       <option value="">Sin imagen de fondo</option>
                       {(assets ?? []).map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
@@ -518,9 +526,7 @@ export default function Editor() {
                 {sel.type === 'text' && (
                   <>
                     <Textarea rows={3} value={(sel as TextEl).text} onChange={(e) => update(sel.id, { text: e.target.value.slice(0, 2000) })} aria-label="Texto" />
-                    <Select value={(sel as TextEl).fontFamily} onChange={(e) => update(sel.id, { fontFamily: e.target.value })}>
-                      {FONTS.map((f) => <option key={f} value={f} style={{ fontFamily: f }}>{f}</option>)}
-                    </Select>
+                    <FontSelect value={(sel as TextEl).fontFamily} onChange={(f) => update(sel.id, { fontFamily: f })} />
                     <div className="grid grid-cols-3 gap-1.5">
                       {num('Tamaño', (sel as TextEl).fontSize, (v) => update(sel.id, { fontSize: Math.min(400, Math.max(6, v)) }))}
                       {num('Interlínea', (sel as TextEl).lineHeight, (v) => update(sel.id, { lineHeight: Math.min(3, Math.max(0.6, v)) }), 0.05)}
@@ -533,27 +539,18 @@ export default function Editor() {
                         <option value="left">Izquierda</option><option value="center">Centro</option><option value="right">Derecha</option>
                       </Select>
                     </div>
-                    <ColorInput value={(sel as TextEl).fill} onChange={(v) => update(sel.id, { fill: v })} />
+                    <TextExtras el={sel as TextEl} palette={palette} Color={ColorInput} update={(p) => update(sel.id, p)} />
                   </>
                 )}
-                {(sel.type === 'rect' || sel.type === 'ellipse' || sel.type === 'line') && (
-                  <>
-                    {sel.type !== 'line' && <><p className="text-[11px] text-ink-3">Relleno</p><ColorInput value={(sel as ShapeEl).fill} onChange={(v) => update(sel.id, { fill: v })} /></>}
-                    <p className="text-[11px] text-ink-3">Borde</p>
-                    <ColorInput value={(sel as ShapeEl).stroke} onChange={(v) => update(sel.id, { stroke: v })} />
-                    <div className="grid grid-cols-2 gap-1.5">
-                      {num('Grosor', (sel as ShapeEl).strokeWidth, (v) => update(sel.id, { strokeWidth: Math.min(100, Math.max(0, v)) }))}
-                      {sel.type === 'rect' && num('Esquinas', (sel as ShapeEl).cornerRadius, (v) => update(sel.id, { cornerRadius: Math.max(0, v) }))}
-                    </div>
-                  </>
-                )}
+                {sel.type !== 'text' && sel.type !== 'image' && <ShapeExtras el={sel as ShapeEl} palette={palette} Color={ColorInput} update={(p) => update(sel.id, p)} />}
                 {sel.type === 'image' && (
                   <div className="flex flex-wrap gap-1">
                     <Button size="sm" variant="outline" onClick={() => loadAsset((sel as ImageEl).assetId, q).then((img) => update(sel.id, { crop: coverCrop(img, sel.width, sel.height) }))}>Rellenar (recortar)</Button>
                     <Button size="sm" variant="outline" onClick={() => loadAsset((sel as ImageEl).assetId, q).then((img) => update(sel.id, { crop: null, height: Math.round(sel.width * img.naturalHeight / img.naturalWidth) }))}>Ajustar sin recorte</Button>
-                    <Button size="sm" variant="outline" onClick={() => setImagePicker(true)}>Reemplazar</Button>
+                    <Button size="sm" variant="outline" onClick={() => { setPickerTab('mine'); setImagePicker(true); }}>Reemplazar</Button>
                   </div>
                 )}
+                {sel.type === 'image' && <ImageExtras el={sel as ImageEl} Color={ColorInput} update={(p) => update(sel.id, p)} />}
                 {sel.role === 'photo' && sel.type === 'rect' && <Button size="sm" variant="outline" onClick={() => setImagePicker(true)}>Poner una foto aquí</Button>}
                 <div className="grid grid-cols-4 gap-1.5">
                   {num('X', sel.x, (v) => update(sel.id, { x: v }))}
@@ -563,6 +560,9 @@ export default function Editor() {
                   {num('Giro', sel.rotation, (v) => update(sel.id, { rotation: Math.max(-360, Math.min(360, v)) }))}
                   {num('Opacidad', sel.opacity, (v) => update(sel.id, { opacity: Math.max(0, Math.min(1, v)) }), 0.05)}
                 </div>
+                <Section title="Sombra">
+                  <ShadowControl value={sel.shadow} Color={ColorInput} onChange={(sh) => update(sel.id, { shadow: sh } as Partial<El>)} />
+                </Section>
               </fieldset>
             )}
             {sel && canWrite && (
@@ -633,8 +633,18 @@ export default function Editor() {
         )}
       </Modal>
 
+      <Modal open={shapesOpen} onClose={() => setShapesOpen(false)} kicker="Agregar" title="Formas">
+        <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
+          {shapeCatalog(doc, palette).map((sh) => (
+            <button key={sh.label} type="button" onClick={() => { addEl(sh.make()); setShapesOpen(false); }} className="cursor-pointer border-2 border-line px-2 py-3 text-xs hover:border-ink">{sh.label}</button>
+          ))}
+        </div>
+      </Modal>
+
       <ImagePicker
         open={imagePicker}
+        tab={pickerTab}
+        onTab={setPickerTab}
         q={q}
         assets={assets ?? []}
         onClose={() => setImagePicker(false)}
@@ -665,7 +675,7 @@ export default function Editor() {
   );
 }
 
-function ImagePicker({ open, onClose, onPick, assets, q }: { open: boolean; onClose: () => void; onPick: (a: Asset) => void; assets: Asset[]; q: string }) {
+function ImagePicker({ open, onClose, onPick, assets, q, tab, onTab }: { open: boolean; onClose: () => void; onPick: (a: Asset) => void; assets: Asset[]; q: string; tab: 'mine' | 'stock'; onTab: (t: 'mine' | 'stock') => void }) {
   const queryClient = useQueryClient();
   const upload = useMutation({
     mutationFn: (file: File) => uploadFile<Asset>(withScope('/creative/assets', q), 'file', file, { kind: 'IMAGE', name: file.name }),
@@ -674,6 +684,12 @@ function ImagePicker({ open, onClose, onPick, assets, q }: { open: boolean; onCl
   });
   return (
     <Modal open={open} onClose={onClose} kicker="Tus recursos" title="Elige una imagen" wide>
+      <div className="mb-3 flex gap-1 border-b-2 border-line">
+        {([['mine', 'Mis imágenes'], ['stock', 'Fotos gratis (Pexels)']] as const).map(([k, l]) => (
+          <button key={k} type="button" onClick={() => onTab(k)} className={clsx('-mb-0.5 cursor-pointer border-b-2 px-3 py-1.5 text-sm', tab === k ? 'border-ink font-semibold' : 'border-transparent text-ink-3')}>{l}</button>
+        ))}
+      </div>
+      {tab === 'stock' ? <StockPhotos q={q} onPick={(a) => { queryClient.invalidateQueries({ queryKey: ['brand-assets'] }); onPick(a); }} /> : (
       <div className="space-y-3">
         <label className="inline-flex cursor-pointer items-center gap-2 border-2 border-ink bg-paper px-3 py-2 text-sm">
           <ImagePlus size={14} /> {upload.isPending ? 'Subiendo…' : 'Subir imagen (PNG, JPG o WEBP)'}
@@ -682,8 +698,9 @@ function ImagePicker({ open, onClose, onPick, assets, q }: { open: boolean; onCl
         <div className="grid max-h-[50vh] grid-cols-3 gap-2 overflow-y-auto sm:grid-cols-4">
           {assets.map((a) => <AssetThumb key={a.id} asset={a} q={q} onClick={() => onPick(a)} />)}
         </div>
-        {!assets.length && <p className="text-sm text-ink-3">Aún no tienes imágenes. Sube tu logo y fotos de tus productos.</p>}
+        {!assets.length && <p className="text-sm text-ink-3">Aún no tienes imágenes. Sube tu logo y fotos de tus productos, o busca en «Fotos gratis».</p>}
       </div>
+      )}
     </Modal>
   );
 }

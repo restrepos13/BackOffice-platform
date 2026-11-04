@@ -13,48 +13,93 @@ export const FORMATS: Record<FormatKey, { label: string; width: number; height: 
   FB_POST: { label: 'Facebook horizontal', width: 1200, height: 630 },
 };
 
-export const FONTS = [
-  'Inter', 'Montserrat', 'Poppins', 'Roboto', 'Raleway', 'Nunito', 'Lato',
-  'Playfair Display', 'Lora', 'DM Serif Display', 'Anton', 'Bebas Neue', 'Oswald', 'Archivo Black', 'Pacifico',
-] as const;
+/**
+ * Fuentes autorizadas con su categoría y los estilos que existen en Google
+ * Fonts (si se pide un estilo que una familia no tiene, Google rechaza la
+ * petición entera). Misma lista que ALLOWED_FONTS del servidor.
+ */
+type FontSpec = 'full' | 'wght' | 'one' | 'ital' | 'libre';
+export const FONT_GROUPS: Array<{ label: string; fonts: Array<[string, FontSpec]> }> = [
+  { label: 'Sans', fonts: [['Inter', 'full'], ['Montserrat', 'full'], ['Poppins', 'full'], ['Roboto', 'full'], ['Raleway', 'full'], ['Nunito', 'full'], ['Lato', 'full'], ['DM Sans', 'full'], ['Manrope', 'wght'], ['Outfit', 'wght'], ['Sora', 'wght'], ['Plus Jakarta Sans', 'full'], ['Work Sans', 'full'], ['Rubik', 'full'], ['Space Grotesk', 'wght'], ['Urbanist', 'full'], ['Figtree', 'full'], ['Barlow', 'full'], ['Josefin Sans', 'full'], ['Kanit', 'full'], ['League Spartan', 'wght']] },
+  { label: 'Impacto', fonts: [['Anton', 'one'], ['Bebas Neue', 'one'], ['Oswald', 'wght'], ['Barlow Condensed', 'full'], ['Archivo Black', 'one'], ['Unbounded', 'wght'], ['Syne', 'wght'], ['Alfa Slab One', 'one'], ['Righteous', 'one'], ['Lilita One', 'one'], ['Fredoka', 'wght'], ['Bungee', 'one']] },
+  { label: 'Serif', fonts: [['Playfair Display', 'full'], ['Lora', 'full'], ['DM Serif Display', 'ital'], ['Fraunces', 'full'], ['Cormorant Garamond', 'full'], ['Libre Baskerville', 'libre'], ['Merriweather', 'full'], ['EB Garamond', 'full'], ['Prata', 'one'], ['Abril Fatface', 'one'], ['Yeseva One', 'one'], ['Cinzel', 'wght'], ['Bodoni Moda', 'full'], ['Marcellus', 'one']] },
+  { label: 'Manuscritas', fonts: [['Pacifico', 'one'], ['Dancing Script', 'wght'], ['Great Vibes', 'one'], ['Caveat', 'wght'], ['Satisfy', 'one'], ['Kaushan Script', 'one'], ['Permanent Marker', 'one'], ['Sacramento', 'one']] },
+];
+const FONT_SPEC = new Map(FONT_GROUPS.flatMap((g) => g.fonts));
+export const FONTS = [...FONT_SPEC.keys()];
+/** Fuentes con un solo grosor: la negrita sería sintética (se evita al proponer). */
+export const SINGLE_WEIGHT_FONTS = FONTS.filter((f) => ['one', 'ital'].includes(FONT_SPEC.get(f)!));
 
-export type ElementType = 'text' | 'image' | 'rect' | 'ellipse' | 'line';
+export const IMAGE_MASKS = ['none', 'circle', 'pill', 'arch', 'blob', 'hexagon', 'diamond', 'leaf', 'squircle'] as const;
+export type ImageMask = (typeof IMAGE_MASKS)[number];
+export const PATH_PRESETS = ['blob', 'blob2', 'wave', 'wave-top', 'arch', 'leaf', 'ribbon', 'arrow', 'bubble', 'brush', 'squiggle'] as const;
+export type PathPreset = (typeof PATH_PRESETS)[number];
+
+export interface Gradient { kind: 'linear' | 'radial'; angle: number; stops: Array<{ at: number; color: string }> }
+export interface Shadow { color: string; blur: number; x: number; y: number }
+
+export type ElementType = 'text' | 'image' | 'rect' | 'ellipse' | 'line' | 'polygon' | 'star' | 'path';
 export interface BaseEl {
   id: string; type: ElementType; name: string; x: number; y: number; width: number; height: number;
-  rotation: number; opacity: number; visible: boolean; locked: boolean; role?: string; slot?: string;
+  rotation: number; opacity: number; visible: boolean; locked: boolean; role?: string; slot?: string; shadow?: Shadow;
 }
+export type FontStyle = 'normal' | 'bold' | 'italic' | 'bold italic';
 export interface TextEl extends BaseEl {
-  type: 'text'; text: string; fontFamily: string; fontSize: number; fontStyle: 'normal' | 'bold' | 'italic' | 'bold italic';
-  align: 'left' | 'center' | 'right'; lineHeight: number; letterSpacing: number; fill: string; textDecoration: '' | 'underline';
+  type: 'text'; text: string; fontFamily: string; fontSize: number; fontStyle: FontStyle;
+  align: 'left' | 'center' | 'right'; lineHeight: number; letterSpacing: number; fill: string; textDecoration: '' | 'underline' | 'line-through';
+  gradient?: Gradient; stroke?: string; strokeWidth?: number;
+  background?: { color: string; padX: number; padY: number; radius: number };
+  accent?: { text: string; color: string; marker: string | null; style: FontStyle };
 }
-export interface ImageEl extends BaseEl { type: 'image'; assetId: string; crop: { x: number; y: number; width: number; height: number } | null; cornerRadius: number }
-export interface ShapeEl extends BaseEl { type: 'rect' | 'ellipse' | 'line'; fill: string; stroke: string; strokeWidth: number; cornerRadius: number }
+export interface ImageEl extends BaseEl {
+  type: 'image'; assetId: string; crop: { x: number; y: number; width: number; height: number } | null; cornerRadius: number;
+  mask?: ImageMask; filters?: { brightness: number; contrast: number; saturation: number; blur: number; grayscale: boolean }; flipX?: boolean; stroke?: string; strokeWidth?: number;
+}
+export interface ShapeEl extends BaseEl {
+  type: 'rect' | 'ellipse' | 'line' | 'polygon' | 'star' | 'path'; fill: string; stroke: string; strokeWidth: number; cornerRadius: number;
+  gradient?: Gradient; dash?: boolean; sides?: number; points?: number; innerRatio?: number; preset?: PathPreset;
+}
 export type El = TextEl | ImageEl | ShapeEl;
 export interface DesignDoc {
   schemaVersion: 1; format: FormatKey; width: number; height: number;
-  background: { color: string; assetId: string | null }; elements: El[];
+  background: { color: string; assetId: string | null; gradient?: Gradient | null; overlay?: { color: string; gradient: Gradient | null; opacity: number } | null };
+  elements: El[];
 }
 
 export const newId = (p = 'e') => `${p}${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
 
-/** Carga las fuentes autorizadas (Google Fonts, licencia OFL) una sola vez. */
-let fontsRequested = false;
-export function loadFonts(): Promise<void> {
-  if (!fontsRequested) {
-    fontsRequested = true;
-    // Google rechaza la petición entera si se piden estilos que una familia no tiene
-    const only400 = ['Anton', 'Bebas Neue', 'Archivo Black', 'Pacifico'];
-    const spec = (f: string) =>
-      only400.includes(f) ? '' : f === 'DM Serif Display' ? ':ital@0;1' : f === 'Oswald' ? ':wght@400;700' : ':ital,wght@0,400;0,700;1,400;1,700';
-    const families = FONTS.map((f) => `family=${f.replace(/ /g, '+')}${spec(f)}`).join('&');
-    const link = document.createElement('link');
-    link.rel = 'stylesheet';
-    link.href = `https://fonts.googleapis.com/css2?${families}&display=swap`;
-    document.head.appendChild(link);
-  }
-  return Promise.all(FONTS.flatMap((f) => [document.fonts.load(`16px "${f}"`), document.fonts.load(`bold 16px "${f}"`)]))
-    .then(() => undefined)
-    .catch(() => undefined);
+const STYLE_QUERY: Record<FontSpec, string> = {
+  full: ':ital,wght@0,400;0,700;1,400;1,700', wght: ':wght@400;700', one: '', ital: ':ital@0;1', libre: ':ital,wght@0,400;0,700;1,400',
+};
+const requested = new Set<string>();
+const ready = new Map<string, Promise<void>>();
+/** Pide a Google Fonts la hoja de UNA familia (una sola vez). */
+function requestFont(f: string) {
+  if (requested.has(f) || !FONT_SPEC.has(f)) return;
+  requested.add(f);
+  const link = document.createElement('link');
+  link.rel = 'stylesheet';
+  link.href = `https://fonts.googleapis.com/css2?family=${f.replace(/ /g, '+')}${STYLE_QUERY[FONT_SPEC.get(f)!]}&display=swap`;
+  document.head.appendChild(link);
+}
+/** Fuentes que usa un documento (textos y frases destacadas). */
+export function fontsOf(doc: DesignDoc | null | undefined): string[] {
+  return [...new Set((doc?.elements ?? []).filter((e): e is TextEl => e.type === 'text').map((e) => e.fontFamily))];
+}
+/**
+ * Carga solo las fuentes pedidas (por defecto, las de siempre). Antes se
+ * bajaban todas al abrir el editor; con 55 familias eso sería lento.
+ */
+const BASE_FONTS = ['Inter', 'Montserrat', 'Playfair Display', 'Lato'];
+export function loadFonts(families: string[] = BASE_FONTS): Promise<void> {
+  const list = families.filter((f) => FONT_SPEC.has(f));
+  return Promise.all(list.map((f) => {
+    if (!ready.has(f)) {
+      requestFont(f);
+      ready.set(f, Promise.all([document.fonts.load(`16px "${f}"`), document.fonts.load(`bold 16px "${f}"`), document.fonts.load(`italic 16px "${f}"`)]).then(() => undefined).catch(() => undefined));
+    }
+    return ready.get(f)!;
+  })).then(() => undefined);
 }
 
 /** Imágenes privadas: se bajan con la sesión y se usan como blob (el lienzo no queda "contaminado" al exportar). */

@@ -11,6 +11,8 @@
 const CHAR: Record<string, number> = {
   Inter: 0.53, Montserrat: 0.56, Poppins: 0.58, Roboto: 0.52, Raleway: 0.54, Nunito: 0.52, Lato: 0.5,
   'Playfair Display': 0.51, Lora: 0.5, 'DM Serif Display': 0.49, Anton: 0.42, 'Bebas Neue': 0.39, Oswald: 0.45, 'Archivo Black': 0.64, Pacifico: 0.55,
+  // Editor ampliado (nov-2026): ancho medido en el navegador × 1,10 (× 1,20 las manuscritas), el mismo factor que separa la medición cruda de los valores calibrados
+  'DM Sans': 0.54, 'Plus Jakarta Sans': 0.54, 'Work Sans': 0.57, Rubik: 0.54, Urbanist: 0.5, Figtree: 0.52, Barlow: 0.5, 'Josefin Sans': 0.52, Kanit: 0.51, 'Barlow Condensed': 0.39, Fraunces: 0.54, 'Cormorant Garamond': 0.45, Merriweather: 0.55, 'EB Garamond': 0.44, 'Bodoni Moda': 0.53, Manrope: 0.53, Outfit: 0.51, Sora: 0.58, 'Space Grotesk': 0.56, 'League Spartan': 0.47, Unbounded: 0.69, Syne: 0.51, Fredoka: 0.52, Cinzel: 0.62, 'Dancing Script': 0.45, Caveat: 0.42, 'Alfa Slab One': 0.61, Righteous: 0.54, 'Lilita One': 0.49, Bungee: 0.69, Prata: 0.56, 'Abril Fatface': 0.52, 'Yeseva One': 0.58, Marcellus: 0.53, 'Great Vibes': 0.39, Satisfy: 0.47, 'Kaushan Script': 0.5, 'Permanent Marker': 0.62, Sacramento: 0.42, 'Libre Baskerville': 0.59,
 };
 
 export function charWidth(font: string, size: number, bold = false, upper = false) {
@@ -19,7 +21,7 @@ export function charWidth(font: string, size: number, bold = false, upper = fals
 }
 
 /** Corte de líneas por palabras (como el editor, wrap="word"). */
-const CONDENSED = ['Anton', 'Bebas Neue', 'Oswald'];
+const CONDENSED = ['Anton', 'Bebas Neue', 'Oswald', 'Barlow Condensed', 'League Spartan'];
 
 /** Los dígitos y símbolos de precio son más anchos que el promedio, sobre todo en fuentes condensadas (visto en el laboratorio: "$15.000" se partía). */
 function digitFactor(text: string, font: string) {
@@ -38,6 +40,8 @@ function digitFactor(text: string, font: string) {
 const WORD: Record<string, number> = {
   Inter: 1.24, Montserrat: 1.25, Poppins: 1.2, Roboto: 1.19, Raleway: 1.22, Nunito: 1.24, Lato: 1.3,
   'Playfair Display': 1.24, Lora: 1.33, 'DM Serif Display': 1.2, Anton: 1.25, 'Bebas Neue': 1.1, Oswald: 1.09, 'Archivo Black': 1.15, Pacifico: 1.44,
+  // Editor ampliado (nov-2026): mismo método con 20 palabras de 9 a 12 letras; × 1,035 para igualar la holgura de la tabla original
+  'DM Sans': 1.16, 'Plus Jakarta Sans': 1.23, 'Work Sans': 1.15, Rubik: 1.18, Urbanist: 1.22, Figtree: 1.23, Barlow: 1.18, 'Josefin Sans': 1.3, Kanit: 1.18, 'Barlow Condensed': 1.16, Fraunces: 1.28, 'Cormorant Garamond': 1.4, Merriweather: 1.25, 'EB Garamond': 1.48, 'Bodoni Moda': 1.29, Manrope: 1.18, Outfit: 1.26, Sora: 1.22, 'Space Grotesk': 1.13, 'League Spartan': 1.2, Unbounded: 1.21, Syne: 1.46, Fredoka: 1.23, Cinzel: 1.18, 'Dancing Script': 1.26, Caveat: 1.22, 'Alfa Slab One': 1.26, Righteous: 1.18, 'Lilita One': 1.22, Bungee: 1.12, Prata: 1.3, 'Abril Fatface': 1.27, 'Yeseva One': 1.16, Marcellus: 1.22, 'Great Vibes': 2.39, Satisfy: 1.17, 'Kaushan Script': 1.3, 'Permanent Marker': 1.08, Sacramento: 2.19, 'Libre Baskerville': 1.31,
 };
 
 export function wrap(text: string, size: number, width: number, font: string, bold = false, upper = false): string[] {

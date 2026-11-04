@@ -1,4 +1,4 @@
-import { DESIGN_SCHEMA_VERSION, DesignDoc, DesignElement, ElementRole, FORMATS, FormatKey } from '../design-doc';
+import { DESIGN_SCHEMA_VERSION, DesignDoc, DesignElement, ElementRole, FORMATS, FormatKey, Gradient, ImageMask, PathPreset, Shadow, TextElement } from '../design-doc';
 import { ResolvedIdentity, contrastRatio, luminance } from './identity';
 import { fitSize } from './text-fit';
 
@@ -10,11 +10,12 @@ import { fitSize } from './text-fit';
  * adaptación a otro formato pueda recomponer sin perder lo que la persona
  * escribió. Determinista: misma entrada → mismo documento.
  *
- * Limitaciones del documento actual (y cómo se resuelven aquí):
- *  - Sin degradados ni máscaras → legibilidad sobre foto con un rectángulo
- *    semitransparente ("overlay"); recortes circulares con el radio de la imagen.
- *  - Sin fondo de texto ni sombras → bloques de color detrás del texto.
- *  - Sin estilos mixtos dentro de un texto → el énfasis es un segundo texto.
+ * Acabado (desde el editor ampliado, nov-2026): cada carácter de marca tiene
+ * un "look" que decide la forma de las fotos (arco, orgánica, redondeada o
+ * recta), la profundidad (sin sombra, sombra suave o sombra dura), el sello
+ * de oferta (círculo o estrella) y cómo se destaca una frase del titular
+ * (color, resaltador o cursiva). Los velos sobre fotos son degradados: la
+ * foto se ve arriba y el texto se lee abajo.
  */
 
 export const FAMILIES = [
@@ -57,6 +58,25 @@ export interface Tokens {
   /** Composiciones partidas en espejo (foto/panel a la derecha). Lo decide la alineación de la marca o su semilla. */
   mirror: boolean;
   companySeed: number;
+  look: Look;
+}
+
+/** Acabado visual según el carácter de la marca. */
+export interface Look {
+  photoMask: ImageMask;
+  depth: 'NONE' | 'SOFT' | 'HARD';
+  badge: 'CIRCLE' | 'BURST';
+  emphasis: 'COLOR' | 'MARKER' | 'ITALIC';
+}
+
+export function lookFor(mood: Mood, companySeed: number): Look {
+  // Semilla propia: no altera las demás decisiones que ya dependen de la semilla de la empresa
+  const r = rng((companySeed ^ 0x5bd1e995) >>> 0);
+  const pick = <T>(xs: T[]) => xs[Math.floor(r() * xs.length)];
+  if (mood === 'REFINED') return { photoMask: pick<ImageMask>(['arch', 'none']), depth: 'NONE', badge: 'CIRCLE', emphasis: 'ITALIC' };
+  if (mood === 'BOLD') return { photoMask: 'none', depth: 'HARD', badge: 'BURST', emphasis: 'MARKER' };
+  if (mood === 'WARM') return { photoMask: pick<ImageMask>(['blob', 'squircle', 'arch']), depth: 'SOFT', badge: 'BURST', emphasis: 'COLOR' };
+  return { photoMask: 'squircle', depth: 'SOFT', badge: 'CIRCLE', emphasis: 'COLOR' };
 }
 
 /**
@@ -115,8 +135,21 @@ export function rng(seed: number) {
   };
 }
 
-const SINGLE_WEIGHT = ['Anton', 'Bebas Neue', 'Archivo Black', 'Pacifico', 'DM Serif Display'];
-const CONDENSED = ['Anton', 'Bebas Neue', 'Oswald'];
+const SINGLE_WEIGHT = ['Anton', 'Bebas Neue', 'Archivo Black', 'Pacifico', 'DM Serif Display', 'Alfa Slab One', 'Righteous', 'Lilita One', 'Bungee', 'Prata', 'Abril Fatface', 'Yeseva One', 'Marcellus', 'Great Vibes', 'Satisfy', 'Kaushan Script', 'Permanent Marker', 'Sacramento'];
+const CONDENSED = ['Anton', 'Bebas Neue', 'Oswald', 'Barlow Condensed'];
+export const SERIFS = ['Playfair Display', 'Lora', 'DM Serif Display', 'Fraunces', 'Cormorant Garamond', 'Libre Baskerville', 'Merriweather', 'EB Garamond', 'Prata', 'Abril Fatface', 'Yeseva One', 'Cinzel', 'Bodoni Moda', 'Marcellus'];
+
+/* ── Color ── */
+
+const hx = (n: number) => Math.round(Math.max(0, Math.min(255, n))).toString(16).padStart(2, '0').toUpperCase();
+/** Mezcla dos colores (#RRGGBB): k = 0 → a, k = 1 → b. */
+export function mix(a: string, b: string, k: number) {
+  const p = (h: string, i: number) => parseInt(h.slice(1 + i * 2, 3 + i * 2), 16);
+  return `#${[0, 1, 2].map((i) => hx(p(a, i) + (p(b, i) - p(a, i)) * k)).join('')}`;
+}
+/** Mismo color con transparencia (0 a 1). */
+export const alpha = (hex: string, a: number) => `${hex.slice(0, 7)}${hx(a * 255)}`;
+const grad = (angle: number, stops: Array<[number, string]>, kind: Gradient['kind'] = 'linear'): Gradient => ({ kind, angle, stops: stops.map(([at, color]) => ({ at, color })) });
 
 const MOTIFS: Record<string, Motif[]> = {
   ELEGANTE: ['RULE'], MINIMALISTA: ['RULE', 'NONE'], ENERGICA: ['BLOCK', 'BAR'], AUDAZ: ['BLOCK'],
@@ -153,6 +186,7 @@ export function tokensFor(id: ResolvedIdentity, format: FormatKey, companySeed: 
     mood: moodOf(id),
     mirror: id.alignment.value === 'ASIMETRICA' ? (companySeed >> 3) % 2 === 1 : id.alignment.value === 'IZQUIERDA' ? false : (companySeed >> 5) % 2 === 1,
     companySeed,
+    look: lookFor(moodOf(id), companySeed),
   };
 }
 
@@ -175,18 +209,38 @@ class Builder {
     };
   }
 
-  rect(name: string, b: Box, fill: string, o: { role?: ElementRole; slot?: string; radius?: number; opacity?: number; rotation?: number; stroke?: string; strokeWidth?: number } = {}) {
-    this.els.push({ id: this.id('r'), type: 'rect', ...this.base(name, o.role, o.slot, b, o.rotation ?? 0, o.opacity ?? 1), fill, stroke: o.stroke ?? '#00000000', strokeWidth: o.strokeWidth ?? 0, cornerRadius: Math.round(o.radius ?? 0) } as DesignElement);
+  /** Sombra según la profundidad de la marca (nada, suave o dura) y el tipo de pieza. */
+  shadow(kind: 'card' | 'button' | 'badge' | 'photo'): Shadow | undefined {
+    const t = this.t;
+    if (t.look.depth === 'SOFT') {
+      const k = { card: [0.13, 0.04, 0.014], button: [0.2, 0.024, 0.008], badge: [0.22, 0.03, 0.01], photo: [0.18, 0.045, 0.018] }[kind];
+      return { color: alpha('#000000', k[0]), blur: Math.round(t.S * k[1]), x: 0, y: Math.round(t.S * k[2]) };
+    }
+    if (t.look.depth === 'HARD' && kind !== 'photo') return { color: alpha(t.c.dark, 1), blur: 0, x: Math.round(t.S * 0.008), y: Math.round(t.S * 0.008) };
+    return undefined;
   }
-  ellipse(name: string, b: Box, fill: string, o: { role?: ElementRole; slot?: string; opacity?: number } = {}) {
-    this.els.push({ id: this.id('e'), type: 'ellipse', ...this.base(name, o.role ?? 'decoration', o.slot, b, 0, o.opacity ?? 1), fill, stroke: '#00000000', strokeWidth: 0, cornerRadius: 0 } as DesignElement);
+  private extra(o: { shadow?: Shadow; gradient?: Gradient }) {
+    return { ...(o.shadow ? { shadow: o.shadow } : {}), ...(o.gradient ? { gradient: o.gradient } : {}) };
+  }
+
+  rect(name: string, b: Box, fill: string, o: { role?: ElementRole; slot?: string; radius?: number; opacity?: number; rotation?: number; stroke?: string; strokeWidth?: number; shadow?: Shadow; gradient?: Gradient } = {}) {
+    this.els.push({ id: this.id('r'), type: 'rect', ...this.base(name, o.role, o.slot, b, o.rotation ?? 0, o.opacity ?? 1), fill, stroke: o.stroke ?? '#00000000', strokeWidth: o.strokeWidth ?? 0, cornerRadius: Math.round(o.radius ?? 0), ...this.extra(o) } as DesignElement);
+  }
+  ellipse(name: string, b: Box, fill: string, o: { role?: ElementRole; slot?: string; opacity?: number; shadow?: Shadow } = {}) {
+    this.els.push({ id: this.id('e'), type: 'ellipse', ...this.base(name, o.role ?? 'decoration', o.slot, b, 0, o.opacity ?? 1), fill, stroke: '#00000000', strokeWidth: 0, cornerRadius: 0, ...this.extra(o) } as DesignElement);
+  }
+  star(name: string, b: Box, fill: string, o: { role?: ElementRole; points?: number; inner?: number; shadow?: Shadow; rotation?: number } = {}) {
+    this.els.push({ id: this.id('s'), type: 'star', ...this.base(name, o.role ?? 'decoration', undefined, b, o.rotation ?? 0), fill, stroke: '#00000000', strokeWidth: 0, cornerRadius: 0, points: o.points ?? 24, innerRatio: o.inner ?? 0.86, ...this.extra(o) } as DesignElement);
+  }
+  path(name: string, preset: PathPreset, b: Box, fill: string, o: { role?: ElementRole; opacity?: number; rotation?: number } = {}) {
+    this.els.push({ id: this.id('p'), type: 'path', ...this.base(name, o.role ?? 'decoration', undefined, b, o.rotation ?? 0, o.opacity ?? 1), fill, stroke: '#00000000', strokeWidth: 0, cornerRadius: 0, preset } as DesignElement);
   }
   line(name: string, x: number, y: number, w: number, color: string, width = 3) {
     this.els.push({ id: this.id('l'), type: 'line', ...this.base(name, 'decoration', undefined, { x, y, w, h: 0 }), height: 0, fill: '#00000000', stroke: color, strokeWidth: width, cornerRadius: 0 } as DesignElement);
   }
 
   /** Texto con tamaño ajustado a su caja. Devuelve la altura que ocupa. */
-  text(name: string, text: string, b: Box, o: { role: ElementRole; slot?: string; font: string; color: string; max: number; min: number; lh?: number; bold?: boolean; italic?: boolean; align?: 'left' | 'center' | 'right'; upper?: boolean; maxLines?: number; opacity?: number }) {
+  text(name: string, text: string, b: Box, o: { role: ElementRole; slot?: string; font: string; color: string; max: number; min: number; lh?: number; bold?: boolean; italic?: boolean; align?: 'left' | 'center' | 'right'; upper?: boolean; maxLines?: number; opacity?: number; accent?: TextElement['accent'] }) {
     const shown = o.upper ? text.toUpperCase() : text;
     const lh = o.lh ?? 1.15;
     const bold = !!o.bold && !SINGLE_WEIGHT.includes(o.font);
@@ -196,11 +250,13 @@ class Builder {
       id: this.id('t'), type: 'text', ...this.base(name, o.role, o.slot, { x: b.x, y: b.y, w: b.w, h: fit.height }, 0, o.opacity ?? 1),
       text: shown, fontFamily: o.font, fontSize: fit.size, fontStyle: style, align: o.align ?? this.t.align, lineHeight: lh, letterSpacing: o.upper ? Math.round(fit.size * 0.04) : 0,
       fill: o.color, textDecoration: '',
+      // La frase destacada solo se guarda si está en el texto que se muestra
+      ...(o.accent && shown.toLowerCase().includes(o.accent.text.toLowerCase()) ? { accent: o.accent } : {}),
     } as DesignElement);
     return fit.height;
   }
 
-  image(name: string, assetId: string, b: Box, o: { role?: ElementRole; slot?: string; radius?: number } = {}) {
+  image(name: string, assetId: string, b: Box, o: { role?: ElementRole; slot?: string; radius?: number; mask?: ImageMask; shadow?: Shadow } = {}) {
     const d = this.dims[assetId];
     let crop: { x: number; y: number; width: number; height: number } | null = null;
     if (d?.width && d?.height) {
@@ -211,7 +267,16 @@ class Builder {
         ? { x: Math.round((d.width - d.height * r) / 2), y: 0, width: Math.round(d.height * r), height: d.height }
         : { x: 0, y: Math.round((d.height - d.width / r) / 2), width: d.width, height: Math.round(d.width / r) };
     }
-    this.els.push({ id: this.id('i'), type: 'image', ...this.base(name, o.role ?? 'photo', o.slot, b), assetId, crop, cornerRadius: Math.round(o.radius ?? 0) } as DesignElement);
+    this.els.push({ id: this.id('i'), type: 'image', ...this.base(name, o.role ?? 'photo', o.slot, b), assetId, crop, cornerRadius: Math.round(o.radius ?? 0), ...(o.mask && o.mask !== 'none' ? { mask: o.mask } : {}), ...this.extra(o) } as DesignElement);
+  }
+
+  /** Foto enmarcada (no a sangre) con el acabado de la marca: forma y sombra. */
+  framed(name: string, assetId: string, b: Box, o: { slot?: string; role?: ElementRole; onLight?: boolean } = {}) {
+    const t = this.t;
+    // Formas que solo se ven bien en cajas no muy alargadas
+    const ratio = b.w / b.h;
+    const mask = t.look.photoMask === 'arch' && ratio > 1.3 ? 'squircle' : t.look.photoMask === 'blob' && (ratio > 1.6 || ratio < 0.6) ? 'squircle' : t.look.photoMask;
+    this.image(name, assetId, b, { slot: o.slot, role: o.role, radius: mask === 'none' ? t.radius : 0, mask, shadow: o.onLight === false ? undefined : this.shadow('photo') });
   }
 
   /** Botón de llamada a la acción. Devuelve su altura. */
@@ -224,7 +289,7 @@ class Builder {
     if (contrastRatio(bg, textOn(bg, t)) < 3) bg = t.c.dark;
     const w = Math.min(maxW, Math.round(text.length * size * 0.62 + h * 1.2));
     const left = align === 'center' ? x + (maxW - w) / 2 : x;
-    this.rect('Botón', { x: left, y, w, h }, bg, { role: 'cta', radius: t.radius ? h / 2 : 0 });
+    this.rect('Botón', { x: left, y, w, h }, bg, { role: 'cta', radius: t.radius ? h / 2 : t.look.depth === 'SOFT' ? h * 0.18 : 0, shadow: this.shadow('button') });
     this.text('Llamada a la acción', text, { x: left + h * 0.3, y: y + (h - size * 1.2) / 2, w: w - h * 0.6, h: size * 1.3 }, { role: 'cta', font: t.body, color: textOn(bg, t), max: size, min: Math.round(size * 0.7), bold: true, align: 'center', lh: 1.2, maxLines: 1 });
     return h;
   }
@@ -246,7 +311,10 @@ class Builder {
     const t = this.t;
     const accent = t.c.accent;
     if (t.motif === 'BLOCK') this.rect('Bloque decorativo', { x: t.W * 0.62, y: -t.S * 0.12, w: t.S * 0.55, h: t.S * 0.28 }, accent, { role: 'decoration', rotation: -12, opacity: scheme === 'LIGHT' ? 0.9 : 0.75 });
-    else if (t.motif === 'ORGANIC') this.ellipse('Forma orgánica', { x: t.W - t.S * 0.38, y: t.H - t.S * 0.42, w: t.S * 0.62, h: t.S * 0.62 }, accent, { opacity: 0.16 });
+    else if (t.motif === 'ORGANIC') {
+      this.path('Forma orgánica', 'blob', { x: t.W - t.S * 0.4, y: t.H - t.S * 0.44, w: t.S * 0.66, h: t.S * 0.62 }, accent, { opacity: scheme === 'LIGHT' ? 0.2 : 0.16, rotation: 0 });
+      this.path('Forma orgánica 2', 'blob2', { x: -t.S * 0.16, y: -t.S * 0.12, w: t.S * 0.36, h: t.S * 0.34 }, accent, { opacity: 0.1 });
+    }
     else if (t.motif === 'BAR') this.rect('Franja', { x: 0, y: 0, w: t.W, h: Math.round(t.S * 0.018) }, accent, { role: 'decoration' });
     else if (t.motif === 'DOTS') [0, 1, 2].forEach((i) => this.ellipse('Punto', { x: t.W - t.m - t.S * (0.05 + i * 0.06), y: t.H - t.safeBottom - t.S * 0.04, w: t.S * 0.035, h: t.S * 0.035 }, accent, { opacity: 0.8 }));
   }
@@ -297,7 +365,7 @@ class Builder {
 }
 
 type Block =
-  | ({ kind: 'text'; name: string; text: string; gap?: number } & { role: ElementRole; slot?: string; font: string; color: string; max: number; min: number; lh?: number; bold?: boolean; italic?: boolean; upper?: boolean; maxLines?: number })
+  | ({ kind: 'text'; name: string; text: string; gap?: number } & { role: ElementRole; slot?: string; font: string; color: string; max: number; min: number; lh?: number; bold?: boolean; italic?: boolean; upper?: boolean; maxLines?: number; accent?: TextElement['accent'] })
   | { kind: 'cta'; text: string; bg: string; gap?: number }
   | { kind: 'rule'; color: string; gap?: number }
   | { kind: 'space'; h: number; gap?: number };
@@ -335,8 +403,26 @@ function kicker(t: Tokens, text: string, color: string, gap = t.S * 0.025, bg?: 
   if (bg) color = brandInk(bg, color, t);
   return { kind: 'text', name: 'Etiqueta', text, role: 'kicker', font: t.body, color, max: t.S * 0.032, min: t.S * 0.024, bold: true, upper: true, maxLines: 2, gap };
 }
-function headline(t: Tokens, text: string, color: string, size: number, gap = t.S * 0.03, o: { italic?: boolean; maxLines?: number } = {}): TextBlock {
-  return { kind: 'text', name: 'Titular', text, role: 'headline', font: t.title, color, max: size, min: t.S * 0.05, bold: t.titleBold, upper: t.upper, lh: t.upper ? 1.02 : 1.1, gap, maxLines: o.maxLines ?? 5, italic: o.italic };
+function headline(t: Tokens, text: string, color: string, size: number, gap = t.S * 0.03, o: { italic?: boolean; maxLines?: number; bg?: string } = {}): TextBlock {
+  // Con el fondo conocido, una frase del titular se destaca según el acabado de la marca
+  const accent = o.bg && !o.italic ? accentFor(t, text, o.bg, color) : undefined;
+  return { kind: 'text', name: 'Titular', text, role: 'headline', font: t.title, color, max: size, min: t.S * 0.05, bold: t.titleBold, upper: t.upper, lh: t.upper ? 1.02 : 1.1, gap, maxLines: o.maxLines ?? 5, italic: o.italic, ...(accent ? { accent } : {}) };
+}
+
+/**
+ * Frase destacada del titular (la oferta o el final, ver emphasisSplit):
+ * de color en marcas cálidas y claras, con resaltador en las enérgicas y en
+ * cursiva en las refinadas con titular serif. Solo si se lee (WCAG).
+ */
+export function accentFor(t: Tokens, text: string, bg: string, ink: string): TextElement['accent'] | undefined {
+  const { emph } = emphasisSplit(text);
+  if (!emph || emph.length > text.length * 0.6) return undefined;
+  const shown = t.upper ? emph.toUpperCase() : emph;
+  if (t.look.emphasis === 'ITALIC') return SERIFS.includes(t.title) && !SINGLE_WEIGHT.includes(t.title) ? { text: shown, color: ink, marker: null, style: 'italic' } : undefined;
+  if (t.look.emphasis === 'MARKER' && contrastRatio(t.c.accent, ink) >= 3 && contrastRatio(t.c.accent, bg) >= 1.3) return { text: shown, color: ink, marker: t.c.accent, style: 'normal' };
+  const col = brandInk(bg, t.c.accent, t, true);
+  if (col.toUpperCase() !== ink.toUpperCase() && contrastRatio(bg, col) >= 3) return { text: shown, color: col, marker: null, style: 'normal' };
+  return undefined;
 }
 function body(t: Tokens, text: string, color: string, gap = t.S * 0.035, role: ElementRole = 'body', slot?: string): TextBlock {
   return { kind: 'text', name: role === 'validity' ? 'Vigencia' : role === 'place' ? 'Lugar y hora' : 'Texto', text, role, slot, font: t.body, color, max: t.S * 0.04, min: t.S * 0.026, lh: 1.35, gap, maxLines: 6 };
@@ -355,10 +441,19 @@ function contentBox(t: Tokens, top = t.safeTop, bottom = t.safeBottom): Box {
 }
 
 /** Sello de precio/descuento (círculo de acento). Devuelve su diámetro. */
-function priceBadge(b: Builder, t: Tokens, text: string, cx: number, cy: number, d: number) {
-  const bg = contrastRatio(t.c.accent, textOn(t.c.accent, t)) >= 3 ? t.c.accent : t.c.dark;
-  b.ellipse('Sello', { x: cx - d / 2, y: cy - d / 2, w: d, h: d }, bg, { role: 'badge' });
-  b.text('Precio', text, { x: cx - d * 0.4, y: cy - d * 0.22, w: d * 0.8, h: d * 0.44 }, { role: 'price', font: t.title, color: textOn(bg, t), max: d * 0.3, min: d * 0.12, bold: true, align: 'center', maxLines: text.includes(' ') ? 2 : 1, lh: 1 });
+function priceBadge(b: Builder, t: Tokens, text: string, cx: number, cy: number, d: number, bgIn?: string) {
+  const bg = bgIn ?? (contrastRatio(t.c.accent, textOn(t.c.accent, t)) >= 3 ? t.c.accent : t.c.dark);
+  seal(b, t, bg, cx, cy, d);
+  // En la estrella el texto tiene menos espacio útil que en el círculo
+  const k = t.look.badge === 'BURST' ? 0.36 : 0.4;
+  b.text('Precio', text, { x: cx - d * k, y: cy - d * 0.22, w: d * k * 2, h: d * 0.44 }, { role: 'price', font: t.title, color: textOn(bg, t), max: d * 0.3, min: d * 0.12, bold: true, align: 'center', maxLines: text.includes(' ') ? 2 : 1, lh: 1 });
+}
+
+/** Forma del sello: círculo (marcas claras y refinadas) o estrella de oferta (cálidas y enérgicas). */
+function seal(b: Builder, t: Tokens, bg: string, cx: number, cy: number, d: number) {
+  const box = { x: cx - d / 2, y: cy - d / 2, w: d, h: d };
+  if (t.look.badge === 'BURST') b.star('Sello', box, bg, { role: 'badge', points: 22, inner: 0.87, shadow: b.shadow('badge'), rotation: 0 });
+  else b.ellipse('Sello', box, bg, { role: 'badge', shadow: b.shadow('badge') });
 }
 
 const heroPhoto: Compose = (b, c, t, v) => {
@@ -366,7 +461,7 @@ const heroPhoto: Compose = (b, c, t, v) => {
   const textCol = textOn(ink, t);
   // Si hay precio corto (oferta), va en un sello visible: no como texto chico
   const badge = c.price && c.price.length <= 12 ? c.price : null;
-  const blocks = textBlocks(badge ? { ...c, price: undefined } : c, t, textCol);
+  const blocks = textBlocks(badge ? { ...c, price: undefined } : c, t, textCol, t.S * 0.1, ink);
   const d = t.S * 0.26;
   if (t.orient === 'wide') {
     b.image('Foto', c.photos[0], { x: t.W * 0.45, y: 0, w: t.W * 0.55, h: t.H }, { slot: '0' });
@@ -380,13 +475,15 @@ const heroPhoto: Compose = (b, c, t, v) => {
   b.image('Foto', c.photos[0], { x: 0, y: 0, w: t.W, h: t.H }, { slot: '0' });
   if (v % 2 === 0) {
     const top = t.H * 0.5;
-    b.rect('Banda', { x: 0, y: top, w: t.W, h: t.H - top }, ink, { role: 'overlay', opacity: 0.86 });
+    // Velo en degradado: la foto respira arriba y el texto se lee abajo
+    const vt = t.H * 0.3;
+    b.rect('Velo', { x: 0, y: vt, w: t.W, h: t.H - vt }, ink, { role: 'overlay', opacity: 1, gradient: grad(90, [[0, alpha(ink, 0)], [0.32, alpha(ink, 0.82)], [1, alpha(ink, 0.96)]]) });
     b.logo(ink);
     const left = badge ? d * 0.75 : 0;
     b.stack(blocks, { x: t.m, y: top + t.m * 0.8, w: t.W - 2 * t.m - left, h: t.H - top - t.m * 0.8 - t.safeBottom }, 'center');
     if (badge) priceBadge(b, t, badge, t.W - t.m - d / 2, top, d);
   } else {
-    b.rect('Velo', { x: 0, y: 0, w: t.W, h: t.H }, t.c.dark, { role: 'overlay', opacity: 0.45 });
+    b.rect('Velo', { x: 0, y: 0, w: t.W, h: t.H }, t.c.dark, { role: 'overlay', opacity: 1, gradient: grad(90, [[0, alpha(t.c.dark, 0.3)], [0.45, alpha(t.c.dark, 0.5)], [1, alpha(t.c.dark, 0.9)]]) });
     b.logo(t.c.dark);
     if (badge) priceBadge(b, t, badge, t.m + d / 2, t.safeTop + d / 2, d);
     b.stack(blocks, contentBox(t, t.safeTop + Math.max(t.S * 0.16, badge ? d + t.m * 0.5 : 0)), 'bottom', 'left');
@@ -394,10 +491,10 @@ const heroPhoto: Compose = (b, c, t, v) => {
   return ink;
 };
 
-function textBlocks(c: Content, t: Tokens, color: string, size = t.S * 0.1): Block[] {
+function textBlocks(c: Content, t: Tokens, color: string, size = t.S * 0.1, bg?: string): Block[] {
   return [
     ...(c.kicker ? [kicker(t, c.kicker, color)] : []),
-    headline(t, c.headline, color, size),
+    headline(t, c.headline, color, size, t.S * 0.03, { bg }),
     ...(c.body ? [body(t, c.body, color)] : []),
     ...(c.validity ? [body(t, c.validity, color, t.S * 0.03, 'validity')] : []),
     ...(c.price ? [priceBlock(t, c.price, color)] : []),
@@ -410,7 +507,7 @@ const editorial: Compose = (b, c, t, v) => {
   const ink = textOn(bg, t);
   const blocks: Block[] = [
     ...(c.kicker ? [kicker(t, c.kicker, t.c.primary, t.S * 0.018, bg), { kind: 'rule' as const, color: brandInk(bg, t.c.primary, t, true), gap: t.S * 0.035 }] : []),
-    headline(t, c.headline, ink, t.S * 0.085, t.S * 0.03, { maxLines: 4 }),
+    headline(t, c.headline, ink, t.S * 0.085, t.S * 0.03, { maxLines: 4, bg }),
     ...(c.body ? [body(t, c.body, ink)] : []),
     // Los puntos que escribió la persona no se pierden: van como lista editorial
     ...(c.points ?? []).slice(0, 4).map((pt, i, all) => ({ ...body(t, `— ${pt}`, ink, i === all.length - 1 ? t.S * 0.035 : t.S * 0.012, 'point', String(i)), name: `Punto ${i + 1}`, maxLines: 2 })),
@@ -419,7 +516,7 @@ const editorial: Compose = (b, c, t, v) => {
   ];
   const photo = c.photos[0];
   if (t.orient === 'wide') {
-    if (photo) b.image('Foto', photo, { x: t.m, y: t.m, w: t.W * 0.42, h: t.H - 2 * t.m }, { slot: '0', radius: t.radius });
+    if (photo) b.framed('Foto', photo, { x: t.m, y: t.m, w: t.W * 0.42, h: t.H - 2 * t.m }, { slot: '0' });
     b.logo(bg);
     b.stack(blocks, { x: photo ? t.W * 0.42 + 2 * t.m : t.m, y: t.m, w: photo ? t.W * 0.58 - 3 * t.m : t.W * 0.7, h: t.H - 2 * t.m }, 'center', 'left');
     return bg;
@@ -428,11 +525,11 @@ const editorial: Compose = (b, c, t, v) => {
     // La foto cede alto según cuánto texto hay: así el titular conserva su jerarquía
     const extra = [c.kicker, c.body, c.price, c.cta].filter(Boolean).length + Math.min(2, (c.points ?? []).length);
     const ph = t.H * Math.max(0.3, (t.orient === 'tall' ? 0.42 : t.orient === 'portrait' ? 0.46 : 0.44) - extra * 0.025);
-    b.image('Foto', photo, { x: t.m, y: t.safeTop, w: t.W - 2 * t.m, h: ph }, { slot: '0', radius: t.radius });
+    b.framed('Foto', photo, { x: t.m, y: t.safeTop, w: t.W - 2 * t.m, h: ph }, { slot: '0' });
     b.logo(bg);
     b.stack(blocks, contentBox(t, t.safeTop + ph + t.m * 0.8), 'top', 'left');
   } else if (photo) {
-    b.image('Foto', photo, { x: t.W * 0.5, y: t.m, w: t.W * 0.5 - t.m, h: t.H - 2 * t.m }, { slot: '0', radius: t.radius });
+    b.framed('Foto', photo, { x: t.W * 0.5, y: t.m, w: t.W * 0.5 - t.m, h: t.H - 2 * t.m }, { slot: '0' });
     b.logo(bg);
     b.stack(blocks, { x: t.m, y: t.m + t.S * 0.1, w: t.W * 0.5 - 2 * t.m, h: t.H - 2 * t.m - t.S * 0.1 }, 'center', 'left');
   } else {
@@ -494,7 +591,7 @@ const catalog: Compose = (b, c, t) => {
   const inkC = textOn(bg, t);
   const items = (c.items ?? []).slice(0, 4);
   b.logo(bg);
-  const head = b.stack([...(c.kicker ? [kicker(t, c.kicker, t.c.primary, t.S * 0.025, bg)] : []), headline(t, c.headline, inkC, t.S * 0.07, 0, { maxLines: 2 })],
+  const head = b.stack([...(c.kicker ? [kicker(t, c.kicker, t.c.primary, t.S * 0.025, bg)] : []), headline(t, c.headline, inkC, t.S * 0.07, 0, { maxLines: 2, bg })],
     { x: t.m, y: t.safeTop + (t.logoPlacement.startsWith('ARRIBA') ? t.S * 0.13 : 0), w: t.W - 2 * t.m, h: t.S * 0.25 }, 'top', 'left');
   const ctaH = c.cta ? t.S * 0.09 + t.m * 0.6 : 0;
   // 2 o 3 productos: una fila de tarjetas altas; 4: retícula 2×2 (en vertical, 2 columnas)
@@ -516,7 +613,9 @@ const catalog: Compose = (b, c, t) => {
     const cardH = Math.min(ch, pad + ph + textH);
     const yOff = Math.max(0, (area.h - (rows * cardH + gap * (rows - 1))) / 2);
     const y = area.y + yOff + Math.floor(i / cols) * (cardH + gap);
-    b.rect('Tarjeta', { x, y, w: cw, h: cardH }, '#FFFFFF', { role: 'decoration', slot: String(i), radius: t.radius, stroke: brandInk('#FFFFFF', t.c.primary, t, true), strokeWidth: 2 });
+    // Tarjeta: con sombra en marcas con profundidad; con filete fino en las refinadas
+    const depth = b.shadow('card');
+    b.rect('Tarjeta', { x, y, w: cw, h: cardH }, '#FFFFFF', { role: 'decoration', slot: String(i), radius: t.radius || (depth ? Math.round(t.S * 0.018) : 0), ...(depth ? { shadow: depth } : { stroke: brandInk('#FFFFFF', t.c.primary, t, true), strokeWidth: 2 }) });
     if (it.assetId) b.image(`Foto ${i + 1}`, it.assetId, { x: x + pad, y: y + pad, w: cw - pad * 2, h: ph }, { role: 'item-photo', slot: String(i), radius: t.radius });
     else b.rect(`Color ${i + 1}`, { x: x + pad, y: y + pad, w: cw - pad * 2, h: ph }, i % 2 ? t.c.accent : t.c.primary, { role: 'decoration', slot: String(i), radius: t.radius, opacity: 0.85 });
     const ty = y + pad + ph + pad * 0.8;
@@ -531,15 +630,17 @@ const offerBadge: Compose = (b, c, t, v) => {
   const photo = c.photos[0];
   const bg = photo ? t.c.light : t.c.primary;
   const inkO = textOn(bg, t);
-  const badgeBg = contrastRatio(bg, t.c.accent) >= 1.5 ? t.c.accent : t.c.dark;
+  // El sello tiene que despegarse del fondo: acento, si no el oscuro, y si tampoco, el claro
+  const badgeBg = contrastRatio(bg, t.c.accent) >= 1.5 ? t.c.accent : contrastRatio(bg, t.c.dark) >= 1.5 ? t.c.dark : t.c.light;
   const d = t.S * (t.orient === 'wide' ? 0.42 : 0.34);
   const badge = (cx: number, cy: number) => {
-    b.ellipse('Sello', { x: cx - d / 2, y: cy - d / 2, w: d, h: d }, badgeBg, { role: 'badge' });
-    b.text('Precio', c.price ?? '', { x: cx - d * 0.4, y: cy - d * 0.22, w: d * 0.8, h: d * 0.44 }, { role: 'price', font: t.title, color: textOn(badgeBg, t), max: d * 0.3, min: d * 0.14, bold: true, align: 'center', maxLines: 2, lh: 1 });
+    seal(b, t, badgeBg, cx, cy, d);
+    const k = t.look.badge === 'BURST' ? 0.36 : 0.4;
+    b.text('Precio', c.price ?? '', { x: cx - d * k, y: cy - d * 0.22, w: d * k * 2, h: d * 0.44 }, { role: 'price', font: t.title, color: textOn(badgeBg, t), max: d * 0.3, min: d * 0.14, bold: true, align: 'center', maxLines: 2, lh: 1 });
   };
   const blocks: Block[] = [
     ...(c.kicker ? [kicker(t, c.kicker, photo ? t.c.primary : inkO, t.S * 0.025, bg)] : []),
-    headline(t, c.headline, inkO, t.S * 0.085, t.S * 0.025, { maxLines: 3 }),
+    headline(t, c.headline, inkO, t.S * 0.085, t.S * 0.025, { maxLines: 3, bg }),
     ...(c.validity ? [body(t, c.validity, inkO, t.S * 0.035, 'validity')] : []),
     ...(c.cta ? [{ kind: 'cta' as const, text: c.cta, bg: photo ? t.c.primary : t.c.dark }] : []),
   ];
@@ -554,6 +655,8 @@ const offerBadge: Compose = (b, c, t, v) => {
   if (photo) {
     const ph = t.H * (t.orient === 'tall' ? 0.46 : t.orient === 'portrait' ? 0.44 : 0.4);
     b.image('Foto', photo, { x: 0, y: 0, w: t.W, h: ph }, { slot: '0' });
+    // Borde inferior de la foto en onda (marcas cálidas): el fondo "muerde" la foto
+    if (t.look.depth === 'SOFT' && t.mood === 'WARM') b.path('Onda', 'wave', { x: -2, y: ph - t.S * 0.09, w: t.W + 4, h: t.S * 0.14 }, bg);
     b.logo(bg);
     // El sello monta el borde de la foto; el texto va en la columna libre a su lado (no debajo)
     const right = v % 2 === 0;
@@ -606,7 +709,7 @@ const offerRefined: Compose = (b, c, t) => {
   b.logo(bg);
   const photo = c.photos[0];
   const ps = t.S * (t.orient === 'wide' ? 0.36 : 0.24);
-  const serif = ['Playfair Display', 'Lora', 'DM Serif Display'].includes(t.title);
+  const serif = SERIFS.includes(t.title);
   let top = t.safeTop + t.S * 0.12;
   if (photo && t.orient !== 'wide') {
     b.image('Foto', photo, { x: (t.W - ps) / 2, y: top, w: ps, h: ps }, { slot: '0', radius: ps / 2 });
@@ -648,7 +751,7 @@ const benefits: Compose = (b, c, t) => {
   const pts = (c.points ?? []).slice(0, 4);
   const photo = c.photos[0];
   const textW = photo && t.orient !== 'tall' ? (t.W - 2 * t.m) * 0.58 : t.W - 2 * t.m;
-  if (photo && t.orient !== 'tall') b.image('Foto', photo, { x: t.m + textW + t.m * 0.6, y: t.m, w: t.W - 2 * t.m - textW - t.m * 0.6, h: t.H - 2 * t.m }, { slot: '0', radius: t.radius });
+  if (photo && t.orient !== 'tall') b.framed('Foto', photo, { x: t.m + textW + t.m * 0.6, y: t.m, w: t.W - 2 * t.m - textW - t.m * 0.6, h: t.H - 2 * t.m }, { slot: '0' });
   const top = b.stack([...(c.kicker ? [kicker(t, c.kicker, t.c.primary, t.S * 0.025, bg)] : []), headline(t, c.headline, ink0(bg, t), t.S * 0.075, 0, { maxLines: 3 })],
     { x: t.m, y: t.safeTop + t.S * 0.13, w: textW, h: t.H * 0.3 }, 'top', 'left');
   const ctaH = c.cta ? t.S * 0.09 + t.m * 0.5 : 0;
@@ -673,7 +776,7 @@ function quoteBlocks(c: Content, t: Tokens, ink: string, mark: string, o: { size
 const testimonial: Compose = (b, c, t, v0) => {
   const photo = c.photos[0];
   const v = v0 === 2 && !photo ? 1 : v0;
-  const serif = ['Playfair Display', 'Lora', 'DM Serif Display'].includes(t.title);
+  const serif = SERIFS.includes(t.title);
   const wide = t.orient === 'wide';
   if (v === 2) {
     const panel = t.c.primary;
@@ -817,19 +920,19 @@ const event: Compose = (b, c, t, v) => {
   const bg = withPhoto ? t.c.dark : t.c.light;
   if (withPhoto) {
     b.image('Foto', photo!, { x: 0, y: 0, w: t.W, h: t.H }, { slot: '0' });
-    b.rect('Velo', { x: 0, y: 0, w: t.W, h: t.H }, t.c.dark, { role: 'overlay', opacity: 0.58 });
+    b.rect('Velo', { x: 0, y: 0, w: t.W, h: t.H }, t.c.dark, { role: 'overlay', opacity: 1, gradient: grad(90, [[0, alpha(t.c.dark, 0.45)], [1, alpha(t.c.dark, 0.82)]]) });
   } else b.motif('LIGHT');
   const ink = withPhoto ? '#FFFFFF' : textOn(bg, t);
   b.logo(bg);
   const ds = t.S * (t.orient === 'wide' ? 0.36 : 0.3);
   const dx = t.orient === 'wide' ? t.m : t.align === 'center' ? (t.W - ds) / 2 : t.m;
   const dy = t.orient === 'wide' ? (t.H - ds) / 2 : t.safeTop + t.S * 0.13;
-  b.rect('Bloque fecha', { x: dx, y: dy, w: ds, h: ds }, t.c.accent, { role: 'decoration', radius: t.radius });
+  b.rect('Bloque fecha', { x: dx, y: dy, w: ds, h: ds }, t.c.accent, { role: 'decoration', radius: t.radius || (t.look.depth === 'SOFT' ? ds * 0.08 : 0), shadow: b.shadow('card') });
   const dateInk = textOn(t.c.accent, t);
   b.text('Día', c.date?.day ?? '', { x: dx, y: dy + ds * 0.1, w: ds, h: ds * 0.55 }, { role: 'date', slot: 'day', font: t.title, color: dateInk, max: ds * 0.5, min: ds * 0.3, bold: true, align: 'center', maxLines: 1, lh: 1 });
   b.text('Mes', c.date?.month ?? '', { x: dx, y: dy + ds * 0.66, w: ds, h: ds * 0.22 }, { role: 'date', slot: 'month', font: t.body, color: dateInk, max: ds * 0.15, min: ds * 0.1, bold: true, align: 'center', upper: true, maxLines: 1, lh: 1 });
   const blocks: Block[] = [
-    headline(t, c.headline, ink, t.S * 0.085, t.S * 0.03, { maxLines: 3 }),
+    headline(t, c.headline, ink, t.S * 0.085, t.S * 0.03, { maxLines: 3, ...(withPhoto ? {} : { bg }) }),
     ...(c.place ? [body(t, c.place, ink, t.S * 0.03, 'place')] : []),
     ...(c.body ? [body(t, c.body, ink)] : []),
     ...(c.cta ? [{ kind: 'cta' as const, text: c.cta, bg: t.c.accent }] : []),
@@ -924,7 +1027,7 @@ const corporateRefined: Compose = (b, c, t) => {
   const ink = textOn(bg, t);
   const line = brandInk(bg, t.c.primary, t, true);
   b.logo(bg);
-  const serif = ['Playfair Display', 'Lora', 'DM Serif Display'].includes(t.title);
+  const serif = SERIFS.includes(t.title);
   const pts = pointsOf(c);
   const blocks: Block[] = [
     ...(c.kicker ? [kicker(t, c.kicker, line, t.S * 0.02, bg)] : []),
@@ -949,7 +1052,19 @@ export function composeWithReport(family: Family, t: Tokens, content: Content, v
   const b = new Builder(t, dims);
   const bg = COMPOSERS[family](b, content, t, variant);
   // Los elementos de fondo (fotos a sangre, bandas, decoración) van primero: se respeta el orden de creación
-  return { doc: { schemaVersion: DESIGN_SCHEMA_VERSION, format: t.format, width: t.W, height: t.H, background: { color: bg, assetId: null }, elements: b.els }, omitted: [...new Set(b.omitted)] };
+  return { doc: { schemaVersion: DESIGN_SCHEMA_VERSION, format: t.format, width: t.W, height: t.H, background: { color: bg, assetId: null, ...backgroundDepth(bg, t) }, elements: b.els }, omitted: [...new Set(b.omitted)] };
+}
+
+/**
+ * Profundidad del fondo: un degradado casi imperceptible (luz en el centro en
+ * fondos claros; un tono más oscuro en una esquina en fondos de marca). Las
+ * marcas refinadas conservan el fondo plano. El color base no cambia: con él
+ * se mide el contraste.
+ */
+function backgroundDepth(bg: string, t: Tokens): { gradient?: Gradient } {
+  if (t.look.depth === 'NONE') return {};
+  if (isDark(bg)) return { gradient: grad(135, [[0, bg], [1, mix(bg, '#000000', 0.22)]]) };
+  return { gradient: grad(0, [[0, mix(bg, '#FFFFFF', 0.35)], [1, mix(bg, t.c.primary, 0.07)]], 'radial') };
 }
 
 export function compose(family: Family, t: Tokens, content: Content, variant: number, dims: AssetDims): DesignDoc {
