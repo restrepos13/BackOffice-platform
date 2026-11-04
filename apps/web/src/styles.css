@@ -110,6 +110,10 @@ main > * {
      el bloque contenedor de los modales fixed y los recortaría */
   animation: page-enter 180ms ease-out backwards;
 }
+/* Páginas públicas prerenderizadas: el texto se ve apenas llega el HTML */
+main#contenido > * {
+  animation: none;
+}
 
 /* Modales y tarjetas del tour entran con el mismo lenguaje */
 @keyframes pop-enter {

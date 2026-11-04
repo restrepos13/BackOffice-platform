@@ -1,0 +1,40 @@
+# BackOffice — www.backoffice.store
+# Las páginas públicas (portada, soluciones, sectores, guías y legales) son para
+# buscadores y asistentes de IA. El panel, el API y los links privados no.
+
+User-agent: *
+Allow: /
+Disallow: /api/
+Disallow: /app
+Disallow: /platform
+Disallow: /courier
+Disallow: /print/
+Disallow: /t/
+Disallow: /invitacion
+Disallow: /restablecer
+Disallow: /recuperar
+
+# Asistentes y buscadores de IA: bienvenidos a las páginas públicas
+User-agent: GPTBot
+User-agent: OAI-SearchBot
+User-agent: ChatGPT-User
+User-agent: Google-Extended
+User-agent: PerplexityBot
+User-agent: Perplexity-User
+User-agent: ClaudeBot
+User-agent: Claude-User
+User-agent: Claude-SearchBot
+User-agent: Applebot-Extended
+User-agent: Bingbot
+Allow: /
+Disallow: /api/
+Disallow: /app
+Disallow: /platform
+Disallow: /courier
+Disallow: /print/
+Disallow: /t/
+Disallow: /invitacion
+Disallow: /restablecer
+Disallow: /recuperar
+
+Sitemap: https://www.backoffice.store/sitemap.xml

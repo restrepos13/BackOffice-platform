@@ -1,6 +1,8 @@
 const BASE = '/api';
 
 export function getToken(): string | null {
+  // Al prerenderizar las páginas públicas (Node) no hay sesión que leer
+  if (typeof window === 'undefined') return null;
   return localStorage.getItem('bo_token');
 }
 

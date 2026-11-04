@@ -25,8 +25,64 @@
       "destination": "https://backoffice-platform-90ic.onrender.com/assets/:path*"
     },
     {
+      "source": "/automatizacion-de-whatsapp",
+      "destination": "/automatizacion-de-whatsapp.html"
+    },
+    {
+      "source": "/automatizacion-de-procesos",
+      "destination": "/automatizacion-de-procesos.html"
+    },
+    {
+      "source": "/crm-con-whatsapp",
+      "destination": "/crm-con-whatsapp.html"
+    },
+    {
+      "source": "/sectores/restaurantes-y-domicilios",
+      "destination": "/sectores/restaurantes-y-domicilios.html"
+    },
+    {
+      "source": "/sectores/servicios-con-citas",
+      "destination": "/sectores/servicios-con-citas.html"
+    },
+    {
+      "source": "/sectores/tiendas-y-ventas",
+      "destination": "/sectores/tiendas-y-ventas.html"
+    },
+    {
+      "source": "/sectores/inmobiliarias-y-proyectos",
+      "destination": "/sectores/inmobiliarias-y-proyectos.html"
+    },
+    {
+      "source": "/calculadora-de-ahorro",
+      "destination": "/calculadora-de-ahorro.html"
+    },
+    {
+      "source": "/guias/como-automatizar-whatsapp-de-tu-negocio",
+      "destination": "/guias/como-automatizar-whatsapp-de-tu-negocio.html"
+    },
+    {
+      "source": "/guias/cuanto-cuesta-atender-whatsapp-a-mano",
+      "destination": "/guias/cuanto-cuesta-atender-whatsapp-a-mano.html"
+    },
+    {
+      "source": "/privacidad",
+      "destination": "/privacidad.html"
+    },
+    {
+      "source": "/terminos",
+      "destination": "/terminos.html"
+    },
+    {
+      "source": "/eliminacion-de-datos",
+      "destination": "/eliminacion-de-datos.html"
+    },
+    {
+      "source": "/contacto",
+      "destination": "/contacto.html"
+    },
+    {
       "source": "/((?!assets/).*)",
-      "destination": "/index.html"
+      "destination": "/app.html"
     }
   ],
   "headers": [
@@ -78,6 +134,15 @@
         {
           "key": "Cache-Control",
           "value": "public, max-age=86400"
+        }
+      ]
+    },
+    {
+      "source": "/(sitemap.xml|robots.txt|llms.txt|site.webmanifest|favicon.svg|favicon-48.png|apple-touch-icon.png|logo.png)",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=3600"
         }
       ]
     }

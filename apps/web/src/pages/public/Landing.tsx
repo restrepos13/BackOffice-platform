@@ -1,12 +1,14 @@
 import { useQuery } from '@tanstack/react-query';
-import { ArrowRight, BarChart3, Building2, CalendarCheck, Check, Gift, MessageCircle, Palette, ShoppingBag, Sparkles, UserRound } from 'lucide-react';
+import { ArrowRight, BarChart3, Bell, Building2, CalendarCheck, Check, Clock, FileText, Gift, MessageCircle, Palette, Repeat, ShoppingBag, Sparkles, Truck, UserRound, Wallet } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { api } from '../../lib/api';
-import { LegalFooterLinks } from './legal-links';
-import { CIUDAD, EMAIL, RESPONSABLE, WA_TEXT, mailLink, waLink } from './public-info';
+import { HOME, HOME_FAQ, SECTORS } from './site/content';
+import { SavingsCalculator } from './site/SavingsCalculator';
+import { CtaBand, FaqList, SectionTitle, SiteLayout } from './site/SiteChrome';
+import { useSeo } from './site/seo';
 
-interface PublicPlans {
+export interface PublicPlans {
   plans: Array<{ name: string; tier: string | null; maxLines: number; priceSelf: number; priceManaged: number; includedMetaUsd: number; highlight: boolean; features: string[] }>;
   modes: Record<'SELF' | 'MANAGED', { name: string; short: string }>;
   addons: Array<{ name: string; description: string; price: number; perUnit: string | null; status: 'AVAILABLE' | 'SOON'; included?: boolean }>;
@@ -16,50 +18,43 @@ interface PublicPlans {
 const cop = (n: number) => `$${Math.round(n).toLocaleString('es-CO')}`;
 
 /**
- * Portada pública (antes de iniciar sesión): qué es BackOffice, qué incluye,
- * qué está disponible hoy y cómo se conectan las cuentas publicitarias.
+ * Portada pública (antes de iniciar sesión): qué automatiza BackOffice, cuánto
+ * ahorra (con los números del visitante), para quién es, qué funciona hoy y
+ * cuánto cuesta. Se prerenderiza al compilar (scripts/prerender.mjs) para que
+ * buscadores y asistentes de IA lean el texto sin ejecutar JavaScript.
  * No afirma aprobaciones de Meta, Google ni TikTok ni promete resultados.
  */
 
-const RUBROS = [
-  { icon: ShoppingBag, title: 'Comidas', text: 'Toma pedidos, cobra en el chat y sigue cada domicilio en vivo.' },
-  { icon: CalendarCheck, title: 'Servicios con citas', text: 'Responde, agenda y recuerda las citas de tu consultorio, salón o taller.' },
-  { icon: MessageCircle, title: 'Tiendas y ventas', text: 'Muestra tu catálogo, califica a cada cliente y haz seguimiento a cada venta.' },
-  { icon: Building2, title: 'Proyectos y asesorías', text: 'Atiende consultas, agenda visitas y haz seguimiento sin prometer precios por chat.' },
+const PAINS = [
+  { icon: Clock, title: 'Horas respondiendo lo mismo', text: 'Precio, horario, ubicación, “¿hay domicilio?”: decenas de veces al día.' },
+  { icon: Bell, title: 'Mensajes que se enfrían', text: 'Lo que llega de noche o en la hora pico se responde tarde o nunca.' },
+  { icon: FileText, title: 'Datos copiados a mano', text: 'Pedidos y citas pasados del chat a un cuaderno, con errores.' },
+  { icon: Wallet, title: 'Plata que no se cobra', text: 'Saldos pendientes y clientes que nadie volvió a contactar.' },
+];
+
+const PROCESSES = [
+  { icon: MessageCircle, title: 'Atención 24/7', text: 'El asistente de IA responde con tu información y pasa a una persona cuando hace falta.', href: '/automatizacion-de-whatsapp' },
+  { icon: ShoppingBag, title: 'Pedidos', text: 'Del chat a la cola del negocio, con productos, dirección y pago, sin copiar nada.', href: '/sectores/restaurantes-y-domicilios' },
+  { icon: Truck, title: 'Domicilios', text: 'Asignación, ruta y link de seguimiento en vivo para el cliente.', href: '/sectores/restaurantes-y-domicilios' },
+  { icon: CalendarCheck, title: 'Citas y reservas', text: 'Agenda sin dobles reservas, con recordatorios.', href: '/sectores/servicios-con-citas' },
+  { icon: Wallet, title: 'Cobranza', text: 'Saldos pendientes y recordatorios de pago por WhatsApp.', href: '/automatizacion-de-procesos' },
+  { icon: Repeat, title: 'Reactivación', text: 'Mensajes para los clientes que dejaron de comprar.', href: '/automatizacion-de-procesos' },
+  { icon: UserRound, title: 'Seguimiento comercial', text: 'Embudo con etapas: ningún interesado se queda sin respuesta.', href: '/crm-con-whatsapp' },
+  { icon: BarChart3, title: 'Reportes', text: 'Ventas, conversaciones y pendientes en un resumen para el dueño.', href: '/automatizacion-de-procesos' },
 ];
 
 const STEPS = [
-  { n: '01', title: 'Cuéntanos tu negocio', text: 'Escríbelo como se lo contarías a un empleado nuevo: qué vendes, precios, horario.' },
-  { n: '02', title: 'Se arma tu espacio', text: 'Tu catálogo, horario, preguntas frecuentes y las herramientas de tu sector quedan listos para revisar.' },
-  { n: '03', title: 'Te acompañamos', text: 'Conectamos tu WhatsApp contigo y eliges el plan cuando todo funcione.' },
+  { title: 'Cuéntanos tu negocio', text: 'Escríbelo como se lo contarías a un empleado nuevo: qué vendes, precios, horario.' },
+  { title: 'Se arma tu espacio', text: 'Catálogo, horario, preguntas frecuentes y las herramientas de tu sector, listos para revisar.' },
+  { title: 'Conectamos tu WhatsApp', text: 'Por la plataforma oficial de WhatsApp Business, contigo. Eliges el plan cuando todo funcione.' },
 ];
+
+const SECTOR_ICONS = [ShoppingBag, CalendarCheck, MessageCircle, Building2];
 
 const PRODUCTS = [
-  {
-    icon: MessageCircle,
-    name: 'Automation',
-    text: 'Atención, ventas y operación.',
-    items: ['WhatsApp con asistente de IA y paso a una persona', 'Clientes y contactos con su historial', 'Embudo comercial y seguimientos', 'Pedidos, catálogo y domicilios', 'Agenda de citas', 'Cobranza y reactivación de clientes', 'Automatizaciones y campañas por WhatsApp', 'Reportes para el dueño o gerente'],
-  },
-  {
-    icon: Palette,
-    name: 'Creative',
-    text: 'Contenido con la marca del negocio.',
-    items: ['Identidad de marca: logo, colores y tono', 'Diseños editables para redes y anuncios', 'Biblioteca de imágenes y videos', 'Aprobación antes de publicar'],
-  },
-  {
-    icon: BarChart3,
-    name: 'Ads',
-    text: 'Análisis de publicidad pagada.',
-    items: ['Cuentas publicitarias propias de cada negocio', 'Resultados y métricas en un solo panel', 'Alertas y reglas con tu aprobación', 'Pausar o reanudar con confirmación'],
-  },
-];
-
-const ADS_STEPS = [
-  { n: '01', title: 'Conectas tu cuenta', text: 'Entras con tu propio usuario de Meta, Google o TikTok y apruebas los permisos en esa plataforma. Nunca te pedimos la contraseña.' },
-  { n: '02', title: 'Eliges qué cuentas', text: 'Solo las cuentas publicitarias que tú seleccionas. Las demás no se tocan.' },
-  { n: '03', title: 'Consultas resultados', text: 'Campañas, anuncios y métricas diarias en un panel, junto a lo que pasa en tu WhatsApp.' },
-  { n: '04', title: 'Pausas o reanudas', text: 'Cuando la integración esté autorizada, desde BackOffice y siempre con tu confirmación.' },
+  { icon: MessageCircle, name: 'Automation', text: 'WhatsApp con IA, clientes, pedidos, citas, cobranza, automatizaciones y reportes.' },
+  { icon: Palette, name: 'Creative', text: 'Identidad de marca y diseños editables para redes y anuncios, con aprobación antes de publicar.' },
+  { icon: BarChart3, name: 'Ads', text: 'Resultados de tus cuentas de Meta, Google y TikTok junto a lo que pasa en tu WhatsApp.' },
 ];
 
 /* Estado real de cada función. "En pruebas" = construido, pero depende de una
@@ -73,228 +68,281 @@ const STATUS = [
   {
     title: 'En pruebas',
     note: 'Construido; pendiente de autorización de la plataforma externa o de validación.',
-    items: ['Meta Ads: resultados, pausar o reanudar y crear anuncios', 'Google Ads: resultados, pausar o reanudar', 'TikTok Ads: resultados, pausar o reanudar', 'Mensajes de Instagram y Messenger', 'Publicación programada en Facebook e Instagram', 'Google Calendar y carpeta de Google Drive'],
+    items: ['Meta Ads: resultados, pausar o reanudar y crear anuncios', 'Google Ads: resultados, pausar o reanudar', 'TikTok Ads: resultados, pausar o reanudar', 'Mensajes de Instagram y Messenger', 'Publicación programada en Facebook e Instagram', 'Google Calendar y Google Drive'],
   },
   {
     title: 'Próximamente',
     note: 'En el plan; todavía no disponible.',
-    items: ['Crear anuncios en Google Ads y TikTok Ads', 'Anuncios generados con IA', 'Llamadas con IA', 'Facturación electrónica DIAN', 'Verificación automática de transferencias'],
+    items: ['Crear anuncios en Google Ads y TikTok Ads', 'Llamadas con IA', 'Facturación electrónica DIAN', 'Verificación automática de transferencias'],
   },
 ];
 
-function PlansSection() {
-  const { data } = useQuery({ queryKey: ['public-plans'], queryFn: () => api.get<PublicPlans>('/public/plans') });
-  const [mode, setMode] = useState<'SELF' | 'MANAGED'>('MANAGED');
-  if (!data || !data.plans.length) return null;
+/** Conversación de ejemplo del hero (texto, no imagen: se ve apenas llega el HTML). */
+function ChatMock() {
+  const msgs: Array<{ me?: boolean; text: string; tag?: string }> = [
+    { text: 'Hola, ¿tienen domicilio a Laureles? ¿Cuánto vale la hamburguesa doble?' },
+    { me: true, text: 'Hola. Sí, llegamos a Laureles en 35 a 45 minutos. La doble cuesta $28.000 y el domicilio $5.000. ¿Te la preparo?' },
+    { text: 'Sí, una doble sin cebolla. Pago con transferencia.' },
+    { me: true, text: 'Listo: 1 doble sin cebolla + domicilio = $33.000. Te dejo los datos para la transferencia y el link para seguir tu pedido.', tag: 'Pedido creado · enviado a cocina' },
+  ];
   return (
-    <section className="mx-auto max-w-6xl px-4 py-14 md:px-6" id="planes">
-      <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <p className="kicker">Automatización humanizada de WhatsApp para vender 24/7</p>
-          <h2 className="display text-4xl md:text-5xl">Planes <span className="serif-accent normal-case">claros</span></h2>
-        </div>
-        <div className="flex border-2 border-ink" role="radiogroup" aria-label="Modalidad">
-          {(['MANAGED', 'SELF'] as const).map((m) => (
-            <button key={m} type="button" role="radio" aria-checked={mode === m} onClick={() => setMode(m)}
-              className={`cursor-pointer px-4 py-2 text-sm font-semibold ${mode === m ? 'bg-ink text-bone' : 'bg-paper'}`}>
-              {data.modes[m].name}
-            </button>
-          ))}
-        </div>
-      </div>
-      <p className="mb-5 max-w-3xl text-sm text-ink-2">{data.modes[mode].short}</p>
-      <div className="grid gap-4 md:grid-cols-3">
-        {data.plans.map((p) => (
-          <article key={p.name} className={`flex flex-col border-2 border-ink bg-paper p-5 ${p.highlight ? 'shadow-[8px_8px_0_0_rgba(26,26,26,0.9)]' : ''}`}>
-            <h3 className="display text-3xl">{p.name}</h3>
-            <p className="text-sm font-semibold">{p.maxLines === 1 ? '1 número de WhatsApp' : p.tier === 'MAX' ? `Hasta ${p.maxLines} números` : `${p.maxLines} números de WhatsApp`}</p>
-            <p className="display mt-3 text-3xl">{cop(mode === 'MANAGED' ? p.priceManaged : p.priceSelf)}<span className="text-sm text-ink-3">/mes</span></p>
-            <p className="text-[11px] text-ink-3">IVA incluido{mode === 'MANAGED' ? ` · + la IA que uses · US$${p.includedMetaUsd} de Meta incluidos` : ' · la IA y Meta los pagas directo'}</p>
-            <ul className="mt-3 flex-1 space-y-1 border-t border-line pt-3 text-sm">
-              {p.features.map((f) => <li key={f} className="flex gap-2"><Check size={14} className="mt-0.5 shrink-0" />{f}</li>)}
-            </ul>
-          </article>
-        ))}
-      </div>
-      <div className="mt-6 grid gap-3 text-sm md:grid-cols-2">
-        <p className="flex gap-2 border-2 border-line bg-paper p-3"><Gift size={16} className="mt-0.5 shrink-0" />{data.notices.landing}</p>
-        <p className="flex gap-2 border-2 border-line bg-paper p-3"><UserRound size={16} className="mt-0.5 shrink-0" />{data.notices.humanOversight}</p>
-        <p className="border-2 border-line bg-paper p-3 text-xs text-ink-2">{data.notices.numbers}</p>
-        <p className="border-2 border-line bg-paper p-3 text-xs text-ink-2">{data.notices.meta}</p>
-      </div>
-      {data.addons.some((a) => a.included) && (
-        <div className="mt-8">
-          <p className="kicker mb-3">Incluido en todos los planes</p>
-          <div className="grid gap-3 md:grid-cols-3">
-            {data.addons.filter((a) => a.included).map((a) => (
-              <div key={a.name} className="border-2 border-ink bg-paper p-4">
-                <p className="font-semibold">{a.name}</p>
-                <p className="mt-1 text-sm text-ink-2">{a.description}</p>
-              </div>
-            ))}
+    <figure className="relative mx-auto w-full max-w-sm">
+      <div className="border-2 border-ink bg-paper shadow-[10px_10px_0_0_rgba(26,26,26,0.9)]">
+        <div className="flex items-center gap-3 border-b-2 border-ink bg-ink px-4 py-3 text-bone">
+          <span aria-hidden className="flex h-8 w-8 items-center justify-center bg-wa font-bold text-ink">B</span>
+          <div className="leading-tight">
+            <p className="text-sm font-semibold">Tu negocio</p>
+            <p className="text-[11px] text-line">Asistente de IA · responde al instante</p>
           </div>
         </div>
-      )}
-      <div className="mt-8">
-        <p className="kicker mb-3">Complementos</p>
-        <div className="flex flex-wrap gap-2">
-          {data.addons.filter((a) => !a.included).map((a) => (
-            <span key={a.name} title={a.description} className={`inline-flex items-center gap-2 border-2 px-3 py-1.5 text-sm ${a.status === 'SOON' ? 'border-line text-ink-3' : 'border-ink bg-paper'}`}>
-              {a.name}
-              <span className="text-xs">{a.status === 'SOON' ? 'Próximamente' : `${cop(a.price)}/mes${a.perUnit ? ` por ${a.perUnit}` : ''}`}</span>
-            </span>
+        <div className="space-y-2.5 bg-bone-2 p-4">
+          {msgs.map((m) => (
+            <div key={m.text} className={`flex flex-col ${m.me ? 'items-end' : 'items-start'}`}>
+              <p className={`max-w-[85%] border-2 border-ink px-3 py-2 text-[13px] leading-snug ${m.me ? 'bg-ok-soft' : 'bg-paper'}`}>{m.text}</p>
+              {m.tag && <span className="mt-1.5 inline-flex items-center gap-1 bg-ink px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-bone"><Check size={11} /> {m.tag}</span>}
+            </div>
           ))}
         </div>
+      </div>
+      <figcaption className="mt-4 text-center text-xs text-ink-3">Conversación de ejemplo. El asistente solo usa los precios y datos que configura el negocio.</figcaption>
+    </figure>
+  );
+}
+
+function PlansSection() {
+  const { data } = useQuery({ queryKey: ['public-plans'], queryFn: () => api.get<PublicPlans>('/public/plans'), staleTime: 10 * 60_000 });
+  const [mode, setMode] = useState<'SELF' | 'MANAGED'>('MANAGED');
+  return (
+    <section className="scroll-mt-20 border-y-2 border-ink bg-paper" id="planes">
+      <div className="mx-auto max-w-6xl px-4 py-16 md:px-6">
+        <div className="flex flex-wrap items-end justify-between gap-4">
+          <SectionTitle kicker="Planes mensuales en pesos colombianos" title="Planes" accent="claros" />
+          {data && data.plans.length > 0 && (
+            <div className="mb-8 flex border-2 border-ink" role="radiogroup" aria-label="Modalidad">
+              {(['MANAGED', 'SELF'] as const).map((m) => (
+                <button key={m} type="button" role="radio" aria-checked={mode === m} onClick={() => setMode(m)}
+                  className={`cursor-pointer px-4 py-2 text-sm font-semibold ${mode === m ? 'bg-ink text-bone' : 'bg-bone'}`}>
+                  {data.modes[m].name}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+        {!data || !data.plans.length ? (
+          <p className="max-w-2xl text-ink-2">
+            Planes mensuales según cuántos números de WhatsApp necesitas, con o sin acompañamiento del equipo. Empiezas sin tarjeta y eliges el plan cuando todo funcione. <Link to="/registro" className="font-semibold underline">Crea tu cuenta</Link> o <Link to="/contacto" className="font-semibold underline">escríbenos</Link> para conocer los precios vigentes.
+          </p>
+        ) : (
+          <>
+            <p className="mb-5 max-w-3xl text-sm text-ink-2">{data.modes[mode].short}</p>
+            <div className="grid gap-4 md:grid-cols-3">
+              {data.plans.map((p) => (
+                <article key={p.name} className={`flex flex-col border-2 border-ink bg-bone p-5 ${p.highlight ? 'shadow-[8px_8px_0_0_rgba(26,26,26,0.9)]' : ''}`}>
+                  <h3 className="display text-3xl">{p.name}</h3>
+                  <p className="text-sm font-semibold">{p.maxLines === 1 ? '1 número de WhatsApp' : p.tier === 'MAX' ? `Hasta ${p.maxLines} números` : `${p.maxLines} números de WhatsApp`}</p>
+                  <p className="display mt-3 text-3xl">{cop(mode === 'MANAGED' ? p.priceManaged : p.priceSelf)}<span className="text-sm text-ink-3">/mes</span></p>
+                  <p className="text-[11px] text-ink-3">IVA incluido{mode === 'MANAGED' ? ` · + la IA que uses · US$${p.includedMetaUsd} de Meta incluidos` : ' · la IA y Meta los pagas directo'}</p>
+                  <ul className="mt-3 flex-1 space-y-1 border-t border-line pt-3 text-sm">
+                    {p.features.map((f) => <li key={f} className="flex gap-2"><Check size={14} className="mt-0.5 shrink-0" />{f}</li>)}
+                  </ul>
+                </article>
+              ))}
+            </div>
+            <div className="mt-6 grid gap-3 text-sm md:grid-cols-2">
+              <p className="flex gap-2 border-2 border-line bg-bone p-3"><Gift size={16} className="mt-0.5 shrink-0" />{data.notices.landing}</p>
+              <p className="flex gap-2 border-2 border-line bg-bone p-3"><UserRound size={16} className="mt-0.5 shrink-0" />{data.notices.humanOversight}</p>
+              <p className="border-2 border-line bg-bone p-3 text-xs text-ink-2">{data.notices.numbers}</p>
+              <p className="border-2 border-line bg-bone p-3 text-xs text-ink-2">{data.notices.meta}</p>
+            </div>
+            {data.addons.some((a) => a.included) && (
+              <div className="mt-8">
+                <p className="kicker mb-3">Incluido en todos los planes</p>
+                <div className="grid gap-3 md:grid-cols-3">
+                  {data.addons.filter((a) => a.included).map((a) => (
+                    <div key={a.name} className="border-2 border-ink bg-bone p-4">
+                      <p className="font-semibold">{a.name}</p>
+                      <p className="mt-1 text-sm text-ink-2">{a.description}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            {data.addons.some((a) => !a.included) && (
+              <div className="mt-8">
+                <p className="kicker mb-3">Complementos</p>
+                <div className="flex flex-wrap gap-2">
+                  {data.addons.filter((a) => !a.included).map((a) => (
+                    <span key={a.name} title={a.description} className={`inline-flex items-center gap-2 border-2 px-3 py-1.5 text-sm ${a.status === 'SOON' ? 'border-line text-ink-3' : 'border-ink bg-bone'}`}>
+                      {a.name}
+                      <span className="text-xs">{a.status === 'SOON' ? 'Próximamente' : `${cop(a.price)}/mes${a.perUnit ? ` por ${a.perUnit}` : ''}`}</span>
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+          </>
+        )}
       </div>
     </section>
   );
 }
 
 export default function Landing() {
+  useSeo(HOME);
+  const { hash } = useLocation();
+  // Los enlaces /#planes y /#sectores del menú llegan con el ancla: bajar hasta ella
   useEffect(() => {
-    document.title = 'BackOffice — CRM multiempresa con WhatsApp e IA para negocios';
-  }, []);
+    if (!hash) return;
+    document.getElementById(decodeURIComponent(hash.slice(1)))?.scrollIntoView({ block: 'start' });
+  }, [hash]);
 
   return (
-    <div className="min-h-screen bg-bone text-ink">
-      <header className="mx-auto flex max-w-6xl items-center justify-between px-4 py-5 md:px-6">
-        <p className="display text-2xl leading-none">
-          BackOffice<span className="text-ok">.</span>
-        </p>
-        <nav className="flex items-center gap-2">
-          <a href="#incluye" className="hidden px-3 py-2 text-xs font-semibold uppercase tracking-[0.08em] hover:underline md:inline-block">Qué incluye</a>
-          <a href="#estado" className="hidden px-3 py-2 text-xs font-semibold uppercase tracking-[0.08em] hover:underline md:inline-block">Estado</a>
-          <Link to="/contacto" className="hidden px-3 py-2 text-xs font-semibold uppercase tracking-[0.08em] hover:underline md:inline-block">Contacto</Link>
-          <Link to="/login" className="px-3 py-2 text-xs font-semibold uppercase tracking-[0.08em] hover:underline">
-            Iniciar sesión
-          </Link>
-          <Link to="/registro" className="hidden bg-ink px-4 py-2 text-xs font-semibold uppercase tracking-[0.08em] text-bone hover:bg-ink-2 sm:inline-block">
-            Crea tu cuenta
-          </Link>
-        </nav>
-      </header>
-
-      <main>
-        {/* Hero */}
-        <section className="mx-auto max-w-6xl px-4 pb-14 pt-8 md:px-6 md:pt-14">
-          <p className="kicker mb-4">CRM SaaS multiempresa · para negocios de cualquier sector · Colombia</p>
-          <h1 className="display max-w-4xl text-[clamp(2.6rem,8vw,6rem)] leading-[0.92]">
-            Tus clientes, tu WhatsApp
-            <br />
-            y tu publicidad, <span className="serif-accent text-[0.8em] normal-case">en un solo panel.</span>
+    <SiteLayout>
+      {/* Hero */}
+      <section className="mx-auto grid max-w-6xl items-center gap-12 px-4 pb-16 pt-10 md:px-6 md:pt-16 lg:grid-cols-[1.35fr_1fr]">
+        <div>
+          <p className="kicker mb-4">Automatización de procesos con WhatsApp e IA · Colombia</p>
+          <h1 className="display text-[clamp(2.6rem,7.4vw,5.6rem)] leading-[0.92]">
+            Automatiza tu WhatsApp
+            <br />y tu negocio,{' '}
+            <span className="serif-accent text-[0.8em] normal-case">y deja de perder tiempo y dinero.</span>
           </h1>
-          <p className="mt-6 max-w-2xl text-lg text-ink-2">
-            BackOffice es un CRM en la nube: atiende tu WhatsApp con un asistente de IA supervisado por tu equipo, organiza clientes, embudo, pedidos y cobranza, y reúne los resultados de tus cuentas publicitarias.
+          <p className="mt-6 max-w-xl text-lg text-ink-2">
+            BackOffice responde a tus clientes por WhatsApp con un asistente de IA supervisado por tu equipo, y convierte cada conversación en un proceso ordenado: pedidos, citas, cobros, seguimientos y reportes en un solo panel.
           </p>
           <div className="mt-8 flex flex-wrap gap-3">
             <Link
               to="/registro"
               className="inline-flex items-center gap-2 bg-ink px-6 py-3.5 text-sm font-semibold uppercase tracking-[0.08em] text-bone shadow-[6px_6px_0_0_rgba(31,122,61,0.9)] transition-transform hover:-translate-y-0.5"
             >
-              <Sparkles size={16} /> Crea tu empresa
+              <Sparkles size={16} /> Crea tu cuenta
             </Link>
-            <a
-              href="#incluye"
-              className="inline-flex items-center gap-2 border-2 border-ink bg-paper px-6 py-3 text-sm font-semibold uppercase tracking-[0.08em] hover:bg-bone-2"
-            >
-              Ver qué incluye <ArrowRight size={16} />
+            <a href="#ahorro" className="inline-flex items-center gap-2 border-2 border-ink bg-paper px-6 py-3 text-sm font-semibold uppercase tracking-[0.08em] hover:bg-bone-2">
+              Calcula tu ahorro <ArrowRight size={16} />
             </a>
           </div>
-          <p className="mt-4 text-xs text-ink-3">Proyecto en desarrollo y validación con los primeros negocios. Sin tarjeta para empezar: el plan lo eliges cuando todo esté funcionando.</p>
-        </section>
+          <ul className="mt-6 flex flex-wrap gap-x-5 gap-y-1 text-xs text-ink-3">
+            <li className="flex items-center gap-1.5"><Check size={13} className="text-ok" /> Sin tarjeta para empezar</li>
+            <li className="flex items-center gap-1.5"><Check size={13} className="text-ok" /> WhatsApp oficial de Meta</li>
+            <li className="flex items-center gap-1.5"><Check size={13} className="text-ok" /> Una persona siempre puede tomar el control</li>
+          </ul>
+        </div>
+        <ChatMock />
+      </section>
 
-        {/* Cómo funciona */}
-        <section className="border-y-2 border-ink bg-paper">
-          <div className="mx-auto grid max-w-6xl gap-0 px-4 md:grid-cols-3 md:px-6">
-            {STEPS.map((s, i) => (
-              <div key={s.n} className={`py-8 md:px-6 ${i > 0 ? 'border-t-2 border-ink md:border-l-2 md:border-t-0' : ''} ${i === 0 ? 'md:pl-0' : ''}`}>
-                <p className="display text-4xl text-ok">{s.n}</p>
-                <h2 className="mt-2 text-lg font-semibold">{s.title}</h2>
-                <p className="mt-1 text-sm text-ink-2">{s.text}</p>
-              </div>
-            ))}
-          </div>
-        </section>
-
-        {/* Qué incluye */}
-        <section id="incluye" className="mx-auto max-w-6xl scroll-mt-4 px-4 py-14 md:px-6">
-          <div className="mb-6 flex flex-wrap items-end justify-between gap-3">
-            <h2 className="display text-4xl md:text-5xl">
-              Un CRM, <span className="serif-accent normal-case">tres productos</span>
-            </h2>
-            <p className="max-w-sm text-sm text-ink-3">Cada empresa tiene su propio espacio, separado de las demás, y activa solo lo que necesita.</p>
-          </div>
-          <div className="grid gap-4 lg:grid-cols-3">
-            {PRODUCTS.map((p) => (
-              <article key={p.name} className="flex flex-col border-2 border-ink bg-paper p-5">
-                <p.icon size={22} strokeWidth={1.8} />
-                <h3 className="display mt-4 text-3xl">{p.name}</h3>
-                <p className="text-sm text-ink-2">{p.text}</p>
-                <ul className="mt-4 space-y-1.5 border-t border-line pt-4 text-sm">
-                  {p.items.map((it) => <li key={it} className="flex gap-2"><Check size={14} className="mt-0.5 shrink-0" />{it}</li>)}
-                </ul>
-              </article>
-            ))}
-          </div>
-        </section>
-
-        {/* Rubros */}
-        <section className="mx-auto max-w-6xl px-4 pb-14 md:px-6">
-          <div className="mb-6 flex flex-wrap items-end justify-between gap-3">
-            <h2 className="display text-4xl md:text-5xl">
-              Hecho a la medida <span className="serif-accent normal-case">de tu negocio</span>
-            </h2>
-            <p className="max-w-sm text-sm text-ink-3">Cada empresa ve solo las herramientas de su tipo de negocio.</p>
-          </div>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            {RUBROS.map((r) => (
-              <article key={r.title} className="flex flex-col border-2 border-ink bg-paper p-5">
-                <r.icon size={22} strokeWidth={1.8} />
-                <h3 className="mt-4 text-lg font-semibold">{r.title}</h3>
-                <p className="mt-1 flex-1 text-sm text-ink-2">{r.text}</p>
-              </article>
-            ))}
-          </div>
-        </section>
-
-        {/* Cuentas publicitarias */}
-        <section id="publicidad" className="scroll-mt-4 border-y-2 border-ink bg-paper">
-          <div className="mx-auto max-w-6xl px-4 py-14 md:px-6">
-            <p className="kicker">Cuentas publicitarias</p>
-            <h2 className="display mt-1 text-4xl md:text-5xl">
-              Tu publicidad, <span className="serif-accent normal-case">conectada a tu operación</span>
-            </h2>
-            <p className="mt-3 max-w-2xl text-sm text-ink-2">
-              Cada negocio conecta sus propias cuentas de anuncios. BackOffice no compra publicidad por ti ni usa tu presupuesto sin tu decisión.
-            </p>
-            <div className="mt-8 grid gap-6 md:grid-cols-2 lg:grid-cols-4">
-              {ADS_STEPS.map((s) => (
-                <div key={s.n} className="border-t-2 border-ink pt-4">
-                  <p className="display text-3xl text-ok">{s.n}</p>
-                  <h3 className="mt-1 font-semibold">{s.title}</h3>
-                  <p className="mt-1 text-sm text-ink-2">{s.text}</p>
-                </div>
-              ))}
-            </div>
-            <div className="mt-8 grid gap-3 text-sm md:grid-cols-2">
-              <p className="border-2 border-ink bg-bone p-4">
-                <b>Sobre las plataformas.</b> Las integraciones con Meta Ads, Google Ads y TikTok Ads están construidas y en pruebas. Para usarlas con cuentas reales, cada plataforma debe revisar y autorizar la aplicación de BackOffice; ese proceso todavía no ha concluido. BackOffice no está afiliado ni respaldado por Meta, Google ni TikTok.
-              </p>
-              <p className="border-2 border-ink bg-bone p-4">
-                <b>Tú mantienes el control.</b> Puedes desconectar una cuenta desde BackOffice o quitarle el permiso desde la propia plataforma en cualquier momento. Mostramos datos para decidir mejor; no garantizamos resultados de ventas ni de anuncios.
-              </p>
-            </div>
-          </div>
-        </section>
-
-        {/* Estado de las funciones */}
-        <section id="estado" className="mx-auto max-w-6xl scroll-mt-4 px-4 py-14 md:px-6">
-          <p className="kicker">Estado de las funciones</p>
-          <h2 className="display mt-1 text-4xl md:text-5xl">
-            Lo que hay, <span className="serif-accent normal-case">lo que se prueba y lo que viene</span>
+      {/* El problema */}
+      <section className="border-y-2 border-ink bg-ink text-bone">
+        <div className="mx-auto max-w-6xl px-4 py-14 md:px-6">
+          <p className="kicker !text-line">El costo de atender a mano</p>
+          <h2 className="display mt-2 max-w-3xl text-4xl md:text-5xl">
+            WhatsApp no es gratis <span className="serif-accent text-[0.82em] normal-case">si alguien lo atiende todo el día.</span>
           </h2>
-          <p className="mt-3 max-w-2xl text-sm text-ink-2">BackOffice es un proyecto en desarrollo y validación. Preferimos decirte con claridad qué funciona hoy.</p>
-          <div className="mt-8 grid gap-4 lg:grid-cols-3">
+          <div className="mt-10 grid gap-px border-2 border-ink-2 bg-ink-2 sm:grid-cols-2 lg:grid-cols-4">
+            {PAINS.map((p) => (
+              <article key={p.title} className="bg-ink p-5">
+                <p.icon size={22} strokeWidth={1.8} className="text-wa" />
+                <h3 className="mt-4 font-semibold">{p.title}</h3>
+                <p className="mt-1 text-sm text-line">{p.text}</p>
+              </article>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* Procesos */}
+      <section id="procesos" className="mx-auto max-w-6xl scroll-mt-20 px-4 py-16 md:px-6">
+        <SectionTitle
+          kicker="Qué automatiza"
+          title="Cada proceso,"
+          accent="del chat a la operación"
+          intro="Lo repetitivo lo hace el sistema; tu equipo se queda con lo que necesita criterio. Cada empresa activa solo lo que usa."
+        />
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          {PROCESSES.map((p) => (
+            <Link key={p.title} to={p.href} className="group flex flex-col border-2 border-ink bg-paper p-5 transition-shadow hover:shadow-[6px_6px_0_0_rgba(26,26,26,0.9)]">
+              <p.icon size={22} strokeWidth={1.8} />
+              <h3 className="mt-4 text-lg font-semibold">{p.title}</h3>
+              <p className="mt-1 flex-1 text-sm text-ink-2">{p.text}</p>
+              <span className="mt-4 inline-flex items-center gap-1 text-xs font-semibold uppercase tracking-[0.08em]">Ver más <ArrowRight size={13} className="transition-transform group-hover:translate-x-0.5" /></span>
+            </Link>
+          ))}
+        </div>
+      </section>
+
+      {/* Cómo funciona */}
+      <section className="border-y-2 border-ink bg-paper">
+        <div className="mx-auto max-w-6xl px-4 py-14 md:px-6">
+          <SectionTitle kicker="Cómo funciona" title="Empieza hoy," accent="sin consultorías eternas" />
+          <ol className="grid gap-0 md:grid-cols-3">
+            {STEPS.map((s, i) => (
+              <li key={s.title} className={`py-6 md:px-6 ${i > 0 ? 'border-t-2 border-ink md:border-l-2 md:border-t-0' : 'md:pl-0'}`}>
+                <p className="display text-4xl text-ok">{String(i + 1).padStart(2, '0')}</p>
+                <h3 className="mt-2 text-lg font-semibold">{s.title}</h3>
+                <p className="mt-1 text-sm text-ink-2">{s.text}</p>
+              </li>
+            ))}
+          </ol>
+        </div>
+      </section>
+
+      {/* Calculadora */}
+      <section id="ahorro" className="mx-auto max-w-6xl scroll-mt-20 px-4 py-16 md:px-6">
+        <SectionTitle
+          kicker="Ahorro de costos"
+          title="Haz la cuenta"
+          accent="con tus números"
+          intro="Cuánto tiempo y dinero se va hoy en responder WhatsApp a mano, y cuánto podrías liberar automatizando lo repetitivo."
+        />
+        <SavingsCalculator />
+      </section>
+
+      {/* Sectores */}
+      <section id="sectores" className="scroll-mt-20 border-y-2 border-ink bg-paper">
+        <div className="mx-auto max-w-6xl px-4 py-16 md:px-6">
+          <SectionTitle kicker="Sectores" title="Hecho a la medida" accent="de tu negocio" intro="Cada empresa ve solo las herramientas de su tipo de negocio." />
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            {SECTORS.map((s, i) => {
+              const Icon = SECTOR_ICONS[i % SECTOR_ICONS.length];
+              return (
+                <Link key={s.path} to={s.path} className="group flex flex-col border-2 border-ink bg-bone p-5 transition-shadow hover:shadow-[6px_6px_0_0_rgba(26,26,26,0.9)]">
+                  <Icon size={22} strokeWidth={1.8} />
+                  <h3 className="mt-4 text-lg font-semibold">{s.nav}</h3>
+                  <p className="mt-1 flex-1 text-sm text-ink-2">{s.h1} {s.accent}</p>
+                  <span className="mt-4 inline-flex items-center gap-1 text-xs font-semibold uppercase tracking-[0.08em]">Ver solución <ArrowRight size={13} className="transition-transform group-hover:translate-x-0.5" /></span>
+                </Link>
+              );
+            })}
+          </div>
+        </div>
+      </section>
+
+      {/* Productos */}
+      <section className="mx-auto max-w-6xl px-4 py-16 md:px-6">
+        <SectionTitle kicker="La plataforma" title="Una plataforma," accent="tres productos" intro="Cada empresa tiene su propio espacio, separado de las demás, y activa solo lo que necesita." />
+        <div className="grid gap-4 lg:grid-cols-3">
+          {PRODUCTS.map((p, i) => (
+            <article key={p.name} className={`flex flex-col border-2 border-ink p-5 ${i === 0 ? 'bg-ink text-bone' : 'bg-paper'}`}>
+              <p.icon size={22} strokeWidth={1.8} />
+              <h3 className="display mt-4 text-3xl">{p.name}</h3>
+              <p className={`mt-1 text-sm ${i === 0 ? 'text-line' : 'text-ink-2'}`}>{p.text}</p>
+            </article>
+          ))}
+        </div>
+        <div className="mt-6 grid gap-3 text-sm md:grid-cols-2">
+          <p className="border-2 border-ink bg-paper p-4">
+            <b>Tú mantienes el control.</b> La IA responde con lo que el negocio configuró y una persona puede tomar cualquier conversación. Las cuentas publicitarias se conectan con tu propio usuario, nunca con tu contraseña, y se desconectan cuando quieras.
+          </p>
+          <p className="border-2 border-ink bg-paper p-4">
+            <b>Sobre las plataformas.</b> Las integraciones con Meta Ads, Google Ads y TikTok Ads están construidas y en pruebas mientras cada plataforma revisa y autoriza la aplicación. BackOffice no está afiliado ni respaldado por Meta, Google ni TikTok.
+          </p>
+        </div>
+      </section>
+
+      {/* Estado */}
+      <section id="estado" className="scroll-mt-20 border-t-2 border-ink">
+        <div className="mx-auto max-w-6xl px-4 py-16 md:px-6">
+          <SectionTitle kicker="Estado de las funciones" title="Lo que hay," accent="lo que se prueba y lo que viene" intro="BackOffice está en desarrollo y validación con los primeros negocios. Preferimos decirte con claridad qué funciona hoy." />
+          <div className="grid gap-4 lg:grid-cols-3">
             {STATUS.map((c, i) => (
               <article key={c.title} className={`flex flex-col border-2 border-ink p-5 ${i === 0 ? 'bg-ink text-bone' : 'bg-paper'}`}>
                 <h3 className="display text-3xl">{c.title}</h3>
@@ -305,51 +353,14 @@ export default function Landing() {
               </article>
             ))}
           </div>
-        </section>
-
-        <PlansSection />
-
-        {/* Cierre */}
-        <section className="bg-ink text-bone">
-          <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-6 px-4 py-12 md:px-6">
-            <div>
-              <h2 className="display text-4xl md:text-5xl">Empieza hoy.</h2>
-              <p className="mt-2 max-w-xl text-sm text-line">
-                Describe tu negocio y revisa tu cuenta armada. Si prefieres hablar antes, escríbenos.
-              </p>
-            </div>
-            <div className="flex flex-wrap gap-3">
-              <Link to="/registro" className="inline-flex items-center gap-2 bg-bone px-6 py-3.5 text-sm font-semibold uppercase tracking-[0.08em] text-ink hover:bg-paper">
-                <Sparkles size={16} /> Crea tu cuenta
-              </Link>
-              <Link to="/contacto" className="inline-flex items-center gap-2 border-2 border-bone px-6 py-3 text-sm font-semibold uppercase tracking-[0.08em] hover:bg-ink-2">
-                Contacto
-              </Link>
-            </div>
-          </div>
-        </section>
-      </main>
-
-      <footer className="border-t-2 border-ink">
-        <div className="mx-auto grid max-w-6xl gap-6 px-4 py-8 text-xs text-ink-3 md:grid-cols-[1.4fr_1fr_1fr] md:px-6">
-          <div>
-            <p className="display text-xl leading-none text-ink">BackOffice<span className="text-ok">.</span></p>
-            <p className="mt-2 max-w-sm">
-              CRM SaaS multiempresa en desarrollo. Servicio prestado por {RESPONSABLE}, persona natural, desde {CIUDAD.split(',')[0]}, Colombia.
-            </p>
-            <p className="mt-2">© {new Date().getFullYear()} BackOffice</p>
-          </div>
-          <div className="flex flex-col gap-1">
-            <p className="kicker">Contacto</p>
-            <a href={waLink()} target="_blank" rel="noreferrer" className="hover:underline">WhatsApp {WA_TEXT}</a>
-            <a href={mailLink()} className="hover:underline">{EMAIL}</a>
-          </div>
-          <div className="flex flex-col gap-1">
-            <p className="kicker">Legal</p>
-            <LegalFooterLinks className="flex-col gap-y-1" />
-          </div>
         </div>
-      </footer>
-    </div>
+      </section>
+
+      <PlansSection />
+
+      <FaqList items={HOME_FAQ} />
+
+      <CtaBand title="Automatiza hoy." />
+    </SiteLayout>
   );
 }

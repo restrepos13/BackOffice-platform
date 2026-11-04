@@ -65,11 +65,33 @@ async function bootstrap() {
   // vista previa para WhatsApp/redes ya escrita en el <head> según la ruta.
   const webDist = resolve(__dirname, '..', '..', 'web', 'dist');
   if (existsSync(join(webDist, 'index.html'))) {
-    const indexHtml = readFileSync(join(webDist, 'index.html'), 'utf8');
+    // app.html = la app vacía; index.html y <ruta>.html = páginas públicas
+    // prerenderizadas al compilar (apps/web/scripts/prerender.mjs)
+    const shellFile = existsSync(join(webDist, 'app.html')) ? 'app.html' : 'index.html';
+    const indexHtml = readFileSync(join(webDist, shellFile), 'utf8');
+    const prerendered = new Map<string, string>();
+    const prerenderedFor = (path: string): string | null => {
+      if (shellFile !== 'app.html') return null;
+      const clean = path.replace(/\/+$/, '') || '/';
+      if (clean === '/app' || (clean !== '/' && !/^\/[a-z0-9-]+(\/[a-z0-9-]+)?$/.test(clean))) return null;
+      const cached = prerendered.get(clean);
+      if (cached) return cached;
+      // Solo se guardan las que existen: rutas inventadas no llenan la memoria
+      const file = join(webDist, clean === '/' ? 'index.html' : `${clean.slice(1)}.html`);
+      if (!existsSync(file)) return null;
+      const html = readFileSync(file, 'utf8');
+      prerendered.set(clean, html);
+      return html;
+    };
     const previews = app.get(SharePreviewService);
     app.useStaticAssets(webDist, { index: false, maxAge: '1h' });
     app.use(async (req: any, res: any, next: any) => {
       if (req.method !== 'GET' || req.path.startsWith('/api')) return next();
+      const page = prerenderedFor(req.path);
+      if (page) {
+        res.setHeader('Cache-Control', 'public, max-age=0, s-maxage=300');
+        return res.type('html').send(page);
+      }
       let html = indexHtml;
       try {
         html = await previews.render(indexHtml, req.path);

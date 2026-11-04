@@ -1,10 +1,13 @@
 import { Suspense, lazy, type ReactNode } from 'react';
 import { Navigate, Route, Routes } from 'react-router-dom';
-import AppShell from './layouts/AppShell';
 import { useAuth } from './lib/auth';
 import { Loading } from './components/ui';
 import Login from './pages/Login';
 import { ProductHome, ProductPage, RequireProduct } from './lib/products';
+import { SITE_PAGE_PATHS } from './pages/public/site/paths';
+// El panel se descarga al entrar: la portada y las páginas públicas no lo cargan
+const AppShell = lazy(() => import('./layouts/AppShell'));
+const MarketingPage = lazy(() => import('./pages/public/site/MarketingPage'));
 const PlatformOverview = lazy(() => import('./pages/platform/Overview'));
 const Companies = lazy(() => import('./pages/platform/Companies'));
 const CompanyNew = lazy(() => import('./pages/platform/CompanyNew'));
@@ -137,6 +140,8 @@ export default function App() {
       <Route path="/privacidad" element={<Privacy />} />
       <Route path="/eliminacion-de-datos" element={<DataDeletion />} />
       <Route path="/contacto" element={<Contact />} />
+      {/* Soluciones, sectores, calculadora y guías (prerenderizadas al compilar) */}
+      {SITE_PAGE_PATHS.map((p) => <Route key={p} path={p} element={<MarketingPage />} />)}
       {CreativeLab && <Route path="/lab/creative" element={<CreativeLab />} />}
       <Route path="/print/order/:id" element={<RequireAuth><PrintOrder /></RequireAuth>} />
       {/* App móvil del domiciliario (fuera del panel) */}
