@@ -90,6 +90,14 @@ export function sanitizeChain(raw: unknown): ChainEntry[] {
     .slice(0, 40);
 }
 
+/**
+ * fetch real, salvo en las pruebas: aunque otro archivo haya cargado el .env
+ * con llaves de verdad, Jest jamás llama a un proveedor real (las pruebas
+ * inyectan su fetch simulado).
+ */
+const realFetch: FetchLike = (url, init) =>
+  process.env.JEST_WORKER_ID ? Promise.reject(new Error('sin red en las pruebas')) : (fetch(url, init) as any);
+
 /** Recorta el tiempo de espera de un intento a lo que queda del presupuesto total. */
 function withBudget(opts: ChatOpts, left: number): ChatOpts {
   if (!Number.isFinite(left)) return opts;
@@ -104,7 +112,7 @@ export class GeminiPool {
 
   constructor(
     private readonly prisma: any,
-    private readonly fetchImpl: FetchLike = (url, init) => fetch(url, init) as any,
+    private readonly fetchImpl: FetchLike = realFetch,
   ) {
     this.backup = new OpenRouterPool(prisma, fetchImpl as any);
     this.keyed = {
