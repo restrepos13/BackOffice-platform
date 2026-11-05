@@ -10,7 +10,6 @@ import { monitorEventLoopDelay } from 'perf_hooks';
 
 /** Identifica este arranque: varios en 24 h = el servidor se reinició o se durmió. */
 export const BOOT_ID = randomBytes(6).toString('hex');
-export const BOOTED_AT = new Date();
 
 interface Minute { at: number; durations: number[]; count: number; errors: number }
 

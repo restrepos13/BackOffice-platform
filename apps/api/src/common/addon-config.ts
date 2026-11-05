@@ -65,8 +65,6 @@ export const DEFAULT_COLLECTIONS: CollectionsConfig = {
   autoFromOrders: true,
 };
 
-export const DEFAULT_SALES_AUDIT: SalesAuditConfig = { email: '', useAi: true };
-
 const int = (v: unknown, min: number, max: number, fallback: number) => {
   const n = Math.round(Number(v));
   return Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : fallback;

@@ -129,24 +129,3 @@ export function TermsGate() {
     </div>
   );
 }
-
-/** Página pública /terminos. */
-export function PublicTerms() {
-  const { data } = useQuery({ queryKey: ['terms-doc'], queryFn: () => api.get<TermsDoc>('/public/terms') });
-  return (
-    <div className="min-h-screen bg-bone text-ink">
-      <header className="mx-auto flex max-w-3xl items-center justify-between px-4 py-5">
-        <Link to="/" className="display text-2xl leading-none">BackOffice<span className="text-ok">.</span></Link>
-      </header>
-      <main className="mx-auto max-w-3xl px-4 pb-16">
-        {data ? (
-          <article className="border-2 border-ink bg-paper p-6">
-            <h1 className="display text-3xl">{data.title}</h1>
-            <p className="mb-4 text-xs text-ink-3">Versión {data.version} · actualizada el {new Date(data.updatedAt).toLocaleDateString('es-CO', { day: 'numeric', month: 'long', year: 'numeric' })}</p>
-            <TermsBody body={data.body} />
-          </article>
-        ) : <p className="text-sm text-ink-3">Cargando…</p>}
-      </main>
-    </div>
-  );
-}

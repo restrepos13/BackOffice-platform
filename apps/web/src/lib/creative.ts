@@ -143,26 +143,6 @@ export function coverCrop(img: { naturalWidth: number; naturalHeight: number }, 
   return { x: 0, y: Math.round((img.naturalHeight - h) / 2), width: img.naturalWidth, height: h };
 }
 
-/** Lleva un diseño a otro formato: escala proporcional y conserva posiciones relativas. */
-export function adaptDoc(doc: DesignDoc, to: FormatKey): DesignDoc {
-  const { width: W, height: H } = FORMATS[to];
-  const sx = W / doc.width;
-  const sy = H / doc.height;
-  const s = Math.min(sx, sy);
-  return {
-    ...doc, format: to, width: W, height: H,
-    elements: doc.elements.map((e) => {
-      const cx = (e.x + e.width / 2) * sx;
-      const cy = (e.y + e.height / 2) * sy;
-      const w = e.width * s;
-      const h = e.height * s;
-      const out: El = { ...e, id: newId(e.type[0]), x: Math.round(cx - w / 2), y: Math.round(cy - h / 2), width: Math.round(w), height: Math.round(h) } as El;
-      if (out.type === 'text') out.fontSize = Math.max(6, Math.round(out.fontSize * s));
-      return out;
-    }),
-  };
-}
-
 /** Historial para deshacer/rehacer (documentos completos; máx. 100 pasos). */
 export class History {
   private past: DesignDoc[] = [];

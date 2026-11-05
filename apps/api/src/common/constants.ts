@@ -17,13 +17,6 @@ export type Role = (typeof ROLES)[keyof typeof ROLES];
 /** Roles con acceso al panel de plataforma (todas las empresas). */
 export const PLATFORM_ROLES: Role[] = [ROLES.SUPER_ADMIN, ROLES.DEV];
 
-/** Roles que pueden escribir dentro de una empresa. */
-export const COMPANY_WRITE_ROLES: Role[] = [
-  ROLES.SUPER_ADMIN,
-  ROLES.DEV,
-  ROLES.COMPANY_ADMIN,
-];
-
 export function isPlatformRole(role: string): boolean {
   return PLATFORM_ROLES.includes(role as Role);
 }

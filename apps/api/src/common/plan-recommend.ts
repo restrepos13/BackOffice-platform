@@ -1,10 +1,9 @@
 /**
- * Recomendación de plan y paquete de IA, SOLO con código (sin gastar IA):
+ * Recomendación de plan, SOLO con código (sin gastar IA):
  * se elige el plan más económico del rubro que cubre lo que el negocio
  * necesita (volumen, herramientas, usuarios, domiciliarios) y se explica por
  * qué. Si algo lo exige, se sube un nivel y se dice la razón en palabras simples.
  */
-import { recommendPackage, type PackageOption } from './ai-cost';
 
 export interface PlanLike {
   id: string;
@@ -61,21 +60,5 @@ export function recommendPlan(plans: PlanLike[], needs: NeedsInput) {
     /** El de abajo (si lo quiere más barato) y por qué no alcanza */
     cheaper: cheaper ? { planId: cheaper.id, planName: cheaper.name, note: 'Más económico, pero se queda corto para lo que contaste.' } : null,
     upsell: upsell ? { planId: upsell.id, planName: upsell.name, note: 'Si esperas crecer pronto o quieres más usuarios y líneas.' } : null,
-  };
-}
-
-export function recommendCheckout(plans: PlanLike[], packages: PackageOption[], needs: NeedsInput, aiBillingMode: string) {
-  const plan = recommendPlan(plans, needs);
-  const monthly = Math.round(needs.dailyChats * 30);
-  const pkg = aiBillingMode === 'BYOK' ? null : recommendPackage(monthly, packages);
-  return {
-    plan,
-    aiPackage: pkg
-      ? { packageId: pkg.id, name: pkg.name, conversations: pkg.conversations, price: pkg.price, monthsItLasts: pkg.monthsItLasts,
-          reason: `Te alcanza para unos ${pkg.monthsItLasts ?? '—'} ${pkg.monthsItLasts === 1 ? 'mes' : 'meses'} con tu volumen actual (vence a los ${pkg.validityMonths} meses).` }
-      : null,
-    aiNote: aiBillingMode === 'BYOK'
-      ? 'Tu IA se paga con tu propia cuenta del proveedor: no necesitas paquete de BackOffice.'
-      : 'La IA de BackOffice se compra en paquetes de conversaciones; el primero lo puedes llevar con tu plan.',
   };
 }

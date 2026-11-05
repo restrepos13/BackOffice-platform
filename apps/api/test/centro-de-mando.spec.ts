@@ -1,6 +1,5 @@
 import { detectProfile, fitToProfile, interviewHint, profileOfCompany } from '../src/common/business-profile';
 import { originFromMeta, originFromTwilio, originUpdates } from '../src/common/chat-origin';
-import { guidedTurn } from '../src/common/signup-guided';
 import { DataExportService } from '../src/modules/data-export.module';
 import { createMockPrisma } from './helpers/mock-prisma';
 
@@ -27,15 +26,6 @@ describe('perfil del negocio (sin IA)', () => {
     expect(detectProfile('los clientes solicitan cotización de camisetas').key).toBe('ROPA');
     expect(profileOfCompany({ businessType: 'Tienda de ropa' }, 'VENTAS').roles).toContain('Confección o taller');
     expect(profileOfCompany({}, 'COMIDAS').key).toBe('COMIDA');
-  });
-
-  it('el plan B sin IA pregunta tallas a una marca de ropa', () => {
-    const envio = guidedTurn('tengo una marca de ropa pequeña', 3);
-    expect(envio.pregunta).toMatch(/llegan las prendas/);
-    expect(envio.opciones).toContain('Envío por transportadora');
-    const t = guidedTurn('tengo una marca de ropa pequeña', 4);
-    expect(t.pregunta).toMatch(/preguntan primero/);
-    expect(t.opciones).toContain('Tallas y disponibilidad');
   });
 });
 

@@ -135,8 +135,3 @@ export function useActiveCompanyId(): {
   if (!isPlatform) return { companyId: user?.companyId ?? null, setCompanyId };
   return { companyId: selected, setCompanyId };
 }
-
-/** Sufijo ?companyId= para peticiones scoped cuando el usuario es de plataforma. */
-export function companyQuery(companyId: string | null, prefix = '?'): string {
-  return companyId ? `${prefix}companyId=${companyId}` : '';
-}

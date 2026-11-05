@@ -137,13 +137,6 @@ export const RUN_STATUS_LABELS: Record<string, string> = {
   CANCELLED: 'Cancelada',
 };
 
-export const AUTOMATION_TYPE_LABELS: Record<string, string> = {
-  FLOW: 'Flujo',
-  CONTENT: 'Contenido',
-  REPORT: 'Reporte',
-  INTERNAL: 'Interna',
-};
-
 export const INTEGRATION_STATUS_LABELS: Record<string, string> = {
   DISCONNECTED: 'Sin conectar',
   PENDING: 'Pendiente',

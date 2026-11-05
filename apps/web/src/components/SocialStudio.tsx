@@ -375,9 +375,3 @@ export function PieceSocialPanel({ piece, q, onChanged }: { piece: ContentPiece;
   );
 }
 
-/** Para que plataforma/empresa con el panel elijan el estado visible. */
-export const SOCIAL_STATUS_LABELS: Record<string, string> = {
-  PUBLICANDO: 'Publicando',
-  ERROR: 'Error al publicar',
-};
-

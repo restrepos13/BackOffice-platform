@@ -1025,7 +1025,6 @@ export const AGENT_TOOLS: AgentTool[] = [
   },
 ];
 
-export const TOOL_NAMES = AGENT_TOOLS.map((t) => t.name);
 /** Herramientas de pedidos y consultas (todo menos reservas). */
 const ORDER_TOOLS = AGENT_TOOLS.filter((t) => !BOOKING_TOOL_NAMES.includes(t.name));
 
