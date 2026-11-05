@@ -4,12 +4,13 @@
  * PRODUCTO: "Automatización humanizada de WhatsApp para vender 24/7".
  *  - Planes: Básico (1 número de WhatsApp), Intermedio (2) y Max (hasta 5).
  *    Más números u otros canales → precio a medida con un asesor.
- *  - El número de WhatsApp lo pone el cliente. Meta cobra por los mensajes
- *    (lo factura a través de Twilio): eso NO es de BackOffice.
+ *  - El número de WhatsApp lo pone el cliente y queda en SU cuenta de WhatsApp
+ *    Business (Meta directo, sin intermediarios). Meta le cobra a él los
+ *    mensajes que inicia (avisos y campañas): eso NO es de BackOffice.
  *
  * DOS MODALIDADES por plan:
  *  - SELF "Tu IA": automatizamos todo; la IA la paga el cliente con su tarjeta
- *    (DeepInfra u OpenRouter) y los mensajes de Meta/Twilio también, directo.
+ *    (DeepInfra u OpenRouter) y los mensajes de Meta también, directo.
  *  - MANAGED "Todo incluido" (mes vencido): gestionamos todo. Factura del mes =
  *    mensualidad (incluye US$10 de mensajes de Meta, mantenimiento 24/7,
  *    acompañamiento remoto y mantenimiento de la landing) + IA consumida
@@ -41,9 +42,9 @@ export const SERVICE_MODES: Record<ServiceMode, { name: string; short: string; s
   SELF: {
     name: 'Tu IA',
     short: 'Automatizamos todo; la IA y los mensajes de Meta los pagas tú directo.',
-    summary: 'Nosotros automatizamos todos los procesos de tu negocio. La inteligencia artificial la pagas tú con tu tarjeta en DeepInfra u OpenRouter, y los mensajes de WhatsApp se los pagas directo a Meta (a través de Twilio).',
+    summary: 'Nosotros automatizamos todos los procesos de tu negocio. La inteligencia artificial la pagas tú con tu tarjeta en DeepInfra u OpenRouter, y los mensajes de WhatsApp que tú inicias te los cobra Meta directo, en tu propia cuenta de WhatsApp Business.',
     includes: ['Automatización de tu negocio y asistente que atiende como persona', 'Panel con todas tus herramientas', 'Soporte en horario hábil'],
-    youPay: ['La IA, con tu tarjeta (DeepInfra u OpenRouter)', 'Los mensajes de WhatsApp, a Meta vía Twilio'],
+    youPay: ['La IA, con tu tarjeta (DeepInfra u OpenRouter)', 'Los mensajes de WhatsApp que tú inicias (avisos y campañas), directo a Meta'],
   },
   MANAGED: {
     name: 'Todo incluido',
@@ -179,7 +180,7 @@ export const NUMBERS_NOTICE =
   'El número de WhatsApp lo pones tú. Básico: 1 número · Intermedio: 2 · Max: hasta 5. Si necesitas más números u otros canales, el precio cambia: habla con un asesor.';
 
 export const META_NOTICE =
-  'Meta cobra por los mensajes de WhatsApp (se factura a través de Twilio). Ese cobro no es de BackOffice: en "Tu IA" lo pagas directo y en "Todo incluido" te damos US$10 al mes y el excedente sale en tu factura.';
+  'Meta cobra los mensajes de WhatsApp que tú inicias (avisos y campañas) directo a tu empresa, en tu propia cuenta de WhatsApp Business: tu número es tuyo, no de BackOffice. Responder a quien te escribe no tiene costo en Meta.';
 
 export const LANDING_NOTICE =
   'Con tu primera suscripción te regalamos una landing básica (solo de vista, con botón a tu WhatsApp) sin dominio. Es tuya aunque dejes de estar con nosotros; el dominio lo pagas tú si lo quieres.';

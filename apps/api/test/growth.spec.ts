@@ -3,6 +3,7 @@
  * promociones, comprobantes con IA, agotados, menú con QR, respuestas
  * rápidas, embudos y base de conocimiento.
  */
+import { META_RATES_USD } from '../src/common/whatsapp/meta-rates';
 import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { execFileSync } from 'child_process';
 import { mkdtempSync, writeFileSync } from 'fs';
@@ -79,7 +80,7 @@ describe('campañas por WhatsApp', () => {
     const noTemplate = await service.preview(ADMIN, { segment: { customersOnly: true }, integrationId: 'line1' });
     expect(noTemplate).toMatchObject({ count: 2, inWindow: 1, outWindow: 1, willSkip: 1, estimatedCostUsd: 0 });
     const withTemplate = await service.preview(ADMIN, { segment: { customersOnly: true }, integrationId: 'line1', templateKey: 'menu_semana' });
-    expect(withTemplate).toMatchObject({ willSkip: 0, estimatedCostUsd: 0.0125 });
+    expect(withTemplate).toMatchObject({ willSkip: 0, estimatedCostUsd: META_RATES_USD.MARKETING });
   });
 
   it('envío: escalonado por la cola, con plantilla fuera de 24 h, sin doble envío y con métricas', async () => {

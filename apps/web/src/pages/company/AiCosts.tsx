@@ -227,7 +227,7 @@ export default function AiCosts() {
             <div className={clsx('border-2 p-3', !managed ? 'border-ink bg-ok-soft' : 'border-line')}>
               <p className="font-semibold">Tu IA {!managed && <Badge tone="ok">La que usas</Badge>}</p>
               <p className="mt-1 text-ink-2">
-                Pagas la IA directo al proveedor (DeepInfra u OpenRouter) con tu tarjeta, en dólares, y los mensajes de WhatsApp directo a Meta vía Twilio.
+                Pagas la IA directo al proveedor (DeepInfra u OpenRouter) con tu tarjeta, en dólares, y los mensajes de WhatsApp que tú inicias directo a Meta, en tu cuenta de WhatsApp Business.
                 La mensualidad es más baja. Los modelos premium de Anthropic solo están en Todo incluido.
               </p>
             </div>

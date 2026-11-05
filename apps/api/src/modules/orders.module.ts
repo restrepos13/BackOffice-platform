@@ -1,3 +1,5 @@
+import { metaLineConfig } from '../common/meta';
+import { cleanParam, parseMetaTemplateRef, sendMetaTemplate } from '../common/whatsapp/meta-templates';
 import {
   BadRequestException,
   Body,
@@ -425,6 +427,19 @@ export class RemindersService {
         where: { companyId: reminder.companyId, type: 'WHATSAPP' },
       });
       const cfg = parseJson<Record<string, any>>(line?.configJson ?? '{}', {});
+      if (cfg.provider === 'META') {
+        // Meta directo: plantilla aprobada en la cuenta de WhatsApp de la empresa
+        const meta = metaLineConfig(line);
+        if (!meta || meta.sandbox) {
+          this.logger.log(`[sandbox] recordatorio → ${recipient.phone}: ${body.slice(0, 60)}`);
+          return;
+        }
+        const company = await this.prisma.company.findUniqueOrThrow({ where: { id: reminder.companyId } });
+        const ref = parseMetaTemplateRef(parseJson<any[]>(company.waTemplatesJson, []).find((t) => t.key === reminder.templateKey)?.contentSid);
+        if (!ref) throw new Error(`Sin plantilla aprobada por Meta para "${reminder.templateKey}" — créala en Plantillas de WhatsApp`);
+        await sendMetaTemplate({ config: meta, to: recipient.phone, name: ref.name, language: ref.language, params: [cleanParam(body)] });
+        return;
+      }
       if (cfg.sandbox === true || !cfg.accountSid) {
         // SANDBOX: no sale nada real; queda registrado como enviado simulado
         this.logger.log(`[sandbox] recordatorio → ${recipient.phone}: ${body.slice(0, 60)}`);

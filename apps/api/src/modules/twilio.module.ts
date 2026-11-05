@@ -27,6 +27,8 @@ import twilio from 'twilio';
 import { isLatLng } from '../common/geo';
 import { applyConsent, queueBotText } from '../common/customer-notify';
 import { MetaLineConfig, metaLineConfig, sendMetaText } from '../common/meta';
+import { orderedParams, parseMetaTemplateRef, sendMetaTemplate as sendMetaTemplateApi } from '../common/whatsapp/meta-templates';
+import { MetaCategory, metaRatesFor } from '../common/whatsapp/meta-rates';
 import { SendError, classifySendError, sanitizeError, shouldApplyStatus } from '../common/inbox/delivery';
 import { claimInbound, releaseInbound } from '../common/inbox/dedupe';
 import { PrismaService } from '../prisma/prisma.service';
@@ -609,24 +611,41 @@ export class TwilioService implements OnModuleInit, OnApplicationShutdown {
     return { sid: providerId, category };
   }
 
-  /** Envío por Meta (ventana de 24 h; en sandbox o sin token no sale nada real). */
-  private async processMetaOutbound(message: any, conversation: any, meta: MetaLineConfig | null, data: { metaCategory?: string; contentSid?: string }) {
-    if (data.contentSid) {
-      await this.markSendFailed(message.id, 'Las plantillas por WhatsApp Cloud API de Meta aún no están disponibles en BackOffice', false);
-      return { failed: 'plantilla no soportada' };
+  /**
+   * Envío por Meta. Dentro de la ventana de 24 h, texto libre (sin costo en
+   * Meta); fuera, solo plantilla aprobada de la Cloud API ("meta:<nombre>:<idioma>").
+   * El costo queda estimado al enviar y se corrige con el aviso de Meta
+   * (statuses[].pricing). En sandbox o sin token no sale nada real.
+   */
+  private async processMetaOutbound(
+    message: any, conversation: any, meta: MetaLineConfig | null,
+    data: { metaCategory?: string; contentSid?: string; contentVariables?: Record<string, string> },
+  ) {
+    const template = data.contentSid ? parseMetaTemplateRef(data.contentSid) : null;
+    if (data.contentSid && !template) {
+      await this.markSendFailed(message.id, 'Esta línea está conectada directo con Meta y la plantilla es de Twilio: créala en Plantillas de WhatsApp', false);
+      return { failed: 'plantilla de otro proveedor' };
+    }
+    if (template && conversation.channel !== 'WHATSAPP') {
+      await this.markSendFailed(message.id, 'Las plantillas solo existen en WhatsApp', false);
+      return { failed: 'plantilla fuera de WhatsApp' };
     }
     const within = isWithinServiceWindow(
       (await this.prisma.message.findFirst({ where: { conversationId: conversation.id, direction: 'IN' }, orderBy: { createdAt: 'desc' } }))?.createdAt ?? null,
     );
-    if (!within) {
-      await this.markSendFailed(message.id, 'Fuera de la ventana de 24 h (Meta no permite escribir primero por este canal)', false);
+    if (!within && !template) {
+      await this.markSendFailed(message.id, conversation.channel === 'WHATSAPP'
+        ? 'Fuera de la ventana de 24 h y sin plantilla aprobada por Meta'
+        : 'Fuera de la ventana de 24 h (Meta no permite escribir primero por este canal)', false);
       return { failed: 'fuera de ventana' };
     }
+    const category = template ? (data.metaCategory && data.metaCategory !== 'SERVICIO' ? data.metaCategory : 'UTILIDAD') : 'SERVICIO';
+    const metaCostUsd = template ? metaRatesFor(conversation.company)[category as MetaCategory] ?? 0 : 0;
     if (!(await this.claimSend(message.id))) return { skipped: 'otro proceso lo está enviando' };
     if (!meta || meta.sandbox) {
       const providerId = `SANDBOX_${randomBytes(8).toString('hex')}`;
       this.logger.log(`[sandbox ${conversation.channel}] ${conversation.company.slug}: mensaje ${message.id} (no enviado)`);
-      await this.finishSend(conversation, message.id, { providerId, deliveryStatus: 'SIMULATED', metaCategory: data.metaCategory ?? 'SERVICIO', metaCostUsd: 0 });
+      await this.finishSend(conversation, message.id, { providerId, deliveryStatus: 'SIMULATED', metaCategory: category, metaCostUsd });
       return { sid: providerId, channel: conversation.channel, simulated: true };
     }
     let providerId: string;
@@ -634,16 +653,20 @@ export class TwilioService implements OnModuleInit, OnApplicationShutdown {
       const recipient = conversation.channel === 'WHATSAPP'
         ? conversation.contact.phone
         : String(conversation.contact.externalId ?? '').split(':').pop();
-      providerId = (await this.sendMeta({ channel: conversation.channel, config: meta, recipient, text: message.content })).id;
+      providerId = template
+        ? (await this.sendMetaTemplate({ config: meta, to: recipient, name: template.name, language: template.language, params: orderedParams(data.contentVariables) })).id
+        : (await this.sendMeta({ channel: conversation.channel, config: meta, recipient, text: message.content })).id;
     } catch (err) {
       return this.handleSendError(message, conversation, err);
     }
-    await this.finishSend(conversation, message.id, { providerId, deliveryStatus: 'SENT', metaCategory: data.metaCategory ?? 'SERVICIO', metaCostUsd: 0 });
-    return { sid: providerId, channel: conversation.channel };
+    await this.finishSend(conversation, message.id, { providerId, deliveryStatus: 'SENT', metaCategory: category, metaCostUsd });
+    return { sid: providerId, channel: conversation.channel, ...(template ? { template: template.name } : {}) };
   }
 
   /** Reemplazable en pruebas: envío real por la Graph API de Meta. */
   sendMeta: typeof sendMetaText = (input) => sendMetaText(input);
+  /** Reemplazable en pruebas: envío real de una plantilla por la Cloud API. */
+  sendMetaTemplate: typeof sendMetaTemplateApi = (input) => sendMetaTemplateApi(input);
 
   /** Toma el mensaje para enviarlo (QUEUED → SENDING): dos workers no lo envían dos veces. */
   private async claimSend(messageId: string) {

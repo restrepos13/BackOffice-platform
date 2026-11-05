@@ -53,6 +53,7 @@ const Bots = lazy(() => import('./pages/company/Bots'));
 const BotDetail = lazy(() => import('./pages/company/BotDetail'));
 const Automations = lazy(() => import('./pages/company/Automations'));
 const Integrations = lazy(() => import('./pages/company/Integrations'));
+const WhatsappTemplates = lazy(() => import('./pages/company/WhatsappTemplates'));
 const Reports = lazy(() => import('./pages/company/Reports'));
 const Billing = lazy(() => import('./pages/company/Billing'));
 const Team = lazy(() => import('./pages/company/Team'));
@@ -201,6 +202,7 @@ export default function App() {
         <Route path="/app/bots/:id" element={<RequireProduct any={['AUTOMATION']}><BotDetail /></RequireProduct>} />
         <Route path="/app/automations" element={<RequireProduct any={['AUTOMATION']}><Automations /></RequireProduct>} />
         <Route path="/app/integrations" element={<RequireProduct any={['AUTOMATION']}><Integrations /></RequireProduct>} />
+        <Route path="/app/whatsapp/plantillas" element={<RequireProduct any={['AUTOMATION']}><WhatsappTemplates /></RequireProduct>} />
         <Route path="/app/lines/:id" element={<RequireProduct any={['AUTOMATION']}><LineDetail /></RequireProduct>} />
         <Route path="/app/media" element={<RequireProduct any={['AUTOMATION']}><Media /></RequireProduct>} />
         <Route path="/app/usage" element={<Usage />} />

@@ -15,6 +15,7 @@ import {
 } from '../../components/ui';
 import ScheduleCall from '../../components/ScheduleCall';
 import GoogleCalendarCard from './integrations/GoogleCalendar';
+import { MetaConnectButton } from '../../components/whatsapp/meta';
 import { PickCompany, useCompanyScope, withScope } from './shared';
 
 const TYPE_ICONS: Record<string, typeof MessageCircle> = {
@@ -141,14 +142,18 @@ export default function Integrations() {
           <p className="kicker">Un número por perfil, área o campaña</p>
           <h2 className="display text-2xl">Líneas WhatsApp</h2>
         </div>
-        {canWrite && (
-          <Button
-            size="sm"
-            onClick={() => { setNewType('WHATSAPP'); setAdding(true); }}
-          >
-            + Agregar línea
-          </Button>
-        )}
+        <div className="flex flex-wrap items-center gap-2">
+          <Link to="/app/whatsapp/plantillas"><Button size="sm" variant="ghost">Plantillas y costos de Meta</Button></Link>
+          {canWrite && <MetaConnectButton q={q} label="Conectar número con Meta" variant="outline" />}
+          {canWrite && (
+            <Button
+              size="sm"
+              onClick={() => { setNewType('WHATSAPP'); setAdding(true); }}
+            >
+              + Agregar línea
+            </Button>
+          )}
+        </div>
       </div>
       <div className="mb-8 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         {integrations?.filter((i) => i.type === 'WHATSAPP').map((line) => {
@@ -186,11 +191,7 @@ export default function Integrations() {
                     <Settings2 size={12} /> Configurar IA
                   </Button>
                 </Link>
-                {canWrite && !connected && line.connectUrl && (
-                  <a href={line.connectUrl} target="_blank" rel="noreferrer">
-                    <Button size="sm" variant="outline">Conectar →</Button>
-                  </a>
-                )}
+                {canWrite && !connected && <MetaConnectButton q={q} integrationId={line.id} label="Conectar →" variant="outline" />}
               </div>
             </Card>
           );

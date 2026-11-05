@@ -32,6 +32,7 @@ import { WebhooksModule } from './modules/webhooks.module';
 import { EngineModule } from './modules/engine.module';
 import { QueueModule } from './queue/queue.module';
 import { TwilioModule } from './modules/twilio.module';
+import { WhatsappMetaModule } from './modules/whatsapp-meta.module';
 import { OrdersModule } from './modules/orders.module';
 import { CatalogModule } from './modules/catalog.module';
 import { EventsModule } from './modules/events.module';
@@ -109,6 +110,7 @@ import { schedulersEnabled } from './common/runtime-env';
     WebhooksModule,
     EngineModule,
     TwilioModule,
+    WhatsappMetaModule,
     OrdersModule,
     CatalogModule,
     EventsModule,

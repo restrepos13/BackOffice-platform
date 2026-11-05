@@ -4,8 +4,8 @@ import { parseJson } from '../constants';
  * Qué se puede enviar en una conversación AHORA, según el canal y la línea:
  *  - WhatsApp (Twilio o Meta Cloud API): dentro de las 24 h desde el último
  *    mensaje del cliente, texto libre. Fuera, solo plantilla aprobada.
- *    BackOffice envía plantillas por Twilio (contentSid registrado por la
- *    empresa). Por Meta Cloud API aún NO: se dice explícitamente.
+ *    Por Twilio, con el contentSid que registró la empresa; por Meta Cloud
+ *    API, con las plantillas aprobadas en su cuenta (contentSid "meta:…").
  *  - Instagram y Messenger: solo dentro de las 24 h. Fuera haría falta la
  *    etiqueta HUMAN_AGENT (7 días), que requiere permiso aprobado por Meta y
  *    no está implementada.
@@ -59,16 +59,16 @@ export function messagingWindow(input: {
   if (input.channel !== 'WHATSAPP') {
     return { ...base, mode: 'BLOCKED', reason: `Pasaron más de 24 h desde el último mensaje del cliente. ${input.channel === 'INSTAGRAM' ? 'Instagram' : 'Messenger'} no permite escribir fuera de esa ventana (la etiqueta de agente humano requiere un permiso de Meta que no está configurado).` };
   }
-  if (provider === 'META') {
-    return { ...base, mode: 'BLOCKED', reason: 'Fuera de la ventana de 24 h solo se puede usar una plantilla aprobada, y el envío de plantillas por WhatsApp Cloud API de Meta aún no está disponible en BackOffice.' };
-  }
+  // Cada línea usa las plantillas de su proveedor: las de Meta (aprobadas en la cuenta de la empresa) o las de Twilio
   const templates = parseJson<any[]>(input.waTemplatesJson, [])
-    .filter((t) => t?.key && t?.contentSid)
+    .filter((t) => t?.key && t?.contentSid && (provider === 'META') === String(t.contentSid).startsWith('meta:'))
     .map((t) => ({ key: String(t.key), name: String(t.name ?? t.key), body: t.body ? String(t.body) : null, variables: templateVariables(t.body) }));
   return {
     ...base, templates, mode: templates.length ? 'TEMPLATE_ONLY' : 'BLOCKED',
     reason: templates.length
       ? 'Pasaron más de 24 h desde el último mensaje del cliente: WhatsApp solo permite una plantilla aprobada.'
-      : 'Pasaron más de 24 h y la empresa no tiene plantillas registradas (con su contentSid de Twilio). No se puede escribir hasta que el cliente vuelva a escribir.',
+      : provider === 'META'
+        ? 'Pasaron más de 24 h y no tienes plantillas aprobadas por Meta. Créalas en Plantillas de WhatsApp; mientras tanto, solo puedes escribir cuando el cliente vuelva a escribir.'
+        : 'Pasaron más de 24 h y la empresa no tiene plantillas registradas (con su contentSid de Twilio). No se puede escribir hasta que el cliente vuelva a escribir.',
   };
 }

@@ -1136,6 +1136,9 @@ export interface CampaignPreview {
   estimatedCostUsd: number;
   sample: string[];
   templates: Array<{ key: string; name: string }>;
+  /** Quién cobra los mensajes fuera de 24 h: con Meta directo, Meta a la empresa */
+  paidTo?: 'META' | 'TWILIO' | null;
+  billingNotice?: string;
 }
 
 /* ─── Promociones, respuestas rápidas, embudos, conocimiento ──────── */

@@ -31,6 +31,8 @@ import { parseMessagingEvents, verifyMetaSignature } from '../common/meta';
 import { parseLeadgenEvents } from '../common/ads/leads';
 import { claimInbound, releaseInbound } from '../common/inbox/dedupe';
 import { sanitizeError, shouldApplyStatus } from '../common/inbox/delivery';
+import { applyTemplateWebhook, StoredTemplate } from '../common/whatsapp/meta-templates';
+import { costFromPricing, metaRatesFor } from '../common/whatsapp/meta-rates';
 import { AdLeadsService } from './ads-leads';
 import { AdsModule } from './ads.module';
 import { EventsService } from './events.module';
@@ -39,6 +41,9 @@ import { EventsService } from './events.module';
  * Receptores de Meta por empresa (públicos, responden 200 siempre):
  *   GET/POST /api/webhooks/:slug/whatsapp → WhatsApp Cloud API
  *   GET/POST /api/webhooks/:slug/meta     → Instagram y Messenger
+ *   GET/POST /api/webhooks/whatsapp-cloud → WhatsApp Cloud API a nivel de la
+ *     app (números conectados con el registro integrado): la empresa se busca
+ *     por la cuenta de WhatsApp Business (WABA) o por el número.
  * Verificación: hub.challenge con META_VERIFY_TOKEN; firma X-Hub-Signature-256
  * con META_APP_SECRET (obligatoria si está configurado). Los mensajes entran
  * al MISMO motor que Twilio (cola engine, agrupación, baja "STOP").
@@ -181,8 +186,13 @@ export class WebhooksService {
     for (const entry of body?.entry ?? []) {
       for (const change of entry?.changes ?? []) {
         const value = change?.value;
-        // Estados de entrega de lo que enviamos (sent → delivered → read, o failed)
-        for (const st of value?.statuses ?? []) await this.applyWhatsappStatus(company.id, st);
+        // Plantillas: Meta avisa si las aprobó, rechazó, pausó o les cambió la categoría
+        if (change?.field && change.field !== 'messages') {
+          await this.applyTemplateEvent(company.id, change.field, value);
+          continue;
+        }
+        // Estados de entrega de lo que enviamos (sent → delivered → read, o failed) y lo que Meta cobra
+        for (const st of value?.statuses ?? []) await this.applyWhatsappStatus(company.id, st, company);
         if (!value?.messages?.length) continue;
         const phoneNumberId = value?.metadata?.phone_number_id;
         const line = lines.find((l) => parseJson<Record<string, string>>(l.configJson, {}).phoneNumberId === phoneNumberId) ?? lines[0] ?? null;
@@ -207,21 +217,66 @@ export class WebhooksService {
    * de ESTA empresa, nunca retrocede (un "delivered" tardío no pisa un "read")
    * y un aviso repetido no hace nada.
    */
-  async applyWhatsappStatus(companyId: string, st: any) {
+  async applyWhatsappStatus(companyId: string, st: any, company?: any) {
     const map: Record<string, string> = { sent: 'SENT', delivered: 'DELIVERED', read: 'READ', failed: 'FAILED' };
     const status = map[String(st?.status ?? '').toLowerCase()];
     if (!st?.id || !status) return false;
     const message = await this.prisma.message.findFirst({ where: { providerId: String(st.id) }, include: { conversation: true } });
     if (!message || (message.conversation as any).companyId !== companyId) return false;
-    if (!shouldApplyStatus(message.deliveryStatus, status)) return false;
+    // Lo que Meta cobra por este mensaje (categoría y si es cobrable): reemplaza la estimación del envío
+    const charge = costFromPricing(st?.pricing, metaRatesFor(company ?? (await this.prisma.company.findUnique({ where: { id: companyId } }))));
+    const priced = charge && (charge.category !== message.metaCategory || charge.costUsd !== message.metaCostUsd)
+      ? { metaCategory: charge.category, metaCostUsd: charge.costUsd }
+      : null;
+    if (!shouldApplyStatus(message.deliveryStatus, status)) {
+      if (priced) await this.prisma.message.update({ where: { id: message.id }, data: priced });
+      return false;
+    }
     const err = st?.errors?.[0];
     await this.prisma.message.update({
       where: { id: message.id },
-      data: { deliveryStatus: status, ...(status === 'FAILED' ? { deliveryError: sanitizeError(`Meta: ${err?.title ?? err?.message ?? 'falló'}${err?.code ? ` (${err.code})` : ''}`) } : {}) },
+      data: {
+        deliveryStatus: status,
+        ...(priced ?? {}),
+        ...(status === 'FAILED' ? { deliveryError: sanitizeError(`Meta: ${err?.title ?? err?.message ?? 'falló'}${err?.code ? ` (${err.code})` : ''}`) } : {}),
+      },
     });
     if (status === 'FAILED') await this.prisma.conversation.update({ where: { id: message.conversationId }, data: { needsAttention: true } });
     this.events?.emit(companyId, { type: 'message.status', conversationId: message.conversationId, messageId: message.id, deliveryStatus: status });
     return true;
+  }
+
+  /** Aviso de Meta sobre una plantilla de la empresa (estado, categoría o calidad). */
+  async applyTemplateEvent(companyId: string, field: string, value: any) {
+    const company = await this.prisma.company.findUnique({ where: { id: companyId }, select: { waTemplatesJson: true } });
+    if (!company) return false;
+    const { templates, hit } = applyTemplateWebhook(parseJson<StoredTemplate[]>(company.waTemplatesJson, []), field, value);
+    if (!hit) return false;
+    await this.prisma.company.update({ where: { id: companyId }, data: { waTemplatesJson: JSON.stringify(templates) } });
+    this.events?.emit(companyId, { type: 'whatsapp.template', key: hit.key, status: hit.meta?.status, category: hit.category });
+    return true;
+  }
+
+  /**
+   * Webhook de la app (registro integrado): cada entrada trae la WABA en
+   * entry.id. Se reparte a la empresa dueña de esa WABA (o del número).
+   */
+  async ingestWhatsappCloud(body: any) {
+    let stored = 0;
+    for (const entry of body?.entry ?? []) {
+      const wabaId = String(entry?.id ?? '').replace(/\D/g, '');
+      const phoneNumberId = String(entry?.changes?.[0]?.value?.metadata?.phone_number_id ?? '').replace(/\D/g, '');
+      const line = (wabaId && await this.prisma.integration.findFirst({ where: { type: 'WHATSAPP', configJson: { contains: `"wabaId":"${wabaId}"` } }, include: { company: { select: { slug: true } } } }))
+        || (phoneNumberId && await this.prisma.integration.findFirst({ where: { type: 'WHATSAPP', configJson: { contains: `"phoneNumberId":"${phoneNumberId}"` } }, include: { company: { select: { slug: true } } } }))
+        || null;
+      if (!line) {
+        this.logger.warn(`Webhook de WhatsApp para una cuenta sin empresa (WABA ${wabaId || '?'})`);
+        continue;
+      }
+      const r = await this.ingestWhatsapp((line as any).company.slug, { object: body?.object, entry: [entry] });
+      stored += (r as any)?.stored ?? 0;
+    }
+    return { ok: true, stored };
   }
 
   /** Instagram y Messenger (objeto "instagram" o "page"), y formularios de Lead Ads (campo "leadgen"). */
@@ -258,6 +313,17 @@ export class WebhooksService {
 @Controller('webhooks')
 export class WebhooksController {
   constructor(private readonly webhooks: WebhooksService) {}
+
+  @Get('whatsapp-cloud')
+  async verifyCloud(@Query('hub.mode') mode: string, @Query('hub.verify_token') token: string, @Query('hub.challenge') challenge: string, @Res() res: Response) {
+    res.status(200).send(await this.webhooks.verify(mode, token, challenge));
+  }
+
+  @Post('whatsapp-cloud')
+  async ingestCloud(@Body() body: any, @Req() req: Request, @Headers('x-hub-signature-256') signature?: string) {
+    await this.webhooks.assertSignature((req as any).rawBody, signature);
+    return this.webhooks.ingestWhatsappCloud(body).catch(() => ({ ok: false }));
+  }
 
   @Get(':slug/whatsapp')
   async verify(@Query('hub.mode') mode: string, @Query('hub.verify_token') token: string, @Query('hub.challenge') challenge: string, @Res() res: Response) {

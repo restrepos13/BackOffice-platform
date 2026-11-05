@@ -23,6 +23,8 @@ import { WA_OUTBOUND_QUEUE } from '../queue/queue.module';
 import { queueBotText, renderCampaignText, withinServiceWindow } from '../common/customer-notify';
 import { AuditService } from './audit.module';
 import { Products } from '../auth/products.guard';
+import { META_BILLING_NOTICE, metaRatesFor } from '../common/whatsapp/meta-rates';
+import { providerOf } from '../common/inbox/window';
 import { hasProduct } from '../common/products';
 
 /**
@@ -57,7 +59,6 @@ export interface Segment {
 
 const MAX_RECIPIENTS = 5000;
 const SEND_SPACING_MS = 1200; // ~50 mensajes por minuto: no dispara el control de spam de Meta
-const DEFAULT_MARKETING_USD = 0.0125; // tarifa de referencia Colombia (configurable en metaRatesUsd)
 
 export function sanitizeSegment(raw: any): Segment {
   const arr = (v: unknown) => (Array.isArray(v) ? v.map((x) => String(x).slice(0, 60)).filter(Boolean).slice(0, 50) : undefined);
@@ -208,10 +209,13 @@ export class CampaignsService {
       inWindow = audience.filter((c) => hot.has(c.id)).length;
     }
     const outWindow = audience.length - inWindow;
-    const rates = parseJson<Record<string, any>>(company.orderConfigJson, {}).metaRatesUsd ?? {};
-    const marketingUsd = Number(rates.MARKETING ?? DEFAULT_MARKETING_USD);
-    const templates = parseJson<any[]>(company.waTemplatesJson, []);
-    const hasTemplate = !!dto?.templateKey && templates.some((t) => t?.key === dto.templateKey && t?.contentSid);
+    const marketingUsd = metaRatesFor(company).MARKETING;
+    // Solo las plantillas del proveedor de la línea que envía (Meta directo o Twilio)
+    const line = dto?.integrationId ? await this.prisma.integration.findFirst({ where: { id: dto.integrationId, companyId: scoped } }) : null;
+    const provider = line ? providerOf(line) : null;
+    const templates = parseJson<any[]>(company.waTemplatesJson, [])
+      .filter((t) => t?.contentSid && (!provider || (provider === 'META') === String(t.contentSid).startsWith('meta:')));
+    const hasTemplate = !!dto?.templateKey && templates.some((t) => t?.key === dto.templateKey);
     return {
       count: audience.length,
       inWindow,
@@ -220,7 +224,10 @@ export class CampaignsService {
       willSkip: hasTemplate ? 0 : outWindow,
       estimatedCostUsd: Math.round((hasTemplate ? outWindow : 0) * marketingUsd * 10000) / 10000,
       sample: audience.slice(0, 6).map((c) => c.name),
-      templates: templates.filter((t) => t?.contentSid && (t.category ?? 'MARKETING') === 'MARKETING').map((t) => ({ key: t.key, name: t.name ?? t.key })),
+      templates: templates.filter((t) => (t.category ?? 'MARKETING') === 'MARKETING').map((t) => ({ key: t.key, name: t.name ?? t.key })),
+      // Con Meta directo, lo cobra Meta a la tarjeta de la empresa (no BackOffice)
+      paidTo: provider === 'META' ? 'META' : provider === 'TWILIO' ? 'TWILIO' : null,
+      ...(provider === 'META' ? { billingNotice: META_BILLING_NOTICE.summary } : {}),
     };
   }
 

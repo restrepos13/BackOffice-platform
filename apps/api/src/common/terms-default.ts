@@ -26,11 +26,13 @@ BackOffice es un servicio de software prestado desde Colombia por [RAZÓN SOCIAL
 ## 4. WhatsApp, Meta y otros canales
 - El uso de WhatsApp, Instagram y Messenger está sujeto también a las políticas de Meta. Tu empresa es responsable de cumplirlas.
 - Solo puedes escribir a personas que te dieron su número y aceptaron recibir mensajes. Está prohibido el spam y el contenido ilegal, engañoso u ofensivo.
-- Meta cobra por los mensajes de WhatsApp (se facturan a través de Twilio). Ese cobro es de Meta, no de BackOffice. Responder a quien te escribe normalmente no tiene costo; Meta cobra los mensajes que tú inicias (campañas, recordatorios).
+- Tu número de WhatsApp y tu cuenta de WhatsApp Business quedan a nombre de tu empresa, en tu propio Business Manager. BackOffice solo tiene el permiso que tú le das al conectarlos, y lo puedes quitar cuando quieras.
+- Meta cobra por los mensajes de WhatsApp directamente a tu empresa, al medio de pago que registras en tu cuenta de WhatsApp Business. Ese cobro es de Meta, no de BackOffice, y no le ponemos recargo. Responder a quien te escribe dentro de las 24 horas no tiene costo en Meta; Meta cobra los mensajes que tú inicias con plantilla aprobada: avisos y recordatorios (tarifa baja) y promociones o campañas (tarifa de marketing, la más alta). Las tarifas las fija Meta y pueden cambiar.
+- Que Meta te cobre a ti es a propósito: para que nos cobrara a nosotros, tu número tendría que quedar dentro de la cuenta de BackOffice y tendríamos el control de tu línea y de tus conversaciones. No queremos ese control sobre tu negocio.
 - Si Meta u otro proveedor suspende tu número o cuenta por incumplir sus políticas, BackOffice no responde por esa suspensión.
 
 ## 5. Modalidades del plan e inteligencia artificial
-- **Tu IA:** automatizamos todos los procesos de tu negocio. La inteligencia artificial la pagas tú con tu tarjeta directamente al proveedor (DeepInfra u OpenRouter), y los mensajes de WhatsApp directamente a Meta (vía Twilio).
+- **Tu IA:** automatizamos todos los procesos de tu negocio. La inteligencia artificial la pagas tú con tu tarjeta directamente al proveedor (DeepInfra u OpenRouter), y los mensajes de WhatsApp que tú inicias directamente a Meta, en tu cuenta de WhatsApp Business.
 - **Todo incluido (mes vencido):** gestionamos la IA y los mensajes por ti. Al final de cada mes pagas la mensualidad de tu plan, más la IA usada en el mes y, si se usan más de los US$10 de mensajes de Meta incluidos en la mensualidad, el excedente. El valor de la IA se calcula sobre el consumo real e incluye la gestión de BackOffice. Esta modalidad incluye mantenimiento 24/7, acompañamiento remoto y mantenimiento de tu landing.
 - En Todo incluido no hay topes: se paga lo que se consuma. Puedes ver tu consumo en el panel en cualquier momento.
 - El asistente responde con base en la información que tú cargas (instrucciones, catálogo, precios). Revisa que sea correcta. La IA puede equivocarse; puedes pasar cualquier conversación a una persona cuando quieras.

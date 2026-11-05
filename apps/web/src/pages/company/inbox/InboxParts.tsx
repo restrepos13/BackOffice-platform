@@ -118,7 +118,7 @@ export function WindowNotice({ win }: { win: MessagingWindow }) {
   );
 }
 
-/** Envío de una plantilla registrada (fuera de la ventana de 24 h por WhatsApp/Twilio). */
+/** Envío de una plantilla aprobada (fuera de la ventana de 24 h por WhatsApp: Meta directo o Twilio). */
 export function TemplateModal({ open, onClose, conversationId, win, onSent }: { open: boolean; onClose: () => void; conversationId: string; win: MessagingWindow; onSent: () => void }) {
   const [key, setKey] = useState('');
   const [vars, setVars] = useState<string[]>([]);
@@ -132,7 +132,9 @@ export function TemplateModal({ open, onClose, conversationId, win, onSent }: { 
   return (
     <Modal open={open} onClose={onClose} kicker="Fuera de la ventana de 24 h" title="Enviar plantilla">
       <div className="space-y-3 text-sm">
-        <p className="text-xs text-ink-3">Plantillas registradas por la empresa con su identificador de Twilio. BackOffice no consulta su aprobación a Meta: si no está aprobada, el proveedor la rechazará y lo verás en el mensaje.</p>
+        <p className="text-xs text-ink-3">{win.provider === 'META'
+          ? 'Plantillas aprobadas por Meta en tu cuenta de WhatsApp Business. Meta te cobra este mensaje directo a tu tarjeta (los avisos cuestan poco; las promociones, más).'
+          : 'Plantillas registradas por la empresa con su identificador de Twilio. BackOffice no consulta su aprobación a Meta: si no está aprobada, el proveedor la rechazará y lo verás en el mensaje.'}</p>
         <Field label="Plantilla">
           <Select value={key} onChange={(e) => { setKey(e.target.value); setVars([]); }}>
             <option value="">Elige una…</option>

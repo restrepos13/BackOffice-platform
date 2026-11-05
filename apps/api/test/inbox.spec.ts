@@ -211,7 +211,11 @@ describe('Inbox · ventana de 24 h y plantillas', () => {
     const twOld = messagingWindow({ channel: 'WHATSAPP', integration: tw, lastInboundAt: old, waTemplatesJson: tpl });
     expect(twOld).toMatchObject({ mode: 'TEMPLATE_ONLY', templates: [{ key: 'k', variables: 2 }] });
     expect(messagingWindow({ channel: 'WHATSAPP', integration: tw, lastInboundAt: old, waTemplatesJson: '[]' }).reason).toMatch(/no tiene plantillas/);
-    expect(messagingWindow({ channel: 'WHATSAPP', integration: meta, lastInboundAt: old, waTemplatesJson: tpl })).toMatchObject({ mode: 'BLOCKED', reason: expect.stringMatching(/Cloud API de Meta aún no/) });
+    // Línea de Meta directo: solo sus plantillas aprobadas (meta:…), nunca las de Twilio
+    expect(messagingWindow({ channel: 'WHATSAPP', integration: meta, lastInboundAt: old, waTemplatesJson: tpl })).toMatchObject({ mode: 'BLOCKED', reason: expect.stringMatching(/aprobadas por Meta/) });
+    const metaTpl = JSON.stringify([{ key: 'k', contentSid: 'HX', body: 'x' }, { key: 'cita', contentSid: 'meta:cita:es', body: 'Hola {{1}} ok' }]);
+    expect(messagingWindow({ channel: 'WHATSAPP', integration: meta, lastInboundAt: old, waTemplatesJson: metaTpl })).toMatchObject({ mode: 'TEMPLATE_ONLY', templates: [{ key: 'cita', variables: 1 }] });
+    expect(twOld.templates.map((t) => t.key)).toEqual(['k']);
     expect(messagingWindow({ channel: 'INSTAGRAM', integration: ig, lastInboundAt: old }).reason).toMatch(/Instagram no permite/);
     expect(messagingWindow({ channel: 'WHATSAPP', integration: null, lastInboundAt: recent }).mode).toBe('BLOCKED');
     expect(templateVariables('A {{1}} y {{3}}')).toBe(3);

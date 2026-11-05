@@ -285,10 +285,11 @@ export class ConversationsService {
     let contentVariables: Record<string, string> | undefined;
     let templateKey: string | undefined;
     if (template?.key) {
-      if (win.mode !== 'TEMPLATE_ONLY' && !(win.withinWindow && win.provider === 'TWILIO')) throw new BadRequestException(win.reason ?? 'Este canal no admite plantillas');
+      if (win.mode !== 'TEMPLATE_ONLY' && !(win.withinWindow && win.channel === 'WHATSAPP' && (win.provider === 'TWILIO' || win.provider === 'META'))) throw new BadRequestException(win.reason ?? 'Este canal no admite plantillas');
       const company = await this.prisma.company.findUnique({ where: { id: conversation.companyId }, select: { waTemplatesJson: true } });
       const t = parseJson<any[]>(company?.waTemplatesJson, []).find((x) => x?.key === template.key && x?.contentSid);
-      if (!t) throw new BadRequestException('Esa plantilla no está registrada (con su contentSid) en la empresa');
+      if (!t) throw new BadRequestException('Esa plantilla no está registrada ni aprobada para esta empresa');
+      if ((win.provider === 'META') !== String(t.contentSid).startsWith('meta:')) throw new BadRequestException('Esa plantilla no es del proveedor de esta línea (Meta o Twilio)');
       const vars = (template.variables ?? []).map((v) => String(v ?? '').trim().slice(0, 300));
       const needed = win.templates.find((x) => x.key === template.key)?.variables ?? 0;
       if (vars.length < needed || vars.slice(0, needed).some((v) => !v)) throw new BadRequestException(`La plantilla necesita ${needed} variables`);

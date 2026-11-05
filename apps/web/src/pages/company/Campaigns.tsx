@@ -1,3 +1,4 @@
+import { Link } from 'react-router-dom';
 import { useSample } from '../../lib/useSample';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useMemo, useState } from 'react';
@@ -198,6 +199,11 @@ function NewCampaignModal({ open, onClose, q, lines }: {
                   )}
                   <div className="flex justify-between border-t border-line pt-1"><dt>Costo Meta estimado</dt><dd className="font-semibold tabular-nums">{fmtUsd(p.estimatedCostUsd)}</dd></div>
                 </dl>
+                {p.paidTo === 'META' && p.estimatedCostUsd > 0 && (
+                  <p className="mt-3 border-l-4 border-warn pl-2 text-[11px] text-ink-2">
+                    Este costo lo cobra Meta directo a la tarjeta de tu cuenta de WhatsApp Business, aparte de tu plan. BackOffice no lo cobra ni le pone recargo. <Link to="/app/whatsapp/plantillas" className="font-semibold underline">Ver por qué</Link>
+                  </p>
+                )}
                 {p.sample.length > 0 && <p className="mt-3 text-[11px] text-ink-3">Ej.: {p.sample.join(', ')}</p>}
               </>
             )}
