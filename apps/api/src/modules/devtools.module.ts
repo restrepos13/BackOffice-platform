@@ -52,6 +52,8 @@ const SETTING_GROUPS: Array<{ group: string; keys: string[]; purpose: string }> 
   { group: 'Google Ads', keys: ['GOOGLE_ADS_DEVELOPER_TOKEN', 'GOOGLE_ADS_CLIENT_ID', 'GOOGLE_ADS_CLIENT_SECRET', 'GOOGLE_ADS_API_VERSION'], purpose: 'Developer token del MCC de BackOffice (con acceso básico para cuentas reales). Cliente OAuth: si se deja vacío usa el de Google Calendar (agrega la API de Google Ads y el permiso adwords). Versión por defecto v26. URI de redirección: <web>/api/public/ads/google/callback' },
   { group: 'TikTok Ads', keys: ['TIKTOK_APP_ID', 'TIKTOK_APP_SECRET'], purpose: 'App de TikTok for Business Developers con acceso a la Marketing API. URI de redirección: <web>/api/public/ads/tiktok/callback' },
   { group: 'Registro web', keys: ['GEMINI_API_KEYS', 'SIGNUP_NOTIFY_EMAIL'], purpose: 'IA genérica (Gemini, llaves solo en el .env, rotan solas) que arma las empresas nuevas y las acompaña; correo que recibe cada registro' },
+  { group: 'IA genérica · respaldo', keys: ['GROQ_API_KEYS', 'CEREBRAS_API_KEY'], purpose: 'Groq y Cerebras en la misma cadena del registro (llaves SOLO en el .env del API; aquí solo se ve si están cargadas). Orden y modelos en Dev Tools → IA del registro → «Refrescar modelos»' },
+  { group: 'IA genérica · tope por empresa', keys: ['GENERIC_AI_DAILY_PER_COMPANY'], purpose: 'Pedidos diarios por empresa SIN IA propia (sugerir textos de anuncios, resumen del reporte) que van a la cadena genérica gratis, con texto sanitizado y sin cobro. Por defecto 20' },
   { group: 'Google Calendar', keys: ['GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET'], purpose: 'Cliente OAuth 2.0 (Google Cloud) para que cada empresa conecte su calendario; URI de redirección: <web>/api/public/calendar/google/callback' },
   { group: 'Fotos gratis (Pexels)', keys: ['PEXELS_API_KEY'], purpose: 'Búsqueda de fotos gratuitas en el editor de Creative (clave gratis en pexels.com/api; 200 búsquedas por hora)' },
   { group: 'Google Drive', keys: ['GOOGLE_PICKER_API_KEY'], purpose: 'Usa el mismo cliente OAuth de Google Calendar (permiso drive.file); clave de API del selector de archivos (Picker), restringida a la web; URI de redirección: <web>/api/public/drive/callback' },
@@ -62,6 +64,11 @@ const SETTING_GROUPS: Array<{ group: string; keys: string[]; purpose: string }> 
 ];
 
 const MASK = '••••';
+
+/** Llaves que viven SOLO en el .env del API: Dev Tools muestra si están cargadas, pero no las guarda. */
+export const ENV_ONLY_KEYS = new Set([
+  'GEMINI_API_KEYS', 'GROQ_API_KEYS', 'GROQ_API_KEY', 'CEREBRAS_API_KEY', 'CEREBRAS_API_KEYS', 'OPENROUTER_API_KEY', 'OPENROUTER_API_KEYS',
+]);
 /** Claves con secretos (la llave pública de Wompi y los ids no lo son). */
 export function isSecretSetting(key: string): boolean {
   return /(SECRET|TOKEN|PASS|PASSWORD|API_KEY|PRIVATE)/.test(key) && !/PUBLIC/.test(key);
@@ -348,6 +355,7 @@ export class DevToolsService {
   async setSettings(actor: AuthUser, values: Record<string, string>) {
     for (const [key, raw] of Object.entries(values ?? {})) {
       if (!/^[A-Z][A-Z0-9_]{1,63}$/.test(key)) continue; // solo claves de configuración válidas
+      if (ENV_ONLY_KEYS.has(key)) continue; // llaves de la IA genérica: solo en el .env, jamás en la base
       const value = String(raw ?? '');
       // Un secreto enmascarado que vuelve sin cambios no se guarda (se conserva el real)
       if (isSecretSetting(key) && value.startsWith(MASK)) continue;

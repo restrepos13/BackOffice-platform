@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { clsx } from 'clsx';
-import { ArrowDown, ArrowUp, FlaskConical, Plus, RotateCcw, Save, Trash2 } from 'lucide-react';
+import { ArrowDown, ArrowUp, FlaskConical, Plus, RefreshCw, RotateCcw, Save, Trash2 } from 'lucide-react';
 import { Fragment, useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { api } from '../lib/api';
@@ -13,7 +13,31 @@ import { Badge, Button, Card, Input, Loading, Select, Switch } from './ui';
  * rápido responde de verdad y cuánto cupo queda hoy.
  */
 
-type Provider = 'GEMINI' | 'OPENROUTER';
+type Provider = 'GEMINI' | 'GROQ' | 'CEREBRAS' | 'OPENROUTER';
+type KeyedProvider = Exclude<Provider, 'OPENROUTER'>;
+
+const PROVIDER: Record<Provider, { label: string; tone: 'info' | 'ok' | 'warn' | 'neutral'; env: string }> = {
+  GEMINI: { label: 'Gemini', tone: 'info', env: 'GEMINI_API_KEYS' },
+  GROQ: { label: 'Groq', tone: 'ok', env: 'GROQ_API_KEYS' },
+  CEREBRAS: { label: 'Cerebras', tone: 'warn', env: 'CEREBRAS_API_KEY' },
+  OPENROUTER: { label: 'OpenRouter', tone: 'neutral', env: 'OPENROUTER_API_KEY' },
+};
+
+interface KeyRow {
+  label: string;
+  requestsToday: number;
+  limit: number;
+  exhausted: boolean;
+  lastError: string | null;
+}
+
+interface ProviderInfo {
+  configured: boolean;
+  keyCount: number;
+  models: string[];
+  catalogAt: string | null;
+  catalogError: string | null;
+}
 
 interface Bench {
   at: string;
@@ -45,8 +69,11 @@ interface ChainData {
   custom: boolean;
   entries: ChainRow[];
   suggestions: Array<{ provider: Provider; model: string; name: string; context: number | null; bench: Bench | null }>;
+  providers: Record<KeyedProvider, ProviderInfo>;
   capacity: {
-    gemini: Array<{ label: string; requestsToday: number; limit: number; exhausted: boolean; lastError: string | null }>;
+    gemini: KeyRow[];
+    groq: { configured: boolean; keys: KeyRow[] };
+    cerebras: { configured: boolean; keys: KeyRow[] };
     openrouter: {
       configured: boolean;
       keys: Array<{ label: string; requestsToday: number; exhausted: boolean; lastError: string | null }>;
@@ -139,6 +166,17 @@ export default function AiChainPanel() {
     onSettled: () => setTesting(null),
   });
 
+  const refreshModels = useMutation({
+    mutationFn: () => api.post<{ refreshed: Partial<Record<Provider, { count: number; error: string | null }>>; chain: ChainData }>('/onboarding/ai-chain/refresh-models'),
+    onSuccess: (r) => {
+      if (!dirty) apply(r.chain);
+      else queryClient.setQueryData(['ai-chain'], r.chain);
+      const parts = Object.entries(r.refreshed).map(([p, x]) => `${PROVIDER[p as Provider].label}: ${x?.error ? 'error' : `${x?.count ?? 0} modelos`}`);
+      toast.success(parts.length ? `Catálogos al día · ${parts.join(' · ')}` : 'No hay proveedores con llave para refrescar');
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : 'Error'),
+  });
+
   if (isLoading || !data) return <Loading />;
 
   const edit = (next: ChainRow[]) => {
@@ -179,6 +217,9 @@ export default function AiChainPanel() {
         actions={
           <div className="flex flex-wrap gap-2">
             <Button size="sm" variant="outline" disabled={isFetching} onClick={() => refetch()}>Actualizar</Button>
+            <Button size="sm" variant="outline" disabled={refreshModels.isPending} onClick={() => refreshModels.mutate()}>
+              <RefreshCw size={13} /> {refreshModels.isPending ? 'Consultando…' : 'Refrescar modelos'}
+            </Button>
             <Button size="sm" variant="outline" disabled={!!testing} onClick={() => test.mutate(rows.filter((r) => r.enabled).map((r) => r.id))}>
               <FlaskConical size={13} /> {testing && testing.length > 1 ? 'Probando… (1 a 3 min)' : 'Probar todos'}
             </Button>
@@ -230,10 +271,10 @@ export default function AiChainPanel() {
                         <div className="min-w-0">
                           <p className="font-semibold">{r.name !== r.model ? r.name : r.model.split('/').pop()}</p>
                           <p className="truncate font-mono text-[11px] text-ink-3">
-                            <Badge tone={r.provider === 'GEMINI' ? 'info' : 'neutral'}>{r.provider === 'GEMINI' ? 'Gemini' : 'OpenRouter'}</Badge> {r.model}
+                            <Badge tone={PROVIDER[r.provider].tone}>{PROVIDER[r.provider].label}</Badge> {r.model}
                           </p>
                           {r.context && <p className="text-[11px] text-ink-3">Memoria: {Math.round(r.context / 1000)}k tokens</p>}
-                          {!r.inCatalog && <p className="text-[11px] font-semibold text-bad">Ya no aparece en el catálogo de OpenRouter</p>}
+                          {!r.inCatalog && <p className="text-[11px] font-semibold text-bad">Ya no aparece en el catálogo de {PROVIDER[r.provider].label}</p>}
                         </div>
                       </div>
                     </td>
@@ -291,11 +332,18 @@ export default function AiChainPanel() {
 
         <div className="mt-5 flex flex-wrap items-end gap-2 border-t-2 border-line pt-4">
           <span className="w-full text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-3">Agregar un modelo a mano</span>
-          <Select className="!w-36" value={manual.provider} onChange={(e) => setManual({ ...manual, provider: e.target.value as Provider })}>
-            <option value="OPENROUTER">OpenRouter</option>
-            <option value="GEMINI">Gemini</option>
+          <Select className="!w-36" value={manual.provider} onChange={(e) => setManual({ provider: e.target.value as Provider, model: '' })}>
+            {(Object.keys(PROVIDER) as Provider[]).map((p) => <option key={p} value={p}>{PROVIDER[p].label}</option>)}
           </Select>
-          <Input className="!w-80 max-w-full font-mono" placeholder={manual.provider === 'GEMINI' ? 'gemini-2.5-flash' : 'proveedor/modelo:free'} value={manual.model} onChange={(e) => setManual({ ...manual, model: e.target.value.trim() })} />
+          {manual.provider !== 'OPENROUTER' && data.providers[manual.provider].models.length > 0 ? (
+            // Solo los modelos que el proveedor dice tener (GET /models)
+            <Select className="!w-80 max-w-full font-mono" value={manual.model} onChange={(e) => setManual({ ...manual, model: e.target.value })}>
+              <option value="">Elige un modelo…</option>
+              {data.providers[manual.provider].models.filter((m) => !rows.some((r) => r.id === `${manual.provider}:${m}`)).map((m) => <option key={m} value={m}>{m}</option>)}
+            </Select>
+          ) : (
+            <Input className="!w-80 max-w-full font-mono" placeholder={manual.provider === 'OPENROUTER' ? 'proveedor/modelo:free' : 'Toca «Refrescar modelos» para ver la lista'} disabled={manual.provider !== 'OPENROUTER'} value={manual.model} onChange={(e) => setManual({ ...manual, model: e.target.value.trim() })} />
+          )}
           <Button size="sm" variant="outline" disabled={!manual.model} onClick={() => { add(manual.provider, manual.model); setManual({ ...manual, model: '' }); }}>
             <Plus size={13} /> Agregar
           </Button>
@@ -310,12 +358,12 @@ export default function AiChainPanel() {
       </Card>
 
       {data.suggestions.length > 0 && (
-        <Card kicker="Gratis en OpenRouter y fuera de tu cadena" title="Otros modelos disponibles">
+        <Card kicker="Del catálogo real de cada proveedor y fuera de tu cadena" title="Otros modelos disponibles">
           <div className="grid gap-2 md:grid-cols-2">
             {data.suggestions.map((s) => (
-              <div key={s.model} className="flex items-center justify-between gap-2 border-2 border-line p-3">
+              <div key={`${s.provider}:${s.model}`} className="flex items-center justify-between gap-2 border-2 border-line p-3">
                 <div className="min-w-0">
-                  <p className="truncate text-sm font-semibold">{s.name}</p>
+                  <p className="truncate text-sm font-semibold"><Badge tone={PROVIDER[s.provider].tone}>{PROVIDER[s.provider].label}</Badge> {s.name}</p>
                   <p className="truncate font-mono text-[11px] text-ink-3">{s.model}{s.context ? ` · ${Math.round(s.context / 1000)}k` : ''}</p>
                   <div className="mt-1"><ScoreBadge bench={s.bench} /></div>
                 </div>
@@ -333,6 +381,34 @@ export default function AiChainPanel() {
 
       <Card kicker="Cuánto queda hoy" title="Capacidad">
         <div className="grid gap-6 md:grid-cols-2">
+          {(['GROQ', 'CEREBRAS'] as const).map((p) => {
+            const cap = p === 'GROQ' ? data.capacity.groq : data.capacity.cerebras;
+            const info = data.providers[p];
+            return (
+              <div key={p}>
+                <p className="kicker mb-2">{PROVIDER[p].label} (llaves genéricas)</p>
+                {!cap.configured ? <p className="text-sm text-warn">Sin llave: agrega {PROVIDER[p].env} en el .env del API.</p> : (
+                  <ul className="space-y-2">
+                    {cap.keys.map((k) => (
+                      <li key={k.label} className="text-sm">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-xs">{k.label}</span>
+                          <Badge tone={k.exhausted ? 'bad' : 'ok'}>{k.exhausted ? 'Agotada hoy' : 'Disponible'}</Badge>
+                        </div>
+                        <div className="mt-1 h-1.5 bg-bone-2"><div className={clsx('h-full', k.exhausted ? 'bg-bad' : 'bg-ink')} style={{ width: `${Math.min(100, (k.requestsToday / k.limit) * 100)}%` }} /></div>
+                        <p className="mt-0.5 text-[11px] text-ink-3">{k.requestsToday} de {k.limit} hoy ({p}_DAILY_LIMIT){k.lastError ? ` · ${k.lastError}` : ''}</p>
+                      </li>
+                    ))}
+                    <li className="text-[11px] text-ink-3">
+                      {info.models.length ? `${info.models.length} modelos de texto en su catálogo` : 'Catálogo sin leer: toca «Refrescar modelos»'}
+                      {info.catalogAt ? ` · revisado ${timeAgo(info.catalogAt)}` : ''}
+                      {info.catalogError ? <span className="text-bad"> · último intento: {info.catalogError}</span> : null}
+                    </li>
+                  </ul>
+                )}
+              </div>
+            );
+          })}
           <div>
             <p className="kicker mb-2">Gemini (llaves genéricas)</p>
             {data.capacity.gemini.length === 0 ? <p className="text-sm text-warn">Sin llaves: agrega GEMINI_API_KEYS en el .env del API.</p> : (

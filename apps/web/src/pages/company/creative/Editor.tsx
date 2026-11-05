@@ -19,6 +19,7 @@ import { Badge, Button, Field, Input, Loading, Modal, Select, Textarea } from '.
 import { useCompanyScope, withScope } from '../shared';
 import { Background, DocNodes, useAssetImage, useDocFonts } from './DocRender';
 import { BackgroundExtras, FontSelect, ImageExtras, Section, ShadowControl, ShapeExtras, StockPhotos, TextExtras, shapeCatalog } from './EditorPanels';
+import { CopySuggestions, adCopyKey } from './CopySuggestions';
 
 /**
  * Editor visual por capas de BackOffice Creative. Todo lo determinista
@@ -411,6 +412,19 @@ export default function Editor() {
         <Button size="sm" variant="outline" disabled={openReview.isPending || exportMut.isPending} onClick={() => openReview.mutate()}><Download size={14} /> {openReview.isPending ? 'Revisando…' : 'Revisar y exportar'}</Button>
         {canWrite && <Button size="sm" variant="outline" disabled={toLibrary.isPending} onClick={() => toLibrary.mutate()} title="Guarda esta versión como recurso para tus anuncios"><FolderOpen size={14} /> {toLibrary.isPending ? 'Guardando…' : 'A la biblioteca'}</Button>}
         {canWrite && <Button size="sm" variant="outline" disabled={toAds.isPending} onClick={() => toAds.mutate()} title="Abre Crear anuncio en Ads con esta imagen (se crea en pausa)"><Megaphone size={14} /> {toAds.isPending ? 'Preparando…' : 'Usar en anuncio'}</Button>}
+        {canWrite && id && (
+          <CopySuggestions
+            q={q}
+            designId={id}
+            useLabel="Guardar para el anuncio"
+            onUse={(v) => {
+              // El texto viaja con la pieza: «Usar en anuncio» lo carga solo en Ads
+              try { sessionStorage.setItem(adCopyKey(id), JSON.stringify(v)); } catch { /* sin almacenamiento */ }
+              void navigator.clipboard?.writeText(`${v.headline}\n\n${v.primaryText}\n\n${v.description}`).catch(() => undefined);
+              toast.success('Texto guardado y copiado: si usas esta pieza en un anuncio, se carga solo');
+            }}
+          />
+        )}
         {/* Publicar en redes es de Ads: sin Ads, Creative diseña y exporta pero no publica */}
         {canWrite && hasAds && <Button size="sm" onClick={() => setToCalendar(true)} title="Programa la publicación orgánica en Facebook e Instagram desde Ads (no es un anuncio pagado)"><Send size={14} /> Programar publicación</Button>}
       </header>

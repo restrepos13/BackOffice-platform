@@ -14,6 +14,37 @@ import {
 } from '../../components/ui';
 import { PickCompany, useCompanyScope, withScope } from './shared';
 
+/** «Resumen en palabras» que arma el servidor (IA de la empresa, IA genérica o plantilla sin IA). */
+interface ReportSummary {
+  text: string;
+  source: 'IA_EMPRESA' | 'IA_GENERICA' | 'PLANTILLA';
+  model?: string;
+  at: string;
+}
+
+const SUMMARY_SOURCE: Record<ReportSummary['source'], string> = {
+  IA_EMPRESA: 'Redactado con la IA de tu empresa',
+  IA_GENERICA: 'Redactado con la IA de BackOffice (sin costo)',
+  PLANTILLA: 'Resumen automático con las cifras',
+};
+
+function SummaryBlock({ summary, loading }: { summary?: ReportSummary | null; loading?: boolean }) {
+  if (!summary && !loading) return null;
+  return (
+    <section aria-label="Resumen en palabras" className="border-2 border-ink bg-paper p-5 shadow-[6px_6px_0_0_rgba(26,26,26,0.9)]">
+      <p className="kicker mb-2">Resumen para gerencia</p>
+      {summary ? (
+        <>
+          <p className="max-w-4xl text-base leading-relaxed text-ink">{summary.text}</p>
+          <p className="mt-3 text-[11px] text-ink-3">{SUMMARY_SOURCE[summary.source]} · solo con cifras agregadas, sin datos de clientes</p>
+        </>
+      ) : (
+        <p className="text-sm text-ink-3">Redactando el resumen…</p>
+      )}
+    </section>
+  );
+}
+
 function localToday(): string {
   return new Intl.DateTimeFormat('en-CA').format(new Date());
 }
@@ -26,7 +57,7 @@ function DailyTab({ q, canWrite, companyId }: { q: string; canWrite: boolean; co
 
   const { data, isLoading } = useQuery({
     queryKey: ['report-daily', q, date],
-    queryFn: () => api.get<DailyReportData>(withScope(`/reports/daily?date=${date}`, q)),
+    queryFn: () => api.get<DailyReportData & { resumen?: ReportSummary }>(withScope(`/reports/daily?date=${date}`, q)),
   });
   const { data: history } = useQuery({
     queryKey: ['report-history', q],
@@ -43,6 +74,8 @@ function DailyTab({ q, canWrite, companyId }: { q: string; canWrite: boolean; co
         r.sent ? 'Reporte generado y enviado por correo' : 'Reporte generado y guardado en el panel',
       );
       queryClient.invalidateQueries({ queryKey: ['report-history'] });
+      // Al generarlo se redacta el resumen (con IA si hay): se muestra el guardado
+      queryClient.invalidateQueries({ queryKey: ['report-daily'] });
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : 'Error'),
   });
@@ -81,6 +114,8 @@ function DailyTab({ q, canWrite, companyId }: { q: string; canWrite: boolean; co
           Descargar PDF
         </Button>
       </div>
+
+      <SummaryBlock summary={data.resumen} />
 
       {/* KPIs del día */}
       <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
@@ -194,6 +229,12 @@ function CompareTab({ q }: { q: string }) {
     queryFn: () =>
       api.get<{ buckets: CompareBucket[] }>(withScope(`/reports/compare?granularity=${granularity}`, q)),
   });
+  // Uno por día y periodo en el servidor: volver a la pestaña no gasta IA
+  const summary = useQuery({
+    queryKey: ['report-compare-summary', q, granularity],
+    queryFn: () => api.get<{ resumen: ReportSummary | null }>(withScope(`/reports/compare/summary?granularity=${granularity}`, q)),
+    staleTime: 10 * 60_000,
+  });
 
   if (isLoading || !data) return <Loading />;
   const buckets = data.buckets;
@@ -218,6 +259,7 @@ function CompareTab({ q }: { q: string }) {
           </p>
         )}
       </div>
+      <SummaryBlock summary={summary.data?.resumen} loading={summary.isLoading} />
       <Table head={['Período', 'Pedidos', 'Entregados', 'Cancelados', 'Cumplimiento', 'Tomados IA', 'Precisión IA']}>
         {buckets.map((b) => (
           <tr key={b.from} className={b === last ? 'bg-bone-2 font-semibold' : ''}>

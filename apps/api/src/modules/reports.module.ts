@@ -32,6 +32,12 @@ import { EventsService } from './events.module';
 import { AI_PROVIDER, AiChatOptions, AiProvider, extractJson } from '../ai/types';
 import { DeepInfraProvider } from '../ai/deepinfra.provider';
 import { AiBilling, AiSession, recordAiUsage, resolveAiAccess } from '../ai/ai-access';
+import { GeminiPool } from '../ai/gemini-pool';
+import { CompanyTextAi } from '../ai/company-text-ai';
+import {
+  CompareFacts, DailyFacts, ReportSummary, compareFacts, dailyFacts, summaryMessages,
+  templateCompareSummary, templateDailySummary, validSummary,
+} from '../common/report-summary';
 import { Products } from '../auth/products.guard';
 
 /* ═══ Herramientas predefinidas de la consulta en lenguaje natural ═══
@@ -73,6 +79,8 @@ export function localToday(): string {
   return new Intl.DateTimeFormat('en-CA').format(new Date());
 }
 
+const escHtml = (s: unknown) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!));
+
 function pct(part: number, total: number): number | null {
   if (!total) return null;
   return Math.round((part / total) * 1000) / 10;
@@ -81,6 +89,9 @@ function pct(part: number, total: number): number | null {
 @Injectable()
 export class ReportsService {
   private readonly logger = new Logger('Reports');
+  /** Resumen en palabras: IA propia de la empresa o cadena genérica sin cobro */
+  readonly textAi: CompanyTextAi;
+  private readonly compareSummaries = new Map<string, { at: number; value: ReportSummary }>();
 
   constructor(
     private readonly prisma: PrismaService,
@@ -88,7 +99,76 @@ export class ReportsService {
     private readonly emails: EmailsService,
     @Optional() @Inject(AI_PROVIDER) private readonly ai?: AiProvider,
     @Optional() private readonly events?: EventsService,
-  ) {}
+  ) {
+    this.textAi = new CompanyTextAi(prisma, ai, new GeminiPool(prisma));
+  }
+
+  /* ═══ Resumen en palabras para gerencia ═══ */
+
+  /**
+   * 3 a 5 frases a partir de cifras AGREGADAS (sin nombres ni textos de
+   * clientes). Con la IA propia de la empresa si la tiene; si no, con la
+   * cadena genérica gratis (sanitizada, con tope diario por empresa). Si no
+   * hay IA, se pasa del tope o la IA inventa cifras, se usa la plantilla:
+   * el reporte NUNCA falla por esto.
+   */
+  async summarize(company: any, kind: 'diario' | 'comparativo', facts: DailyFacts | CompareFacts): Promise<ReportSummary> {
+    const at = new Date().toISOString();
+    const template = (): ReportSummary => ({
+      text: kind === 'diario' ? templateDailySummary(facts as DailyFacts) : templateCompareSummary(facts as CompareFacts),
+      source: 'PLANTILLA', at,
+    });
+    try {
+      const route = await this.textAi.route(company);
+      if (route.kind === 'GENERICA') await this.textAi.reserveGeneric(company.id);
+      const r = await this.textAi.complete(company, route, {
+        purpose: 'REPORTE_RESUMEN', requestId: `resumen-${randomUUID()}`, json: true, maxTokens: 2000, temperature: 0.3,
+        messages: summaryMessages(kind, facts),
+      });
+      const text = validSummary((extractJson(r.content) as any)?.resumen, facts);
+      if (!text) {
+        this.logger.warn(`resumen ${kind} de ${company.id}: la IA no cumplió el formato o inventó cifras; va la plantilla`);
+        return template();
+      }
+      return { text, source: r.source === 'EMPRESA' ? 'IA_EMPRESA' : 'IA_GENERICA', model: r.model, at };
+    } catch (err: any) {
+      // AI_UNAVAILABLE, tope diario, llave rechazada…: la plantilla siempre sirve
+      this.logger.warn(`resumen ${kind} de ${company.id} con plantilla: ${err?.response?.code ?? err?.message ?? err}`);
+      return template();
+    }
+  }
+
+  /** Hechos del día (con la comparativa de la semana) listos para resumir. */
+  private async dailyFactsFor(companyId: string, data: any): Promise<DailyFacts> {
+    const weeks = await this.compare(companyId, 'week', 2).then((r) => r.buckets).catch(() => []);
+    return dailyFacts(data, weeks);
+  }
+
+  /** Reporte del día con su resumen: el guardado si ya se generó; si no, la plantilla (consultar no gasta IA). */
+  async dailyWithSummary(companyId: string, date: string) {
+    const data = await this.buildDaily(companyId, date);
+    const stored = await this.prisma.dailyReport.findUnique({ where: { companyId_date: { companyId, date } } }).catch(() => null);
+    const saved = parseJson<any>(stored?.dataJson, {})?.resumen as ReportSummary | undefined;
+    const resumen: ReportSummary = saved?.text
+      ? saved
+      : { text: templateDailySummary(await this.dailyFactsFor(companyId, data)), source: 'PLANTILLA', at: new Date().toISOString() };
+    return { ...data, resumen };
+  }
+
+  /** Resumen del comparativo (uno por empresa, periodo y día: no se regenera en cada visita). */
+  async compareSummary(companyId: string, granularity: 'week' | 'month') {
+    const { buckets } = await this.compare(companyId, granularity);
+    const facts = compareFacts(granularity, buckets);
+    if (!facts) return { resumen: null };
+    const key = `${companyId}:${granularity}:${localToday()}`;
+    const hit = this.compareSummaries.get(key);
+    if (hit && Date.now() - hit.at < 6 * 3600e3) return { resumen: hit.value };
+    const company = await this.prisma.company.findUniqueOrThrow({ where: { id: companyId } });
+    const value = await this.summarize(company, 'comparativo', facts);
+    if (this.compareSummaries.size > 2000) this.compareSummaries.clear();
+    this.compareSummaries.set(key, { at: Date.now(), value });
+    return { resumen: value };
+  }
 
   private resolveCompany(user: AuthUser, companyId?: string): string {
     const scoped = isPlatformRole(user.role) ? companyId : user.companyId;
@@ -284,11 +364,14 @@ export class ReportsService {
 
   /** Genera, guarda y envía el reporte de un día por el canal configurado. */
   async runDaily(companyId: string, date: string, actor: AuthUser | null) {
-    const data = await this.buildDaily(companyId, date);
+    const built = await this.buildDaily(companyId, date);
     const company = await this.prisma.company.findUniqueOrThrow({ where: { id: companyId } });
     const cfg = parseJson<Record<string, any>>(company.orderConfigJson, {});
     const reportCfg = cfg.dailyReport ?? {};
     const channel = reportCfg.channel === 'EMAIL' ? 'EMAIL' : 'PANEL';
+    // El resumen se guarda junto al reporte (en su dataJson) y encabeza el correo
+    const resumen = await this.summarize(company, 'diario', await this.dailyFactsFor(companyId, built));
+    const data = { ...built, resumen };
 
     const report = await this.prisma.dailyReport.upsert({
       where: { companyId_date: { companyId, date } },
@@ -307,6 +390,7 @@ export class ReportsService {
         subject: `Reporte diario ${company.name} — ${date}`,
         body: `
           <h2>Reporte del ${date}</h2>
+          <p style="border-left:3px solid #1a1a1a;padding-left:10px"><strong>Resumen:</strong> ${escHtml(resumen.text)}</p>
           <p><strong>Pedidos:</strong> ${p.recibidos} recibidos · ${p.confirmados} confirmados · ${p.programados} programados · ${p.despachados} despachados · ${p.entregados} entregados</p>
           <p><strong>Conversaciones:</strong> ${c.atendidas} atendidas · ${c.resueltasPorIA} resueltas por la IA · ${c.escaladas} escaladas · ${c.conIntervencionHumana} con intervención humana</p>
           <p><strong>Precisión de la IA (mes):</strong> ${prec != null ? `${prec}%` : 'sin datos'}</p>
@@ -797,7 +881,7 @@ export class ReportsController {
     const day = date && /^\d{4}-\d{2}-\d{2}$/.test(date)
       ? date
       : localToday();
-    return this.reports.buildDaily(this.scoped(user, companyId), day);
+    return this.reports.dailyWithSummary(this.scoped(user, companyId), day);
   }
 
   @Post('daily/run')
@@ -824,7 +908,7 @@ export class ReportsController {
     const scoped = this.scoped(user, companyId);
     const day = date && /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : localToday();
     const [data, company] = await Promise.all([
-      this.reports.buildDaily(scoped, day),
+      this.reports.dailyWithSummary(scoped, day),
       this.prisma.company.findUniqueOrThrow({ where: { id: scoped } }),
     ]);
     const buffer = await buildDailyReportPdf(company, data);
@@ -850,6 +934,17 @@ export class ReportsController {
       this.scoped(user, companyId),
       granularity === 'month' ? 'month' : 'week',
     );
+  }
+
+  /** Resumen en palabras del comparativo (IA de la empresa, genérica o plantilla). */
+  @Get('compare/summary')
+  @Roles(...READ_ROLES)
+  compareSummary(
+    @CurrentUser() user: AuthUser,
+    @Query('companyId') companyId?: string,
+    @Query('granularity') granularity?: string,
+  ) {
+    return this.reports.compareSummary(this.scoped(user, companyId), granularity === 'month' ? 'month' : 'week');
   }
 
   @Get('feedback')

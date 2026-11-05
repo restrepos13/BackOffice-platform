@@ -27,6 +27,7 @@ import { adaptDesign, readComposition } from '../common/creative/adapt';
 import { LibraryModule } from './library.module';
 import { CreativeCreateController, CreativeCreateService } from './creative-create';
 import { CreativeStockController, CreativeStockService } from './creative-stock';
+import { CreativeCopyController, CreativeCopyService } from './creative-copy';
 import { AI_PROVIDER } from '../ai/types';
 import { DeepInfraProvider } from '../ai/deepinfra.provider';
 import { AuditModule, AuditService } from './audit.module';
@@ -1000,8 +1001,8 @@ export class CreativeController {
 
 @Module({
   imports: [AuditModule, LibraryModule],
-  controllers: [CreativeController, CreativeCreateController, CreativeStockController],
-  providers: [CreativeService, CreativeCreateService, CreativeStockService, { provide: AI_PROVIDER, useClass: DeepInfraProvider }],
+  controllers: [CreativeController, CreativeCreateController, CreativeStockController, CreativeCopyController],
+  providers: [CreativeService, CreativeCreateService, CreativeStockService, CreativeCopyService, { provide: AI_PROVIDER, useClass: DeepInfraProvider }],
   exports: [CreativeService],
 })
 export class CreativeModule {}
