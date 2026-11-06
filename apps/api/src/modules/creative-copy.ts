@@ -9,7 +9,7 @@ import { profileOfCompany } from '../common/business-profile';
 import { Category, readPolicy, reviewDecision } from '../common/creative-policy';
 import { GOALS, GOAL_LABEL, Goal } from '../common/creative/art-direction';
 import { checkCopy } from '../common/ads/creative-check';
-import { COPY_LIMITS, CopyBrief, CopyDestination, CopyVariation, META_CTAS, copyMessages, parseVariations, pieceTextOf } from '../common/ads/copy-variations';
+import { COPY_LIMITS, CopyBrief, CopyDestination, CopyVariation, META_CTAS, allowedNumbers, copyMessages, parseVariations, pieceTextOf } from '../common/ads/copy-variations';
 import { AI_PROVIDER, AiProvider, extractJson } from '../ai/types';
 import { GeminiPool, isAiUnavailable } from '../ai/gemini-pool';
 import { CompanyTextAi, TextAiRoute } from '../ai/company-text-ai';
@@ -120,7 +120,7 @@ export class CreativeCopyService {
       const r = await this.textAi.complete(company, route, {
         purpose: 'CREATIVE_COPY', requestId, json: true, maxTokens: 4000, temperature: 0.8, messages: copyMessages(brief, fix),
       }, { knownNames });
-      return { ...parseVariations(extractJson(r.content), brief.destination), model: r.model, source: r.source };
+      return { ...parseVariations(extractJson(r.content), brief.destination, allowedNumbers(brief)), model: r.model, source: r.source };
     };
     const first = await ask();
     let valid = first.valid;

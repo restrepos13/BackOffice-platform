@@ -82,17 +82,33 @@ export function validateCopyVariation(raw: unknown, destination: CopyDestination
   };
 }
 
-/** Todas las variaciones de una respuesta: las válidas y los errores de las demás (para el reintento). */
-export function parseVariations(raw: unknown, destination: CopyDestination): { valid: CopyVariation[]; errors: string[] } {
+/** Cifras de un texto (precios, cantidades, «2x1», fechas), sin separadores de miles. */
+export const numbersIn = (t: string) => (String(t ?? '').match(/\d+(?:[.,]\d+)*/g) ?? []).map((n) => n.replace(/[.,]/g, ''));
+
+/** Las cifras que la IA puede usar: solo las que vienen en los datos del negocio y de la pieza. */
+export function allowedNumbers(brief: Pick<CopyBrief, 'business' | 'product' | 'pieceText'>): Set<string> {
+  return new Set([brief.business, brief.product ?? '', brief.pieceText ?? ''].flatMap(numbersIn));
+}
+
+/**
+ * Todas las variaciones de una respuesta: las válidas y los errores de las demás
+ * (para el reintento). Con `allowed`, la que trae una cifra que no estaba en los
+ * datos (un descuento, un «2x1», un precio) se descarta: los modelos a veces
+ * inventan ofertas aunque la instrucción lo prohíba.
+ */
+export function parseVariations(raw: unknown, destination: CopyDestination, allowed?: Set<string>): { valid: CopyVariation[]; errors: string[] } {
   const list = Array.isArray((raw as any)?.variaciones) ? (raw as any).variaciones : Array.isArray(raw) ? raw : [];
   const valid: CopyVariation[] = [];
   const errors: string[] = [];
   list.slice(0, 10).forEach((v: unknown, i: number) => {
     const r = validateCopyVariation(v, destination);
-    if (r.ok) {
+    const invented = r.ok && allowed ? numbersIn(`${r.value.headline} ${r.value.primaryText} ${r.value.description}`).filter((n) => !allowed.has(n)) : [];
+    if (invented.length) {
+      errors.push(`variación ${i + 1}: inventó cifras u ofertas (${[...new Set(invented)].join(', ')}); usa solo los datos que te doy`);
+    } else if (r.ok) {
       const key = `${r.value.headline.toLowerCase()}|${r.value.primaryText.toLowerCase()}`;
       if (!valid.some((x) => `${x.headline.toLowerCase()}|${x.primaryText.toLowerCase()}` === key)) valid.push(r.value);
-    } else {
+    } else if (!r.ok) {
       errors.push(`variación ${i + 1}: ${r.errors.join('; ')}`);
     }
   });

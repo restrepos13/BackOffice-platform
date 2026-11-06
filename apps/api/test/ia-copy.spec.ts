@@ -7,7 +7,7 @@
  * Nada llama a una API real: la IA de la empresa y la cadena son simuladas.
  */
 import { HttpException, ServiceUnavailableException } from '@nestjs/common';
-import { COPY_LIMITS, copyMessages, parseVariations, validateCopyVariation } from '../src/common/ads/copy-variations';
+import { COPY_LIMITS, allowedNumbers, copyMessages, parseVariations, validateCopyVariation } from '../src/common/ads/copy-variations';
 import { CompanyTextAi, GENERIC_AI_LIMIT } from '../src/ai/company-text-ai';
 import { CreativeCopyService } from '../src/modules/creative-copy';
 import { createMockPrisma } from './helpers/mock-prisma';
@@ -18,7 +18,7 @@ const ADMIN = { id: 'u1', email: 'a@a.co', name: 'Admin', role: 'COMPANY_ADMIN',
 
 const v = (o: Partial<Record<'titular' | 'texto' | 'descripcion' | 'cta' | 'enfoque', string>> = {}) => ({
   titular: 'Tortas de chocolate por encargo',
-  texto: 'Pide tu torta de cumpleaños con 2 días de anticipación. Escríbenos por WhatsApp y te ayudamos.',
+  texto: 'Pide tu torta de cumpleaños por encargo y te la tenemos lista. Escríbenos por WhatsApp y te ayudamos.',
   descripcion: 'Hechas en Envigado',
   cta: 'WHATSAPP_MESSAGE',
   enfoque: 'beneficio',
@@ -100,19 +100,33 @@ describe('copy para Meta Ads: proveedor, reintento, políticas y tope', () => {
     const ctx = setupCopy({ aiTrialJson: trial(20) });
     const pool = fakePool([
       JSON.stringify({ variaciones: [v(), v({ titular: 'Un titular larguísimo que no cabe en el anuncio de Meta' })] }),
-      JSON.stringify({ variaciones: [v({ titular: 'Tu torta lista en 2 días', enfoque: 'urgencia' }), v({ cta: 'COMPRAR_YA' })] }),
+      JSON.stringify({ variaciones: [v({ titular: 'Tu torta lista sin complicaciones', enfoque: 'urgencia' }), v({ cta: 'COMPRAR_YA' })] }),
     ]);
     const service = copyService(ctx, pool);
     const r = await service.suggest(ADMIN, { goal: 'PRODUCT', destination: 'WHATSAPP', count: 3, product: 'Torta de chocolate' });
     expect(pool.chat).toHaveBeenCalledTimes(2); // un solo reintento
     expect(pool.seen[1].messages[1].content).toMatch(/no cumplió: variación 2: titular: \d+ caracteres/);
-    expect(r.variations.map((x) => x.headline)).toEqual(['Tortas de chocolate por encargo', 'Tu torta lista en 2 días']);
+    expect(r.variations.map((x) => x.headline)).toEqual(['Tortas de chocolate por encargo', 'Tu torta lista sin complicaciones']);
     expect(r.discarded.limits).toBe(1);
     expect(r).toMatchObject({ source: 'GENERICA', quota: { used: 1, limit: 20 } });
     // La genérica recibe los nombres de contactos para quitarlos, y NO se le cobra a la empresa
     expect(pool.seen[0].knownNames).toContain('Marta Lucía Gómez');
     expect(JSON.stringify(pool.seen[0].messages)).not.toContain('Marta');
     expect(ctx.db.aiUsageEvent).toHaveLength(0);
+  });
+
+  it('descarta las variaciones que inventan cifras u ofertas y se lo pide corregir a la IA', async () => {
+    const ctx = setupCopy({ aiTrialJson: trial() });
+    const pool = fakePool([
+      JSON.stringify({ variaciones: [v(), v({ titular: 'Tortas 2x1 este martes', texto: 'Lleva 2 tortas y paga 1 solo hoy. Escríbenos por WhatsApp ya mismo.' })] }),
+      JSON.stringify({ variaciones: [v({ titular: 'Tu torta lista para hoy', enfoque: 'urgencia' })] }),
+    ]);
+    const service = copyService(ctx, pool);
+    const r = await service.suggest(ADMIN, { goal: 'PROMO', count: 2, product: 'Torta de chocolate' });
+    expect(r.variations.map((x) => x.headline)).toEqual(['Tortas de chocolate por encargo', 'Tu torta lista para hoy']);
+    expect(pool.seen[1].messages[1].content).toMatch(/inventó cifras u ofertas \(2, 1\)/);
+    // Si la cifra viene en los datos (el producto o la pieza), sí se puede usar
+    expect(parseVariations({ variaciones: [v({ titular: 'Combo de 6 tortas' })] }, 'WHATSAPP', allowedNumbers({ business: 'X', product: 'Combo de 6 tortas' })).valid).toHaveLength(1);
   });
 
   it('las reglas de la marca y las políticas de Meta filtran antes de devolver', async () => {
@@ -122,7 +136,8 @@ describe('copy para Meta Ads: proveedor, reintento, políticas y tope', () => {
       v({ texto: '¿Estás gorda? Nuestras tortas light te ayudan, escríbenos ya mismo' }), // atributos personales: Meta lo rechaza
       v({ titular: 'Torta a $60.000', enfoque: 'precio' }), // precio: pasa, pero pide revisión
     ] })]);
-    const r = await copyService(ctx, pool).suggest(ADMIN, { goal: 'PROMO', count: 3 });
+    // El precio viene en los datos del producto: la IA puede usarlo (si lo inventara, se descartaría)
+    const r = await copyService(ctx, pool).suggest(ADMIN, { goal: 'PROMO', count: 3, product: 'Torta de chocolate a $60.000' });
     expect(r.variations.map((x) => x.headline)).toEqual(['Torta a $60.000']);
     expect(r.discarded.policies).toBe(2);
     expect(r.variations[0].review).toEqual({ needsReview: true, reasons: ['Menciona precios, descuentos o promociones'] });
