@@ -311,7 +311,7 @@ export class EngineService {
           const analysisJson = JSON.stringify(vision.analysis);
           await this.prisma.message.update({ where: { id: message.id }, data: { analysisJson } });
           (message as any).analysisJson = analysisJson;
-          await this.recordUsage(company.id, integration?.id, bot.id, VISION_MODEL, vision.inputTokens, vision.outputTokens, {
+          await this.recordUsage(company.id, integration?.id, bot.id, vision.model, vision.inputTokens, vision.outputTokens, {
             billedTo: vision.billedTo, conversationId,
           });
           if (vision.analysis.kind === 'RECEIPT') {
@@ -624,9 +624,10 @@ export class EngineService {
           jsonMode: true,
         }),
       );
+      // El modelo que de verdad respondió (por OpenRouter puede ser otro que el configurado): de ahí sale el costo
       await this.recordUsage(
         company.id, integration?.id ?? null, bot.id,
-        effective.model, completion.inputTokens, completion.outputTokens,
+        completion.model || effective.model, completion.inputTokens, completion.outputTokens,
         { billedTo, conversationId },
       );
       const parsed = extractJson(completion.content);

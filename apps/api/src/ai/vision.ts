@@ -66,12 +66,12 @@ export async function analyzeImage(
   session: AiSession,
   filePath: string,
   mimeType: string,
-): Promise<{ analysis: ImageAnalysis; inputTokens: number; outputTokens: number; billedTo: 'BYOK' | 'PLATFORM' }> {
+): Promise<{ analysis: ImageAnalysis; inputTokens: number; outputTokens: number; billedTo: 'BYOK' | 'PLATFORM'; model: string }> {
   const buffer = await readFile(filePath);
   if (buffer.length > MAX_IMAGE_BYTES) {
     return {
       analysis: { kind: 'OTHER', amount: null, currency: null, bank: null, reference: null, date: null, recipient: null, summary: 'Imagen muy pesada para analizar' },
-      inputTokens: 0, outputTokens: 0, billedTo: session.billedTo,
+      inputTokens: 0, outputTokens: 0, billedTo: session.billedTo, model: VISION_MODEL,
     };
   }
   const dataUrl = `data:${mimeType};base64,${buffer.toString('base64')}`;
@@ -107,6 +107,7 @@ export async function analyzeImage(
     inputTokens: result.inputTokens,
     outputTokens: result.outputTokens,
     billedTo,
+    model: result.model || VISION_MODEL,
   };
 }
 

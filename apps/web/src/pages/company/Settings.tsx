@@ -59,14 +59,14 @@ function DeepinfraKeyForm({
       {isPlatform && canWrite && (
         <>
           <Field
-            label={company.hasDeepinfraKey ? 'Reemplazar llave' : 'API key de DeepInfra'}
-            hint="Se obtiene en deepinfra.com → API Keys. Nunca se muestra completa."
+            label={company.hasDeepinfraKey ? 'Reemplazar llave' : 'API key de DeepInfra u OpenRouter'}
+            hint="DeepInfra (deepinfra.com → API Keys) u OpenRouter (openrouter.ai → Keys, empieza por sk-or-). Con OpenRouter todo va a ese proveedor y los audios no se transcriben. Nunca se muestra completa."
           >
             <Input
               type="password"
               value={key}
               onChange={(e) => setKey(e.target.value)}
-              placeholder="di_…"
+              placeholder="Llave de DeepInfra o sk-or-…"
             />
           </Field>
           <div className="flex gap-2">

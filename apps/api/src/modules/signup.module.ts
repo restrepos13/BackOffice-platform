@@ -67,6 +67,8 @@ const SIGNUP_ACTOR: AuthUser = {
   id: 'registro-web', role: ROLES.DEV, companyId: null, name: 'Registro web', email: 'registro@backoffice.dev',
 } as AuthUser;
 const CHAT_DAILY_CAP = 40;
+/** Versión de la política de tratamiento de datos que acepta quien se registra (/privacidad). */
+export const PRIVACY_POLICY_VERSION = '2026-11-06';
 const MAX_QUESTIONS = 8; // la entrevista nunca se alarga más de esto
 /** Primera pregunta fija (sin gastar IA): el nombre del negocio y la ciudad. */
 const NAME_QUESTION = '¡Qué bien! ¿Cómo se llama tu negocio y en qué ciudad está?';
@@ -315,7 +317,7 @@ export class SignupService implements OnModuleInit {
 
   /* ── 3. Crear la cuenta (pública) ──────────────────────────────── */
 
-  async register(dto: any) {
+  async register(dto: any, meta: { ip?: string; userAgent?: string } = {}) {
     const name = String(dto?.company?.name ?? '').trim().slice(0, 80);
     const city = String(dto?.company?.city ?? '').trim().slice(0, 60) || null;
     const adminName = String(dto?.admin?.name ?? '').trim().slice(0, 80);
@@ -402,6 +404,8 @@ export class SignupService implements OnModuleInit {
       data: {
         onboardingJson: JSON.stringify({
           source: 'SIGNUP', rubro, description, contactName: adminName, phone, createdAt: new Date().toISOString(),
+          // Prueba de la autorización de tratamiento de datos (Ley 1581, Decreto 1377 art. 7-8)
+          consent: { at: new Date().toISOString(), policy: PRIVACY_POLICY_VERSION, ip: meta.ip ?? null, userAgent: meta.userAgent?.slice(0, 200) ?? null },
           setup: (await this.prisma.company.findUnique({ where: { id: companyId }, select: { onboardingJson: true } }).then((c) => setupOf(c ?? {}))) ?? setup,
           ...(dailyChatsFrom(msgs) ? { dailyChats: dailyChatsFrom(msgs) } : {}),
           ...(bp ? { businessType: bp.businessType, needs: bp.needs, clientData: bp.clientData, assistantFlow: bp.assistantFlow, modules: bp.modules } : {}),
@@ -926,8 +930,8 @@ export class SignupController {
   @Public()
   @Throttle({ default: { ttl: 10 * 60_000, limit: 3 } })
   @Post('public/signup')
-  register(@Body() dto: any) {
-    return this.signup.register(dto);
+  register(@Body() dto: any, @Req() req: any) {
+    return this.signup.register(dto, { ip: req.ip, userAgent: String(req.headers['user-agent'] ?? '') });
   }
 
   @Public()

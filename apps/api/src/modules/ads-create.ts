@@ -249,6 +249,8 @@ export class AdsCreateService {
         const visionModel = model;
         const run = await route.session.run((apiKey) => ai.chat({ apiKey, model: visionModel, temperature: 0.3, maxTokens: 900, jsonMode: true, messages: reviewMessages(input, dataUrl) as any }));
         billedTo = run.billedTo;
+        // El modelo que de verdad respondió (con OpenRouter es el configurado allá)
+        model = run.result.model || model;
         // Lo que consumió queda en «Consumo IA» como cualquier respuesta
         await recordAiUsage(this.prisma, { companyId: c.id, model, inputTokens: run.result.inputTokens, outputTokens: run.result.outputTokens, billedTo: run.billedTo, purpose: 'ads.creative' });
         content = run.result.content;

@@ -573,7 +573,9 @@ export default function Signup() {
                     <span>
                       Acepto los{' '}
                       <Link to="/terminos" target="_blank" className="font-semibold underline" onClick={(e) => e.stopPropagation()}>términos y condiciones</Link>{' '}
-                      y autorizo el tratamiento de mis datos para crear y operar mi cuenta.
+                      y autorizo el tratamiento de mis datos según la{' '}
+                      <Link to="/privacidad" target="_blank" className="font-semibold underline" onClick={(e) => e.stopPropagation()}>política de tratamiento de datos personales</Link>{' '}
+                      (Ley 1581 de 2012).
                     </span>
                   </label>
                   {errors.accept && <p role="alert" className="mt-1 text-xs font-semibold text-bad">{errors.accept}</p>}

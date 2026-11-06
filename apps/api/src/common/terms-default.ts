@@ -57,7 +57,9 @@ BackOffice es un servicio de software prestado desde Colombia por [RAZÓN SOCIAL
 ## 8. Datos personales
 - Tratamos los datos de acuerdo con la Ley 1581 de 2012, el Decreto 1377 de 2013 y demás normas de protección de datos de Colombia.
 - Sobre los datos de tus clientes (los que llegan por tus canales), tu empresa es la responsable del tratamiento y BackOffice actúa como encargado: los tratamos solo para prestarte el servicio, según tus instrucciones y con medidas de seguridad razonables.
-- Tu empresa debe contar con la autorización de sus clientes para tratar sus datos y atender sus consultas y reclamos.
+- Tu empresa debe contar con la autorización de sus clientes para tratar sus datos y atender sus consultas y reclamos. Si trata datos sensibles (por ejemplo, de salud), debe obtener su autorización expresa e informarles que responder es facultativo.
+- Si BackOffice te activa la IA de prueba, esa IA usa proveedores gratuitos (Google Gemini, Groq, OpenRouter) que pueden aprender de lo que reciben: solo les enviamos datos de tu negocio y de tus piezas, nunca conversaciones ni datos de tus clientes. Las conversaciones solo las procesa la IA de pago (DeepInfra u OpenRouter).
+- El detalle está en la política de tratamiento de datos personales (www.backoffice.store/privacidad).
 - Sobre tus propios datos de contacto, BackOffice es responsable y los usa para operar tu cuenta, facturar, darte soporte y contarte novedades del servicio. Puedes conocer, actualizar, rectificar y pedir la supresión de tus datos escribiéndonos.
 
 ## 9. Propiedad intelectual

@@ -144,8 +144,10 @@ const PROVIDERS: Array<[string, string]> = [
   ['Render', 'servidores de la plataforma y colas de tareas'],
   ['MongoDB Atlas', 'base de datos'],
   ['Vercel', 'publicación de este sitio y de la interfaz de la plataforma'],
-  ['Meta y Twilio', 'envío y recepción de mensajes de WhatsApp'],
-  ['DeepInfra, OpenRouter y Google (Gemini)', 'modelos de inteligencia artificial que generan respuestas, textos y la configuración inicial de una empresa'],
+  ['Meta (WhatsApp Cloud API) y Twilio', 'envío y recepción de mensajes de WhatsApp'],
+  ['DeepInfra y OpenRouter (que a su vez usa modelos de Anthropic y otros)', 'inteligencia artificial de pago que responde las conversaciones, transcribe audios y lee comprobantes, con la cuenta de IA del negocio o la de BackOffice'],
+  ['Google (Gemini), Groq y OpenRouter (modelos gratuitos)', 'IA de prueba y configuración inicial de una empresa; solo reciben datos del negocio, nunca conversaciones (sección 6)'],
+  ['Pexels', 'fotos de uso libre para las piezas de Creative cuando el negocio no tiene fotos propias; no recibe datos personales'],
   ['Wompi', 'pagos en línea; no guardamos números de tarjeta'],
   ['remove.bg', 'quitar el fondo de una imagen, solo cuando el negocio lo pide en Creative'],
   ['Google Fonts', 'tipografías del sitio'],
@@ -242,6 +244,7 @@ export function Privacy() {
           <List
             items={[
               'Prestar el servicio: que el asistente responda, que pedidos, citas y cobros funcionen y que el negocio vea sus resultados.',
+              'Diseñar piezas, sugerir textos de anuncios y resumir reportes con inteligencia artificial, cuando el negocio usa esas funciones.',
               'Dar soporte, detectar fallas y proteger la seguridad de las cuentas.',
               'Cobrar el servicio y cumplir obligaciones legales.',
               'Avisar novedades del servicio a los negocios. Se puede pedir no recibirlas.',
@@ -253,10 +256,36 @@ export function Privacy() {
           </p>
         </Section>
 
-        <Section n="6." title="Cómo se almacena y protege">
+        <Section n="6." title="Inteligencia artificial">
           <List
             items={[
-              'La información se guarda en servidores y bases de datos en la nube de los proveedores de la sección 8, que pueden estar fuera de Colombia.',
+              <><b>Conversaciones con los clientes del negocio:</b> solo las procesa la IA de pago (DeepInfra u OpenRouter), con la cuenta del negocio o la de BackOffice, para generar la respuesta. No se usan para entrenar modelos.</>,
+              <><b>IA de prueba:</b> durante un periodo de prueba que BackOffice autoriza a cada negocio, algunas funciones (diseñar piezas, sugerir textos, revisar anuncios y resumir reportes) usan modelos gratuitos de Google (Gemini), Groq y OpenRouter. Solo reciben datos del negocio y de la pieza (catálogo, textos, imagen del anuncio, cifras agregadas); antes de enviarlos quitamos teléfonos, correos, documentos y nombres de clientes conocidos. <b>Estos proveedores pueden usar lo que reciben para mejorar sus modelos.</b> Nunca reciben conversaciones ni datos de los clientes del negocio.</>,
+              'Lo que propone la IA lo revisan reglas del sistema antes de usarse (por ejemplo, no inventar precios ni ofertas) y el negocio decide qué publica.',
+            ]}
+          />
+        </Section>
+
+        <Section n="7." title="Datos sensibles y de menores">
+          <p>
+            BackOffice no pide datos sensibles (salud, origen racial o étnico, orientación política o sexual, convicciones
+            religiosas, datos biométricos y similares, según el artículo 5 de la Ley 1581). Si un negocio los trata por la naturaleza
+            de su actividad (por ejemplo, un consultorio que agenda citas médicas), es su responsabilidad:
+          </p>
+          <List
+            items={[
+              'Obtener la autorización previa, expresa e informada del titular, explicándole que responder sobre datos sensibles es facultativo.',
+              'Pedir solo lo necesario para la finalidad y no usar el chat para recoger historias clínicas ni diagnósticos.',
+              'Tratar los datos de niños, niñas y adolescentes solo respetando su interés superior y con autorización de su representante legal.',
+            ]}
+          />
+          <p>BackOffice trata esos datos solo como encargado, para prestar el servicio, con las medidas de seguridad de la sección 8 y sin usarlos para ningún otro fin.</p>
+        </Section>
+
+        <Section n="8." title="Cómo se almacena y protege">
+          <List
+            items={[
+              'La información se guarda en servidores y bases de datos en la nube de los proveedores de la sección 10, que pueden estar fuera de Colombia.',
               'Las conexiones viajan cifradas (HTTPS).',
               'Los tokens de acceso de las cuentas conectadas y otras credenciales se guardan cifrados con AES-256-GCM, nunca se muestran completos en el panel y no viajan en direcciones web.',
               'Acceso por roles: administrador, solo lectura, área y domiciliario ven únicamente lo que su rol permite.',
@@ -269,7 +298,7 @@ export function Privacy() {
           </p>
         </Section>
 
-        <Section n="7." title="Cómo se separan los datos de cada empresa">
+        <Section n="9." title="Cómo se separan los datos de cada empresa">
           <p>
             BackOffice es multiempresa: cada negocio tiene su propio espacio. Cada registro guardado (clientes, conversaciones,
             pedidos, cuentas conectadas) pertenece a una sola empresa, y el servidor filtra cada consulta por la empresa del usuario
@@ -278,17 +307,19 @@ export function Privacy() {
           </p>
         </Section>
 
-        <Section n="8." title="Proveedores externos que intervienen">
+        <Section n="10." title="Proveedores externos y transferencia internacional">
           <p>Para prestar el servicio usamos estos proveedores, cada uno solo para su función:</p>
           <List items={PROVIDERS.map(([n, f]) => <><b>{n}:</b> {f}.</>)} />
           <p>
-            Además, Meta, Google y TikTok reciben las solicitudes necesarias cuando un negocio conecta sus cuentas. Algunos
-            proveedores tienen servidores fuera de Colombia; la transferencia se hace solo para prestar el servicio y con las
-            garantías que exige la ley.
+            Además, Meta, Google y TikTok reciben las solicitudes necesarias cuando un negocio conecta sus cuentas. Varios de estos
+            proveedores tienen servidores fuera de Colombia, principalmente en Estados Unidos. Actúan como encargados: el envío de
+            datos a ellos es una transmisión internacional para prestar el servicio (artículo 26 de la Ley 1581 y artículos 24 y 25
+            del Decreto 1377 de 2013), bajo sus condiciones de servicio, con obligaciones de confidencialidad y seguridad, y solo
+            para la función indicada.
           </p>
         </Section>
 
-        <Section n="9." title="Tokens, autorizaciones y cómo revocar una conexión">
+        <Section n="11." title="Tokens, autorizaciones y cómo revocar una conexión">
           <p>
             Cuando un negocio conecta una cuenta, la plataforma le entrega a BackOffice un token de acceso limitado a los permisos
             aprobados. Ese token se guarda cifrado y se usa solo para las funciones descritas. Para revocarlo:
@@ -302,14 +333,31 @@ export function Privacy() {
           <p>El paso a paso está en <Link to="/eliminacion-de-datos">eliminación de datos</Link>.</p>
         </Section>
 
-        <Section n="10." title="Acceso, corrección y eliminación">
+        <Section n="12." title="Autorización">
+          <p>
+            Al crear la cuenta, la persona que registra el negocio autoriza el tratamiento de sus datos según esta política; guardamos
+            la fecha, la versión de la política y la conexión desde la que lo hizo, como prueba de esa autorización. Los datos de los
+            clientes de cada negocio los trata el negocio con la autorización que él mismo obtiene. Cualquier cliente puede escribir
+            «baja» o «STOP» por WhatsApp para dejar de recibir mensajes promocionales del negocio.
+          </p>
+        </Section>
+
+        <Section n="13." title="Tus derechos y cómo ejercerlos">
           <p>Como titular de los datos puedes:</p>
           <List
             items={[
-              'Conocer, actualizar y corregir tus datos.',
-              'Pedir prueba de la autorización que diste y saber cómo se han usado.',
+              'Conocer, actualizar y rectificar tus datos.',
+              'Pedir prueba de la autorización que diste y ser informado de cómo se han usado.',
               'Revocar la autorización y pedir que se eliminen, cuando no exista un deber legal o contractual de conservarlos.',
+              'Acceder gratis a tus datos.',
               'Presentar quejas ante la Superintendencia de Industria y Comercio, después de haber hecho tu solicitud ante nosotros.',
+            ]}
+          />
+          <p><b>Cómo se tramita:</b></p>
+          <List
+            items={[
+              <><b>Consultas</b> (qué datos tenemos y cómo los usamos): respuesta en máximo 10 días hábiles. Si no alcanzamos, te avisamos el motivo y respondemos en máximo 5 días hábiles más.</>,
+              <><b>Reclamos</b> (corregir, actualizar, suprimir o revocar): incluye tu identificación, la descripción de lo que pides, tu dirección o medio de contacto y los documentos que quieras aportar. Si falta algo, te lo pedimos en 5 días hábiles; si no lo completas en 2 meses, se entiende que desististe. Respondemos en máximo 15 días hábiles, prorrogables 8 días hábiles más avisándote el motivo. Mientras se tramita, el dato queda marcado como «reclamo en trámite».</>,
             ]}
           />
           <p>
@@ -320,7 +368,7 @@ export function Privacy() {
           <p>El administrador de un negocio también puede corregir la información directamente en el panel y descargar los datos de su empresa en PDF.</p>
         </Section>
 
-        <Section n="11." title="Qué pasa con los datos al terminar una cuenta">
+        <Section n="14." title="Qué pasa con los datos al terminar una cuenta">
           <p>
             Cuando un negocio deja el servicio, puede pedir una copia de sus datos durante los 30 días siguientes. Después, o antes si
             así lo solicita, eliminamos su información. Hoy ese borrado lo hace el equipo de BackOffice de forma manual (no es
@@ -330,12 +378,16 @@ export function Privacy() {
           </p>
         </Section>
 
-        <Section n="12." title="Menores de edad">
+        <Section n="15." title="Menores de edad">
           <p>BackOffice es un servicio para negocios. No está dirigido a menores de 18 años.</p>
         </Section>
 
-        <Section n="13." title="Cambios a esta política">
-          <p>Si cambiamos algo importante, lo publicaremos en esta página con una nueva fecha de actualización y lo avisaremos a los negocios.</p>
+        <Section n="16." title="Vigencia y cambios a esta política">
+          <p>
+            Esta política rige desde su fecha de actualización. Los datos se conservan mientras dure la relación con el negocio y el
+            tiempo que exija la ley. Si cambiamos algo importante, lo publicaremos en esta página con una nueva fecha y lo avisaremos a
+            los negocios antes de aplicarlo.
+          </p>
         </Section>
       </Doc>
     </LegalLayout>
@@ -410,9 +462,12 @@ export function Terms() {
 
         <Section n="7." title="Datos personales">
           <p>
-            El tratamiento de datos se rige por la <Link to="/privacidad">política de privacidad</Link>. Sobre los datos de tus
-            clientes, tu negocio es el responsable y BackOffice el encargado. Tu negocio debe contar con la autorización de sus
-            clientes y atender sus solicitudes.
+            El tratamiento de datos se rige por la <Link to="/privacidad">política de tratamiento de datos personales</Link> (Ley
+            1581 de 2012). Sobre los datos de tus clientes, tu negocio es el responsable y BackOffice el encargado. Tu negocio debe
+            contar con la autorización de sus clientes, atender sus consultas y reclamos y, si trata datos sensibles (por ejemplo, de
+            salud), obtener su autorización expresa. Si BackOffice te activa la IA de prueba, esa IA usa proveedores gratuitos que
+            pueden aprender de lo que reciben; por eso solo les enviamos datos de tu negocio, nunca conversaciones ni datos de tus
+            clientes.
           </p>
         </Section>
 

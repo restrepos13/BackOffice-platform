@@ -6,7 +6,7 @@ import { BadRequestException, ForbiddenException, ServiceUnavailableException } 
 import { GeminiPool, fingerprint } from '../src/ai/gemini-pool';
 import { extractJson } from '../src/ai/types';
 import { RUBRO_CONFIG, guessRubro, modulesForRubro, onboardingChecklist } from '../src/common/rubros';
-import { SignupService, slugBase, whatsappDigits } from '../src/modules/signup.module';
+import { SignupService, slugBase, whatsappDigits, PRIVACY_POLICY_VERSION } from '../src/modules/signup.module';
 import { CompaniesService } from '../src/modules/companies.module';
 import { createMockPrisma } from './helpers/mock-prisma';
 
@@ -147,7 +147,7 @@ describe('registro por la web', () => {
       description: 'Tienda de ropa para mujer en Envigado', rubro: preview.rubro, proposal: preview.proposal,
       company: { name: 'Moda Luna', city: 'Envigado' }, acceptTerms: true,
       admin: { name: 'Laura Gómez', email: 'Laura@ModaLuna.co', phone: '300 555 1234', password: 'secreta123' },
-    });
+    }, { ip: '190.1.2.3', userAgent: 'Mozilla/5.0 prueba' });
     expect(res).toMatchObject({ token: 't' });
     expect(auth.login).toHaveBeenCalledWith('laura@modaluna.co', 'secreta123');
     const company = db.company[0];
@@ -160,6 +160,8 @@ describe('registro por la web', () => {
     expect(db.user[0]).toMatchObject({ email: 'laura@modaluna.co', role: 'COMPANY_ADMIN', companyId: company.id });
     expect(db.user[0].passwordHash).not.toBe('secreta123');
     expect(JSON.parse(company.onboardingJson)).toMatchObject({ source: 'SIGNUP', rubro: 'VENTAS', phone: '300 555 1234' });
+    // Prueba de la autorización de tratamiento de datos (Ley 1581): cuándo, qué versión de la política y desde dónde
+    expect(JSON.parse(company.onboardingJson).consent).toEqual({ at: expect.any(String), policy: PRIVACY_POLICY_VERSION, ip: '190.1.2.3', userAgent: 'Mozilla/5.0 prueba' });
     // Aviso al equipo con lo que falta y el WhatsApp
     expect(emails.systemSend).toHaveBeenCalledTimes(1);
     const mail = (emails.systemSend as jest.Mock).mock.calls[0][0];

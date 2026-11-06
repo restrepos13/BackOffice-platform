@@ -226,8 +226,8 @@ export default function CompanyDetail() {
                 <Field
                   label="Modo"
                   hint={{
-                    BYOK: 'La empresa usa su propia cuenta de DeepInfra y le paga la IA directo al proveedor.',
-                    PLATFORM: 'La IA la pone BackOffice (también sobre DeepInfra) y se cobra por conversación: incluidas del plan + excedente.',
+                    BYOK: 'La empresa usa su propia cuenta de IA (DeepInfra u OpenRouter) y le paga directo al proveedor.',
+                    PLATFORM: 'La IA la pone BackOffice (DeepInfra, o OpenRouter si no hay DeepInfra) y se cobra por conversación: incluidas del plan + excedente.',
                     HYBRID: 'Usa las dos cuentas: si la principal no está disponible o DeepInfra la rechaza (sin saldo, llave inválida), sigue con la otra sin cortar la conversación. Solo se factura lo que pone BackOffice.',
                   }[company.aiBillingMode ?? 'BYOK']}
                 >
@@ -271,7 +271,7 @@ export default function CompanyDetail() {
                 )}
                 {company.aiBillingMode !== 'PLATFORM' && (
                   <p className="flex items-center justify-between text-sm">
-                    <span className="kicker">Cuenta DeepInfra de la empresa</span>
+                    <span className="kicker">Llave de IA de la empresa (DeepInfra u OpenRouter)</span>
                     {company.hasDeepinfraKey
                       ? <Badge tone="ok">Conectada · {company.deepinfraKeyMasked}</Badge>
                       : <Badge tone="warn">Sin configurar</Badge>}

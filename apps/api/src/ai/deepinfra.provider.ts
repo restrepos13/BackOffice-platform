@@ -7,7 +7,7 @@ import {
   AiProvider,
   AiTranscribeOptions,
 } from './types';
-import { PLATFORM_OPENROUTER_KEY, isOpenRouterModel, openRouterKey } from './model-routing';
+import { PLATFORM_OPENROUTER_KEY, isOpenRouterKey, isOpenRouterModel, openRouterKey, openRouterModelFor } from './model-routing';
 
 const CHAT_URL = 'https://api.deepinfra.com/v1/openai/chat/completions';
 const OPENROUTER_CHAT_URL = 'https://openrouter.ai/api/v1/chat/completions';
@@ -30,10 +30,8 @@ export class DeepInfraProvider implements AiProvider {
   private readonly logger = new Logger('DeepInfra');
 
   async chat(opts: AiChatOptions): Promise<AiChatResult> {
-    if (isOpenRouterModel(opts.model)) return this.chatOpenRouter(opts);
-    if (opts.apiKey === PLATFORM_OPENROUTER_KEY) {
-      throw new AiProviderError(503, 'La IA de BackOffice necesita DEEPINFRA_API_KEY para este modelo (o elige un modelo premium)');
-    }
+    // Una llave de OpenRouter (de la empresa o de BackOffice) manda TODO por OpenRouter
+    if (isOpenRouterModel(opts.model) || isOpenRouterKey(opts.apiKey)) return this.chatOpenRouter(opts);
     const res = await fetch(CHAT_URL, {
       method: 'POST',
       headers: {
@@ -66,18 +64,24 @@ export class DeepInfraProvider implements AiProvider {
   }
 
   /**
-   * Modelos premium (Claude Haiku) por OpenRouter. Solo con la IA de BackOffice:
-   * si llega la llave DeepInfra de un cliente (BYOK) se rechaza con 403 y, en
-   * modo híbrido, la sesión pasa sola a la llave de BackOffice.
+   * Por OpenRouter. La llave sale de quien paga:
+   *  - Llave de OpenRouter de la empresa («sk-or-…»): esa, para cualquier modelo.
+   *  - La de BackOffice (sin DeepInfra, o la de DeepInfra de BackOffice con un
+   *    modelo premium): OPENROUTER_API_KEY del servidor.
+   *  - La llave de DeepInfra de un cliente con un modelo premium: se rechaza
+   *    (403) y, en modo híbrido, la sesión pasa sola a la llave de BackOffice.
+   * Los modelos de DeepInfra se atienden con el de OpenRouter configurado.
    */
   private async chatOpenRouter(opts: AiChatOptions): Promise<AiChatResult> {
-    const key = openRouterKey();
+    const companyKey = /^sk-or-/.test(opts.apiKey.trim()) ? opts.apiKey.trim() : null;
     const platformDeepInfra = process.env.DEEPINFRA_API_KEY?.trim();
     const isPlatformCall = opts.apiKey === PLATFORM_OPENROUTER_KEY || (!!platformDeepInfra && opts.apiKey === platformDeepInfra);
-    if (!isPlatformCall) {
-      throw new AiProviderError(403, 'Este modelo premium solo funciona con la IA de BackOffice (paquetes)');
+    if (!companyKey && !isPlatformCall) {
+      throw new AiProviderError(403, 'Este modelo premium solo funciona con una llave de OpenRouter o con la IA de BackOffice');
     }
-    if (!key) throw new AiProviderError(503, 'Falta OPENROUTER_API_KEY para los modelos premium');
+    const key = companyKey ?? openRouterKey();
+    if (!key) throw new AiProviderError(503, 'Falta OPENROUTER_API_KEY para la IA de BackOffice por OpenRouter');
+    const model = openRouterModelFor(opts.model);
     const res = await fetch(OPENROUTER_CHAT_URL, {
       method: 'POST',
       headers: {
@@ -87,7 +91,7 @@ export class DeepInfraProvider implements AiProvider {
         'X-Title': 'BackOffice',
       },
       body: JSON.stringify({
-        model: opts.model,
+        model,
         messages: opts.messages,
         temperature: opts.temperature,
         max_tokens: opts.maxTokens,
@@ -97,18 +101,25 @@ export class DeepInfraProvider implements AiProvider {
     if (!res.ok) {
       const body = await res.text().catch(() => '');
       this.logger.error(`openrouter ${res.status}: ${body.slice(0, 300)}`);
-      throw new AiProviderError(res.status === 401 || res.status === 402 ? 503 : res.status, `OpenRouter respondió ${res.status}`);
+      // Con la llave de la empresa, 401/402 dicen «llave rechazada / sin saldo» (en híbrido pasa a la otra);
+      // con la de BackOffice no: el problema es de la plataforma, no de la empresa
+      const status = !companyKey && (res.status === 401 || res.status === 402) ? 503 : res.status;
+      throw new AiProviderError(status, res.status === 402 ? 'La cuenta de OpenRouter no tiene saldo' : `OpenRouter respondió ${res.status}`);
     }
     const data: any = await res.json();
     return {
       content: data?.choices?.[0]?.message?.content ?? '',
       inputTokens: data?.usage?.prompt_tokens ?? 0,
       outputTokens: data?.usage?.completion_tokens ?? 0,
-      model: data?.model ?? opts.model,
+      model: data?.model ?? model,
     };
   }
 
   async transcribe(opts: AiTranscribeOptions): Promise<{ text: string }> {
+    if (isOpenRouterKey(opts.apiKey)) {
+      // 501 (no 401/402): no es una llave rechazada, así que no salta a la de respaldo
+      throw new AiProviderError(501, 'La transcripción de audios solo está disponible con DeepInfra');
+    }
     const buffer = await readFile(opts.filePath);
     const form = new FormData();
     form.append('model', WHISPER_MODEL);
