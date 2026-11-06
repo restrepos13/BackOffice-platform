@@ -3,6 +3,7 @@
  * de clientes), IA de la empresa o cadena genérica gratis y, sin IA, plantilla.
  * El reporte nunca falla por esto. Nada llama a una API real.
  */
+import { bogotaDay } from '../src/ai/openai-compat';
 import { ServiceUnavailableException } from '@nestjs/common';
 import { CompanyTextAi } from '../src/ai/company-text-ai';
 import { ReportsService } from '../src/modules/reports.module';
@@ -96,9 +97,11 @@ describe('resumen en el reporte diario: proveedor y plan B', () => {
     return service;
   };
   const today = new Intl.DateTimeFormat('en-CA').format(new Date());
+  /** IA de prueba autorizada por un dev (vigente) */
+  const trial = (dailyLimit = 20) => JSON.stringify({ until: new Date(Date.now() + 7 * 864e5).toISOString(), dailyLimit, authorizedBy: 'Santiago', authorizedAt: new Date().toISOString() });
 
   it('sin IA disponible (AI_UNAVAILABLE) guarda y envía el resumen con plantilla; el reporte no falla', async () => {
-    const ctx = setup();
+    const ctx = setup({ aiTrialJson: trial() });
     const service = reports(ctx, fakePool([unavailable()]));
     const r = await service.runDaily('co1', today, null);
     expect(r.data.resumen.source).toBe('PLANTILLA');
@@ -112,7 +115,7 @@ describe('resumen en el reporte diario: proveedor y plan B', () => {
 
   it('con la cadena genérica usa la IA si respeta las cifras, y si inventa vuelve a la plantilla', async () => {
     const good = 'Ayer no llegaron pedidos y no hubo conversaciones. Este mes la IA todavía no tomó pedidos. No hay alertas pendientes que revisar.';
-    const ctx = setup();
+    const ctx = setup({ aiTrialJson: trial() });
     const service = reports(ctx, fakePool([JSON.stringify({ resumen: good }), JSON.stringify({ resumen: 'Ayer llegaron 47 pedidos. Todo salió perfecto. Se vendieron 900 tortas.' })]));
     const company = ctx.db.company[0];
     const facts = dailyFacts(await service.buildDaily('co1', today), []);
@@ -121,9 +124,17 @@ describe('resumen en el reporte diario: proveedor y plan B', () => {
     expect(ctx.db.aiUsageEvent).toHaveLength(0); // la genérica no se le cobra a la empresa
   });
 
-  it('pasado el tope diario de la genérica, el resumen sale con plantilla', async () => {
+  it('pasado el tope diario de la IA de prueba, el resumen sale con plantilla', async () => {
+    const ctx = setup({ aiTrialJson: trial(1) });
+    ctx.db.aiKeyUsage.push({ id: 'u1', provider: 'GENERIC_COMPANY', fingerprint: 'co1', day: bogotaDay(), requests: 1, tokens: 0 });
+    const pool = fakePool([JSON.stringify({ resumen: 'x' })]);
+    const r = await reports(ctx, pool).summarize(ctx.db.company[0], 'comparativo', compareFacts('week', WEEKS)!);
+    expect(r.source).toBe('PLANTILLA');
+    expect(pool.chat).not.toHaveBeenCalled();
+  });
+
+  it('sin IA propia ni IA de prueba autorizada, plantilla sin llamar a nadie', async () => {
     const ctx = setup();
-    ctx.db.platformSetting.push({ id: 's1', key: 'GENERIC_AI_DAILY_PER_COMPANY', value: '0' });
     const pool = fakePool([JSON.stringify({ resumen: 'x' })]);
     const r = await reports(ctx, pool).summarize(ctx.db.company[0], 'comparativo', compareFacts('week', WEEKS)!);
     expect(r.source).toBe('PLANTILLA');
@@ -131,7 +142,7 @@ describe('resumen en el reporte diario: proveedor y plan B', () => {
   });
 
   it('el comparativo genera su resumen una vez por día y periodo', async () => {
-    const ctx = setup();
+    const ctx = setup({ aiTrialJson: trial() });
     const pool = fakePool([unavailable()]);
     const service = reports(ctx, pool);
     const a = await service.compareSummary('co1', 'week');

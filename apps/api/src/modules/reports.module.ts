@@ -107,8 +107,8 @@ export class ReportsService {
 
   /**
    * 3 a 5 frases a partir de cifras AGREGADAS (sin nombres ni textos de
-   * clientes). Con la IA propia de la empresa si la tiene; si no, con la
-   * cadena genérica gratis (sanitizada, con tope diario por empresa). Si no
+   * clientes). Con la IA propia de la empresa si la tiene; si no, con la IA
+   * de prueba si un dev se la autorizó (sanitizada, con su tope diario). Si no
    * hay IA, se pasa del tope o la IA inventa cifras, se usa la plantilla:
    * el reporte NUNCA falla por esto.
    */
@@ -120,8 +120,8 @@ export class ReportsService {
     });
     try {
       const route = await this.textAi.route(company);
-      if (route.kind === 'GENERICA') await this.textAi.reserveGeneric(company.id);
-      const r = await this.textAi.complete(company, route, {
+      if (route.kind === 'NINGUNA') return template();
+      const r = await this.textAi.run(company, route, {
         purpose: 'REPORTE_RESUMEN', requestId: `resumen-${randomUUID()}`, json: true, maxTokens: 2000, temperature: 0.3,
         messages: summaryMessages(kind, facts),
       });

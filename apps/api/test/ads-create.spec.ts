@@ -3,6 +3,7 @@
  * reintento sin duplicar, activación con tope y la semana programada.
  * Meta y la IA son falsos: nada sale a internet.
  */
+import { CompanyTextAi } from '../src/ai/company-text-ai';
 import 'reflect-metadata';
 import { BadRequestException } from '@nestjs/common';
 import { encode as encodeJpeg } from 'jpeg-js';
@@ -147,7 +148,7 @@ function world(opts: { aiKey?: boolean; scopes?: string[]; failAt?: string } = {
     if (args[1] !== 'asset1') throw new BadRequestException('Imagen no encontrada en tu biblioteca');
     return { asset: { id: 'asset1', mimeType: 'image/jpeg' }, buffer: img };
   });
-  return { svc, db, calls, chat, audit };
+  return { svc, db, prisma, calls, chat, audit };
 }
 
 const BODY = { accountId: 'acc1', pageId: '5550001', instagramUserId: '1784000', assetId: 'asset1', draft: DRAFT };
@@ -159,7 +160,7 @@ describe('crear anuncios desde Ads', () => {
     expect(s.pages).toEqual([{ id: '5550001', name: 'Aurora Página', instagramUserId: '1784000' }]);
     expect(s.account.access).toMatchObject({ manage: true });
     expect(s.ai).toMatchObject({ available: false });
-    expect(s.ai.note).toMatch(/no tiene configurado un proveedor de IA/);
+    expect(s.ai.note).toMatch(/todavía no tiene IA/);
     const withAi: any = await world({ aiKey: true }).svc.setup(A, {});
     expect(withAi.ai.note).toMatch(/lo cobra tu proveedor directamente/);
   });
@@ -271,5 +272,43 @@ describe('crear anuncios desde Ads', () => {
     await svc.setBudgetCap(A, { maxDailyBudget: '80.000' });
     expect(db.adSettings[0]).toMatchObject({ maxDailyBudget: 80000, autonomy: 'RECOMMEND' });
     await expect(svc.setBudgetCap(A, { maxDailyBudget: '0' })).rejects.toThrow(/mayor a 0/);
+  });
+});
+
+describe('revisión de la pieza con la IA de prueba de BackOffice', () => {
+  const trial = (dailyLimit = 5) => JSON.stringify({ until: new Date(Date.now() + 7 * 864e5).toISOString(), dailyLimit, authorizedBy: 'Santiago', authorizedAt: new Date().toISOString() });
+  const visionPool = () => ({
+    chat: jest.fn(),
+    chatVision: jest.fn(async (_o: any) => ({ content: JSON.stringify({ lo_que_ves: 'Una hamburguesa', resumen: 'Clara', puntaje: 7, lo_que_funciona: ['Foto grande'], mejoras: [], riesgo_politicas: { nivel: 'bajo' } }), model: 'gemini-2.5-flash', keyLabel: 'g1', tokens: 900, provider: 'GEMINI' })),
+  });
+
+  it('autorizada por un dev: la imagen va solo a Gemini, no se le cobra a la empresa y gasta un uso', async () => {
+    const w = world();
+    w.db.company[0].aiTrialJson = trial(5);
+    const pool = visionPool();
+    (w.svc as any).textAi = new CompanyTextAi(w.prisma, undefined, pool as any);
+    const s: any = await w.svc.setup(A, {});
+    expect(s.ai).toMatchObject({ available: true, source: 'GENERICA', trial: { used: 0, limit: 5 } });
+    expect(s.ai.note).toMatch(/IA de prueba de BackOffice/);
+    const r: any = await w.svc.review(A, BODY);
+    expect(r.ai).toMatchObject({ status: 'OK', source: 'GENERICA', billedTo: null, review: { score: 7 } });
+    const sent = pool.chatVision.mock.calls[0][0] as any;
+    expect(sent.imageDataUrl.startsWith('data:image/jpeg;base64,')).toBe(true);
+    expect(sent.messages.every((m: any) => typeof m.content === 'string')).toBe(true); // la imagen viaja aparte, solo a Gemini
+    expect(w.chat).not.toHaveBeenCalled();
+    expect(w.db.aiUsageEvent).toHaveLength(0);
+    expect((await (w.svc as any).textAi.describe(w.db.company[0])).trial).toMatchObject({ used: 1, limit: 5 });
+  });
+
+  it('si la IA de prueba no responde, queda la revisión por reglas y el uso se devuelve', async () => {
+    const w = world();
+    w.db.company[0].aiTrialJson = trial(5);
+    const pool = visionPool();
+    pool.chatVision.mockRejectedValueOnce(Object.assign(new Error('ocupada'), { response: { code: 'AI_UNAVAILABLE', message: 'La IA que revisa imágenes está ocupada' } }));
+    (w.svc as any).textAi = new CompanyTextAi(w.prisma, undefined, pool as any);
+    const r: any = await w.svc.review(A, BODY);
+    expect(r.ai.status).toBe('ERROR');
+    expect(r.ai.message).toMatch(/Queda la revisión por reglas/);
+    expect((await (w.svc as any).textAi.describe(w.db.company[0])).trial.used).toBe(0);
   });
 });

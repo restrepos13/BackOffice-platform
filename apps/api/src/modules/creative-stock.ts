@@ -101,6 +101,37 @@ export class CreativeStockService {
     const company = await this.creative.companyOf(user, companyId, ['CREATIVE', 'ADS']);
     const id = Math.floor(Number(dto?.id));
     if (!Number.isFinite(id) || id <= 0 || id > 1e12) throw new BadRequestException('Foto inválida');
+    return this.importFor(company, id, user.name);
+  }
+
+  /**
+   * Cuando la empresa NO tiene fotos propias, el motor de Creative busca y
+   * trae solo unas de Pexels para la pieza. Sin llave de Pexels, sin
+   * resultados o si algo falla, devuelve [] y la pieza se arma sin foto.
+   */
+  async autoPick(company: { id: string }, query: string, orientation: 'landscape' | 'portrait' | 'square', count = 2): Promise<Array<{ assetId: string; photographer: string; url: string }>> {
+    const q = query.replace(/\s+/g, ' ').trim().slice(0, 80);
+    if (!q || !(await this.key())) return [];
+    try {
+      const ck = `auto|${q.toLowerCase()}|${orientation}`;
+      const hit = this.cache.get(ck);
+      const photos = hit && Date.now() - hit.at < 3600_000
+        ? hit.data.photos
+        : ((await this.call(`/search?${new URLSearchParams({ query: q, per_page: '8', locale: 'es-ES', orientation })}`))?.photos ?? []).map(view).filter((p: StockPhoto) => p.thumb.startsWith(`https://${IMG_HOST}/`));
+      if (!hit) this.cache.set(ck, { at: Date.now(), data: { photos, hasMore: false } });
+      const out: Array<{ assetId: string; photographer: string; url: string }> = [];
+      for (const p of photos.slice(0, count)) {
+        const asset = await this.importFor(company, p.id, 'Creative (Pexels automático)');
+        out.push({ assetId: asset.id, photographer: p.photographer, url: p.url });
+      }
+      return out;
+    } catch (err: any) {
+      this.logger.warn(`fotos automáticas de Pexels: ${String(err?.message ?? err).slice(0, 120)}`);
+      return [];
+    }
+  }
+
+  private async importFor(company: { id: string }, id: number, actorName: string) {
     const externalId = `pexels:${id}`;
     const existing = await this.prisma.brandAsset.findFirst({ where: { companyId: company.id, externalId } });
     if (existing) return existing;
@@ -129,10 +160,10 @@ export class CreativeStockService {
     const asset = await this.prisma.brandAsset.create({
       data: {
         companyId: company.id, kind: 'IMAGE', name, fileName, mimeType: info.mime, sizeBytes: buffer.length, width: info.width, height: info.height,
-        createdBy: user.name, source: 'STOCK', originModule: 'CREATIVE', externalId, sha256: createHash('sha256').update(buffer).digest('hex'),
+        createdBy: actorName, source: 'STOCK', originModule: 'CREATIVE', externalId, sha256: createHash('sha256').update(buffer).digest('hex'),
       },
     });
-    await this.audit.log({ actor: user, companyId: company.id, action: 'creative.stock_imported', entity: 'BrandAsset', entityId: asset.id, detail: `${externalId} · ${v.photographer}` });
+    await this.audit.log({ actor: null, companyId: company.id, action: 'creative.stock_imported', entity: 'BrandAsset', entityId: asset.id, detail: `${externalId} · ${v.photographer} · por ${actorName}` });
     return asset;
   }
 }

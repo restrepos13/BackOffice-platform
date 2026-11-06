@@ -136,6 +136,8 @@ model Company {
   aiBillingMode         String    @default("BYOK") // BYOK | PLATFORM | HYBRID (las dos, con respaldo)
   aiHybridPrimary       String    @default("BYOK") // en HYBRID: cuál llave va primero (la otra es respaldo)
   aiSpendCapUsd         Float? // tope duro mensual en modo PLATFORM (null = sin tope)
+  /// IA de prueba de BackOffice (common/ai-trial.ts): la autoriza un dev, con vencimiento y tope diario. null = sin autorizar
+  aiTrialJson           String?
   aiIncludedOverride    Int? // conversaciones incluidas propias (pisa al plan)
   // Parámetros del "Reporte a Gerencia": ahorro = conversaciones IA/mes ÷ capacidad × sueldo
   savingsSalaryUsd      Float     @default(400) // sueldo mensual equivalente de un agente humano

@@ -12,11 +12,15 @@ import { AuthUser, ROLES, parseJson } from '../common/constants';
 import { hasProduct } from '../common/products';
 import { ensureFile, removeFile, saveFile } from '../common/file-store';
 import { AI_PROVIDER, AiProvider, extractJson } from '../ai/types';
-import { readCompanyKey, recordAiUsage } from '../ai/ai-access';
+import { CompanyTextAi } from '../ai/company-text-ai';
+import { GeminiPool } from '../ai/gemini-pool';
+import { AI_TRIAL_NOTICE } from '../common/ai-trial';
+import { profileOfCompany } from '../common/business-profile';
 import { CREATIVE_COSTS, InsufficientCreditsError, commitCreativeCredits, releaseCreativeCredits, reserveCreativeCredits } from '../common/creative-credits';
 import { CatalogItem, Intent, MAX_DESCRIPTION, artRequestFrom, intentMessages, interpretIntent, normalizeAiIntent } from '../common/creative/intent';
 import { ImageOpError, RemoveBgProvider, validateCutout, type CutoutProvider, type FetchLike } from '../common/creative/cutout';
 import { CreativeService } from './creative.module';
+import { CreativeStockService } from './creative-stock';
 import { LibraryService, exportedVersion } from './library.module';
 import { CATALOG as ART_CATALOG } from '../common/creative/art-direction';
 import { DesignResult, MIN_IMPRESSIONS, group, recommend } from '../common/creative/what-works';
@@ -50,6 +54,8 @@ const withTimeout = <T>(p: Promise<T>, ms: number) =>
 export class CreativeCreateService {
   private readonly logger = new Logger('CreativeCreate');
   fetchImpl: FetchLike = (u, i) => fetch(u, i) as any;
+  /** IA de la empresa o, si un dev la autorizó, la de prueba (ai/company-text-ai.ts) */
+  readonly textAi: CompanyTextAi;
   /** Reemplazable en pruebas (sin llamadas reales) */
   cutoutProvider?: (prisma: PrismaService) => Promise<CutoutProvider | null>;
 
@@ -60,7 +66,10 @@ export class CreativeCreateService {
     @Inject(forwardRef(() => CreativeService)) private readonly creative: CreativeService,
     private readonly library: LibraryService,
     @Optional() @Inject(AI_PROVIDER) private readonly ai?: AiProvider,
-  ) {}
+    @Optional() @Inject(forwardRef(() => CreativeStockService)) private readonly stock?: CreativeStockService,
+  ) {
+    this.textAi = new CompanyTextAi(prisma, ai, new GeminiPool(prisma));
+  }
 
   private async cutout(): Promise<CutoutProvider | null> {
     if (this.cutoutProvider) return this.cutoutProvider(this.prisma);
@@ -94,7 +103,7 @@ export class CreativeCreateService {
       this.cutout(),
     ]);
     const b: any = brand;
-    const aiKey = !!readCompanyKey(company.deepinfraApiKey);
+    const aiInfo = await this.textAi.describe(company);
     return {
       materials: {
         photos: photos.map((a) => ({ id: a.id, name: a.name, width: a.width, height: a.height, source: a.source ?? 'UPLOAD', derivedFromId: a.derivedFromId ?? null, createdAt: a.createdAt })),
@@ -108,10 +117,14 @@ export class CreativeCreateService {
         note: (b?.colors?.length ?? 0) > 0 ? null : 'Tu marca aún no tiene colores confirmados: usaremos una paleta provisional que puedes guardar después.',
       },
       ai: {
-        available: aiKey && !!this.ai,
-        note: aiKey
-          ? 'Usamos la IA de tu empresa para entender lo que escribes (lo cobra tu proveedor, aparte). Los datos se validan siempre: nunca inventamos precios ni ofertas.'
-          : 'Sin proveedor de IA configurado: entendemos tu descripción con reglas. Funciona, pero entiende menos matices.',
+        available: aiInfo.source !== 'NINGUNA',
+        source: aiInfo.source,
+        trial: aiInfo.trial,
+        note: aiInfo.source === 'EMPRESA'
+          ? 'El motor arma tus piezas y la IA de tu empresa entiende lo que pides y las corrige (lo cobra tu proveedor, aparte). Nunca inventamos precios ni ofertas.'
+          : aiInfo.source === 'GENERICA'
+            ? `El motor arma tus piezas y la IA de prueba de BackOffice las corrige según lo que pides. ${AI_TRIAL_NOTICE}`
+            : 'Sin IA: el motor entiende tu descripción con reglas y arma las piezas solo. Funciona, pero entiende menos matices.',
       },
       cutout: cutout
         ? { configured: true, provider: cutout.label, credits: CREATIVE_COSTS.IMAGE }
@@ -124,7 +137,10 @@ export class CreativeCreateService {
 
   /* ── 2. Intención ── */
 
-  async intent(user: AuthUser, dto: any, companyId?: string): Promise<{ intent: Intent; art: ReturnType<typeof artRequestFrom>; ai: { used: boolean; note: string | null } }> {
+  async intent(user: AuthUser, dto: any, companyId?: string): Promise<{
+    intent: Intent; art: ReturnType<typeof artRequestFrom>; ai: { used: boolean; note: string | null; source: 'EMPRESA' | 'GENERICA' | 'NINGUNA' };
+    stock: Array<{ assetId: string; photographer: string; url: string }>;
+  }> {
     const company = await this.creative.companyOf(user, companyId);
     const description = String(dto?.description ?? '').trim();
     if (description.length < 8) throw new BadRequestException('Cuéntanos en una frase qué quieres promocionar');
@@ -135,21 +151,41 @@ export class CreativeCreateService {
     let intent = rules;
     let note: string | null = null;
     let used = false;
-    const apiKey = readCompanyKey(company.deepinfraApiKey);
-    if (apiKey && this.ai) {
+    // IA de la empresa o, si un dev la autorizó, la de prueba; sin ninguna, las reglas
+    const route = await this.textAi.route(company);
+    if (route.kind !== 'NINGUNA') {
       try {
-        const res = await withTimeout(this.ai.chat({ apiKey, model: INTENT_MODEL, temperature: 0, maxTokens: 300, jsonMode: true, messages: intentMessages(description, catalog) }), AI_TIMEOUT_MS);
-        await recordAiUsage(this.prisma, { companyId: company.id, model: INTENT_MODEL, inputTokens: res.inputTokens, outputTokens: res.outputTokens, billedTo: 'BYOK', purpose: 'creative.intent' });
+        const res = await withTimeout(this.textAi.run(company, route, {
+          purpose: 'creative.intent', temperature: 0, maxTokens: 1500, json: true, noThinking: true, messages: intentMessages(description, catalog),
+        }, { model: INTENT_MODEL }), AI_TIMEOUT_MS);
         intent = normalizeAiIntent(extractJson(res.content), rules, catalog);
         used = true;
       } catch (err: any) {
-        note = err?.timeout ? 'La IA tardó demasiado; usamos la interpretación por reglas.' : 'La IA no respondió; usamos la interpretación por reglas.';
+        note = err?.response?.code === 'GENERIC_AI_LIMIT' ? 'Se acabaron los usos de IA de prueba de hoy; usamos la interpretación por reglas.'
+          : err?.timeout ? 'La IA tardó demasiado; usamos la interpretación por reglas.' : 'La IA no respondió; usamos la interpretación por reglas.';
         this.logger.warn(`intent ${company.id}: ${String(err?.message ?? err).slice(0, 120)}`);
       }
     }
     // Lo que la persona confirma en pantalla manda (y se valida igual)
     if (dto?.overrides && typeof dto.overrides === 'object') intent = this.applyOverrides(intent, dto.overrides, catalog);
-    return { intent, art: artRequestFrom(intent), ai: { used, note } };
+    // Fotos: las de la empresa; solo si no tiene NINGUNA propia, el motor trae de Pexels
+    const stock = intent.assetIds.length ? [] : await this.stockPhotosFor(company, intent);
+    if (stock.length) intent = { ...intent, assetIds: stock.map((p) => p.assetId) };
+    return { intent, art: artRequestFrom(intent), ai: { used, note, source: route.kind }, stock };
+  }
+
+  /** Fotos de Pexels para una empresa que no tiene fotos propias (ni subidas, ni del catálogo, ni recortadas). */
+  private async stockPhotosFor(company: any, intent: Intent) {
+    const own = await this.prisma.brandAsset.count({ where: { companyId: company.id, kind: 'IMAGE', NOT: { source: 'STOCK' } } });
+    const logos = await this.prisma.brandProfile.findUnique({ where: { companyId: company.id }, select: { logosJson: true } }).catch(() => null);
+    const logoCount = parseJson<any[]>(logos?.logosJson, []).length;
+    if (own - logoCount > 0) return [];
+    const ob = parseJson<Record<string, any>>(company.onboardingJson, {});
+    const profile = profileOfCompany({ ...ob, businessType: ob.businessType ?? company.industry ?? undefined }, ob.rubro);
+    const query = intent.productName || intent.productDescription || profile.label;
+    const first = intent.requestedFormats[0];
+    const orientation = first === 'STORY' || first === 'IG_PORTRAIT' ? 'portrait' : first === 'FB_POST' ? 'landscape' : 'square';
+    return this.stock ? this.stock.autoPick(company, query, orientation, 2) : [];
   }
 
   /** Correcciones de la persona: solo campos permitidos y valores válidos. */

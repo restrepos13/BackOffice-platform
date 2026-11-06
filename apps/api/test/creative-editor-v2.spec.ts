@@ -140,10 +140,17 @@ describe('Fotos gratis de Pexels', () => {
   });
 
   it('sin clave lo dice y no llama a Pexels', async () => {
-    const w = world('');
-    expect(await w.svc.status()).toEqual({ configured: false });
-    await expect(w.svc.import(A, { id: 1 })).rejects.toThrow(/no están activadas/);
-    expect(w.calls).toHaveLength(0);
+    // La llave puede estar en el .env de quien corre las pruebas: aquí se prueba sin ella
+    const saved = process.env.PEXELS_API_KEY;
+    delete process.env.PEXELS_API_KEY;
+    try {
+      const w = world('');
+      expect(await w.svc.status()).toEqual({ configured: false });
+      await expect(w.svc.import(A, { id: 1 })).rejects.toThrow(/no están activadas/);
+      expect(w.calls).toHaveLength(0);
+    } finally {
+      if (saved !== undefined) process.env.PEXELS_API_KEY = saved;
+    }
   });
 
   it('trae la foto una sola vez, pidiendo la URL a Pexels (nunca una URL de otro dominio)', async () => {

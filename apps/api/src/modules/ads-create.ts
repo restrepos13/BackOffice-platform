@@ -13,7 +13,10 @@ import { hasProduct } from '../common/products';
 import { decryptSecret } from '../common/crypto';
 import { ensureFile } from '../common/file-store';
 import { AI_PROVIDER, AiProvider, extractJson } from '../ai/types';
-import { readCompanyKey, recordAiUsage } from '../ai/ai-access';
+import { CompanyTextAi } from '../ai/company-text-ai';
+import { GeminiPool } from '../ai/gemini-pool';
+import { AI_TRIAL_NOTICE } from '../common/ai-trial';
+import { recordAiUsage } from '../ai/ai-access';
 import { VISION_MODEL } from '../ai/vision';
 import { addDays, FetchLike } from '../common/ads/provider';
 import { accessFrom, classifyMetaError, metaAdsVersion } from '../common/ads/meta-ads-provider';
@@ -46,7 +49,7 @@ const ADS_VISION_KEY = 'ADS_VISION_MODEL';
 export interface ReviewResult {
   code: { score: number; items: CheckItem[]; facts: ImageFacts | null };
   ai:
-    | { status: 'OK'; model: string; review: AiReview; billedTo: 'BYOK' }
+    | { status: 'OK'; model: string; review: AiReview; billedTo: 'BYOK' | 'PLATFORM' | null; source: 'EMPRESA' | 'GENERICA' }
     | { status: 'NO_KEY' | 'UNAVAILABLE' | 'ERROR'; message: string };
   at: string;
 }
@@ -57,11 +60,16 @@ export class AdsCreateService {
   fetchImpl: FetchLike = (u, i) => fetch(u, i) as any;
   now: () => Date = () => new Date();
 
+  /** IA de la empresa o, si un dev la autorizó, la de prueba (ai/company-text-ai.ts) */
+  readonly textAi: CompanyTextAi;
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     @Optional() @Inject(AI_PROVIDER) private readonly ai?: AiProvider,
-  ) {}
+  ) {
+    this.textAi = new CompanyTextAi(prisma, ai, new GeminiPool(prisma));
+  }
 
   /* ── Empresa, cuenta y Graph ── */
 
@@ -117,19 +125,23 @@ export class AdsCreateService {
     const c = await this.company(user, q.companyId);
     // Lo independiente va en paralelo: cada viaje a Atlas cuesta ~70 ms
     const [{ a, accounts }, maxDailyBudget, visionModel] = await Promise.all([this.account(c.id, q.accountId), this.maxDailyBudget(c.id), this.visionModel()]);
-    const aiKey = !!readCompanyKey(c.deepinfraApiKey);
+    const aiInfo = await this.textAi.describe(c);
     const base = {
       accounts: accounts.map((x) => ({ id: x.id, name: x.name, externalId: x.externalId, currency: x.currency, access: accessFrom(parseJson<string[]>(x.scopesJson, [])) })),
       goals: Object.entries(CLIENT_GOALS).map(([key, g]) => ({ key, label: g.label, resultLabel: g.resultLabel })),
       ctas: Object.entries(CLIENT_CTAS).map(([key, label]) => ({ key, label })),
       maxDailyBudget,
       ai: {
-        available: aiKey && !!this.ai,
-        provider: 'DeepInfra',
-        model: visionModel,
-        note: aiKey
-          ? 'La revisión con IA usa la llave de IA de tu empresa: lo que consuma lo cobra tu proveedor directamente, aparte de BackOffice.'
-          : 'Tu empresa no tiene configurado un proveedor de IA. La revisión se hará solo con reglas (código): sirve, pero no entiende la imagen ni la oferta como lo haría una IA.',
+        available: aiInfo.source !== 'NINGUNA',
+        source: aiInfo.source,
+        trial: aiInfo.trial,
+        provider: aiInfo.source === 'GENERICA' ? 'IA de prueba de BackOffice (Gemini)' : 'DeepInfra',
+        model: aiInfo.source === 'GENERICA' ? null : visionModel,
+        note: aiInfo.source === 'EMPRESA'
+          ? 'La revisión con IA usa la IA de tu empresa: lo que consuma lo cobra tu proveedor directamente, aparte de BackOffice.'
+          : aiInfo.source === 'GENERICA'
+            ? `La revisión con IA usa la IA de prueba de BackOffice. ${AI_TRIAL_NOTICE}`
+            : 'Tu empresa todavía no tiene IA. La revisión se hace solo con reglas (código): sirve, pero no entiende la imagen ni la oferta como lo haría una IA.',
       },
     };
     if (!a) return { ...base, account: null, pages: [], pagesError: null, today: todayIn(c.timezone, this.now()), hints: null };
@@ -221,27 +233,47 @@ export class AdsCreateService {
     const code = { score: scoreOf(items), items, facts };
     const at = this.now().toISOString();
 
-    const apiKey = readCompanyKey(c.deepinfraApiKey);
-    if (!apiKey) return { code, ai: { status: 'NO_KEY', message: 'Sin proveedor de IA configurado: esta revisión es solo por reglas.' }, at };
-    if (!this.ai) return { code, ai: { status: 'UNAVAILABLE', message: 'El motor de IA no está disponible en este momento.' }, at };
-    const model = await this.visionModel();
+    const route = await this.textAi.route(c);
+    if (route.kind === 'NINGUNA') return { code, ai: { status: 'NO_KEY', message: 'Tu empresa todavía no tiene IA: esta revisión es solo por reglas.' }, at };
+    const dataUrl = decoded ? `data:image/jpeg;base64,${thumbnailJpeg(decoded).toString('base64')}` : null;
+    const audience = `${draft.countries.join(', ') || '—'} · ${draft.advantageAudience ? 'público Advantage+ (Meta amplía)' : `${draft.ageMin}-${draft.ageMax} años`}`;
+    const input = { business: c.name, industry: c.industry ?? null, goal: draft.goal, primaryText: draft.primaryText, headline: draft.headline, description: draft.description, audience, facts };
     try {
-      const dataUrl = decoded ? `data:image/jpeg;base64,${thumbnailJpeg(decoded).toString('base64')}` : null;
-      const audience = `${draft.countries.join(', ') || '—'} · ${draft.advantageAudience ? 'público Advantage+ (Meta amplía)' : `${draft.ageMin}-${draft.ageMax} años`}`;
-      const result = await this.ai.chat({
-        apiKey, model, temperature: 0.3, maxTokens: 900, jsonMode: true,
-        messages: reviewMessages({ business: c.name, industry: c.industry ?? null, goal: draft.goal, primaryText: draft.primaryText, headline: draft.headline, description: draft.description, audience, facts }, dataUrl) as any,
-      });
-      // Lo que consumió queda en «Consumo IA» como cualquier respuesta, pagado por la empresa
-      await recordAiUsage(this.prisma, { companyId: c.id, model, inputTokens: result.inputTokens, outputTokens: result.outputTokens, billedTo: 'BYOK', purpose: 'ads.creative' });
-      const review = normalizeReview(extractJson(result.content));
+      let content: string;
+      let model: string;
+      let billedTo: 'BYOK' | 'PLATFORM' | null = null;
+      if (route.kind === 'EMPRESA') {
+        if (!this.ai) return { code, ai: { status: 'UNAVAILABLE', message: 'El motor de IA no está disponible en este momento.' }, at };
+        const ai = this.ai;
+        model = await this.visionModel();
+        const visionModel = model;
+        const run = await route.session.run((apiKey) => ai.chat({ apiKey, model: visionModel, temperature: 0.3, maxTokens: 900, jsonMode: true, messages: reviewMessages(input, dataUrl) as any }));
+        billedTo = run.billedTo;
+        // Lo que consumió queda en «Consumo IA» como cualquier respuesta
+        await recordAiUsage(this.prisma, { companyId: c.id, model, inputTokens: run.result.inputTokens, outputTokens: run.result.outputTokens, billedTo: run.billedTo, purpose: 'ads.creative' });
+        content = run.result.content;
+      } else {
+        // IA de prueba: la imagen va solo a Gemini (el único de la cadena que la entiende); el texto, sanitizado
+        await this.textAi.reserveGeneric(c.id, route.trial.dailyLimit);
+        try {
+          const opts = { messages: reviewMessages(input, null), json: true, maxTokens: 4000, temperature: 0.3, noThinking: true, deadlineMs: 45_000, knownNames: await this.textAi.knownNames(c.id) };
+          const r = dataUrl ? await this.textAi.pool.chatVision({ ...opts, imageDataUrl: dataUrl }) : await this.textAi.pool.chat(opts);
+          content = r.content;
+          model = r.model;
+        } catch (err) {
+          await this.textAi.releaseGeneric(c.id);
+          throw err;
+        }
+      }
+      const review = normalizeReview(extractJson(content));
       if (!review) return { code, ai: { status: 'ERROR', message: 'La IA respondió en un formato que no se pudo leer. Queda la revisión por reglas.' }, at };
-      return { code, ai: { status: 'OK', model, review, billedTo: 'BYOK' }, at };
+      return { code, ai: { status: 'OK', model, review, billedTo, source: route.kind }, at };
     } catch (err: any) {
       const status = err?.providerStatus;
-      const message = status === 401 || status === 403 ? 'Tu proveedor de IA rechazó la llave: revísala en Configuración.'
-        : status === 402 ? 'Tu cuenta de IA no tiene saldo.'
-          : `La IA no respondió (${String(err?.message ?? 'error').slice(0, 120)}).`;
+      const message = err?.response?.code === 'GENERIC_AI_LIMIT' ? 'Se acabaron los usos de IA de prueba de hoy.'
+        : status === 401 || status === 403 ? 'Tu proveedor de IA rechazó la llave: revísala en Configuración.'
+          : status === 402 ? 'Tu cuenta de IA no tiene saldo.'
+            : `La IA no respondió (${String(err?.response?.message ?? err?.message ?? 'error').slice(0, 120)}).`;
       return { code, ai: { status: 'ERROR', message: `${message} Queda la revisión por reglas.` }, at };
     }
   }

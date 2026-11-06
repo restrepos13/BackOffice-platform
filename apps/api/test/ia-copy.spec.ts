@@ -53,6 +53,9 @@ function setupCopy(company: Record<string, any> = {}) {
   return { prisma, db, audit };
 }
 
+/** IA de prueba autorizada por un dev (vigente) con su tope diario. */
+const trial = (dailyLimit = 20) => JSON.stringify({ until: new Date(Date.now() + 7 * 864e5).toISOString(), dailyLimit, authorizedBy: 'Santiago', authorizedAt: new Date().toISOString() });
+
 function copyService(ctx: ReturnType<typeof setupCopy>, pool: any, ai?: any) {
   const service = new CreativeCopyService(ctx.prisma as any, ctx.audit as any, ai);
   (service as any).textAi = new CompanyTextAi(ctx.prisma, ai, pool);
@@ -93,12 +96,8 @@ describe('copy para Meta Ads: validación', () => {
 });
 
 describe('copy para Meta Ads: proveedor, reintento, políticas y tope', () => {
-  const OLD = process.env;
-  beforeEach(() => { process.env = { ...OLD, GENERIC_AI_DAILY_PER_COMPANY: '' }; });
-  afterAll(() => { process.env = OLD; });
-
-  it('sin IA propia usa la cadena genérica: un reintento con los errores y luego descarta lo que no cumple', async () => {
-    const ctx = setupCopy();
+  it('sin IA propia y con la IA de prueba autorizada usa la cadena genérica: un reintento y descarta lo que no cumple', async () => {
+    const ctx = setupCopy({ aiTrialJson: trial(20) });
     const pool = fakePool([
       JSON.stringify({ variaciones: [v(), v({ titular: 'Un titular larguísimo que no cabe en el anuncio de Meta' })] }),
       JSON.stringify({ variaciones: [v({ titular: 'Tu torta lista en 2 días', enfoque: 'urgencia' }), v({ cta: 'COMPRAR_YA' })] }),
@@ -117,7 +116,7 @@ describe('copy para Meta Ads: proveedor, reintento, políticas y tope', () => {
   });
 
   it('las reglas de la marca y las políticas de Meta filtran antes de devolver', async () => {
-    const ctx = setupCopy();
+    const ctx = setupCopy({ aiTrialJson: trial() });
     const pool = fakePool([JSON.stringify({ variaciones: [
       v({ titular: 'Mejor que la competencia' }), // tema prohibido por la marca
       v({ texto: '¿Estás gorda? Nuestras tortas light te ayudan, escríbenos ya mismo' }), // atributos personales: Meta lo rechaza
@@ -129,9 +128,8 @@ describe('copy para Meta Ads: proveedor, reintento, políticas y tope', () => {
     expect(r.variations[0].review).toEqual({ needsReview: true, reasons: ['Menciona precios, descuentos o promociones'] });
   });
 
-  it('tope diario por empresa en la cadena genérica (configurable en Dev Tools)', async () => {
-    const ctx = setupCopy();
-    ctx.db.platformSetting.push({ id: 's1', key: 'GENERIC_AI_DAILY_PER_COMPANY', value: '2' });
+  it('tope diario de la IA de prueba: el que fijó el dev al autorizarla', async () => {
+    const ctx = setupCopy({ aiTrialJson: trial(2) });
     const pool = fakePool([JSON.stringify({ variaciones: [v()] })]);
     const service = copyService(ctx, pool);
     await service.suggest(ADMIN, { count: 1 });
@@ -141,11 +139,11 @@ describe('copy para Meta Ads: proveedor, reintento, políticas y tope', () => {
     expect((err as HttpException).getStatus()).toBe(429);
     expect((err as HttpException).getResponse()).toMatchObject({ code: GENERIC_AI_LIMIT });
     expect(pool.chat).toHaveBeenCalledTimes(2);
-    expect(await service.textAi.genericUsage('co1')).toEqual({ used: 2, limit: 2 });
+    expect(await service.textAi.genericUsage('co1', 2)).toEqual({ used: 2, limit: 2 });
   });
 
-  it('con IA propia (BYOK) usa la de la empresa, la registra en AiUsageEvent y no gasta el cupo gratis', async () => {
-    const ctx = setupCopy({ aiBillingMode: 'BYOK', deepinfraApiKey: 'llave-de-la-empresa' });
+  it('con IA propia (BYOK) usa la de la empresa, la registra en AiUsageEvent y no gasta el cupo de prueba', async () => {
+    const ctx = setupCopy({ aiBillingMode: 'BYOK', deepinfraApiKey: 'llave-de-la-empresa', aiTrialJson: trial() });
     const pool = fakePool([unavailable()]);
     const ai = { chat: jest.fn(async () => ({ content: JSON.stringify({ variaciones: [v()] }), inputTokens: 300, outputTokens: 120, model: 'meta-llama/Llama-3.3-70B-Instruct' })), transcribe: jest.fn() };
     const r = await copyService(ctx, pool, ai).suggest(ADMIN, { count: 1 });
@@ -154,13 +152,38 @@ describe('copy para Meta Ads: proveedor, reintento, políticas y tope', () => {
     expect(pool.chat).not.toHaveBeenCalled();
     expect((ai.chat.mock.calls[0] as any)[0].apiKey).toBe('llave-de-la-empresa');
     expect(ctx.db.aiUsageEvent).toEqual([expect.objectContaining({ companyId: 'co1', billedTo: 'BYOK', inputTokens: 300 })]);
-    expect(await new CompanyTextAi(ctx.prisma, ai as any, pool as any).genericUsage('co1')).toMatchObject({ used: 0 });
+    expect(await new CompanyTextAi(ctx.prisma, ai as any, pool as any).genericUsage('co1', 20)).toMatchObject({ used: 0 });
   });
 
-  it('si ninguna IA responde, avisa con AI_UNAVAILABLE (sin romper)', async () => {
-    const ctx = setupCopy();
-    const err = await copyService(ctx, fakePool([unavailable()])).suggest(ADMIN, {}).catch((e) => e);
+  it('si ninguna IA responde, avisa con AI_UNAVAILABLE (sin romper) y no gasta el cupo', async () => {
+    const ctx = setupCopy({ aiTrialJson: trial(5) });
+    const service = copyService(ctx, fakePool([unavailable()]));
+    const err = await service.suggest(ADMIN, {}).catch((e) => e);
     expect(err).toBeInstanceOf(ServiceUnavailableException);
     expect(err.getResponse()).toMatchObject({ code: 'AI_UNAVAILABLE' });
+    expect(await service.textAi.genericUsage('co1', 5)).toEqual({ used: 0, limit: 5 });
+  });
+
+  it('sin IA propia y sin autorización del dev NO usa nuestras llaves: lo dice y no llama a nadie', async () => {
+    const ctx = setupCopy();
+    const pool = fakePool([JSON.stringify({ variaciones: [v()] })]);
+    const service = copyService(ctx, pool);
+    const err = await service.suggest(ADMIN, { count: 1 }).catch((e) => e);
+    expect(err.getResponse()).toMatchObject({ code: 'NO_AI' });
+    expect(pool.chat).not.toHaveBeenCalled();
+    expect(await service.status(ADMIN)).toMatchObject({ source: 'NINGUNA', quota: null });
+    // Vencida tampoco
+    ctx.db.company[0].aiTrialJson = JSON.stringify({ until: new Date(Date.now() - 1000).toISOString(), dailyLimit: 10 });
+    expect((await service.suggest(ADMIN, { count: 1 }).catch((e) => e)).getResponse()).toMatchObject({ code: 'NO_AI' });
+  });
+
+  it('el tope no se pasa con pedidos al mismo tiempo', async () => {
+    const ctx = setupCopy({ aiTrialJson: trial(2) });
+    const textAi = new CompanyTextAi(ctx.prisma, undefined, fakePool([]) as any);
+    const results = await Promise.allSettled(Array.from({ length: 6 }, () => textAi.reserveGeneric('co1', 2)));
+    expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(2);
+    expect(results.filter((r) => r.status === 'rejected').every((r: any) => r.reason.getResponse().code === GENERIC_AI_LIMIT)).toBe(true);
+    expect(await textAi.genericUsage('co1', 2)).toEqual({ used: 2, limit: 2 });
+    expect(ctx.db.aiKeyUsage).toHaveLength(1);
   });
 });

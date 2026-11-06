@@ -110,7 +110,7 @@ export function CopySuggestions({ q, designId, destination: fixed, product: init
 
   const status = useQuery({
     queryKey: ['copy-status', q],
-    queryFn: () => api.get<{ source: 'EMPRESA' | 'GENERICA'; quota: { used: number; limit: number } | null }>(withScope('/creative/copy/status', q)),
+    queryFn: () => api.get<{ source: 'EMPRESA' | 'GENERICA' | 'NINGUNA'; quota: { used: number; limit: number } | null }>(withScope('/creative/copy/status', q)),
     enabled: open,
   });
 
@@ -147,7 +147,7 @@ export function CopySuggestions({ q, designId, destination: fixed, product: init
             <Field label="Producto o servicio (opcional)">
               <Input value={product} maxLength={120} placeholder="Ej.: torta de chocolate por encargo" onChange={(e) => setProduct(e.target.value)} />
             </Field>
-            <Button disabled={suggest.isPending || (quota != null && quota.used >= quota.limit)} onClick={() => suggest.mutate()}>
+            <Button disabled={suggest.isPending || source === 'NINGUNA' || (quota != null && quota.used >= quota.limit)} onClick={() => suggest.mutate()}>
               <Sparkles size={14} /> {suggest.isPending ? 'Escribiendo…' : cards.length ? 'Otras ideas' : 'Sugerir'}
             </Button>
           </div>
@@ -156,8 +156,10 @@ export function CopySuggestions({ q, designId, destination: fixed, product: init
             {source === 'EMPRESA'
               ? 'Con la IA de tu empresa (se registra en tu consumo de IA). '
               : source === 'GENERICA'
-                ? `Con la IA gratis de BackOffice: no se te cobra${quota ? ` · ${Math.max(0, quota.limit - quota.used)} de ${quota.limit} pedidos disponibles hoy` : ''}. Solo recibe datos de tu negocio y de la pieza, sin datos de clientes. `
-                : ''}
+                ? `Con la IA de prueba de BackOffice: no se te cobra${quota ? ` · ${Math.max(0, quota.limit - quota.used)} de ${quota.limit} usos disponibles hoy` : ''}. Solo recibe datos de tu negocio y de la pieza, sin datos de clientes. `
+                : source === 'NINGUNA'
+                  ? 'Tu empresa todavía no tiene IA para sugerir textos: escríbelos a mano o pídele a BackOffice que te active la IA de prueba. '
+                  : ''}
             {designId ? 'Usa los textos de esta pieza como punto de partida. ' : ''}
             Cada texto respeta lo que Meta muestra completo en el celular y pasa por tus reglas de publicación.
           </p>

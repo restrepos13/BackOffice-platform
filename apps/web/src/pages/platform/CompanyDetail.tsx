@@ -9,6 +9,7 @@ import {
 } from '../../lib/format';
 import type { AuditEntry, Company, Plan } from '../../lib/types';
 import CompanyBilling from '../../components/CompanyBilling';
+import AiTrialCard from '../../components/AiTrialCard';
 import SetupEditor from '../../components/setup/SetupEditor';
 import { COMPLEXITY_LABEL, type SetupProfile } from '../../lib/setup';
 import {
@@ -281,6 +282,7 @@ export default function CompanyDetail() {
                 </p>
               </div>
             </Card>
+            <AiTrialCard companyId={company.id} />
             <CompanySetup company={company} />
             <CompanyProducts company={company} />
             <Card kicker="Panel del cliente" title="Secciones habilitadas">

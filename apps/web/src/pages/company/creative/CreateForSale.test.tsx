@@ -76,7 +76,7 @@ describe('Creative · Crear para vender', () => {
     mount();
     expect(await screen.findByText('Todavía no tienes fotos')).toBeTruthy();
     expect(screen.getByText(/paleta provisional/)).toBeTruthy();
-    expect(screen.getByText('Con reglas')).toBeTruthy();
+    expect(screen.getByText('Solo motor')).toBeTruthy();
     expect((screen.getByText('Preparar propuesta') as HTMLButtonElement).disabled).toBe(true);
   });
 

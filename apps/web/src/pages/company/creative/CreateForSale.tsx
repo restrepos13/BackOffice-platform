@@ -22,7 +22,7 @@ interface Photo { id: string; name: string; width: number | null; height: number
 interface Start {
   materials: { photos: Photo[]; catalog: Array<{ id: string; name: string; price: number | null; hasImage: boolean }> };
   brand: { hasLogo: boolean; colorsConfirmed: boolean; colors: Array<{ hex: string }>; note: string | null };
-  ai: { available: boolean; note: string };
+  ai: { available: boolean; note: string; source?: AiSource; trial?: { until: string; used: number; limit: number } | null };
   cutout: { configured: boolean; provider: string | null; credits: number; note?: string };
   credits: { monthlyLeft: number; extra: number };
   ads: { contracted: boolean; connected: boolean };
@@ -35,9 +35,13 @@ interface Intent {
   callToAction: string | null; requestedFormats: FormatKey[]; assetIds: string[];
   missingInformation: Array<{ key: string; question: string; blocking: boolean }>; source: 'RULES' | 'AI';
 }
-interface IntentRes { intent: Intent; art: { goal: string; content: Record<string, unknown> }; ai: { used: boolean; note: string | null } }
-interface Proposal { family: string; label: string; variant: number; reason: string; omitted: string[]; doc: DesignDoc; composition: Record<string, unknown>; checks: Array<{ severity: string; message: string }> }
-interface ProposalsRes { proposals: Proposal[]; note: string | null; unavailable: Array<{ label: string; why: string }> }
+type AiSource = 'EMPRESA' | 'GENERICA' | 'NINGUNA';
+interface StockPhoto { assetId: string; photographer: string; url: string }
+interface IntentRes { intent: Intent; art: { goal: string; content: Record<string, unknown> }; ai: { used: boolean; note: string | null; source?: AiSource }; stock?: StockPhoto[] }
+interface Proposal { family: string; label: string; variant: number; reason: string; omitted: string[]; doc: DesignDoc; composition: Record<string, unknown>; checks: Array<{ severity: string; message: string }>; aiReview?: { changes: number; note: string | null; reverted: boolean } }
+interface ProposalsRes { proposals: Proposal[]; note: string | null; unavailable: Array<{ label: string; why: string }>; ai?: { used: boolean; source: AiSource; note: string | null } }
+
+const AI_BADGE: Record<AiSource, string> = { EMPRESA: 'Motor + tu IA', GENERICA: 'Motor + IA de prueba', NINGUNA: 'Solo motor' };
 
 const OBJECTIVE: Record<string, string> = { SALES: 'Vender más', BOOKINGS: 'Conseguir reservas', AWARENESS: 'Darte a conocer', EVENT: 'Promocionar un evento', ENGAGEMENT: 'Interacción en redes' };
 const DEST: Array<{ key: Exclude<Destination, null>; label: string }> = [
@@ -109,14 +113,17 @@ export default function CreateForSale({ q }: { q: string }) {
     mutationFn: (o: Record<string, unknown>) => api.post<IntentRes>(scope('/creative/create/intent'), { description, assetIds: selected, overrides: o }),
     onSuccess: (r) => {
       setRes(r);
-      setBasis(JSON.stringify([description.trim(), selected]));
+      // Sin fotos propias, el motor trajo de Pexels: quedan elegidas y se ven en «Tus fotos»
+      const stockIds = r.stock?.map((p) => p.assetId) ?? [];
+      if (stockIds.length) { setSelected(stockIds); refreshStart(); }
+      setBasis(JSON.stringify([description.trim(), stockIds.length ? stockIds : selected]));
       setProposals(null);
       const preferred = r.intent.requestedFormats.find((f) => f in FORMATS);
       if (preferred && !res) setFormat(preferred);
     },
   });
   const propose = useMutation({
-    mutationFn: (v: { seed: number; format: FormatKey }) => api.post<ProposalsRes>(scope('/creative/art/proposals'), { goal: res!.art.goal, format: v.format, content: res!.art.content, seed: v.seed }),
+    mutationFn: (v: { seed: number; format: FormatKey }) => api.post<ProposalsRes>(scope('/creative/art/proposals'), { goal: res!.art.goal, format: v.format, content: res!.art.content, seed: v.seed, request: description.trim() }),
     onSuccess: setProposals,
   });
   const use = useMutation({
@@ -146,7 +153,8 @@ export default function CreateForSale({ q }: { q: string }) {
               <Textarea rows={5} maxLength={s.limits.description} value={description} onChange={(e) => setDescription(e.target.value)} disabled={!canWrite}
                 placeholder="Quiero promocionar los tacos al pastor este fin de semana y conseguir más pedidos por WhatsApp. Tengo fotos del producto." />
             </Field>
-            <p className="text-xs text-ink-3"><Badge tone={s.ai.available ? 'info' : 'neutral'}>{s.ai.available ? 'Con IA' : 'Con reglas'}</Badge> {s.ai.note}</p>
+            <p className="text-xs text-ink-3"><Badge tone={s.ai.available ? 'info' : 'neutral'}>{AI_BADGE[s.ai.source ?? (s.ai.available ? 'EMPRESA' : 'NINGUNA')]}</Badge> {s.ai.note}</p>
+            {s.ai.trial && <p className="text-xs text-ink-3">IA de prueba: {s.ai.trial.used} de {s.ai.trial.limit} usos hoy · vence el {new Date(s.ai.trial.until).toLocaleDateString('es-CO', { day: 'numeric', month: 'long' })}</p>}
             {s.brand.note && <p className="text-xs text-ink-3">{s.brand.note} <Link to="/app/creative?tab=marca" className="underline">Configurar marca (opcional)</Link></p>}
             <Button disabled={!canWrite || description.trim().length < 8 || interpret.isPending} onClick={prepare}>
               {interpret.isPending && !res ? 'Entendiendo lo que necesitas…' : res && stale ? 'Actualizar propuesta' : 'Preparar propuesta'}
@@ -199,6 +207,13 @@ export default function CreateForSale({ q }: { q: string }) {
       {intent && (
         <Card kicker={intent.source === 'AI' ? 'Interpretado con IA y validado' : 'Interpretado con reglas'} title="Esto es lo que entendimos">
           {res?.ai.note && <p className="mb-3 text-xs text-warn">{res.ai.note}</p>}
+          {res?.stock && res.stock.length > 0 && (
+            <p className="mb-3 border-l-4 border-info px-3 py-2 text-xs">
+              Como todavía no tienes fotos propias, elegimos {res.stock.length > 1 ? 'unas' : 'una'} gratis de Pexels para tu producto:{' '}
+              {res.stock.map((p, i) => <span key={p.assetId}>{i ? ', ' : ''}foto de <a href={p.url} target="_blank" rel="noreferrer" className="underline">{p.photographer}</a></span>)}.
+              Si subes las tuyas, usamos esas.
+            </p>
+          )}
           {stale && (
             <div className="mb-3 flex flex-wrap items-center gap-2 border-l-4 border-warn px-3 py-2 text-sm" data-testid="stale">
               <span className="flex-1">Cambiaste la descripción o las fotos: esto ya no corresponde a lo que escribiste.</span>
@@ -263,6 +278,8 @@ export default function CreateForSale({ q }: { q: string }) {
       {proposals && (
         <Card kicker="Propuestas con tu marca y tus fotos" title="Elige una para editar">
           {proposals.note && <p className="mb-3 border-l-4 border-info px-3 py-2 text-sm">{proposals.note}</p>}
+          {proposals.ai?.used && <p className="mb-3 text-xs text-ink-3"><Badge tone="info">{AI_BADGE[proposals.ai.source]}</Badge> El motor armó las piezas y la IA las corrigió según lo que pediste. Están ordenadas de la que mejor encaja a la que menos.</p>}
+          {proposals.ai?.note && <p className="mb-3 text-xs text-warn">{proposals.ai.note}</p>}
           {(propose.isError || use.isError) && <div className="mb-3"><Problem error={propose.isError ? propose.error : use.error} onRetry={propose.isError ? () => propose.mutate({ seed, format }) : undefined} /></div>}
           {!proposals.proposals.length ? (
             <EmptyState title="No salieron propuestas con estos datos" hint={proposals.unavailable.map((u) => `${u.label}: ${u.why}`).join(' · ') || 'Prueba con otra foto o agrega el producto.'} />
@@ -274,6 +291,7 @@ export default function CreateForSale({ q }: { q: string }) {
                   <div className="flex flex-1 flex-col gap-1 p-3 text-sm">
                     <p className="font-semibold">{p.label}</p>
                     <p className="text-xs text-ink-2">{p.reason}</p>
+                    {p.aiReview && p.aiReview.changes > 0 && <p className="text-xs"><Badge tone="info">Corregida por IA</Badge> {p.aiReview.note}</p>}
                     {p.checks.length > 0 && <p className="text-xs text-warn">{p.checks.length} aviso{p.checks.length > 1 ? 's' : ''} de calidad: los ves en el editor.</p>}
                     <Button size="sm" className="mt-auto" disabled={!canWrite || use.isPending || stale} onClick={() => use.mutate(p)}>{use.isPending && use.variables === p ? 'Abriendo…' : 'Editar esta'}</Button>
                   </div>

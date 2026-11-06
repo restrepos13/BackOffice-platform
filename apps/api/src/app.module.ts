@@ -33,6 +33,7 @@ import { EngineModule } from './modules/engine.module';
 import { QueueModule } from './queue/queue.module';
 import { TwilioModule } from './modules/twilio.module';
 import { WhatsappMetaModule } from './modules/whatsapp-meta.module';
+import { AiTrialModule } from './modules/ai-trial.module';
 import { OrdersModule } from './modules/orders.module';
 import { CatalogModule } from './modules/catalog.module';
 import { EventsModule } from './modules/events.module';
@@ -111,6 +112,7 @@ import { schedulersEnabled } from './common/runtime-env';
     EngineModule,
     TwilioModule,
     WhatsappMetaModule,
+    AiTrialModule,
     OrdersModule,
     CatalogModule,
     EventsModule,

@@ -28,14 +28,14 @@ interface Setup {
   goals: Array<{ key: Goal; label: string; resultLabel: string }>;
   ctas: Array<{ key: string; label: string }>;
   maxDailyBudget: number | null;
-  ai: { available: boolean; provider: string; model: string; note: string };
+  ai: { available: boolean; provider: string; model: string | null; note: string; source?: 'EMPRESA' | 'GENERICA' | 'NINGUNA' };
   today: string;
   hints: Record<Goal, Hints> | null;
 }
 interface CheckItem { key: string; level: 'OK' | 'WARN' | 'BAD'; area: string; title: string; detail: string; fix?: string }
 interface Review {
   code: { score: number; items: CheckItem[]; facts: { width: number; height: number } | null };
-  ai: { status: 'OK'; model: string; review: { summary: string; score: number | null; strengths: string[]; improvements: Array<{ area: string; problem: string; suggestion: string; priority: string }>; suggestedCopy: { primaryText: string | null; headline: string | null }; policyRisk: { level: string; reason: string | null }; seen: string | null } }
+  ai: { status: 'OK'; model: string; source?: 'EMPRESA' | 'GENERICA'; review: { summary: string; score: number | null; strengths: string[]; improvements: Array<{ area: string; problem: string; suggestion: string; priority: string }>; suggestedCopy: { primaryText: string | null; headline: string | null }; policyRisk: { level: string; reason: string | null }; seen: string | null } }
     | { status: 'NO_KEY' | 'UNAVAILABLE' | 'ERROR'; message: string };
 }
 export interface Launch {
@@ -305,7 +305,7 @@ export function CreateAd({ q }: { q: string }) {
               <Field label="Descripción (opcional)"><Input value={f.description} maxLength={120} onChange={(e) => set({ description: e.target.value })} /></Field>
               <div className="border-2 border-line bg-paper p-3 text-xs text-ink-2">
                 {s.ai.available
-                  ? <><Badge tone="info">Con IA</Badge> {s.ai.note}</>
+                  ? <><Badge tone="info">{s.ai.source === 'GENERICA' ? 'IA de prueba' : 'Con IA'}</Badge> {s.ai.note}</>
                   : <><Badge tone="warn">Solo reglas</Badge> {s.ai.note} <Link to="/app/settings" className="underline">Configurar mi proveedor de IA</Link></>}
               </div>
               <Button disabled={!asset || doReview.isPending} onClick={() => doReview.mutate()}>{doReview.isPending ? 'Revisando…' : 'Revisar anuncio'}</Button>
@@ -377,7 +377,7 @@ function ReviewPanel({ review, onUse }: { review: Review; onUse: (p: { primaryTe
     <div className="space-y-4 lg:col-span-2" data-testid="review">
       <div className="flex flex-wrap items-center gap-3">
         <b>Revisión por reglas: {review.code.score}/100</b>
-        {ai.status === 'OK' ? <Badge tone="info">Con IA · {ai.model.split('/').pop()}</Badge> : <Badge tone="warn">Sin IA</Badge>}
+        {ai.status === 'OK' ? <Badge tone="info">{ai.source === 'GENERICA' ? 'IA de prueba' : 'Con IA'} · {ai.model.split('/').pop()}</Badge> : <Badge tone="warn">Sin IA</Badge>}
       </div>
       {ai.status !== 'OK' && <p className="text-sm text-ink-2">{ai.message} Las reglas revisan formato, tamaño, luz, contraste, largo del texto y políticas conocidas de Meta, pero no entienden la imagen ni la oferta como una IA.</p>}
       <ul className="divide-y divide-line border-2 border-line">

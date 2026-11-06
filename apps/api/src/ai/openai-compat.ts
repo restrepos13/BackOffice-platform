@@ -79,6 +79,12 @@ export interface CompatChatOpts {
   maxTokens?: number;
   temperature?: number;
   timeoutMs?: number;
+  /**
+   * Sin "pensar" (Gemini Flash): en tareas de formato (corregir un diseño,
+   * revisar una pieza) el razonamiento se come el tope de tokens y deja la
+   * respuesta cortada. Solo se manda a los modelos Flash de Gemini.
+   */
+  noThinking?: boolean;
 }
 
 export interface KeyedCallResult {
@@ -120,7 +126,7 @@ export type CompatResponse =
  */
 export async function callOpenAiCompatible(
   fetchImpl: FetchLike,
-  req: { url: string; key: string; model: string; opts: CompatChatOpts; timeoutMs: number; strictJson?: boolean },
+  req: { url: string; key: string; model: string; opts: CompatChatOpts; timeoutMs: number; strictJson?: boolean; reasoningOff?: boolean },
 ): Promise<CompatResponse> {
   const { opts } = req;
   let res;
@@ -137,6 +143,7 @@ export async function callOpenAiCompatible(
         temperature: opts.temperature ?? 0.3,
         ...(opts.maxTokens ? { max_tokens: opts.maxTokens } : {}),
         ...((req.strictJson ?? opts.json) ? { response_format: { type: 'json_object' } } : {}),
+        ...(req.reasoningOff ? { reasoning_effort: 'none' } : {}),
       }),
     }).finally(() => clearTimeout(timer));
   } catch (err: any) {
@@ -274,6 +281,7 @@ export class KeyedProvider {
       if (u?.exhaustedAt || (u?.requests ?? 0) >= limit) continue; // agotada hoy → siguiente llave
       const call = (strictJson?: boolean) => callOpenAiCompatible(this.fetchImpl, {
         url: this.config.chatUrl, key, model, opts, timeoutMs: Math.max(1000, end - Date.now()), strictJson,
+        reasoningOff: !!opts.noThinking && this.config.name === 'GEMINI' && /flash/i.test(model),
       });
       let res = await call();
       if (res.kind === 'http' && res.status === 400 && opts.json && this.config.jsonFallback && /response_format|json/i.test(res.body)) {

@@ -1,5 +1,5 @@
 import {
-  BadRequestException, Body, ConflictException, Controller, Delete, ForbiddenException, Get, Injectable, Module, NotFoundException,
+  BadRequestException, Body, ConflictException, Controller, Delete, ForbiddenException, Get, Inject, Injectable, Logger, Module, NotFoundException, Optional,
   Param, Patch, Post, Put, Query, Res, UploadedFile, UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
@@ -28,7 +28,10 @@ import { LibraryModule } from './library.module';
 import { CreativeCreateController, CreativeCreateService } from './creative-create';
 import { CreativeStockController, CreativeStockService } from './creative-stock';
 import { CreativeCopyController, CreativeCopyService } from './creative-copy';
-import { AI_PROVIDER } from '../ai/types';
+import { AI_PROVIDER, AiProvider, extractJson } from '../ai/types';
+import { CompanyTextAi } from '../ai/company-text-ai';
+import { GeminiPool } from '../ai/gemini-pool';
+import { ProposalReview, applyReview, reviewMessages } from '../common/creative/ai-review';
 import { DeepInfraProvider } from '../ai/deepinfra.provider';
 import { AuditModule, AuditService } from './audit.module';
 import { Products } from '../auth/products.guard';
@@ -56,10 +59,17 @@ const PUBLISHING: ProductKey[] = ['CREATIVE', 'ADS'];
 
 @Injectable()
 export class CreativeService {
+  private readonly logger = new Logger('Creative');
+  /** IA de la empresa o, si un dev la autorizó, la de prueba (ai/company-text-ai.ts) */
+  readonly textAi: CompanyTextAi;
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
-  ) {}
+    @Optional() @Inject(AI_PROVIDER) ai?: AiProvider,
+  ) {
+    this.textAi = new CompanyTextAi(prisma, ai, new GeminiPool(prisma));
+  }
 
   /* ── Acceso ── */
 
@@ -521,13 +531,41 @@ export class CreativeService {
     const seed = Number.isInteger(dto?.seed) && dto.seed >= 0 ? dto.seed : 0;
     const res = propose(ctx.identity, { goal, format, content, recent: ctx.recent, recentPrints: ctx.recentPrints.map((r) => r.fp), consistentWith, seed, alt: seed, companySeed: ctx.companySeed, brandName: ctx.brandName, dims: ctx.dims });
     const brandLogoIds = ctx.brand.logos.map((l: any) => l.assetId);
-    const out = res.proposals.map((p) => ({
-      ...p,
-      composition: { family: p.family, variant: p.variant, goal, seed },
-      checks: checkQuality(p.doc, this.qualityCtx(ctx, brandLogoIds, p.family)).filter((i) => i.severity !== 'INFO'),
-    }));
-    await this.event(company.id, 'composition_suggested', null, null, { goal, format, families: out.map((p) => p.family), seed });
-    return { proposals: out, note: res.note, unavailable: res.unavailable, identity: { personality: ctx.identity.personality, photoStyle: ctx.identity.photoStyle } };
+    const quality = (doc: DesignDoc, family: Family | null) => checkQuality(doc, this.qualityCtx(ctx, brandLogoIds, family));
+    const engine = res.proposals.map((p) => ({ ...p, composition: { family: p.family, variant: p.variant, goal, seed } }));
+    // El motor crea; si hay IA (propia o de prueba autorizada), la IA corrige según lo que pidió el cliente
+    const request = typeof dto?.request === 'string' ? dto.request.replace(/\s+/g, ' ').trim().slice(0, 600) : '';
+    const reviewed = await this.reviewWithAi(company, ctx, format, request, engine, quality);
+    const out = reviewed.proposals.map((p) => ({ ...p, checks: quality(p.doc, p.family as Family).filter((i) => i.severity !== 'INFO') }));
+    await this.event(company.id, 'composition_suggested', null, null, { goal, format, families: out.map((p) => p.family), seed, ai: reviewed.ai.used });
+    return { proposals: out, note: res.note, unavailable: res.unavailable, identity: { personality: ctx.identity.personality, photoStyle: ctx.identity.photoStyle }, ai: reviewed.ai };
+  }
+
+  /**
+   * La IA revisa las propuestas del motor (common/creative/ai-review.ts). Sin
+   * IA, si no responde o si lo que propone no pasa los controles, quedan las
+   * del motor: crear una pieza nunca falla por la IA.
+   */
+  private async reviewWithAi<P extends { doc: DesignDoc; family: string }>(
+    company: any, ctx: any, format: FormatKey, request: string, proposals: P[],
+    quality: (doc: DesignDoc, family: Family | null) => ReturnType<typeof checkQuality>,
+  ): Promise<{ proposals: Array<P & { aiReview?: ProposalReview }>; ai: { used: boolean; source: 'EMPRESA' | 'GENERICA' | 'NINGUNA'; note: string | null } }> {
+    const route = await this.textAi.route(company);
+    if (route.kind === 'NINGUNA' || !proposals.length) return { proposals, ai: { used: false, source: 'NINGUNA', note: null } };
+    const c = ctx.identity.colors;
+    const palette = [...new Set([...ctx.brand.colors.map((x: any) => x.hex), c.primary, c.accent, c.light, c.dark, c.textOnLight, c.textOnDark].filter(Boolean))] as string[];
+    try {
+      const r = await this.textAi.run(company, route, {
+        purpose: 'CREATIVE_ART_REVIEW', json: true, maxTokens: 4000, temperature: 0.3, noThinking: true,
+        messages: reviewMessages({ request, business: ctx.brandName, tone: ctx.brand.tone || undefined, format, palette, proposals }),
+      });
+      const applied = applyReview(proposals, extractJson(r.content), { format, palette, quality: (doc, p) => quality(doc, p.family as Family) });
+      return { proposals: applied.proposals, ai: { used: applied.used, source: route.kind, note: applied.used ? null : 'La IA no propuso cambios: quedan las piezas del motor.' } };
+    } catch (err: any) {
+      this.logger.warn(`revisión con IA de ${company.id}: ${String(err?.response?.code ?? err?.message ?? err).slice(0, 120)}`);
+      const limit = err?.response?.code === 'GENERIC_AI_LIMIT';
+      return { proposals, ai: { used: false, source: route.kind, note: limit ? 'Se acabaron los usos de IA de prueba de hoy: estas piezas son las del motor.' : 'La IA no respondió a tiempo: estas piezas son las del motor.' } };
+    }
   }
 
   private qualityCtx(ctx: any, brandLogoIds: string[], family: Family | null) {

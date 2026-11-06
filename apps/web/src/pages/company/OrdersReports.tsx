@@ -24,7 +24,7 @@ interface ReportSummary {
 
 const SUMMARY_SOURCE: Record<ReportSummary['source'], string> = {
   IA_EMPRESA: 'Redactado con la IA de tu empresa',
-  IA_GENERICA: 'Redactado con la IA de BackOffice (sin costo)',
+  IA_GENERICA: 'Redactado con la IA de prueba de BackOffice (sin costo)',
   PLANTILLA: 'Resumen automático con las cifras',
 };
 

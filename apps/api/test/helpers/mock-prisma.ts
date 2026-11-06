@@ -260,6 +260,7 @@ export function createMockPrisma(opts: { atlasWithoutIndexes?: boolean } = {}) {
 
   const UNIQUE: Record<string, string[]> = {
     creativeCreditMove: ['idempotencyKey'],
+    aiKeyUsage: ['provider+fingerprint+day'],
     brandProfile: ['companyId'],
     creativeWallet: ['companyId'],
     socialUsage: ['companyId+period'],

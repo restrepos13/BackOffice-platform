@@ -69,6 +69,8 @@ export interface PoolChatResult {
 
 export type ChatOpts = {
   messages: ChatMessage[]; json?: boolean; maxTokens?: number; temperature?: number; timeoutMs?: number;
+  /** Sin razonamiento en Gemini Flash (ver CompatChatOpts.noThinking) */
+  noThinking?: boolean;
   /** Tiempo máximo de TODA la cadena: al vencerse se da por no disponible (y el registro pasa al plan B) */
   deadlineMs?: number;
   /** Nombres de contactos conocidos que el sanitizador debe quitar */
@@ -290,6 +292,37 @@ export class GeminiPool {
     throw new ServiceUnavailableException({
       code: AI_UNAVAILABLE,
       message: 'La IA está ocupada en este momento. Intenta de nuevo en unos minutos.',
+    });
+  }
+
+  /**
+   * Con una imagen (revisión de la pieza de un anuncio): solo los modelos de
+   * Gemini de la cadena la entienden, así que solo se prueban esos. El texto se
+   * sanitiza igual que siempre; la imagen es la pieza publicitaria de la
+   * empresa, nunca fotos de conversaciones ni de clientes.
+   */
+  async chatVision(opts: ChatOpts & { imageDataUrl: string }): Promise<PoolChatResult> {
+    if (!/^data:image\/(jpeg|png|webp);base64,/.test(opts.imageDataUrl)) throw new Error('Imagen inválida para la IA');
+    const { entries } = await this.chain();
+    const text = sanitizeMessages(opts.messages, { names: opts.knownNames });
+    const lastUser = text.map((m) => m.role).lastIndexOf('user');
+    const messages: ChatMessage[] = text.map((m, i) => (i === lastUser
+      ? { ...m, content: [{ type: 'text', text: String(m.content) }, { type: 'image_url', image_url: { url: opts.imageDataUrl } }] }
+      : m));
+    const errors: string[] = [];
+    const until = opts.deadlineMs ? Date.now() + opts.deadlineMs : Infinity;
+    for (const entry of entries) {
+      if (!entry.enabled || entry.provider !== 'GEMINI') continue;
+      const left = until - Date.now();
+      if (left < 2000) { errors.push('se acabó el tiempo'); break; }
+      const r = await this.keyed.GEMINI.tryModel(entry.model, withBudget({ ...opts, messages }, left));
+      if (r.result) return { ...r.result, provider: 'GEMINI' };
+      errors.push(`${entry.model}: ${r.error}`);
+    }
+    this.logger.error(`ninguna IA con visión respondió: ${errors.slice(-4).join(' | ') || 'sin modelos de Gemini en la cadena'}`);
+    throw new ServiceUnavailableException({
+      code: AI_UNAVAILABLE,
+      message: 'La IA que revisa imágenes está ocupada en este momento. Intenta de nuevo en unos minutos.',
     });
   }
 

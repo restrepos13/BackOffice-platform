@@ -508,3 +508,38 @@ describe('intención con IA · textos que llegan a la pieza', () => {
     expect(ai).toMatchObject({ productDescription: 'Almuerzo gratis', audience: 'oficinistas' });
   });
 });
+
+describe('Crear · fotos de Pexels solo si la empresa no tiene fotos propias', () => {
+  function withStock(own: boolean) {
+    const w = world();
+    if (!own) {
+      // Solo queda su logo: un logo no es una foto para la pieza
+      w.db.brandAsset.splice(w.db.brandAsset.findIndex((a: any) => a.id === 'photoA1'), 1);
+      w.db.brandAsset.push({ id: 'logoA', companyId: 'coA', kind: 'IMAGE', name: 'Logo', fileName: 'logo.png', mimeType: 'image/png', sizeBytes: 10, width: 300, height: 300, source: 'UPLOAD', createdAt: new Date() });
+      w.db.brandProfile.push({ companyId: 'coA', name: 'Lúa', logosJson: JSON.stringify([{ assetId: 'logoA', label: 'principal' }]) });
+    }
+    const autoPick = jest.fn(async (_c: any, _q: string, _o: string, _n: number) => [{ assetId: 'stock1', photographer: 'Ana Pérez', url: 'https://www.pexels.com/photo/1' }]);
+    const svc = new CreativeCreateService(w.prisma as any, w.audit as any, new CreativeService(w.prisma as any, w.audit as any), new LibraryService(w.prisma as any, w.audit as any), undefined, { autoPick } as any);
+    return { ...w, svc, autoPick };
+  }
+
+  it('sin fotos propias, el motor trae fotos de Pexels para el producto y las pone en la pieza', async () => {
+    const w = withStock(false);
+    const r = await w.svc.intent(A, { description: 'Quiero vender tacos al pastor por WhatsApp' });
+    expect(w.autoPick).toHaveBeenCalledTimes(1);
+    expect(w.autoPick.mock.calls[0][1]).toMatch(/taco/i);
+    expect(r.stock).toEqual([{ assetId: 'stock1', photographer: 'Ana Pérez', url: 'https://www.pexels.com/photo/1' }]);
+    expect(r.intent.assetIds).toEqual(['stock1']);
+    expect((r.art.content as any).photos).toEqual(['stock1']);
+  });
+
+  it('con fotos propias (aunque no elija ninguna) no se usa Pexels; si elige, van las suyas', async () => {
+    const w = withStock(true);
+    const none = await w.svc.intent(A, { description: 'Quiero vender tacos al pastor por WhatsApp' });
+    expect(w.autoPick).not.toHaveBeenCalled();
+    expect(none.stock).toEqual([]);
+    const mine = await w.svc.intent(A, { description: 'Quiero vender tacos al pastor por WhatsApp', assetIds: ['photoA1'] });
+    expect(mine.intent.assetIds).toEqual(['photoA1']);
+    expect(w.autoPick).not.toHaveBeenCalled();
+  });
+});

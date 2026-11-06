@@ -1,4 +1,4 @@
-import { Body, Controller, ForbiddenException, Get, Inject, Injectable, Logger, NotFoundException, Optional, Post, Query, ServiceUnavailableException } from '@nestjs/common';
+import { BadRequestException, Body, Controller, ForbiddenException, Get, Inject, Injectable, Logger, NotFoundException, Optional, Post, Query, ServiceUnavailableException } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { randomUUID } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
@@ -19,8 +19,9 @@ import { AuditService } from './audit.module';
  * «Sugerir textos»: variaciones de copy para Meta Ads a partir de una pieza de
  * Creative o del anuncio que se está armando en Ads.
  *  - Con la IA propia de la empresa si la tiene (queda en AiUsageEvent); si no,
- *    con la cadena genérica gratis: texto sanitizado, sin cobro y con tope
- *    diario por empresa (Dev Tools → GENERIC_AI_DAILY_PER_COMPANY).
+ *    con la IA de prueba de BackOffice si un dev se la autorizó: texto
+ *    sanitizado, sin cobro y con el tope diario de esa autorización. Sin
+ *    ninguna de las dos, no hay sugerencias (el texto se escribe a mano).
  *  - La IA solo recibe datos del negocio y de la pieza: nunca clientes ni chats.
  *  - Cada variación se valida contra los límites de Meta (si alguna no cumple
  *    se pide UNA corrección; lo que siga sin cumplir se descarta) y pasa por
@@ -68,10 +69,11 @@ export class CreativeCopyService {
   /** Qué IA se usaría y cuánto cupo gratis queda hoy (para el botón). */
   async status(user: AuthUser, companyId?: string) {
     const company = await this.companyOf(user, companyId);
-    const route = await this.textAi.route(company);
+    const ai = await this.textAi.describe(company);
     return {
-      source: route.kind,
-      quota: route.kind === 'GENERICA' ? await this.textAi.genericUsage(company.id) : null,
+      source: ai.source,
+      quota: ai.trial ? { used: ai.trial.used, limit: ai.trial.limit } : null,
+      trialUntil: ai.trial?.until ?? null,
       limits: COPY_LIMITS,
     };
   }
@@ -166,11 +168,16 @@ export class CreativeCopyService {
     const company = await this.companyOf(user, companyId);
     const { brief, goal, restricted, policy } = await this.brief(company, dto);
     const route = await this.textAi.route(company);
-    const quota = route.kind === 'GENERICA' ? await this.textAi.reserveGeneric(company.id) : null;
+    if (route.kind === 'NINGUNA') {
+      throw new BadRequestException({ code: 'NO_AI', message: 'Tu empresa todavía no tiene IA para sugerir textos. Escríbelo a mano o pídele a BackOffice que te active la IA de prueba.' });
+    }
+    // Un pedido = un uso de la IA de prueba (aunque haga dos llamadas); si falla, se devuelve
+    const quota = route.kind === 'GENERICA' ? await this.textAi.reserveGeneric(company.id, route.trial.dailyLimit) : null;
     let out;
     try {
       out = await this.generate(company, route, brief);
     } catch (err) {
+      if (route.kind === 'GENERICA') await this.textAi.releaseGeneric(company.id);
       if (isAiUnavailable(err)) throw new ServiceUnavailableException({ code: 'AI_UNAVAILABLE', message: 'La IA está ocupada en este momento. Intenta de nuevo en unos minutos o escribe el texto a mano.' });
       throw err;
     }
@@ -178,7 +185,7 @@ export class CreativeCopyService {
     const variations = kept.slice(0, brief.count);
     await this.audit.log({
       actor: user, companyId: company.id, action: 'creative.copy_suggest', entity: 'Company', entityId: company.id,
-      detail: `${variations.length} variaciones · ${GOAL_LABEL[goal]} · ${brief.destination} · ${route.kind === 'EMPRESA' ? 'IA de la empresa' : 'IA genérica'}${out.invalid + blocked ? ` · ${out.invalid + blocked} descartadas` : ''}`,
+      detail: `${variations.length} variaciones · ${GOAL_LABEL[goal]} · ${brief.destination} · ${route.kind === 'EMPRESA' ? 'IA de la empresa' : 'IA de prueba'}${out.invalid + blocked ? ` · ${out.invalid + blocked} descartadas` : ''}`,
     });
     return {
       variations,
