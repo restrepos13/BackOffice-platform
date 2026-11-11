@@ -46,7 +46,7 @@ No hay migraciones destructivas: Mongo crea las colecciones al primer uso. **Hay
 ```
 META_APP_ID=""                 # ya existía (también se puede guardar desde DevTools)
 META_APP_SECRET=""
-META_ADS_API_VERSION="v24.0"   # Meta retira versiones: revisar cada año
+META_ADS_API_VERSION="v25.0"   # Meta retira versiones: revisar cada año
 ADS_CRON_DISABLED=""           # "1" apaga la sincronización y las reglas automáticas
 OPPORTUNITIES_CRON_DISABLED="" # "1" apaga la observación y la detección diaria del CRM
 ```
@@ -182,6 +182,6 @@ Panel de plataforma → **Publicidad** (`/platform/publicidad`), solo para `SUPE
 - Para WhatsApp, la página vinculada al número de WhatsApp Business.
 - Imágenes JPG o PNG de hasta 8 MB. Se suben a la biblioteca de la cuenta (`/adimages`) y se verifican por sus bytes, no por la extensión.
 
-**Versión de la API**: este panel usaba `v21.0` fijo. Ahora usa `META_ADS_API_VERSION` (por defecto `v24.0`), igual que la Publicidad de clientes.
+**Versión de la API**: este panel usaba `v21.0` fijo. Ahora usa `META_ADS_API_VERSION` (por defecto `v25.0`), igual que la Publicidad de clientes.
 
 **Pruebas**: `apps/api/test/platform-ads.spec.ts` (14, con un Meta falso, sin llamadas reales) y `apps/web/src/pages/platform/PublicidadLanzar.test.tsx` (5).

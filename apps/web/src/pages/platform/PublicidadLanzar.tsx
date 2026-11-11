@@ -65,7 +65,7 @@ function emptyDraft() {
   return {
     name: '', goal: 'SIGNUPS' as Goal, dailyBudget: '', startDate: '', endDate: '', countries: 'CO',
     advantageAudience: true, ageMin: '18', ageMax: '65', gender: 'ALL',
-    primaryText: '', headline: '', description: '', cta: 'SIGN_UP', imageHash: '',
+    primaryText: '', headline: '', description: '', cta: 'SIGN_UP', imageHash: '', videoId: '',
   };
 }
 type Draft = ReturnType<typeof emptyDraft>;
@@ -76,7 +76,7 @@ export function LaunchWizard({ setup, onCreated }: { setup: AdsSetup; onCreated:
   const [d, setD] = useState<Draft>(emptyDraft);
   const [preview, setPreview] = useState<Preview | null>(null);
   const [errors, setErrors] = useState<string[]>([]);
-  const [image, setImage] = useState<{ url: string; name: string } | null>(null);
+  const [image, setImage] = useState<{ url: string; name: string; video: boolean } | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const currency = setup.account?.currency ?? 'COP';
   const set = (patch: Partial<Draft>) => { setD((x) => ({ ...x, ...patch })); setPreview(null); };
@@ -93,6 +93,12 @@ export function LaunchWizard({ setup, onCreated }: { setup: AdsSetup; onCreated:
     onSuccess: (r) => { set({ imageHash: r.hash }); toast.success('Imagen subida a la cuenta publicitaria'); },
     onError: (e) => { setImage(null); toast.error(e instanceof Error ? e.message : 'No se pudo subir'); },
   });
+  const uploadVideo = useMutation({
+    mutationFn: (file: File) => uploadFile<{ id: string }>('/platform/ads/videos', 'file', file),
+    onSuccess: (r) => { set({ videoId: r.id }); toast.success('Video subido. Meta lo procesa en uno o dos minutos.'); },
+    onError: (e) => { setImage(null); toast.error(e instanceof Error ? e.message : 'No se pudo subir'); },
+  });
+  const uploading = upload.isPending || uploadVideo.isPending;
   const review = useMutation({
     mutationFn: () => api.post<Preview>('/platform/ads/launches/preview', { draft: body }),
     onSuccess: (r) => { setPreview(r); setErrors(r.errors); },
@@ -112,11 +118,14 @@ export function LaunchWizard({ setup, onCreated }: { setup: AdsSetup; onCreated:
 
   const pick = (file?: File) => {
     if (!file) return;
-    if (!/^image\/(jpeg|png)$/.test(file.type)) return toast.error('Usa una imagen JPG o PNG');
-    if (file.size > 8 * 1024 * 1024) return toast.error('La imagen pesa más de 8 MB');
-    setImage({ url: URL.createObjectURL(file), name: file.name });
-    set({ imageHash: '' });
-    upload.mutate(file);
+    // Una sola pieza por anuncio: imagen o video
+    const video = /^video\/(mp4|quicktime)$/.test(file.type);
+    if (!video && !/^image\/(jpeg|png)$/.test(file.type)) return toast.error('Usa una imagen JPG o PNG, o un video MP4 o MOV');
+    if (video && file.size > 64 * 1024 * 1024) return toast.error('El video pesa más de 64 MB');
+    if (!video && file.size > 8 * 1024 * 1024) return toast.error('La imagen pesa más de 8 MB');
+    setImage({ url: URL.createObjectURL(file), name: file.name, video });
+    set({ imageHash: '', videoId: '' });
+    (video ? uploadVideo : upload).mutate(file);
   };
 
   const cap = setup.prefs.maxDailyBudget;
@@ -204,15 +213,20 @@ export function LaunchWizard({ setup, onCreated }: { setup: AdsSetup; onCreated:
         <Card kicker="Paso 4" title="Anuncio">
           <div className="grid gap-3">
             <div>
-              <span className="kicker mb-1 block">Imagen <span className="text-bad">*</span></span>
+              <span className="kicker mb-1 block">Imagen o video <span className="text-bad">*</span></span>
               <label className="flex cursor-pointer items-center gap-3 border-2 border-dashed border-ink bg-bone px-4 py-3 text-sm hover:bg-paper">
                 <ImageUp size={16} />
                 <span className="min-w-0 flex-1 truncate">
-                  {upload.isPending ? 'Subiendo a Meta…' : image ? image.name : 'JPG o PNG, hasta 8 MB (1080×1080 o 1080×1350 recomendado)'}
+                  {uploading ? 'Subiendo a Meta…' : image ? image.name : 'Imagen JPG o PNG hasta 8 MB, o video MP4 o MOV hasta 64 MB'}
                 </span>
-                {d.imageHash && <Badge tone="ok">Lista</Badge>}
-                <input type="file" accept="image/jpeg,image/png" className="sr-only" aria-label="Imagen del anuncio" onChange={(e) => pick(e.target.files?.[0])} />
+                {(d.imageHash || d.videoId) && <Badge tone="ok">{d.videoId ? 'Listo' : 'Lista'}</Badge>}
+                <input type="file" accept="image/jpeg,image/png,video/mp4,video/quicktime" className="sr-only" aria-label="Imagen o video del anuncio" onChange={(e) => pick(e.target.files?.[0])} />
               </label>
+              <p className="mt-1 text-xs text-ink-3">
+                {d.videoId
+                  ? 'La portada es la miniatura que genera Meta. Al crear la campaña se espera a que termine de procesar el video; si tarda, queda en Lanzamientos para reintentar sin duplicar nada.'
+                  : 'Imagen: 1080×1080 o 1080×1350. Video: vertical 9:16 o 4:5, de 15 a 30 segundos, con subtítulos (casi todos lo ven sin sonido).'}
+              </p>
             </div>
             <Field label="Texto principal" required hint={`${d.primaryText.length}/${LIMITS.primaryText}`}>
               <Textarea rows={4} maxLength={LIMITS.primaryText} value={d.primaryText} placeholder="Tus chats de WhatsApp, pedidos y clientes en un solo lugar." onChange={(e) => set({ primaryText: e.target.value })} />
@@ -271,7 +285,9 @@ export function LaunchWizard({ setup, onCreated }: { setup: AdsSetup; onCreated:
             <span><b>{pageName}</b><span className="block text-[11px] text-ink-3">Publicidad</span></span>
           </div>
           <p className="whitespace-pre-line px-3 pb-2">{d.primaryText || <span className="text-ink-3">Texto principal…</span>}</p>
-          <div className="aspect-square bg-bone-2">{image && <img src={image.url} alt="" className="h-full w-full object-cover" />}</div>
+          <div className="aspect-square bg-bone-2">{image && (image.video
+            ? <video src={image.url} className="h-full w-full object-cover" controls muted playsInline data-testid="ad-preview-video" />
+            : <img src={image.url} alt="" className="h-full w-full object-cover" />)}</div>
           <div className="flex items-center justify-between gap-2 bg-bone px-3 py-2">
             <span className="min-w-0">
               <span className="block truncate text-[11px] uppercase text-ink-3">{d.goal === 'WHATSAPP' ? 'WhatsApp' : setup.landingBase.replace(/^https?:\/\//, '')}</span>

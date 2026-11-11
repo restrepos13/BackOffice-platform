@@ -9,8 +9,10 @@
  * tiene un token público de medio). Límite de Meta: 100 publicaciones por día en IG.
  */
 import { createHmac, timingSafeEqual } from 'crypto';
+import { metaVersion } from './meta-version';
 
-export const GRAPH = 'https://graph.facebook.com/v21.0';
+const VERSION = metaVersion(process.env.META_GRAPH_VERSION);
+export const GRAPH = `https://graph.facebook.com/${VERSION}`;
 export const META_SCOPES = [
   'pages_show_list', 'pages_read_engagement', 'pages_manage_posts',
   'instagram_basic', 'instagram_content_publish', 'business_management',
@@ -64,7 +66,7 @@ export function oauthUrl(input: { appId: string; redirectUri: string; state: str
     client_id: input.appId, redirect_uri: input.redirectUri, state: input.state,
     scope: (input.scopes ?? META_SCOPES).join(','), response_type: 'code',
   });
-  return `https://www.facebook.com/v21.0/dialog/oauth?${qs}`;
+  return `https://www.facebook.com/${VERSION}/dialog/oauth?${qs}`;
 }
 
 /** code → token de usuario de larga duración (60 días). */

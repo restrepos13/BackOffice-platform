@@ -30,6 +30,8 @@ import { AuditModule, AuditService } from './audit.module';
  */
 
 const graphBase = () => `https://graph.facebook.com/${metaAdsVersion()}`;
+// Los videos se suben por un host aparte
+const graphVideoBase = () => `https://graph-video.facebook.com/${metaAdsVersion()}`;
 const CFG_KEY = 'META_ADS_CONFIG';
 const MANUAL_KEY = 'META_ADS_MANUAL';
 const PREFS_KEY = 'META_ADS_PREFS';
@@ -37,6 +39,10 @@ const LAUNCH_PREFIX = 'META_ADS_LAUNCH:';
 const STEPS = ['campaign', 'adset', 'creative', 'ad'] as const;
 const LOCK_MS = 2 * 60_000;
 const MAX_IMAGE = 8 * 1024 * 1024;
+const MAX_VIDEO = 64 * 1024 * 1024;
+// Meta procesa el video después de subirlo: se espera un poco antes de crear el creativo
+const VIDEO_WAIT_MS = 4_000;
+const VIDEO_WAIT_TRIES = 10;
 const META_SOURCES = ['facebook', 'instagram', 'fb', 'ig', 'meta', 'messenger'];
 
 type FetchLike = (url: string, init?: any) => Promise<{ ok: boolean; status: number; json(): Promise<any> }>;
@@ -81,6 +87,8 @@ export class MetaAdsService {
 
   /** Reemplazable en pruebas (sin pasar por la inyección de Nest). */
   fetchImpl: FetchLike = (url, init) => fetch(url, init) as any;
+  /** Pausa entre consultas a Meta (reemplazable en pruebas). */
+  wait: (ms: number) => Promise<void> = (ms) => new Promise((r) => setTimeout(r, ms));
 
   constructor(
     private readonly prisma: PrismaService,
@@ -348,6 +356,49 @@ export class MetaAdsService {
     return { hash: String(img.hash), width: img.width ?? null, height: img.height ?? null };
   }
 
+  /**
+   * Sube el video a la biblioteca de la cuenta y devuelve su ID. Meta lo
+   * procesa después (segundos a un par de minutos); el lanzamiento espera a
+   * que esté listo antes de crear el creativo.
+   */
+  async uploadVideo(actor: AuthUser, file?: { buffer: Buffer; size: number; originalname?: string }) {
+    if (!file?.buffer?.length) throw new BadRequestException('Adjunta un video');
+    if (file.size > MAX_VIDEO) throw new BadRequestException('El video pesa más de 64 MB');
+    // MP4 y MOV: la caja "ftyp" va en los bytes 4 a 8
+    if (file.buffer.subarray(4, 8).toString('latin1') !== 'ftyp') throw new BadRequestException('Usa un video MP4 o MOV');
+    const cfg = await this.requireConfig();
+    const form = new FormData();
+    form.append('access_token', cfg.token);
+    form.append('name', `backoffice-${Date.now()}`);
+    form.append('source', new Blob([new Uint8Array(file.buffer)], { type: 'video/mp4' }), 'anuncio.mp4');
+    const res = await this.fetchImpl(`${graphVideoBase()}/${cfg.accountId}/advideos`, { method: 'POST', body: form });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || data?.error) throw new BadRequestException(`Meta: ${data?.error?.message ?? `respondió ${res.status}`}`);
+    if (!data?.id) throw new BadRequestException('Meta no devolvió el identificador del video');
+    await this.audit.log({ actor, action: 'ads.video', entity: 'MetaAdVideo', entityId: String(data.id), detail: `${(file.size / 1048576).toFixed(1)} MB` });
+    return { id: String(data.id) };
+  }
+
+  /** Estado de un video en Meta: listo o no, y su miniatura. */
+  async videoStatus(id: string) {
+    if (!/^\d{5,25}$/.test(id)) throw new BadRequestException('El ID del video son solo números');
+    const cfg = await this.requireConfig();
+    const v = await this.graph(`/${id}`, cfg.token, { fields: 'status,picture,length' });
+    const status = String(v?.status?.video_status ?? '');
+    return { id, ready: status === 'ready', failed: status === 'error', status, thumb: v?.picture ? String(v.picture) : null, seconds: typeof v?.length === 'number' ? Math.round(v.length) : null };
+  }
+
+  /** Espera a que Meta termine de procesar el video; devuelve su miniatura. */
+  private async videoReady(id: string) {
+    for (let i = 0; i < VIDEO_WAIT_TRIES; i++) {
+      const v = await this.videoStatus(id);
+      if (v.failed) throw new BadRequestException('Meta no pudo procesar el video: súbelo de nuevo (MP4, H.264, hasta 64 MB)');
+      if (v.ready) return v.thumb;
+      await this.wait(VIDEO_WAIT_MS);
+    }
+    throw new BadRequestException('Meta todavía está procesando el video. Espera un minuto y dale a Reintentar: no se duplica nada.');
+  }
+
   private async context(cfg: { accountId: string; token: string }) {
     const [account, prefs, landingBase] = await Promise.all([this.accountInfo(cfg), this.prefs(), publicWebUrl(this.prisma)]);
     return {
@@ -387,6 +438,7 @@ export class MetaAdsService {
         dailyBudget: draft.dailyBudget,
         maxDailyBudget: ctx.maxDailyBudget,
         pageId: ctx.pageId,
+        format: plan.format,
         // Todo se crea en pausa; nada gasta hasta activar
         status: 'PAUSED',
       },
@@ -443,11 +495,16 @@ export class MetaAdsService {
       return this.release(launch);
     }
     const { ctx } = await this.context(cfg);
-    const plan = buildLaunch(launch.draft, { ...ctx, pageId: launch.pageId });
+    let plan = buildLaunch(launch.draft, { ...ctx, pageId: launch.pageId });
     const act = launch.accountId;
     try {
       for (const step of STEPS) {
         if (launch.ids[step]) continue;
+        // El creativo de video necesita el video ya procesado (y su miniatura si no hay portada)
+        if (step === 'creative' && launch.draft.videoId) {
+          const videoThumb = await this.videoReady(launch.draft.videoId);
+          plan = buildLaunch(launch.draft, { ...ctx, pageId: launch.pageId }, { videoThumb });
+        }
         const params: Record<string, string> =
           step === 'campaign' ? plan.campaign
             : step === 'adset' ? { ...plan.adset, campaign_id: launch.ids.campaign! }
@@ -659,6 +716,20 @@ export class MetaAdsController {
   @UseInterceptors(FileInterceptor('file', { limits: { fileSize: MAX_IMAGE } }))
   uploadImage(@CurrentUser() user: AuthUser, @UploadedFile() file: Express.Multer.File) {
     return this.ads.uploadImage(user, file);
+  }
+
+  @Post('videos')
+  @Roles(ROLES.SUPER_ADMIN, ROLES.DEV)
+  @Throttle({ default: { ttl: 60_000, limit: 5 } })
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: MAX_VIDEO } }))
+  uploadVideo(@CurrentUser() user: AuthUser, @UploadedFile() file: Express.Multer.File) {
+    return this.ads.uploadVideo(user, file);
+  }
+
+  @Get('videos/:id')
+  @Roles(ROLES.SUPER_ADMIN, ROLES.DEV)
+  videoStatus(@Param('id') id: string) {
+    return this.ads.videoStatus(id);
   }
 
   @Get('launches')

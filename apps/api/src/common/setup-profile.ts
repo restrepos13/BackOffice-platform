@@ -17,7 +17,7 @@
  * Se guarda en Company.onboardingJson.setup (versionado). Los demás campos de
  * onboardingJson no cambian: sus consumidores siguen igual.
  */
-import { PRODUCTS, PRODUCT_INFO, ProductKey, isProductKey } from './products';
+import { PRODUCTS, PRODUCT_INFO, ProductKey, isProductKey, isSelfServiceProduct } from './products';
 import { PROFILES, ProfileKey, detectProfile } from './business-profile';
 
 export const SETUP_VERSION = 1;
@@ -153,7 +153,8 @@ export interface SetupProfile {
     /** Ajuste del administrador, con su motivo */
     override: { level: Complexity; reason: string; by: string | null } | null;
   };
-  products: { selected: ProductKey[]; recommended: ProductKey[]; reasons: Partial<Record<ProductKey, string[]>> };
+  /** `requested`: lo que la empresa pidió y solo activa el equipo (Creative y Ads en autoservicio). */
+  products: { selected: ProductKey[]; recommended: ProductKey[]; reasons: Partial<Record<ProductKey, string[]>>; requested?: ProductKey[] };
   capabilities: CapabilityView[];
   agentCallId: string | null;
   updatedAt: string;
@@ -445,7 +446,15 @@ export function normalizeSetup(
   const level = override?.level ?? computed.level;
   const caps = deriveCapabilities(key, answers, signals, level, ctx.text);
   const { recommended, reasons } = recommendProducts(caps);
-  const selected = o.products?.selected !== undefined ? validateProducts(o.products.selected) : recommended;
+  const wanted = o.products?.selected !== undefined ? validateProducts(o.products.selected) : recommended;
+  // Autoservicio: la empresa solo activa por su cuenta lo permitido. Lo demás que
+  // marcó (o pidió) queda como solicitud y lo admite el equipo desde plataforma.
+  const selfService = ctx.source === 'SELF_SERVICE';
+  const asked = Array.isArray(o.products?.requested) ? (o.products.requested as unknown[]).filter(isProductKey) : [];
+  const explicit = o.products?.selected !== undefined ? wanted : [];
+  const requested = selfService ? PRODUCTS.filter((p) => !isSelfServiceProduct(p) && (explicit.includes(p) || asked.includes(p))) : [];
+  const allowed = wanted.filter(isSelfServiceProduct);
+  const selected = selfService ? (allowed.length ? allowed : PRODUCTS.filter(isSelfServiceProduct)) : wanted;
   return {
     version: SETUP_VERSION,
     source: ctx.source,
@@ -453,7 +462,7 @@ export function normalizeSetup(
     answers,
     signals,
     complexity: { level, computed: computed.level, score: computed.score, reasons: computed.reasons, override },
-    products: { selected, recommended, reasons },
+    products: { selected, recommended, reasons, requested },
     capabilities: caps.map(({ key: k, why }) => {
       const c = CAPABILITIES[k];
       return { key: k, label: c.label, product: c.product, status: c.status, note: c.note, included: selected.includes(c.product), why };
@@ -526,7 +535,7 @@ export function setupCatalog() {
     needs: NEEDS.map((k) => ({ key: k, label: NEED_LABEL[k] })),
     intake: [...INTAKE],
     complexity: COMPLEXITY.map((k) => ({ key: k, label: COMPLEXITY_LABEL[k] })),
-    products: PRODUCTS.map((k) => ({ key: k, name: PRODUCT_INFO[k].name, short: PRODUCT_INFO[k].short, summary: PRODUCT_INFO[k].summary })),
+    products: PRODUCTS.map((k) => ({ key: k, name: PRODUCT_INFO[k].name, short: PRODUCT_INFO[k].short, summary: PRODUCT_INFO[k].summary, selfService: isSelfServiceProduct(k) })),
     capabilities: (Object.keys(CAPABILITIES) as CapabilityKey[]).map((k) => ({ key: k, ...CAPABILITIES[k] })),
   };
 }

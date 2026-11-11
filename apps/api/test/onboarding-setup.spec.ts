@@ -8,9 +8,9 @@
 import { BadRequestException, ForbiddenException, ServiceUnavailableException } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { extractJson } from '../src/ai/types';
-import { ProductsGuard } from '../src/auth/products.guard';
+import { ProductsGuard, forgetCompanyProducts } from '../src/auth/products.guard';
 import { guessRubro, onboardingChecklist } from '../src/common/rubros';
-import { hasProduct, productsExplicit, readProducts } from '../src/common/products';
+import { hasProduct, productsExplicit, readProducts, withProducts } from '../src/common/products';
 import { computeComplexity, normalizeSetup, readOperation, setupFromConversation, setupOf } from '../src/common/setup-profile';
 import { CompaniesService } from '../src/modules/companies.module';
 import { ConversationsController } from '../src/modules/conversations.module';
@@ -60,26 +60,42 @@ const account = (email: string, extra: Record<string, unknown> = {}) => ({
 const selection = (selected: string[]) => ({ setup: { answers: { offer: 'Ropa', needs: ['VENTAS', 'ATENCION'] }, signals: {}, products: { selected } } });
 
 describe('Productos elegidos en el autoservicio', () => {
+  // Creative y Ads no se activan solos: la empresa los pide y el equipo los admite
   it.each([
-    [['AUTOMATION'], true],
-    [['CREATIVE'], false],
-    [['ADS'], false],
-    [['CREATIVE', 'ADS'], false],
-    [['AUTOMATION', 'ADS'], true],
-    [['AUTOMATION', 'CREATIVE', 'ADS'], true],
-  ])('con %j la empresa recibe exactamente esos productos (WhatsApp y asistente solo con Automation)', async (selected, automation) => {
+    [['AUTOMATION'], []],
+    [['CREATIVE'], ['CREATIVE']],
+    [['ADS'], ['ADS']],
+    [['CREATIVE', 'ADS'], ['CREATIVE', 'ADS']],
+    [['AUTOMATION', 'ADS'], ['ADS']],
+    [['AUTOMATION', 'CREATIVE', 'ADS'], ['CREATIVE', 'ADS']],
+  ])('con %j la empresa nace solo con Automation y lo demás queda como solicitud %j', async (selected, requested) => {
     const { db, service } = world();
     await service.register(account(`a${selected.join('')}@x.co`, selection(selected)));
     const company = db.company[0];
     expect(productsExplicit(company)).toBe(true);
-    expect((['AUTOMATION', 'CREATIVE', 'ADS'] as const).filter((p) => hasProduct(company, p))).toEqual(selected);
-    expect(db.integration.filter((i: any) => i.companyId === company.id).length > 0).toBe(automation);
-    expect(db.bot.filter((b: any) => b.companyId === company.id).length > 0).toBe(automation);
-    // El perfil queda guardado con la misma selección
-    expect(setupOf(company)?.products.selected).toEqual(selected);
-    // Activar un plan después NO agrega productos que no eligió
+    expect((['AUTOMATION', 'CREATIVE', 'ADS'] as const).filter((p) => hasProduct(company, p))).toEqual(['AUTOMATION']);
+    expect(db.integration.filter((i: any) => i.companyId === company.id).length > 0).toBe(true);
+    expect(db.bot.filter((b: any) => b.companyId === company.id).length > 0).toBe(true);
+    // El perfil guarda lo activo y, aparte, lo que pidió
+    expect(setupOf(company)?.products.selected).toEqual(['AUTOMATION']);
+    expect(setupOf(company)?.products.requested).toEqual(requested);
+    const states = readProducts(company);
+    expect((['CREATIVE', 'ADS'] as const).filter((p) => !!states[p].requestedAt)).toEqual(requested);
+    if (requested.length) expect(states[requested[0] as 'ADS'].requestedBy).toBe('Dueña');
+    // Activar un plan después NO le enciende Creative ni Ads
     company.planId = 'p1';
-    expect((['AUTOMATION', 'CREATIVE', 'ADS'] as const).filter((p) => hasProduct(company, p))).toEqual(selected);
+    expect((['AUTOMATION', 'CREATIVE', 'ADS'] as const).filter((p) => hasProduct(company, p))).toEqual(['AUTOMATION']);
+  });
+
+  it('pedir sin marcar (products.requested) también queda como solicitud; el equipo sí puede elegir los tres', () => {
+    const base = { answers: { offer: 'Ropa', needs: ['VENTAS'] }, signals: {} };
+    const self = normalizeSetup({ ...base, products: { selected: ['AUTOMATION'], requested: ['ADS', 'AUTOMATION', 'INVENTADO'] } }, { source: 'SELF_SERVICE' });
+    expect(self.products).toMatchObject({ selected: ['AUTOMATION'], requested: ['ADS'] });
+    expect(self.capabilities.filter((c) => c.product !== 'AUTOMATION').every((c) => !c.included)).toBe(true);
+    // Sin elección explícita, lo recomendado no se convierte en solicitud
+    expect(normalizeSetup(base, { source: 'SELF_SERVICE' }).products).toMatchObject({ selected: ['AUTOMATION'], requested: [] });
+    const team = normalizeSetup({ ...base, products: { selected: ['AUTOMATION', 'CREATIVE', 'ADS'] } }, { source: 'ASSISTED', by: 'Santi' });
+    expect(team.products).toMatchObject({ selected: ['AUTOMATION', 'CREATIVE', 'ADS'], requested: [] });
   });
 
   it('la selección del navegador se valida en el servidor: vacía o inventada no crea nada', async () => {
@@ -217,15 +233,20 @@ describe('Autoservicio y configuración asistida: la misma estructura', () => {
 });
 
 describe('El servidor exige el producto aunque la interfaz no muestre la opción', () => {
-  it('una empresa que solo eligió Creative no entra a Automation ni a Ads llamando al endpoint directo', async () => {
+  it('una empresa que marcó Creative en el registro no entra a Creative ni a Ads hasta que el equipo los admita', async () => {
     const { prisma, db, service } = world();
     await service.register(account('solo-creative@x.co', selection(['CREATIVE'])));
     const company = db.company[0];
     const user = { id: 'u', role: 'COMPANY_ADMIN', companyId: company.id };
-    const guard = new ProductsGuard(new Reflector(), prisma as any);
-    const call = (ctrl: any, method: string) => guard.canActivate({ getHandler: () => ctrl.prototype[method], getClass: () => ctrl, switchToHttp: () => ({ getRequest: () => ({ user }) }) } as any);
+    const call = (ctrl: any, method: string) => new ProductsGuard(new Reflector(), prisma as any)
+      .canActivate({ getHandler: () => ctrl.prototype[method], getClass: () => ctrl, switchToHttp: () => ({ getRequest: () => ({ user }) }) } as any);
+    await expect(call(CreativeController, 'designs')).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(call(AdsController, 'accounts')).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(call(ConversationsController, 'detail')).resolves.toBe(true);
+    // El equipo lo admite desde plataforma: ahí sí entra
+    company.productsJson = withProducts(company, { CREATIVE: true });
+    forgetCompanyProducts(company.id);
     await expect(call(CreativeController, 'designs')).resolves.toBe(true);
-    await expect(call(ConversationsController, 'detail')).rejects.toBeInstanceOf(ForbiddenException);
     await expect(call(AdsController, 'accounts')).rejects.toBeInstanceOf(ForbiddenException);
   });
 });

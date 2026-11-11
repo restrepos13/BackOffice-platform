@@ -47,6 +47,7 @@ export default function ReviewSummary({ preview, setup, companyName, city, onEdi
   onEdit: (step: StepNumber) => void;
 }) {
   const selected = setup?.products.selected ?? ['AUTOMATION'];
+  const requested = setup?.products.requested ?? [];
   const included = (setup?.capabilities ?? []).filter((c) => c.included);
   const pending = pendingConnections(setup);
   return (
@@ -64,6 +65,12 @@ export default function ReviewSummary({ preview, setup, companyName, city, onEdi
       <Row title="Productos" onEdit={setup ? () => onEdit(3) : undefined}>
         <ul className="space-y-0.5">
           {PRODUCT_ORDER.filter((k) => selected.includes(k)).map((k) => <li key={k} className="font-semibold">{PRODUCT_CARDS[k].name}</li>)}
+          {PRODUCT_ORDER.filter((k) => requested.includes(k) && !selected.includes(k)).map((k) => (
+            <li key={k}>
+              <span className="font-semibold">{PRODUCT_CARDS[k].name}</span>
+              <span className="block text-xs text-ink-3">Solicitado. Lo activa nuestro equipo y te avisamos.</span>
+            </li>
+          ))}
         </ul>
       </Row>
       {included.length > 0 && (

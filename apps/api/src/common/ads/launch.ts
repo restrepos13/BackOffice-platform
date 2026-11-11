@@ -13,6 +13,9 @@ import { currencyOffset, toMinor } from './provider';
  *    vinculada al número de WhatsApp Business en el Business Manager).
  *  - Desde v23, targeting_automation.advantage_audience es obligatorio al
  *    crear; con Advantage+ la edad mínima va de 18 a 25 y la máxima es 65.
+ *  - El anuncio lleva UNA pieza: imagen (link_data + image_hash) o video
+ *    (video_data + video_id). El video exige portada: la imagen que se suba
+ *    o, si no hay, la miniatura que genera Meta al procesarlo.
  */
 
 export type LaunchGoal = 'SIGNUPS' | 'WHATSAPP';
@@ -50,7 +53,10 @@ export interface LaunchDraft {
   headline: string;
   description?: string;
   cta: string;
+  /** Imagen del anuncio; con video es la portada (opcional). */
   imageHash: string;
+  /** Video ya subido a la cuenta publicitaria (si va, el anuncio es de video). */
+  videoId?: string;
 }
 
 export interface LaunchContext {
@@ -110,6 +116,7 @@ export function draftFrom(dto: any, currency = 'COP'): LaunchDraft {
     description: clip(dto?.description, LIMITS.description + 1) || undefined,
     cta: goal === 'WHATSAPP' ? 'WHATSAPP_MESSAGE' : String(dto?.cta ?? 'SIGN_UP') in WEB_CTAS ? String(dto?.cta ?? 'SIGN_UP') : '',
     imageHash: clip(dto?.imageHash, 80),
+    ...(/^\d{5,25}$/.test(String(dto?.videoId ?? '').trim()) ? { videoId: String(dto.videoId).trim() } : {}),
   };
 }
 
@@ -139,7 +146,7 @@ export function validateLaunch(d: LaunchDraft, ctx: LaunchContext): string[] {
   else if (d.headline.length > LIMITS.headline) e.push(`El título admite hasta ${LIMITS.headline} caracteres`);
   if (d.description && d.description.length > LIMITS.description) e.push(`La descripción admite hasta ${LIMITS.description} caracteres`);
   if (!d.cta) e.push('Elige el botón del anuncio');
-  if (!d.imageHash) e.push('Sube la imagen del anuncio');
+  if (!d.imageHash && !d.videoId) e.push('Sube la imagen o el video del anuncio');
   return e;
 }
 
@@ -173,7 +180,7 @@ export function landingLink(base: string, utmCampaign: string) {
  * Lo que se envía a Meta en cada paso. Los ids de los pasos anteriores
  * (campaign_id, adset_id, creative_id) los agrega quien ejecuta.
  */
-export function buildLaunch(d: LaunchDraft, ctx: LaunchContext) {
+export function buildLaunch(d: LaunchDraft, ctx: LaunchContext, media: { videoThumb?: string | null } = {}) {
   const goal = GOALS[d.goal];
   const utmCampaign = slugify(d.name);
   const link = landingLink(ctx.landingBase, utmCampaign);
@@ -208,9 +215,24 @@ export function buildLaunch(d: LaunchDraft, ctx: LaunchContext) {
         call_to_action: { type: d.cta, value: { link } },
       };
 
+  // Video: mismo texto y botón; la portada es la imagen subida o la miniatura de Meta
+  const videoData: Record<string, unknown> | null = d.videoId
+    ? {
+        video_id: d.videoId,
+        message: d.primaryText,
+        title: d.headline,
+        ...(d.description ? { link_description: d.description } : {}),
+        ...(d.imageHash ? { image_hash: d.imageHash } : media.videoThumb ? { image_url: media.videoThumb } : {}),
+        call_to_action: d.goal === 'WHATSAPP'
+          ? { type: 'WHATSAPP_MESSAGE', value: { app_destination: 'WHATSAPP', link: 'https://api.whatsapp.com/send' } }
+          : { type: d.cta, value: { link } },
+      }
+    : null;
+
   return {
     utmCampaign,
     link: d.goal === 'WHATSAPP' ? null : link,
+    format: (d.videoId ? 'VIDEO' : 'IMAGE') as 'VIDEO' | 'IMAGE',
     campaign: {
       name: d.name,
       objective: goal.objective,
@@ -237,7 +259,7 @@ export function buildLaunch(d: LaunchDraft, ctx: LaunchContext) {
       object_story_spec: JSON.stringify({
         page_id: ctx.pageId,
         ...(ctx.instagramUserId ? { instagram_user_id: ctx.instagramUserId } : {}),
-        link_data: linkData,
+        ...(videoData ? { video_data: videoData } : { link_data: linkData }),
       }),
     } as Record<string, string>,
     ad: { name: `${d.name} · anuncio`, status: 'PAUSED' } as Record<string, string>,

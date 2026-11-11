@@ -7,14 +7,14 @@ import type { AdsSetup, LaunchRow } from './PublicidadLanzar';
 const get = vi.fn(async (_path: string): Promise<unknown> => launches);
 const post = vi.fn(async (_path: string, _body?: unknown): Promise<unknown> => ({}));
 const put = vi.fn(async (_path: string, _body?: unknown): Promise<unknown> => ({}));
-const upload = vi.fn(async (): Promise<unknown> => ({ hash: 'h1' }));
+const upload = vi.fn(async (_path?: string): Promise<unknown> => ({ hash: 'h1' }));
 vi.mock('../../lib/api', () => {
   class ApiError extends Error {
     constructor(message: string, readonly status: number, readonly field?: string, readonly code?: string, readonly errors?: string[]) { super(message); }
   }
   return {
     ApiError,
-    uploadFile: () => upload(),
+    uploadFile: (p: string) => upload(p),
     api: { get: (p: string) => get(p), post: (p: string, b?: unknown) => post(p, b), put: (p: string, b?: unknown) => put(p, b), delete: vi.fn(async () => ({})) },
   };
 });
@@ -48,14 +48,30 @@ afterEach(cleanup);
 
 describe('Lanzar campaña', () => {
   it('muestra uno por uno los errores del servidor y no deja crear sin una revisión válida', async () => {
-    post.mockRejectedValueOnce(new ApiError('Revisa', 400, undefined, undefined, ['Sube la imagen del anuncio', 'El presupuesto diario supera el tope']));
+    post.mockRejectedValueOnce(new ApiError('Revisa', 400, undefined, undefined, ['Sube la imagen o el video del anuncio', 'El presupuesto diario supera el tope']));
     mount(<LaunchWizard setup={SETUP} onCreated={() => undefined} />);
     expect((screen.getByText('Crear en Meta (en pausa)') as HTMLButtonElement).disabled).toBe(true);
     fireEvent.click(screen.getByText('Revisar'));
     const alert = await screen.findByRole('alert');
-    expect(within(alert).getByText('Sube la imagen del anuncio')).toBeTruthy();
+    expect(within(alert).getByText('Sube la imagen o el video del anuncio')).toBeTruthy();
     expect(within(alert).getByText('El presupuesto diario supera el tope')).toBeTruthy();
     expect(post).toHaveBeenCalledWith('/platform/ads/launches/preview', expect.anything());
+  });
+
+  it('video: se sube por su propia ruta, viaja como videoId y la vista previa lo reproduce', async () => {
+    URL.createObjectURL = vi.fn(() => 'blob:video');
+    URL.revokeObjectURL = vi.fn();
+    upload.mockResolvedValueOnce({ id: '880001' });
+    post.mockResolvedValueOnce({ valid: false, errors: ['Escribe el nombre de la campaña'] });
+    mount(<LaunchWizard setup={SETUP} onCreated={() => undefined} />);
+    const input = screen.getByLabelText('Imagen o video del anuncio');
+    fireEvent.change(input, { target: { files: [new File(['x'], 'promo.mp4', { type: 'video/mp4' })] } });
+    await waitFor(() => expect(upload).toHaveBeenCalledWith('/platform/ads/videos'));
+    expect(await screen.findByText('Listo')).toBeTruthy();
+    expect(screen.getByTestId('ad-preview-video')).toBeTruthy();
+    fireEvent.click(screen.getByText('Revisar'));
+    await waitFor(() => expect(post).toHaveBeenCalled());
+    expect(post.mock.calls[0][1]).toMatchObject({ draft: { videoId: '880001', imageHash: '' } });
   });
 
   it('WhatsApp usa su propio botón; Advantage+ oculta edad máxima y género', () => {

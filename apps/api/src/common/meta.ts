@@ -2,6 +2,7 @@ import { createHmac, timingSafeEqual } from 'crypto';
 import { SendError, classifySendError, sanitizeError } from './inbox/delivery';
 import { decryptSecret, isEncrypted } from './crypto';
 import { parseJson } from './constants';
+import { metaVersion } from './meta-version';
 
 /**
  * Canales de Meta con la Graph API: Instagram, Messenger y WhatsApp Cloud API.
@@ -9,8 +10,8 @@ import { parseJson } from './constants';
  * App Secret de la app de Meta (META_APP_SECRET).
  */
 
-/** Versión configurable: Meta retira versiones viejas (META_GRAPH_VERSION, por defecto v24.0). */
-export const GRAPH = `https://graph.facebook.com/${(process.env.META_GRAPH_VERSION || 'v24.0').replace(/[^v0-9.]/g, '')}`;
+/** Versión configurable con META_GRAPH_VERSION (por defecto la de meta-version.ts). */
+export const GRAPH = `https://graph.facebook.com/${metaVersion(process.env.META_GRAPH_VERSION)}`;
 
 export interface MetaLineConfig {
   provider: 'META';

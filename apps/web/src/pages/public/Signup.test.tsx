@@ -211,7 +211,9 @@ describe('Registro · productos, revisión y creación', () => {
     expect(within(summary).getByText('Ads Intelligence')).toBeTruthy();
     expect(within(summary).getByText('Tu número de WhatsApp')).toBeTruthy();
     expect(within(summary).getByText('Google Calendar (opcional)')).toBeTruthy();
-    expect(within(summary).getByText('Tu cuenta publicitaria de Meta')).toBeTruthy();
+    // Ads se pide, no se activa: no hay cuenta publicitaria que conectar todavía
+    expect(within(summary).getByText('Solicitado. Lo activa nuestro equipo y te avisamos.')).toBeTruthy();
+    expect(within(summary).queryByText('Tu cuenta publicitaria de Meta')).toBeNull();
     expect(within(summary).getByText(/Tus otros programas \(Excel\)/)).toBeTruthy();
 
     fireEvent.change(screen.getByLabelText(/Tu nombre/), { target: { value: 'Laura Gómez' } });
@@ -222,7 +224,8 @@ describe('Registro · productos, revisión y creación', () => {
     fireEvent.click(screen.getByRole('button', { name: /Crear mi empresa/ }));
     await waitFor(() => expect(adopt).toHaveBeenCalled());
     const body = postWithRetry.mock.calls.find((c) => c[0] === '/public/signup')![1];
-    expect(body.setup.products.selected).toEqual(['AUTOMATION', 'ADS']);
+    expect(body.setup.products.selected).toEqual(['AUTOMATION']);
+    expect(body.setup.products.requested).toEqual(['ADS']);
     expect(body.company).toEqual({ name: 'Canchas El Golazo', city: 'Medellín' });
     expect(navigate).toHaveBeenCalledWith('/app/bienvenida', { replace: true });
   });

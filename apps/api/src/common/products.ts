@@ -23,6 +23,14 @@
 export const PRODUCTS = ['AUTOMATION', 'CREATIVE', 'ADS'] as const;
 export type ProductKey = (typeof PRODUCTS)[number];
 
+/**
+ * Lo que una empresa puede activar por su cuenta al registrarse. Creative y
+ * Ads Intelligence no: la empresa los PIDE y el equipo (SUPER_ADMIN o DEV) los
+ * admite desde plataforma. Para abrir uno al autoservicio, agrégalo aquí.
+ */
+export const SELF_SERVICE_PRODUCTS: readonly ProductKey[] = ['AUTOMATION'];
+export const isSelfServiceProduct = (k: ProductKey) => SELF_SERVICE_PRODUCTS.includes(k);
+
 export const PRODUCT_INFO: Record<ProductKey, { name: string; short: string; home: string; summary: string }> = {
   AUTOMATION: {
     name: 'BackOffice Automation',
@@ -160,12 +168,16 @@ export class ProductInactiveError {
   }
 }
 
-/** Productos de una empresa NUEVA: exactamente los elegidos (elección explícita desde el día uno). */
-export function initialProducts(selected: readonly ProductKey[], now = new Date()): string {
+/**
+ * Productos de una empresa NUEVA: exactamente los elegidos (elección explícita
+ * desde el día uno). `requested` son los que pidió y esperan que el equipo los admita.
+ */
+export function initialProducts(selected: readonly ProductKey[], now = new Date(), requested: readonly ProductKey[] = [], requestedBy: string | null = null): string {
   const out: Record<string, ProductState> = {};
   for (const key of PRODUCTS) {
     const enabled = selected.includes(key);
-    out[key] = { enabled, since: enabled ? now.toISOString() : null, until: null, requestedAt: null, requestedBy: null };
+    const asked = !enabled && requested.includes(key);
+    out[key] = { enabled, since: enabled ? now.toISOString() : null, until: null, requestedAt: asked ? now.toISOString() : null, requestedBy: asked ? requestedBy : null };
   }
   return JSON.stringify(out);
 }

@@ -187,7 +187,7 @@ describe('publicación en Facebook e Instagram', () => {
     const calls: string[] = [];
     let failIg = true;
     service.fetchImpl = jest.fn(async (url: string, init?: any) => {
-      calls.push(`${init?.method ?? 'GET'} ${url.split('?')[0].replace('https://graph.facebook.com/v21.0', '')}`);
+      calls.push(`${init?.method ?? 'GET'} ${url.split('?')[0].replace(/^https:\/\/graph\.facebook\.com\/v\d+\.\d+/, '')}`);
       if (url.includes('/111/photos')) return reply(200, { id: 'ph1', post_id: '111_55' });
       if (url.includes('/999/media_publish')) return failIg ? reply(400, { error: { message: 'Media not ready', code: 9007 } }) : reply(200, { id: 'ig77' });
       if (url.includes('/999/media')) return reply(200, { id: 'cont1' });

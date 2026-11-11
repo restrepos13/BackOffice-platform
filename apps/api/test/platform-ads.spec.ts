@@ -70,7 +70,7 @@ describe('lanzamiento · armado determinista', () => {
     expect(errs({ ageMin: 30 }).join()).toMatch(/Advantage\+ la edad mínima va de 18 a 25/);
     expect(errs({ startDate: '2026-10-01' })).toContain('La fecha de inicio ya pasó');
     expect(errs({ startDate: '2026-11-01', endDate: '2026-11-01' })).toContain('La fecha de fin debe ser al menos un día después del inicio');
-    expect(errs({ imageHash: '', headline: '', cta: 'COMPRAR_YA' })).toEqual(expect.arrayContaining(['Sube la imagen del anuncio', 'Escribe el título del anuncio', 'Elige el botón del anuncio']));
+    expect(errs({ imageHash: '', headline: '', cta: 'COMPRAR_YA' })).toEqual(expect.arrayContaining(['Sube la imagen o el video del anuncio', 'Escribe el título del anuncio', 'Elige el botón del anuncio']));
     expect(errs({ countries: ['XYZ'] })).toContain('Elige al menos un país');
   });
 });
@@ -240,5 +240,110 @@ describe('lanzamiento · servicio con Meta falso', () => {
     expect(s.landingBase).toBe('https://app.backoffice.co');
     await expect(ads.savePrefs(DEV, { pageId: '5550001', maxDailyBudget: '0' })).rejects.toThrow(/tope/);
     await expect(ads.savePrefs(DEV, { pageId: 'abc', maxDailyBudget: '1000' })).rejects.toThrow(/solo números/);
+  });
+});
+
+describe('lanzamiento · anuncio de video', () => {
+  const VIDEO = { ...DRAFT, name: 'Video automatizaciones', imageHash: '', videoId: '880001' };
+  const mp4 = Buffer.concat([Buffer.from([0, 0, 0, 24]), Buffer.from('ftypmp42'), Buffer.alloc(32)]);
+
+  /** Meta falso con video: sube a /advideos y responde el estado según la lista. */
+  function videoMeta(states: string[]) {
+    const base = fakeMeta();
+    const hosts: string[] = [];
+    let i = 0;
+    const fetchImpl = async (url: string, init?: any) => {
+      const u = new URL(url);
+      hosts.push(u.host);
+      const path = u.pathname.replace(/^\/v[\d.]+/, '');
+      const ok = (body: any) => ({ ok: true, status: 200, json: async () => body });
+      if (init?.method === 'POST' && path.endsWith('/advideos')) {
+        base.calls.push({ method: 'POST', path, params: { source: String(init.body.get('source')?.size ?? 0) } });
+        return ok({ id: '880001' });
+      }
+      if ((init?.method ?? 'GET') === 'GET' && path === '/880001') {
+        base.calls.push({ method: 'GET', path, params: {} });
+        const st = states[Math.min(i++, states.length - 1)];
+        return ok({ status: { video_status: st }, picture: 'https://scontent.example/miniatura.jpg', length: 28.4 });
+      }
+      return base.fetchImpl(url, init);
+    };
+    return { calls: base.calls, fetchImpl, hosts };
+  }
+
+  it('armado: video_data con el video, el texto, el botón y la portada; sin imagen ni video no pasa', () => {
+    const d = draftFrom(VIDEO);
+    expect(d.videoId).toBe('880001');
+    expect(validateLaunch(d, CTX)).toEqual([]);
+    expect(draftFrom({ ...VIDEO, videoId: 'abc; drop' })).not.toHaveProperty('videoId');
+    expect(validateLaunch(draftFrom({ ...VIDEO, videoId: '' }), CTX)).toContain('Sube la imagen o el video del anuncio');
+
+    const p = buildLaunch(d, CTX, { videoThumb: 'https://scontent.example/miniatura.jpg' });
+    expect(p.format).toBe('VIDEO');
+    const spec = JSON.parse(p.creative.object_story_spec);
+    expect(spec).not.toHaveProperty('link_data');
+    expect(spec.video_data).toMatchObject({
+      video_id: '880001', message: VIDEO.primaryText, title: VIDEO.headline, image_url: 'https://scontent.example/miniatura.jpg',
+      call_to_action: { type: 'SIGN_UP', value: { link: p.link } },
+    });
+    // Con portada subida manda esa y no la miniatura de Meta
+    const conPortada = JSON.parse(buildLaunch(draftFrom({ ...VIDEO, imageHash: 'hash123' }), CTX, { videoThumb: 'https://x/y.jpg' }).creative.object_story_spec).video_data;
+    expect(conPortada.image_hash).toBe('hash123');
+    expect(conPortada).not.toHaveProperty('image_url');
+    // WhatsApp: el botón abre el chat
+    const wa = JSON.parse(buildLaunch(draftFrom({ ...VIDEO, goal: 'WHATSAPP' }), CTX).creative.object_story_spec).video_data;
+    expect(wa.call_to_action.type).toBe('WHATSAPP_MESSAGE');
+    // El de imagen sigue igual
+    expect(buildLaunch(draftFrom(DRAFT), CTX).format).toBe('IMAGE');
+  });
+
+  it('subida: solo MP4 o MOV reales, por el host de video, y devuelve el ID', async () => {
+    const meta = videoMeta(['ready']);
+    const { ads, audit } = await setup(meta as any);
+    await expect(ads.uploadVideo(DEV, { buffer: Buffer.from('esto no es un video'), size: 19 })).rejects.toThrow(/MP4 o MOV/);
+    await expect(ads.uploadVideo(DEV, { buffer: mp4, size: 65 * 1024 * 1024 })).rejects.toThrow(/64 MB/);
+    meta.hosts.length = 0;
+    expect(await ads.uploadVideo(DEV, { buffer: mp4, size: mp4.length })).toEqual({ id: '880001' });
+    expect(meta.hosts).toEqual(['graph-video.facebook.com']);
+    expect(posts(meta.calls)[0]).toMatchObject({ path: '/act_1234567/advideos', params: { source: String(mp4.length) } });
+    expect(audit.log).toHaveBeenCalledWith(expect.objectContaining({ action: 'ads.video' }));
+    expect(await ads.videoStatus('880001')).toMatchObject({ ready: true, seconds: 28, thumb: 'https://scontent.example/miniatura.jpg' });
+    await expect(ads.videoStatus('../me')).rejects.toThrow(/solo números/);
+  });
+
+  it('lanzar: espera a que Meta procese el video y usa su miniatura; todo queda en pausa', async () => {
+    const meta = videoMeta(['processing', 'processing', 'ready']);
+    const { ads, calls } = await setup(meta as any);
+    const waits: number[] = [];
+    ads.wait = async (ms) => { waits.push(ms); };
+    const l = await ads.createLaunch(DEV, { draft: VIDEO, confirm: true });
+    expect(l.status).toBe('PAUSED');
+    expect(waits).toHaveLength(2);
+    const creative = posts(calls).find((c) => c.path.endsWith('/adcreatives'))!;
+    expect(JSON.parse(creative.params.object_story_spec).video_data).toMatchObject({ video_id: '880001', image_url: 'https://scontent.example/miniatura.jpg' });
+    expect(ads.view(l)).toMatchObject({ status: 'PAUSED' });
+  });
+
+  it('si el video no alcanza a procesarse queda FALLIDO sin creativo; al reintentar continúa sin duplicar', async () => {
+    const meta = videoMeta(['processing']);
+    const { ads } = await setup(meta as any);
+    ads.wait = async () => undefined;
+    const l = await ads.createLaunch(DEV, { draft: VIDEO, confirm: true });
+    expect(l.status).toBe('FAILED');
+    expect(l.error).toMatch(/procesando el video/);
+    expect(Object.keys(l.ids)).toEqual(['campaign', 'adset']);
+    const listo = videoMeta(['ready']);
+    ads.fetchImpl = listo.fetchImpl as any;
+    const r = await ads.retryLaunch(DEV, l.id);
+    expect(r.status).toBe('PAUSED');
+    expect(posts(listo.calls).map((c) => c.path)).toEqual(['/act_1234567/adcreatives', '/act_1234567/ads']);
+  });
+
+  it('video que Meta rechaza: error claro para volver a subirlo', async () => {
+    const { ads } = await setup(videoMeta(['error']) as any);
+    ads.wait = async () => undefined;
+    const l = await ads.createLaunch(DEV, { draft: VIDEO, confirm: true });
+    expect(l.status).toBe('FAILED');
+    expect(l.error).toMatch(/no pudo procesar el video/);
   });
 });

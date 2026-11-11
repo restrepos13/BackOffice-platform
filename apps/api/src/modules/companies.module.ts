@@ -37,13 +37,14 @@ import { AuditService } from './audit.module';
 import { COMPANY_TEMPLATES, findTemplate } from './company-templates';
 import { DEMO_COMPANY_SLUG } from '../demo/demo-company';
 import { activeProducts } from '../common/products';
-import { ProductKey, initialProducts } from '../common/products';
+import { ProductKey, initialProducts, isSelfServiceProduct } from '../common/products';
 import { SetupProfile, SetupValidationError, alignModules, modulesForCapabilities, normalizeSetup, validateProducts, withSelectedProducts } from '../common/setup-profile';
 import { agentPresetFor, applyBlueprintExtras, revalidateBlueprint } from '../common/blueprint';
 import { isRubro } from '../common/rubros';
 import { applySetupProposal, normalizeProposal } from './ai-setup.module';
 
 import { productsView } from './products.module';
+import { metaVersion } from '../common/meta-version';
 
 /** Payload del wizard de aprovisionamiento (crear empresa sin tocar código). */
 interface ProvisionCompanyDto {
@@ -131,13 +132,13 @@ export function buildConnectUrl(type: string, slug: string): string {
   );
   switch (type) {
     case 'WHATSAPP':
-      return `https://www.facebook.com/v21.0/dialog/oauth?client_id=${appId}&redirect_uri=${redirect}&state=${slug}:whatsapp&scope=whatsapp_business_management,whatsapp_business_messaging,business_management`;
+      return `https://www.facebook.com/${metaVersion(process.env.META_GRAPH_VERSION)}/dialog/oauth?client_id=${appId}&redirect_uri=${redirect}&state=${slug}:whatsapp&scope=whatsapp_business_management,whatsapp_business_messaging,business_management`;
     case 'INSTAGRAM':
-      return `https://www.facebook.com/v21.0/dialog/oauth?client_id=${appId}&redirect_uri=${redirect}&state=${slug}:instagram&scope=instagram_basic,instagram_manage_messages,pages_manage_metadata`;
+      return `https://www.facebook.com/${metaVersion(process.env.META_GRAPH_VERSION)}/dialog/oauth?client_id=${appId}&redirect_uri=${redirect}&state=${slug}:instagram&scope=instagram_basic,instagram_manage_messages,pages_manage_metadata`;
     case 'MESSENGER':
-      return `https://www.facebook.com/v21.0/dialog/oauth?client_id=${appId}&redirect_uri=${redirect}&state=${slug}:messenger&scope=pages_messaging,pages_manage_metadata`;
+      return `https://www.facebook.com/${metaVersion(process.env.META_GRAPH_VERSION)}/dialog/oauth?client_id=${appId}&redirect_uri=${redirect}&state=${slug}:messenger&scope=pages_messaging,pages_manage_metadata`;
     case 'META_ADS':
-      return `https://www.facebook.com/v21.0/dialog/oauth?client_id=${appId}&redirect_uri=${redirect}&state=${slug}:ads&scope=ads_read,ads_management`;
+      return `https://www.facebook.com/${metaVersion(process.env.META_GRAPH_VERSION)}/dialog/oauth?client_id=${appId}&redirect_uri=${redirect}&state=${slug}:ads&scope=ads_read,ads_management`;
     case 'TELEGRAM':
       return 'https://core.telegram.org/bots#how-do-i-create-a-bot';
     case 'GOOGLE_CALENDAR':
@@ -304,6 +305,8 @@ export class CompaniesService {
         setup = normalizeSetup(dto.setup, { source: selfService ? 'SELF_SERVICE' : 'ASSISTED', by: actor.name, allowOverride: !selfService && isPlatformRole(actor.role) });
       }
       products = dto.products !== undefined ? validateProducts(dto.products) : setup?.products.selected ?? null;
+      // El registro por la web nunca activa por su cuenta lo que admite el equipo
+      if (selfService && products) products = products.filter(isSelfServiceProduct);
       if (setup && products) setup = withSelectedProducts(setup, products);
     } catch (err) {
       if (err instanceof SetupValidationError) throw new BadRequestException({ statusCode: 400, field: err.field, message: err.message });
@@ -365,7 +368,7 @@ export class CompaniesService {
           : {}),
         limitsJson: JSON.stringify(dto.limits ?? {}),
         // Productos elegidos: explícitos desde el día uno (null = regla anterior, solo para llamadas viejas)
-        ...(products ? { productsJson: initialProducts(products) } : {}),
+        ...(products ? { productsJson: initialProducts(products, new Date(), selfService ? setup?.products.requested ?? [] : [], dto.admin?.name ?? null) } : {}),
         ...(setup ? { onboardingJson: JSON.stringify({ source: selfService ? 'SIGNUP' : 'ASSISTED', setup, createdAt: new Date().toISOString() }) } : {}),
         ...(dto.billingCycle === 'ANNUAL' ? { billingCycle: 'ANNUAL', annualStartPeriod: periodOf() } : {}),
         contractStartAt: dto.planId ? new Date() : null,

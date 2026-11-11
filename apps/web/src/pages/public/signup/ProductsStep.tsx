@@ -1,14 +1,15 @@
 import { clsx } from 'clsx';
 import { ArrowLeft, ArrowRight, BarChart3, Check, MessagesSquare, Palette, Plus, Trash2, X } from 'lucide-react';
 import { Button, Field, Input, Select, Textarea } from '../../../components/ui';
-import type { ProductKey, SetupProfile } from '../../../lib/setup';
+import { SELF_SERVICE_PRODUCTS, type ProductKey, type SetupProfile } from '../../../lib/setup';
 import type { BusinessBlueprint, SetupProposal } from '../../../lib/types';
 import type { Preview } from '../signup-helpers';
 import { Chips, EditableCard, Notice, StepActions, StepTitle } from './parts';
 
 /**
- * Paso 3: qué productos activar (ninguno es obligatorio) y la configuración
- * inicial de lo elegido. Lo recomendado viene preseleccionado y se dice por qué.
+ * Paso 3: la cuenta nace con Automation. Creative y Ads Intelligence no se
+ * activan solos: aquí se PIDEN y el equipo los admite desde plataforma (el
+ * servidor aplica la misma regla aunque el navegador mande otra cosa).
  */
 
 /** Orden de lanzamiento: Automation y Ads Intelligence primero. */
@@ -45,7 +46,7 @@ export const PRODUCT_CARDS: Record<ProductKey, { name: string; icon: typeof Mess
       'Tu marca (colores, logo y tono) guardada en un solo lugar.',
       'Diseños editables para redes y adaptación a varios formatos.',
     ],
-    limits: 'No es necesario para empezar: lo puedes sumar cuando quieras.',
+    limits: 'No es necesario para empezar: lo puedes pedir cuando quieras.',
   },
 };
 
@@ -96,16 +97,24 @@ export default function ProductsStep(props: {
   const setBp = (next: Partial<BusinessBlueprint>) => props.setPreview({ ...preview, blueprint: { ...preview.blueprint, ...next } });
   const selected = setup?.products.selected ?? ['AUTOMATION'];
   const automation = selected.includes('AUTOMATION');
+  const requested = setup?.products.requested ?? [];
   const toggle = (k: ProductKey) => {
     if (!setup) return;
-    props.onSetup(withProducts(setup, selected.includes(k) ? selected.filter((x) => x !== k) : [...selected, k]));
+    if (SELF_SERVICE_PRODUCTS.includes(k)) {
+      props.onSetup(withProducts(setup, selected.includes(k) ? selected.filter((x) => x !== k) : [...selected, k]));
+      return;
+    }
+    const next = requested.includes(k) ? requested.filter((x) => x !== k) : [...requested, k];
+    props.onSetup({ ...setup, products: { ...setup.products, requested: (['CREATIVE', 'ADS'] as ProductKey[]).filter((x) => next.includes(x)) } });
   };
+  // Con un solo producto de autoservicio no hay nada que desmarcar: viene incluido
+  const fixed = (k: ProductKey) => SELF_SERVICE_PRODUCTS.includes(k) && SELF_SERVICE_PRODUCTS.length === 1;
 
   return (
     <div className="mx-auto max-w-4xl">
       <StepTitle kicker="Paso 3 · Productos" title="Elige qué vas a usar">
-        Puedes elegir uno o varios. Solo se activa lo que marques y puedes sumar productos después.
-        {setup?.products.recommended.length ? ' Marcamos lo recomendado según tus respuestas; desmarca lo que no quieras.' : ''}
+        Tu cuenta empieza con Automation. Ads Intelligence y Creative los activa nuestro equipo:
+        márcalos si te interesan y te escribimos para dejarlos listos contigo.
       </StepTitle>
 
       {setup ? (
@@ -114,7 +123,8 @@ export default function ProductsStep(props: {
           <div className="grid gap-4 md:grid-cols-3">
             {PRODUCT_ORDER.map((k) => {
               const card = PRODUCT_CARDS[k];
-              const on = selected.includes(k);
+              const self = SELF_SERVICE_PRODUCTS.includes(k);
+              const on = self ? selected.includes(k) : requested.includes(k);
               const rec = setup.products.recommended.includes(k);
               const reason = setup.products.reasons[k]?.[0];
               const Icon = card.icon;
@@ -122,11 +132,12 @@ export default function ProductsStep(props: {
                 <label
                   key={k}
                   className={clsx(
-                    'relative flex cursor-pointer flex-col border-2 p-5 transition-colors focus-within:outline focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-ink',
-                    on ? 'border-ink bg-paper shadow-[4px_4px_0_0_rgba(26,26,26,0.9)]' : 'border-line bg-bone hover:border-ink-3',
+                    'relative flex flex-col border-2 p-5 transition-colors focus-within:outline focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-ink',
+                    !fixed(k) && 'cursor-pointer',
+                    on && self ? 'border-ink bg-paper shadow-[4px_4px_0_0_rgba(26,26,26,0.9)]' : on ? 'border-ink bg-paper' : 'border-line bg-bone hover:border-ink-3',
                   )}
                 >
-                  <input type="checkbox" className="sr-only" checked={on} onChange={() => toggle(k)} aria-describedby={`prod-${k}-desc`} />
+                  <input type="checkbox" className="sr-only" checked={on} disabled={fixed(k)} onChange={() => toggle(k)} aria-describedby={`prod-${k}-desc`} />
                   <span className="flex items-start justify-between gap-3">
                     <span className={clsx('flex h-10 w-10 items-center justify-center border-2', on ? 'border-ink bg-ink text-bone' : 'border-line text-ink-2')} aria-hidden>
                       <Icon size={18} />
@@ -137,6 +148,9 @@ export default function ProductsStep(props: {
                   </span>
                   <span className="mt-4 text-lg font-semibold">{card.name}</span>
                   <span className="text-sm text-ink-2">{card.tagline}</span>
+                  <span className="kicker mt-2 block">
+                    {self ? 'Incluido en tu cuenta' : on ? 'Solicitado: lo activa nuestro equipo' : 'Con activación del equipo'}
+                  </span>
                   {rec && (
                     <span className="mt-3 border-l-4 border-ok bg-ok-soft px-2.5 py-1.5 text-xs">
                       <b className="text-ok">Recomendado para tu negocio.</b>{reason ? ` ${reason}` : ''}

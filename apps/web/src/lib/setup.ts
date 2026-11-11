@@ -34,7 +34,8 @@ export interface SetupProfile {
     reasons: string[];
     override: { level: Complexity; reason: string; by: string | null } | null;
   };
-  products: { selected: ProductKey[]; recommended: ProductKey[]; reasons: Partial<Record<ProductKey, string[]>> };
+  /** `requested`: lo que la empresa pidió en el registro y activa el equipo. */
+  products: { selected: ProductKey[]; recommended: ProductKey[]; reasons: Partial<Record<ProductKey, string[]>>; requested?: ProductKey[] };
   capabilities: Array<{ key: string; label: string; product: ProductKey; status: CapabilityStatus; note: string; included: boolean; why: string }>;
   agentCallId: string | null;
   updatedAt: string;
@@ -46,8 +47,11 @@ export interface SetupCatalog {
   needs: Array<{ key: string; label: string }>;
   intake: string[];
   complexity: Array<{ key: Complexity; label: string }>;
-  products: Array<{ key: ProductKey; name: string; short: string; summary: string }>;
+  products: Array<{ key: ProductKey; name: string; short: string; summary: string; selfService?: boolean }>;
 }
+
+/** Lo que la empresa activa sola al registrarse; lo demás lo pide y lo admite el equipo (igual que en el servidor). */
+export const SELF_SERVICE_PRODUCTS: ProductKey[] = ['AUTOMATION'];
 
 export const COMPLEXITY_LABEL: Record<Complexity, string> = { SIMPLE: 'Simple', INTERMEDIATE: 'Intermedia', COMPLEX: 'Compleja' };
 export const STATUS_LABEL: Record<CapabilityStatus, string> = { AVAILABLE: 'Disponible', PARTIAL: 'En parte', PLANNED: 'Próxima fase' };
@@ -67,7 +71,7 @@ export function mergeEvaluated(local: SetupProfile, server: SetupProfile): Setup
     answers: { ...local.answers, integrations: server.answers.integrations },
     business: { ...local.business, label: server.business.label },
     complexity: { ...server.complexity, override: local.complexity.override, level: local.complexity.override?.level ?? server.complexity.computed },
-    products: { ...server.products, selected: local.products.selected },
+    products: { ...server.products, selected: local.products.selected, requested: local.products.requested ?? [] },
     capabilities: server.capabilities.map((c) => ({ ...c, included: local.products.selected.includes(c.product) })),
   };
 }

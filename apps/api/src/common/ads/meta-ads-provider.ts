@@ -1,6 +1,7 @@
 import {
   AccountRef, AdLevel, AdsProvider, AdsProviderError, CampaignDraft, FetchLike, PeriodStats, RemoteAccount, RemoteEntity, RemoteInsight, fromMinor,
 } from './provider';
+import { metaVersion } from '../meta-version';
 
 /**
  * Meta Marketing API (cuentas publicitarias). Distinto de la conexión de
@@ -26,7 +27,7 @@ export function accessFrom(stored: string[]) {
   const missing = verified ? META_ADS_SCOPES.filter((s) => !scopes.includes(s)) : [];
   return { verified, read, manage, missing, tasks, accountRoleLimited: tasks.length > 0 && !canAdvertise };
 }
-export const metaAdsVersion = () => (process.env.META_ADS_API_VERSION || 'v24.0').replace(/[^v0-9.]/g, '');
+export const metaAdsVersion = () => metaVersion(process.env.META_ADS_API_VERSION);
 const MAX_PAGES = 25;
 
 const OBJECTIVES: Record<CampaignDraft['objective'], string> = {
