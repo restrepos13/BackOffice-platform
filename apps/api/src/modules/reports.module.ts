@@ -39,6 +39,7 @@ import {
   templateCompareSummary, templateDailySummary, validSummary,
 } from '../common/report-summary';
 import { Products } from '../auth/products.guard';
+import { companyMessages } from '../common/inbox/company-messages';
 
 /* ═══ Herramientas predefinidas de la consulta en lenguaje natural ═══
  * El modelo SOLO elige herramienta + parámetros de esta lista. El texto del
@@ -210,14 +211,8 @@ export class ReportsService {
         where: { companyId, createdAt: { gte: start, lt: end } },
         select: { orderId: true, toStatus: true },
       }),
-      this.prisma.message.findMany({
-        where: { conversation: { companyId }, direction: 'IN', createdAt: { gte: start, lt: end } },
-        select: { conversationId: true },
-      }),
-      this.prisma.message.findMany({
-        where: { conversation: { companyId }, author: 'AGENT', createdAt: { gte: start, lt: end } },
-        select: { conversationId: true },
-      }),
+      companyMessages<{ conversationId: string }>(this.prisma, companyId, { direction: 'IN', createdAt: { $gte: start, $lt: end } }, ['conversationId']),
+      companyMessages<{ conversationId: string }>(this.prisma, companyId, { author: 'AGENT', createdAt: { $gte: start, $lt: end } }, ['conversationId']),
       this.prisma.auditLog.count({
         where: { companyId, action: 'engine.escalate', createdAt: { gte: start, lt: end } },
       }),
@@ -588,15 +583,15 @@ export class ReportsService {
           select: { id: true, companyId: true, kind: true, lastError: true, orderId: true, updatedAt: true },
           take: 50,
         }),
-        this.prisma.message.findMany({
-          where: {
-            deliveryStatus: 'FAILED',
-            createdAt: { gte: week },
-            ...(companyId ? { conversation: { companyId } } : {}),
-          },
-          select: { id: true, conversationId: true, content: true, createdAt: true },
-          take: 50,
-        }),
+        // Empresa: solo sus mensajes, sin recorrer los demás. Plataforma sin empresa: monitoreo global
+        companyId
+          ? companyMessages<{ id: string; conversationId: string; content: string; createdAt: Date }>(
+            this.prisma, companyId, { deliveryStatus: 'FAILED', createdAt: { $gte: week } }, ['conversationId', 'content', 'createdAt'], { limit: 50 })
+          : this.prisma.message.findMany({
+            where: { deliveryStatus: 'FAILED', createdAt: { gte: week } },
+            select: { id: true, conversationId: true, content: true, createdAt: true },
+            take: 50,
+          }),
         this.prisma.auditLog.count({
           where: { ...co, action: 'engine.escalate', createdAt: { gte: day } },
         }),

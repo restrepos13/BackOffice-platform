@@ -51,6 +51,12 @@ import {
 import { PRODUCTS, ProductKey, productsExplicit, readProducts, withProducts } from '../common/products';
 import { forgetCompanyProducts } from '../auth/products.guard';
 
+/** Origen de la visita: referente, navegador y campaña (utm_*, fbclid, primera página). */
+export interface SignupMeta {
+  referrer?: string; userAgent?: string; utmSource?: string; utmCampaign?: string;
+  utmMedium?: string; utmContent?: string; utmId?: string; fbclid?: string; landingPath?: string;
+}
+
 
 /**
  * Registro por la web (autoservicio, sin prueba gratis):
@@ -160,7 +166,7 @@ export class SignupService implements OnModuleInit {
    * Si ninguna IA responde (o responde algo que no se entiende), siguen las
    * preguntas fijas del plan B: la persona nunca se queda trabada.
    */
-  async interview(dto: { messages?: unknown; session?: unknown }, meta: { referrer?: string; userAgent?: string; utmSource?: string; utmCampaign?: string } = {}) {
+  async interview(dto: { messages?: unknown; session?: unknown }, meta: SignupMeta = {}) {
     const { msgs, answers } = this.cleanConversation(dto?.messages);
     if (!answers.length) throw fieldError('message', 'Cuéntanos primero qué hace tu negocio');
     if (answers[0].content.length < 10) {
@@ -306,7 +312,7 @@ export class SignupService implements OnModuleInit {
   }
 
   /** Eventos sueltos del navegador: vio un paso, escribió su contacto, vio un error. */
-  async track(dto: any, meta: { referrer?: string; userAgent?: string; utmSource?: string; utmCampaign?: string } = {}) {
+  async track(dto: any, meta: SignupMeta = {}) {
     const session = dto?.session;
     const step = ['STARTED', 'INTERVIEW', 'PREVIEW', 'ACCOUNT'].includes(dto?.step) ? (dto.step as SignupStep) : undefined;
     if (dto?.event === 'contact') await this.tracker.contact(session, dto?.data ?? {});
@@ -892,13 +898,18 @@ export class SignupService implements OnModuleInit {
 }
 
 /** De dónde llegó y desde qué dispositivo (sin IP ni datos personales). */
-function requestMeta(req: any) {
+function requestMeta(req: any): SignupMeta {
   return {
     referrer: String(req?.body?.referrer ?? req?.headers?.referer ?? '').slice(0, 200) || undefined,
     userAgent: String(req?.headers?.['user-agent'] ?? '').slice(0, 200) || undefined,
     // Campaña (ej. Meta Ads con ?utm_source=facebook&utm_campaign=…)
     utmSource: typeof req?.body?.utmSource === 'string' ? req.body.utmSource : undefined,
     utmCampaign: typeof req?.body?.utmCampaign === 'string' ? req.body.utmCampaign : undefined,
+    utmMedium: typeof req?.body?.utmMedium === 'string' ? req.body.utmMedium : undefined,
+    utmContent: typeof req?.body?.utmContent === 'string' ? req.body.utmContent : undefined,
+    utmId: typeof req?.body?.utmId === 'string' ? req.body.utmId : undefined,
+    fbclid: typeof req?.body?.fbclid === 'string' ? req.body.fbclid : undefined,
+    landingPath: typeof req?.body?.landingPath === 'string' ? req.body.landingPath : undefined,
   };
 }
 

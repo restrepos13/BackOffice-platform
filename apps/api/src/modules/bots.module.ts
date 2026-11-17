@@ -33,6 +33,7 @@ import {
 import { AuditService } from './audit.module';
 import { assertWithinLimit, verifyWithinLimit } from '../common/limits';
 import { Products } from '../auth/products.guard';
+import { nativeCount } from '../common/native-count';
 
 @Injectable()
 export class BotsService {
@@ -89,10 +90,15 @@ export class BotsService {
       include: {
         company: { select: { name: true, slug: true } },
         integrations: { select: { id: true, type: true, status: true } },
-        _count: { select: { conversations: true } },
       },
     });
-    return bots.map((b) => this.serialize(b));
+    const counts = await Promise.all(bots.map((b) => this.conversationCount(b)));
+    return bots.map((b, n) => this.serialize({ ...b, _count: { conversations: counts[n] } }));
+  }
+
+  /** Conversaciones del asistente, dentro de su empresa (sin `_count`: recorría las de toda la plataforma). */
+  private conversationCount(b: { id: string; companyId: string }) {
+    return nativeCount(this.prisma.conversation, { companyId: b.companyId, botId: b.id });
   }
 
   async detail(user: AuthUser, id: string) {
@@ -102,10 +108,10 @@ export class BotsService {
       include: {
         company: { select: { name: true, slug: true } },
         integrations: true,
-        _count: { select: { conversations: true } },
       },
     });
-    return this.serialize(bot);
+    if (!bot) return this.serialize(bot);
+    return this.serialize({ ...bot, _count: { conversations: await this.conversationCount(bot) } });
   }
 
   /** Claude Haiku (OpenRouter) solo con la IA de BackOffice: la llave del cliente es de DeepInfra. */

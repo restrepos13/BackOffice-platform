@@ -15,6 +15,7 @@ import {
   Query,
   Req,
   Res,
+  ServiceUnavailableException,
   UnauthorizedException,
 } from '@nestjs/common';
 import { entryStageFor } from '../common/pipelines';
@@ -36,6 +37,7 @@ import { costFromPricing, metaRatesFor } from '../common/whatsapp/meta-rates';
 import { AdLeadsService } from './ads-leads';
 import { AdsModule } from './ads.module';
 import { EventsService } from './events.module';
+import { reportIncident } from '../common/incidents';
 
 /**
  * Receptores de Meta por empresa (públicos, responden 200 siempre):
@@ -172,6 +174,25 @@ export class WebhooksService {
     }
     void message;
     return true;
+  }
+
+  /**
+   * Corre el procesamiento de un aviso de Meta. Si algo falla (base lenta,
+   * conexión cortada) NO se responde 200: se registra el incidente y se
+   * responde 503 para que Meta reintente. El reintento no duplica nada: cada
+   * mensaje ya guardado se salta por su id (providerId + recibo), y el que
+   * falló soltó su recibo en `store`. Antes se respondía 200 con {ok:false} y
+   * el mensaje se perdía sin rastro (auditoría 17-nov-2026, H-03).
+   */
+  async orRetry<T>(where: string, run: () => Promise<T>): Promise<T> {
+    try {
+      return await run();
+    } catch (err: any) {
+      const detail = `${where}: ${String(err?.message ?? err).slice(0, 300)}`;
+      this.logger.error(`Aviso de Meta sin procesar, se pide reintento · ${detail}`);
+      await reportIncident(this.prisma, { companyId: null, kind: 'INBOUND_FAILED', detail });
+      throw new ServiceUnavailableException('No se pudo procesar el aviso; reintenta');
+    }
   }
 
   /** WhatsApp Cloud API. */
@@ -322,7 +343,7 @@ export class WebhooksController {
   @Post('whatsapp-cloud')
   async ingestCloud(@Body() body: any, @Req() req: Request, @Headers('x-hub-signature-256') signature?: string) {
     await this.webhooks.assertSignature((req as any).rawBody, signature);
-    return this.webhooks.ingestWhatsappCloud(body).catch(() => ({ ok: false }));
+    return this.webhooks.orRetry('whatsapp-cloud', () => this.webhooks.ingestWhatsappCloud(body));
   }
 
   @Get(':slug/whatsapp')
@@ -333,8 +354,8 @@ export class WebhooksController {
   @Post(':slug/whatsapp')
   async ingest(@Param('slug') slug: string, @Body() body: any, @Req() req: Request, @Headers('x-hub-signature-256') signature?: string) {
     await this.webhooks.assertSignature((req as any).rawBody, signature);
-    // Meta espera 200 siempre; los errores internos no deben provocar reintentos
-    return this.webhooks.ingestWhatsapp(slug, body).catch(() => ({ ok: false }));
+    // Solo se responde 200 si quedó guardado; si falló, 503 para que Meta reintente
+    return this.webhooks.orRetry(`${slug}/whatsapp`, () => this.webhooks.ingestWhatsapp(slug, body));
   }
 
   @Get(':slug/meta')
@@ -345,7 +366,7 @@ export class WebhooksController {
   @Post(':slug/meta')
   async ingestMeta(@Param('slug') slug: string, @Body() body: any, @Req() req: Request, @Headers('x-hub-signature-256') signature?: string) {
     await this.webhooks.assertSignature((req as any).rawBody, signature);
-    return this.webhooks.ingestMeta(slug, body).catch(() => ({ ok: false }));
+    return this.webhooks.orRetry(`${slug}/meta`, () => this.webhooks.ingestMeta(slug, body));
   }
 }
 

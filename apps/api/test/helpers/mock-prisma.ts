@@ -331,11 +331,29 @@ export function createMockPrisma(opts: { atlasWithoutIndexes?: boolean } = {}) {
         if (stage.$match) {
           const asTime = (x: any) => (x?.$date ? new Date(x.$date).getTime() : x instanceof Date ? x.getTime() : x);
           rows = rows.filter((d) => Object.entries(stage.$match as Doc).every(([k, v]) => {
-            if (v && typeof v === 'object' && '$in' in v) return (v.$in as unknown[]).includes(d[k]);
-            if (v && typeof v === 'object' && '$gte' in v) return asTime(d[k]) >= asTime(v.$gte);
+            if (v && typeof v === 'object' && !Array.isArray(v) && !('$date' in v) && Object.keys(v).some((op) => op.startsWith('$'))) {
+              // Operadores combinables ({$gte, $lt}, {$ne: null}, {$gt: 0}…), como en Mongo
+              const x = asTime(d[k]);
+              return Object.entries(v as Doc).every(([op, want]) => {
+                const w = asTime(want);
+                if (op === '$in') return (want as unknown[]).includes(d[k]);
+                if (op === '$gte') return x != null && x >= w;
+                if (op === '$gt') return x != null && x > w;
+                if (op === '$lt') return x != null && x < w;
+                if (op === '$lte') return x != null && x <= w;
+                if (op === '$ne') return want === null ? d[k] !== null && d[k] !== undefined : d[k] !== want;
+                return false;
+              });
+            }
             return d[k] === v;
           }));
         }
+        if (stage.$project) {
+          const keep = Object.keys(stage.$project as Doc);
+          rows = rows.map((d) => Object.fromEntries([['_id', d._id], ...keep.filter((f) => f in d).map((f) => [f, d[f]])]));
+        }
+        if (stage.$limit !== undefined) rows = rows.slice(0, Number(stage.$limit));
+        if (stage.$count) rows = rows.length ? [{ [stage.$count as string]: rows.length }] : [];
         if (stage.$sort) {
           const keys = Object.entries(stage.$sort as Record<string, number>);
           rows = [...rows].sort((a, b) => { for (const [k, dir] of keys) { const x = a[k] instanceof Date ? a[k].getTime() : a[k]; const y = b[k] instanceof Date ? b[k].getTime() : b[k]; if (x < y) return -dir; if (x > y) return dir; } return 0; });

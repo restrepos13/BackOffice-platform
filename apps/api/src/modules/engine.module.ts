@@ -1035,6 +1035,12 @@ export class EngineController {
 
 /** Worker de la cola 'engine': procesa conversaciones agrupadas (debounce
  *  con jobs demorados deduplicados por conversación — multi-instancia). */
+/** Conversaciones que el motor atiende en paralelo por proceso (1 a 32). */
+export function engineConcurrency(): number {
+  const n = Math.floor(Number(process.env.ENGINE_CONCURRENCY));
+  return Number.isFinite(n) && n >= 1 && n <= 32 ? n : 4;
+}
+
 @Injectable()
 export class EngineQueueWorker implements OnModuleInit, OnApplicationShutdown {
   private readonly logger = new Logger('EngineWorker');
@@ -1044,15 +1050,19 @@ export class EngineQueueWorker implements OnModuleInit, OnApplicationShutdown {
 
   onModuleInit() {
     if (process.env.JEST_WORKER_ID) return;
+    // Varias conversaciones a la vez (ENGINE_CONCURRENCY, por defecto 4). Antes
+    // era 1: las respuestas de IA de TODAS las empresas iban en una sola fila
+    // (auditoría 17-nov-2026, H-07). Una misma conversación nunca corre dos
+    // veces a la vez: la protege el candado engineLockUntil de processConversation.
     this.worker = new Worker(
       'engine',
       async (job) => this.engine.processConversation(job.data.conversationId),
-      { connection: redisConnection(), ...queuePrefix() },
+      { connection: redisConnection(), ...queuePrefix(), concurrency: engineConcurrency() },
     );
     this.worker.on('failed', (job, err) =>
       this.logger.error(`engine job ${job?.id}: ${err.message}`),
     );
-    this.logger.log('Worker del motor arriba (engine)');
+    this.logger.log(`Worker del motor arriba (engine, ${engineConcurrency()} a la vez)`);
   }
 
   async onApplicationShutdown() {

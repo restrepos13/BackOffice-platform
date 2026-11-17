@@ -252,7 +252,7 @@ describe('login: bloqueo por intentos y anti-enumeración', () => {
     users.push({
       id: 'u1', email: 'admin@test.co', name: 'Admin', role: 'COMPANY_ADMIN',
       companyId: 'coA', active: true, failedLogins: 0, lockedUntil: null,
-      passwordHash: AuthService.hashPassword('Correcta-123'),
+      passwordHash: require('bcryptjs').hashSync('Correcta-123', 4),
       company: null,
     });
     return { auth, users, audit };

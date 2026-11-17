@@ -172,6 +172,9 @@ export function todayIn(tz: string | null | undefined, now = new Date()): string
   }
 }
 
+/** Parámetros dinámicos que Meta agrega al enlace de cada anuncio lanzado desde el panel. */
+export const LAUNCH_URL_TAGS = 'utm_id={{campaign.id}}&utm_content={{ad.name}}';
+
 export function landingLink(base: string, utmCampaign: string) {
   return `${base.replace(/\/$/, '')}/registro?utm_source=meta&utm_medium=paid&utm_campaign=${utmCampaign}`;
 }
@@ -256,6 +259,9 @@ export function buildLaunch(d: LaunchDraft, ctx: LaunchContext, media: { videoTh
     } as Record<string, string>,
     creative: {
       name: `${d.name} · creativo`,
+      // Meta reemplaza {{campaign.id}} y {{ad.name}} en cada clic: Resultados cruza
+      // el registro por el ID de la campaña (lo más seguro) y por el anuncio
+      ...(d.goal === 'WHATSAPP' ? {} : { url_tags: LAUNCH_URL_TAGS }),
       object_story_spec: JSON.stringify({
         page_id: ctx.pageId,
         ...(ctx.instagramUserId ? { instagram_user_id: ctx.instagramUserId } : {}),

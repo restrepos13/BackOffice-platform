@@ -330,11 +330,14 @@ describe('Meta Ads de BackOffice', () => {
       { id: 's2', step: 'PREVIEW', utmSource: 'instagram', utmCampaign: 'Lanzamiento-Oct', createdAt: new Date() },
       { id: 's3', step: 'DONE', utmSource: null, referrer: 'https://google.com', createdAt: new Date() },
     );
-    await ads.addManual(DEV, { date: new Date().toISOString().slice(0, 10), campaign: 'volantes', spend: '50.000' });
+    // «Hoy» en la zona de la cuenta (no en UTC): de noche en Bogotá ya es mañana en UTC
+    await ads.addManual(DEV, { date: require('../src/common/ads/launch').todayIn('America/Bogota'), campaign: 'volantes', spend: '50.000' });
     const r: any = await ads.overview({ days: '30' });
     expect(r.connected).toBe(true);
-    expect(r.campaigns[0]).toMatchObject({ name: 'Lanzamiento-Oct', spend: 200000, leads: 7, signups: 2, companies: 1, costPerSignup: 100000, costPerCompany: 200000 });
-    expect(r.totals).toMatchObject({ spend: 250000, signupsFromMeta: 2, companiesFromMeta: 1, signupsTotal: 3 });
+    // Cruza por el nombre de la campaña (sin mayúsculas); el de Google no cuenta como Meta
+    expect(r.campaigns[0]).toMatchObject({ name: 'Lanzamiento-Oct', metrics: { spend: 200000 }, funnel: { visits: 2, completed: 1 } });
+    expect(r.campaigns[0].derived.costPerSignup).toBe(200000);
+    expect(r.totals).toMatchObject({ spend: 250000, manualSpend: 50000, visitsAll: 3, funnel: { visits: 2, completed: 1 } });
     await expect(ads.setStatus(DEV, '111111', 'BORRAR')).rejects.toBeInstanceOf(BadRequestException);
     await ads.setStatus(DEV, '111111', 'PAUSED');
     expect(calls.at(-1)).toContain('/111111');

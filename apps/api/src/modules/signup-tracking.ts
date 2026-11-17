@@ -31,6 +31,10 @@ export function isSessionToken(v: unknown): v is string {
   return typeof v === 'string' && TOKEN.test(v);
 }
 
+const UTM_ID = /^[A-Za-z0-9_.-]{1,64}$/;
+const FBCLID = /^[A-Za-z0-9_-]{8,255}$/;
+const LANDING = /^\/[^\s<>"']{0,199}$/;
+
 export class SignupTracker {
   constructor(private readonly prisma: any) {}
 
@@ -58,6 +62,7 @@ export class SignupTracker {
       step?: SignupStep; answers?: number; description?: string; businessName?: string; businessType?: string;
       rubro?: string; mode?: string; ai?: { calls: number; tokens: number }; companyId?: string;
       referrer?: string; userAgent?: string; utmSource?: string; utmCampaign?: string; dailyChats?: number;
+      utmMedium?: string; utmContent?: string; utmId?: string; fbclid?: string; landingPath?: string;
     } = {},
   ) {
     if (!isSessionToken(token)) return null;
@@ -78,6 +83,12 @@ export class SignupTracker {
         ...(patch.dailyChats ? { dailyChats: Math.round(patch.dailyChats) } : {}),
         ...(clip(patch.utmSource, 60) && !current?.utmSource ? { utmSource: clip(patch.utmSource, 60)!.toLowerCase() } : {}),
         ...(clip(patch.utmCampaign, 120) && !current?.utmCampaign ? { utmCampaign: clip(patch.utmCampaign, 120) } : {}),
+        // Primer toque: lo que trajo a la persona la primera vez no se reemplaza
+        ...(clip(patch.utmMedium, 60) && !current?.utmMedium ? { utmMedium: clip(patch.utmMedium, 60)!.toLowerCase() } : {}),
+        ...(clip(patch.utmContent, 120) && !current?.utmContent ? { utmContent: clip(patch.utmContent, 120) } : {}),
+        ...(UTM_ID.test(String(patch.utmId ?? '')) && !current?.utmId ? { utmId: String(patch.utmId) } : {}),
+        ...(FBCLID.test(String(patch.fbclid ?? '')) && !current?.fbclid ? { fbclid: String(patch.fbclid) } : {}),
+        ...(LANDING.test(String(patch.landingPath ?? '')) && !current?.landingPath ? { landingPath: String(patch.landingPath) } : {}),
         ...(patch.companyId ? { companyId: patch.companyId } : {}),
         ...(patch.ai ? { aiCalls: (current?.aiCalls ?? 0) + patch.ai.calls, aiTokens: (current?.aiTokens ?? 0) + patch.ai.tokens } : {}),
       };

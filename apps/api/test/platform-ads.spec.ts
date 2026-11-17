@@ -31,6 +31,8 @@ describe('lanzamiento · armado determinista', () => {
     const spec = JSON.parse(p.creative.object_story_spec);
     expect(spec.page_id).toBe('5550001');
     expect(spec.link_data).toMatchObject({ link: p.link, image_hash: 'hash123', call_to_action: { type: 'SIGN_UP', value: { link: p.link } } });
+    // Meta llena utm_id y utm_content en cada clic: Resultados cruza por el ID de la campaña y el anuncio
+    expect(p.creative.url_tags).toBe('utm_id={{campaign.id}}&utm_content={{ad.name}}');
     expect(p.ad.status).toBe('PAUSED');
   });
 
@@ -218,7 +220,9 @@ describe('lanzamiento · servicio con Meta falso', () => {
       { id: 's2', step: 'PREVIEW', utmSource: 'meta', utmCampaign: 'lanzamiento-crm-noviembre', createdAt: new Date() },
     );
     const r: any = await ads.overview({ days: '30' });
-    expect(r.campaigns[0]).toMatchObject({ id: '9000001', launchId: l.id, signups: 2, companies: 1, costPerCompany: 90000 });
+    expect(r.campaigns[0]).toMatchObject({ id: '9000001', launchId: l.id, funnel: { visits: 2, started: 2, completed: 1 } });
+    expect(r.campaigns[0].derived.costPerSignup).toBe(90000);
+    expect(r.signups[0]).toMatchObject({ campaignId: '9000001', via: 'lanzada desde el panel' });
     // Usa la versión configurable de la API, no una fija vencida
     expect(calls.some((c) => c.path === '/act_1234567/insights')).toBe(true);
   });
@@ -345,5 +349,239 @@ describe('lanzamiento · anuncio de video', () => {
     const l = await ads.createLaunch(DEV, { draft: VIDEO, confirm: true });
     expect(l.status).toBe('FAILED');
     expect(l.error).toMatch(/no pudo procesar el video/);
+  });
+});
+
+/* ───────────── Resultados de la pauta propia ───────────── */
+
+import { addToFunnel, attributionResolver, deliveryOf, derived, emptyFunnel, paceOf, rangeFor, ratio, utmFromUrl } from '../src/common/ads/own-funnel';
+import { SignupTracker } from '../src/modules/signup-tracking';
+
+const ACT = 'act_1397864565500673';
+const REAL_CAMPAIGN = '52637929268760';
+const REAL_AD = '52637946173360';
+const REAL_LINK = 'https://www.backoffice.store/registro?utm_source=meta&utm_medium=paid_social&utm_campaign=prueba_3dias_registro&utm_content=reel_caricatura';
+
+/** Meta falso de la cuenta COP real, con lo que se configure en cada prueba. */
+function resultsMeta(over: { campaigns?: any[]; ads?: any[]; adsets?: any[]; byCampaign?: any[]; byAd?: any[]; daily?: any[]; account?: any; lifetime?: any[]; error?: { code: number; message: string } } = {}) {
+  const calls: Array<{ path: string; params: Record<string, string> }> = [];
+  const fetchImpl = async (url: string, init?: any) => {
+    const u = new URL(url);
+    const method = init?.method ?? 'GET';
+    const params = Object.fromEntries(method === 'GET' ? u.searchParams : new URLSearchParams(init.body));
+    const path = u.pathname.replace(/^\/v[\d.]+/, '');
+    calls.push({ path, params });
+    const ok = (body: any) => ({ ok: true, status: 200, json: async () => body });
+    if (over.error && path !== `/${ACT}` ) return { ok: false, status: 400, json: async () => ({ error: over.error }) };
+    if (path === `/${ACT}`) return over.error?.code === 190 ? { ok: false, status: 400, json: async () => ({ error: over.error }) } : ok({ name: 'BackOffice Ads COP', currency: 'COP', timezone_name: 'America/Bogota', account_status: 1 });
+    if (path.endsWith('/campaigns')) return ok({ data: over.campaigns ?? [] });
+    if (path.endsWith('/adsets')) return ok({ data: over.adsets ?? [] });
+    if (path.endsWith('/ads')) return ok({ data: over.ads ?? [] });
+    if (path.endsWith('/insights')) {
+      if (params.date_preset === 'maximum') return ok({ data: over.lifetime ?? [] });
+      if (params.time_increment) return ok({ data: over.daily ?? [] });
+      if (params.level === 'campaign') return ok({ data: over.byCampaign ?? [] });
+      if (params.level === 'ad') return ok({ data: over.byAd ?? [] });
+      if (params.level === 'account') return ok({ data: over.account ? [over.account] : [] });
+    }
+    return ok({});
+  };
+  return { calls, fetchImpl };
+}
+
+const REAL = {
+  campaigns: [{ id: REAL_CAMPAIGN, name: 'BO · Tráfico registro · Pymes CO · Prueba 3 días', status: 'ACTIVE', effective_status: 'ACTIVE', objective: 'OUTCOME_TRAFFIC', lifetime_budget: '90000', budget_remaining: '30000', start_time: '2026-11-15T00:00:00-0500', stop_time: '2026-11-18T00:00:00-0500' }],
+  ads: [{ id: REAL_AD, name: 'Reel caricatura', campaign_id: REAL_CAMPAIGN, effective_status: 'ACTIVE', creative: { id: '1', object_story_spec: { video_data: { call_to_action: { type: 'SIGN_UP', value: { link: REAL_LINK } } } } } }],
+  byCampaign: [{ campaign_id: REAL_CAMPAIGN, spend: '60000', impressions: '20000', reach: '9000', frequency: '2.2', inline_link_clicks: '300', actions: [{ action_type: 'video_view', value: '4000' }], video_thruplay_watched_actions: [{ action_type: 'video_view', value: '900' }] }],
+  byAd: [{ ad_id: REAL_AD, campaign_id: REAL_CAMPAIGN, spend: '60000', impressions: '20000', reach: '9000', frequency: '2.2', inline_link_clicks: '300' }],
+  daily: [{ date_start: '2026-11-15', spend: '20000' }, { date_start: '2026-11-16', spend: '40000' }],
+  account: { spend: '60000', impressions: '20000', reach: '9000', frequency: '2.2', inline_link_clicks: '300' },
+  lifetime: [{ campaign_id: REAL_CAMPAIGN, spend: '60000' }],
+};
+
+async function resultsSetup(meta = resultsMeta(REAL), now = new Date('2026-11-17T15:00:00Z')) {
+  const { prisma, db } = createMockPrisma();
+  db.platformSetting.push({ id: 'ps1', key: 'PUBLIC_WEB_URL', value: 'https://www.backoffice.store' });
+  const ads = new MetaAdsService(prisma as any, { log: jest.fn(async () => undefined) } as any);
+  ads.fetchImpl = meta.fetchImpl as any;
+  ads.clock = () => now;
+  await ads.connect(DEV, { accountId: ACT, token: TOKEN });
+  meta.calls.length = 0;
+  return { ads, db, calls: meta.calls };
+}
+
+const session = (over: any) => ({ id: `s${Math.random().toString(36).slice(2, 8)}`, token: 'x', step: 'STARTED', answers: 0, createdAt: new Date('2026-11-16T15:00:00Z'), ...over });
+
+describe('resultados · atribución de la pauta propia', () => {
+  it('caso real: campaña creada fuera del panel se cruza por el utm del enlace de su anuncio, con anuncio, empresa y pago', async () => {
+    const { ads, db } = await resultsSetup();
+    db.company.push({ id: 'co1', name: 'Panadería La 14', status: 'ACTIVE' });
+    db.payment.push({ id: 'p1', companyId: 'co1', provider: 'WOMPI', status: 'APPROVED', invoiceId: 'inv1', amountInCents: 15_000_000, currency: 'COP' });
+    db.signupSession.push(
+      session({ utmSource: 'meta', utmMedium: 'paid_social', utmCampaign: 'prueba_3dias_registro', utmContent: 'reel_caricatura', step: 'DONE', answers: 4, companyId: 'co1', rubro: 'comidas' }),
+      session({ utmSource: 'meta', utmCampaign: 'prueba_3dias_registro', utmContent: 'reel_caricatura', step: 'INTERVIEW', answers: 1 }),
+      session({ utmSource: 'meta', utmCampaign: 'prueba_3dias_registro', utmContent: 'reel_caricatura' }),
+      session({ utmSource: 'google', utmCampaign: 'prueba_3dias_registro', step: 'DONE' }), // no es de Meta
+    );
+    const r: any = await ads.overview({ range: '7' });
+    expect(r.account).toEqual({ id: ACT, name: 'BackOffice Ads COP', currency: 'COP', timezone: 'America/Bogota', status: 1 });
+    const c = r.campaigns.find((x: any) => x.id === REAL_CAMPAIGN);
+    expect(c.funnel).toEqual({ visits: 3, started: 2, completed: 1, companies: 1, paying: 1, revenue: 150000 });
+    expect(c.derived).toMatchObject({ costPerSignup: 60000, cac: 60000, roas: 2.5, cpc: 200, ctr: 1.5, cpm: 3000 });
+    expect(c.ads[0]).toMatchObject({ id: REAL_AD, utmContent: 'reel_caricatura', funnel: { visits: 3, completed: 1 } });
+    expect(c.metrics.video).toMatchObject({ plays3s: 4000, thruplay: 900 });
+    expect(c.utms).toContain('prueba_3dias_registro');
+    expect(r.signups).toEqual([expect.objectContaining({ companyId: 'co1', companyName: 'Panadería La 14', status: 'PAGÓ', campaignId: REAL_CAMPAIGN, adId: REAL_AD, via: 'utm del enlace del anuncio en Meta' })]);
+    expect(r.unattributed).toEqual([]);
+    expect(r.totals).toMatchObject({ spend: 60000, visitsAll: 4, funnel: { visits: 3, completed: 1, paying: 1 } });
+    expect(r.daily.find((d: any) => d.date === '2026-11-16')).toEqual({ date: '2026-11-16', spend: 40000, results: 1 });
+  });
+
+  it('utm_id = ID de la campaña gana sobre todo lo demás; utm_content elige el anuncio por su nombre', async () => {
+    const meta = resultsMeta({ ...REAL, campaigns: [...REAL.campaigns, { id: '52600000000001', name: 'Otra', status: 'ACTIVE', effective_status: 'ACTIVE' }] });
+    const { ads, db } = await resultsSetup(meta);
+    db.signupSession.push(session({ utmSource: 'meta', utmId: '52600000000001', utmCampaign: 'prueba_3dias_registro', utmContent: 'Reel caricatura', step: 'DONE' }));
+    const r: any = await ads.overview({ range: '7' });
+    expect(r.signups[0]).toMatchObject({ campaignId: '52600000000001', via: 'utm_id = ID de la campaña', adId: null });
+    // Por nombre de anuncio dentro de su campaña
+    const resolve = attributionResolver({ campaigns: [{ id: '1', name: 'C' }], ads: [{ id: 'a1', name: 'Reel caricatura', campaignId: '1' }], launches: [], mappings: {} });
+    expect(resolve({ id: 's', createdAt: new Date(), utmId: '1', utmContent: 'reel_caricatura' })).toEqual({ campaignId: '1', adId: 'a1', via: 'UTM_ID' });
+  });
+
+  it('lo que no cruza queda «Sin atribuir» con su utm; una asignación manual lo pasa a la campaña', async () => {
+    const meta = resultsMeta({ ...REAL, ads: [] });
+    const { ads, db } = await resultsSetup(meta);
+    db.signupSession.push(
+      session({ utmSource: 'facebook', utmCampaign: 'prueba_3dias_registro', utmContent: 'reel_caricatura', step: 'DONE' }),
+      session({ fbclid: 'IwAR0abcdefghij', step: 'STARTED' }), // sin utm, pero viene de Meta
+    );
+    let r: any = await ads.overview({ range: '7' });
+    expect(r.unattributed.map((u: any) => [u.utmCampaign, u.funnel.visits, u.funnel.completed])).toEqual([['prueba_3dias_registro', 1, 1], [null, 1, 0]]);
+    expect(r.unattributed[1].fbclid).toBe(true);
+    expect(r.totals.funnel.visits).toBe(2); // nada se descarta en silencio
+    await ads.setMapping(DEV, { campaignId: REAL_CAMPAIGN, utmCampaign: 'prueba_3dias_registro' });
+    r = await ads.overview({ range: '7' });
+    expect(r.signups[0]).toMatchObject({ campaignId: REAL_CAMPAIGN, via: 'asignación manual' });
+    expect(r.mappings).toEqual({ [REAL_CAMPAIGN]: ['prueba_3dias_registro'] });
+    await expect(ads.setMapping(DEV, { campaignId: '52600000000001', utmCampaign: 'Prueba_3dias_Registro' })).rejects.toThrow(/ya está asignado/);
+    await expect(ads.setMapping(DEV, { campaignId: 'abc', utmCampaign: 'x' })).rejects.toThrow(/campaña/);
+    await ads.setMapping(DEV, { campaignId: REAL_CAMPAIGN, utmCampaign: 'prueba_3dias_registro', remove: true });
+    expect(await ads.mappings()).toEqual({});
+  });
+
+  it('un utm que apunta a dos campañas no se adivina: queda sin atribuir', () => {
+    const resolve = attributionResolver({
+      campaigns: [{ id: '1', name: 'A' }, { id: '2', name: 'B' }],
+      ads: [{ id: 'a', name: 'x', campaignId: '1', utmCampaign: 'promo' }, { id: 'b', name: 'y', campaignId: '2', utmCampaign: 'promo' }],
+      launches: [], mappings: {},
+    });
+    expect(resolve({ id: 's', createdAt: new Date(), utmCampaign: 'promo' })).toEqual({ campaignId: null, adId: null, via: null });
+  });
+
+  it('derivados con denominador 0 son null (la pantalla muestra «—»), nunca Infinity ni 0', () => {
+    expect(derived(50000, { impressions: 0, linkClicks: 0 }, emptyFunnel())).toEqual({ ctr: null, cpc: null, cpm: null, costPerSignup: null, cac: null, roas: 0 });
+    expect(derived(0, { impressions: 0, linkClicks: 0 }, emptyFunnel()).roas).toBeNull();
+    expect(derived(0, { impressions: 0, linkClicks: 0 }, { ...emptyFunnel(), completed: 2, paying: 1 })).toMatchObject({ costPerSignup: null, cac: null, roas: null });
+    expect(ratio(5, 0)).toBeNull();
+    const f = emptyFunnel();
+    addToFunnel(f, { id: 's', createdAt: new Date(), step: 'DONE', companyId: 'c' }, new Map([['c', 100]]));
+    expect(derived(400, { impressions: 1000, linkClicks: 8 }, f)).toEqual({ ctr: 0.8, cpc: 50, cpm: 400, costPerSignup: 400, cac: 400, roas: 0.25 });
+  });
+
+  it('«hoy» y los límites del rango salen de la zona de la cuenta (America/Bogota), no de UTC', async () => {
+    const now = new Date('2026-11-17T03:30:00Z'); // 16-nov 22:30 en Bogotá
+    const { ads, db, calls } = await resultsSetup(resultsMeta(REAL), now);
+    db.signupSession.push(
+      session({ id: 'dentro', utmSource: 'meta', createdAt: new Date('2026-11-17T02:00:00Z') }), // 16-nov 21:00
+      session({ id: 'antes', utmSource: 'meta', createdAt: new Date('2026-11-16T04:59:00Z') }), // 15-nov 23:59
+    );
+    const r: any = await ads.overview({ range: 'today' });
+    expect(r.range).toMatchObject({ since: '2026-11-16', until: '2026-11-16', days: 1, timezone: 'America/Bogota' });
+    expect(r.totals.funnel.visits).toBe(1);
+    expect(JSON.parse(calls.find((c) => c.params.level === 'campaign' && c.params.time_range)!.params.time_range)).toEqual({ since: '2026-11-16', until: '2026-11-16' });
+    expect(rangeFor({ range: 'custom', since: '2026-01-01', until: '2026-11-16' }, 'America/Bogota', now)).toMatchObject({ since: '2026-08-19', until: '2026-11-16', days: 90 });
+    expect(rangeFor({ range: 'custom', since: '2026-11-20', until: '2026-11-25' }, 'America/Bogota', now).until).toBe('2026-11-16');
+  });
+
+  it('errores de Meta: mensaje claro, sin 500, y lo de BackOffice se sigue mostrando', async () => {
+    const { ads, db } = await resultsSetup(resultsMeta({ ...REAL, error: { code: 200, message: 'Requires ads_read permission' } }));
+    db.signupSession.push(session({ utmSource: 'meta', utmCampaign: 'prueba_3dias_registro', step: 'DONE' }));
+    const r: any = await ads.overview({ range: '7' });
+    expect(r.error).toMatchObject({ kind: 'PERMISSION' });
+    expect(r.error.message).toMatch(/ads_read/);
+    expect(r.unattributed[0].funnel.completed).toBe(1);
+    // El token vence después de conectar
+    ads.fetchImpl = resultsMeta({ error: { code: 190, message: 'Session has expired' } }).fetchImpl as any;
+    const expired: any = await ads.overview({ range: '7', refresh: '1' });
+    expect(expired.error).toMatchObject({ kind: 'TOKEN' });
+    expect(expired.account).toBeNull();
+    expect(expired.totals.funnel.completed).toBe(1);
+  });
+
+  it('caché: un segundo pedido no vuelve a Meta; «Actualizar» sí', async () => {
+    const { ads, calls } = await resultsSetup();
+    await ads.overview({ range: '7' });
+    const n = calls.length;
+    await ads.overview({ range: '7' });
+    expect(calls.length).toBe(n + 1); // solo la cuenta (moneda y zona)
+    await ads.overview({ range: '7', refresh: '1' });
+    expect(calls.length).toBeGreaterThan(n + 2);
+  });
+});
+
+describe('resultados · ritmo, estado y alertas', () => {
+  it('ritmo: presupuesto total, consumido, días restantes y proyección sin pasar el total', () => {
+    const p = paceOf({ dailyBudget: null, lifetimeBudget: 90000, spent: 60000, startsAt: '2026-11-15T00:00:00-0500', endsAt: '2026-11-18T00:00:00-0500', tz: 'America/Bogota', now: new Date('2026-11-17T15:00:00Z') });
+    expect(p).toMatchObject({ budgetType: 'LIFETIME', budget: 90000, spent: 60000, consumedPct: 66.7, startDate: '2026-11-15', endDate: '2026-11-18', daysLeft: 1, projected: 80000 });
+    const d = paceOf({ dailyBudget: 20000, lifetimeBudget: null, spent: 10000, startsAt: '2026-11-17T00:00:00-0500', endsAt: null, tz: 'America/Bogota', now: new Date('2026-11-17T15:00:00Z') });
+    expect(d).toMatchObject({ budgetType: 'DAILY', budget: 20000, consumedPct: null, endDate: null, daysLeft: null, projected: null });
+  });
+
+  it('estado de entrega real: revisión, rechazo con motivo, sin presupuesto, finalizada', () => {
+    const now = new Date('2026-11-17T15:00:00Z');
+    expect(deliveryOf({ effective_status: 'PENDING_REVIEW' }, { now }).label).toBe('En revisión');
+    expect(deliveryOf({ effective_status: 'DISAPPROVED', ad_review_feedback: { global: { 'Texto en la imagen': 'Demasiado texto' } } }, { now })).toMatchObject({ code: 'REJECTED', reason: 'Texto en la imagen: Demasiado texto' });
+    expect(deliveryOf({ effective_status: 'ACTIVE' }, { now, budgetRemaining: 0 }).code).toBe('NO_BUDGET');
+    expect(deliveryOf({ effective_status: 'ACTIVE' }, { now, endsAt: '2026-11-16T00:00:00-0500' }).code).toBe('ENDED');
+    expect(deliveryOf({ effective_status: 'PENDING_BILLING_INFO' }, { now }).code).toBe('NO_BUDGET');
+  });
+
+  it('alertas arriba: anuncio rechazado, gasto sin registros, frecuencia, CTR bajo y fin en menos de 24 h; umbrales editables', async () => {
+    const meta = resultsMeta({
+      ...REAL,
+      ads: [{ ...REAL.ads[0], effective_status: 'DISAPPROVED', ad_review_feedback: { global: { Política: 'Afirmaciones engañosas' } } }],
+      byCampaign: [{ campaign_id: REAL_CAMPAIGN, spend: '60000', impressions: '20000', frequency: '3.4', inline_link_clicks: '100' }],
+    });
+    const { ads } = await resultsSetup(meta, new Date('2026-11-17T20:00:00Z')); // termina 18-nov 05:00 UTC → 9 h
+    const r: any = await ads.overview({ range: '7' });
+    expect(r.alerts.map((a: any) => a.kind)).toEqual(['REJECTED', 'SPEND_NO_SIGNUP', 'FREQUENCY', 'LOW_CTR', 'ENDING']);
+    expect(r.alerts[0].detail).toMatch(/Afirmaciones engañosas/);
+    expect(r.alerts[1].title).toMatch(/\$\s?60\.000/);
+    await ads.saveThresholds(DEV, { spendWithoutSignup: '100000', maxFrequency: 4, minLinkCtr: '0,3', endingHours: 'x' });
+    const t = await ads.thresholds();
+    expect(t).toMatchObject({ spendWithoutSignup: 100000, maxFrequency: 4, minLinkCtr: 0.3, endingHours: 24 });
+    const again: any = await ads.overview({ range: '7', refresh: '1' });
+    expect(again.alerts.map((a: any) => a.kind)).toEqual(['REJECTED', 'ENDING']);
+  });
+});
+
+describe('resultados · captura del origen en el registro', () => {
+  it('guarda utm_medium, utm_content, utm_id, fbclid y la primera página; primer toque y sin basura', async () => {
+    const { prisma, db } = createMockPrisma();
+    const t = new SignupTracker(prisma);
+    const token = 'abcdefghijklmnopqrstuv';
+    await t.touch(token, { utmSource: 'Meta', utmMedium: 'Paid_Social', utmCampaign: 'prueba_3dias_registro', utmContent: 'reel_caricatura', utmId: '52637929268760', fbclid: 'IwAR0abc_DEF-123', landingPath: '/registro?utm_source=meta' });
+    await t.touch(token, { utmSource: 'google', utmContent: 'otra', utmId: '999', landingPath: '/otra' });
+    expect(db.signupSession[0]).toMatchObject({ utmSource: 'meta', utmMedium: 'paid_social', utmContent: 'reel_caricatura', utmId: '52637929268760', fbclid: 'IwAR0abc_DEF-123', landingPath: '/registro?utm_source=meta' });
+    await t.touch('zyxwvutsrqponmlkjihgfe', { utmId: '<script>', fbclid: 'x', landingPath: 'https://malo.com' });
+    expect(db.signupSession[1]).not.toHaveProperty('utmId');
+    expect(db.signupSession[1]).not.toHaveProperty('fbclid');
+    expect(db.signupSession[1]).not.toHaveProperty('landingPath');
+  });
+
+  it('lee los utm del enlace de destino de un anuncio y descarta los dinámicos sin reemplazar', () => {
+    expect(utmFromUrl(REAL_LINK)).toEqual({ utmSource: 'meta', utmCampaign: 'prueba_3dias_registro', utmContent: 'reel_caricatura' });
+    expect(utmFromUrl('https://x.co/registro?utm_campaign=a', 'utm_id={{campaign.id}}&utm_content=pieza-1')).toEqual({ utmCampaign: 'a', utmContent: 'pieza-1' });
+    expect(utmFromUrl('no es url')).toEqual({});
   });
 });

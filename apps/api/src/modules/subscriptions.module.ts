@@ -17,6 +17,7 @@ import { computeAiCredits } from '../ai/ai-access';
 import { usdCopRate } from '../common/trm';
 import { forgetSubscription } from '../auth/subscription.guard';
 import { AuditModule, AuditService } from './audit.module';
+import { companyMessages } from '../common/inbox/company-messages';
 
 /**
  * Suscripciones: ciclo de vida, historial, pagos manuales comprobados por el
@@ -461,7 +462,7 @@ export class SubscriptionsService {
     const [invoices, aiEvents, messages, grants, purchases] = await Promise.all([
       this.prisma.invoice.findMany({ where: { companyId, period: p } }),
       this.prisma.aiUsageEvent.findMany({ where: { companyId, createdAt: { gte: since, lt: until } }, select: { costUsd: true, billedTo: true } }),
-      this.prisma.message.findMany({ where: { conversation: { companyId }, direction: 'OUT', createdAt: { gte: since, lt: until }, metaCostUsd: { gt: 0 } }, select: { metaCostUsd: true, deliveryStatus: true } }),
+      companyMessages<{ metaCostUsd: number | null; deliveryStatus: string | null }>(this.prisma, companyId, { direction: 'OUT', createdAt: { $gte: since, $lt: until }, metaCostUsd: { $gt: 0 } }, ['metaCostUsd', 'deliveryStatus']),
       this.prisma.aiCreditLot.findMany({ where: { companyId, source: 'GRANT', createdAt: { gte: since, lt: until } }, select: { total: true } }),
       this.prisma.payment.findMany({ where: { companyId, purpose: 'AI_CREDITS', status: 'APPROVED', createdAt: { gte: since, lt: until } }, select: { amountInCents: true, currency: true } }),
     ]);

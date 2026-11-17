@@ -22,6 +22,29 @@ export class AiProviderError extends ServiceUnavailableException {
 }
 
 /**
+ * Tiempo máximo de una llamada a la IA (AI_TIMEOUT_MS, por defecto 45 s; los
+ * audios, el doble). Sin límite, una llamada colgada retenía hasta 5 minutos
+ * (lo que espera el cliente HTTP de Node) al worker del motor, que atiende las
+ * conversaciones de todas las empresas (auditoría 17-nov-2026, H-07).
+ */
+export function aiTimeoutMs(): number {
+  const n = Number(process.env.AI_TIMEOUT_MS);
+  return Number.isFinite(n) && n >= 5_000 && n <= 300_000 ? n : 45_000;
+}
+
+/** fetch con tiempo límite: si se agota, falla como 504 (la conversación pasa a una persona, como cualquier falla de la IA). */
+async function timedFetch(label: string, url: string, init: RequestInit, ms = aiTimeoutMs()): Promise<Response> {
+  try {
+    return await fetch(url, { ...init, signal: AbortSignal.timeout(ms) });
+  } catch (err: any) {
+    if (err?.name === 'TimeoutError' || err?.name === 'AbortError') {
+      throw new AiProviderError(504, `${label} no respondió en ${Math.round(ms / 1000)} s`);
+    }
+    throw err;
+  }
+}
+
+/**
  * Proveedor DeepInfra (API compatible con OpenAI).
  * La llave la decide ai-access.ts (la del cliente o la de BackOffice).
  */
@@ -32,7 +55,7 @@ export class DeepInfraProvider implements AiProvider {
   async chat(opts: AiChatOptions): Promise<AiChatResult> {
     // Una llave de OpenRouter (de la empresa o de BackOffice) manda TODO por OpenRouter
     if (isOpenRouterModel(opts.model) || isOpenRouterKey(opts.apiKey)) return this.chatOpenRouter(opts);
-    const res = await fetch(CHAT_URL, {
+    const res = await timedFetch('DeepInfra', CHAT_URL, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${opts.apiKey}`,
@@ -82,7 +105,7 @@ export class DeepInfraProvider implements AiProvider {
     const key = companyKey ?? openRouterKey();
     if (!key) throw new AiProviderError(503, 'Falta OPENROUTER_API_KEY para la IA de BackOffice por OpenRouter');
     const model = openRouterModelFor(opts.model);
-    const res = await fetch(OPENROUTER_CHAT_URL, {
+    const res = await timedFetch('OpenRouter', OPENROUTER_CHAT_URL, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${key}`,
@@ -129,11 +152,11 @@ export class DeepInfraProvider implements AiProvider {
       new Blob([new Uint8Array(buffer)], { type: opts.mimeType }),
       'audio' + (opts.mimeType.includes('ogg') ? '.ogg' : '.mp3'),
     );
-    const res = await fetch(TRANSCRIBE_URL, {
+    const res = await timedFetch('La transcripción', TRANSCRIBE_URL, {
       method: 'POST',
       headers: { Authorization: `Bearer ${opts.apiKey}` },
       body: form,
-    });
+    }, aiTimeoutMs() * 2);
     if (!res.ok) {
       const body = await res.text().catch(() => '');
       this.logger.error(`transcribe ${res.status}: ${body.slice(0, 300)}`);

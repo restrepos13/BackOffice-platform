@@ -25,6 +25,7 @@ import {
 import { AuditService } from './audit.module';
 import { Products } from '../auth/products.guard';
 import { BookingsModule, BookingsService } from './bookings.module';
+import { countCompanyMessages } from '../common/inbox/company-messages';
 
 function startOfDay(d = new Date()): Date {
   const x = new Date(d);
@@ -271,15 +272,8 @@ export class ExecutiveService {
         where: { companyId: scoped },
         select: { name: true, status: true, systemPrompt: true },
       }),
-      this.prisma.message.count({
-        where: { conversation: { companyId: scoped }, createdAt: { gte: weekStart } },
-      }),
-      this.prisma.message.count({
-        where: {
-          conversation: { companyId: scoped },
-          createdAt: { gte: prevWeekStart, lt: weekStart },
-        },
-      }),
+      countCompanyMessages(this.prisma, scoped, { createdAt: { $gte: weekStart } }),
+      countCompanyMessages(this.prisma, scoped, { createdAt: { $gte: prevWeekStart, $lt: weekStart } }),
       this.prisma.aiUsageEvent.aggregate({
         where: { companyId: scoped, createdAt: { gte: monthStart } },
         _sum: { costUsd: true },

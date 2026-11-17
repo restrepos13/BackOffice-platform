@@ -11,6 +11,7 @@ import { computeAiCredits } from '../ai/ai-access';
 import { CurrentUser, Roles } from '../auth/decorators';
 import { AuthUser, ROLES, scopeCompanyId } from '../common/constants';
 import { usdCopRate } from '../common/trm';
+import { companyMessages } from '../common/inbox/company-messages';
 
 /**
  * Consumo de IA en detalle (eventos AiUsageEvent).
@@ -199,15 +200,8 @@ export class AiUsageService {
   /** Suma un mes calendario: mensajes Meta por categoría + IA (tokens/costo). */
   private async monthTotals(companyId: string, monthStart: Date, monthEnd: Date) {
     const [metaMessages, aiAgg] = await Promise.all([
-      this.prisma.message.findMany({
-        where: {
-          conversation: { companyId },
-          direction: 'OUT',
-          metaCategory: { not: null },
-          createdAt: { gte: monthStart, lt: monthEnd },
-        },
-        select: { metaCategory: true, metaCostUsd: true },
-      }),
+      companyMessages<{ metaCategory: string; metaCostUsd: number | null }>(this.prisma, companyId,
+        { direction: 'OUT', metaCategory: { $ne: null }, createdAt: { $gte: monthStart, $lt: monthEnd } }, ['metaCategory', 'metaCostUsd']),
       this.prisma.aiUsageEvent.aggregate({
         where: { companyId, createdAt: { gte: monthStart, lt: monthEnd } },
         _sum: { costUsd: true, inputTokens: true, outputTokens: true },

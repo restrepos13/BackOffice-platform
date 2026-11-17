@@ -28,6 +28,7 @@ import { assertRefsInTenant } from '../common/tenant';
 import { buildConnectUrl } from './companies.module';
 import { encryptSecret } from '../common/crypto';
 import { Products } from '../auth/products.guard';
+import { nativeCount } from '../common/native-count';
 
 @Injectable()
 export class IntegrationsService {
@@ -77,10 +78,20 @@ export class IntegrationsService {
       include: {
         company: { select: { name: true, slug: true } },
         bot: { select: { id: true, name: true, model: true } },
-        _count: { select: { conversations: true } },
       },
     });
-    return items.map((i) => this.serialize(i));
+    const counts = await Promise.all(items.map((i) => this.conversationCount(i)));
+    return items.map((i, n) => this.serialize({ ...i, _count: { conversations: counts[n] } }));
+  }
+
+  /**
+   * Conversaciones de una línea. NO usar `_count` de Prisma: en MongoDB cruza
+   * por `integrationId` sin empresa y recorre las conversaciones de TODA la
+   * plataforma por cada línea (auditoría 17-nov-2026: 351.000 documentos por
+   * pedido bajo carga). Con la empresa usa el índice [companyId, integrationId].
+   */
+  private conversationCount(i: { id: string; companyId: string }) {
+    return nativeCount(this.prisma.conversation, { companyId: i.companyId, integrationId: i.id });
   }
 
   async detail(user: AuthUser, id: string) {
@@ -90,10 +101,10 @@ export class IntegrationsService {
       include: {
         company: { select: { name: true, slug: true } },
         bot: true,
-        _count: { select: { conversations: true } },
       },
     });
-    return this.serialize(integration);
+    if (!integration) return this.serialize(integration);
+    return this.serialize({ ...integration, _count: { conversations: await this.conversationCount(integration) } });
   }
 
   async create(user: AuthUser, dto: any) {

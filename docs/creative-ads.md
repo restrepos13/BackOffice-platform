@@ -148,7 +148,8 @@ Ya existe el contrato (`AdsProvider`) y un adaptador que **declara qué falta**,
 Panel de plataforma → **Publicidad** (`/platform/publicidad`), solo para `SUPER_ADMIN` y `DEV`; el rol se exige en el servidor. Es independiente de la Publicidad de los clientes: usa su propia cuenta publicitaria (`META_ADS_CONFIG`, con el token cifrado) y no toca `AdAccount` ni las empresas.
 
 **Pestañas**
-- **Resultados**: lo que ya existía (gasto, registros y empresas por campaña, gasto anotado a mano, enlaces UTM).
+- **Resultados**: el tablero de la pauta propia (ver «Resultados» abajo).
+- **Configuración** también tiene los umbrales de las alertas de Resultados.
 - **Lanzar campaña**: objetivo, presupuesto, fechas, público y anuncio (imagen, texto, título y botón). «Revisar» valida en el servidor y no toca Meta; «Crear en Meta (en pausa)» pide confirmación.
 - **Lanzamientos**: activar (con confirmación), pausar, cambiar el presupuesto, reintentar y archivar. También muestra el historial y los IDs de Meta.
 - **Configuración**: página que publica, Instagram opcional y **tope de presupuesto diario**.
@@ -161,7 +162,7 @@ Panel de plataforma → **Publicidad** (`/platform/publicidad`), solo para `SUPE
 | Conversaciones por WhatsApp | `OUTCOME_ENGAGEMENT` | `WHATSAPP`, `CONVERSATIONS`, `promoted_object.page_id` | `WHATSAPP_MESSAGE` |
 
 - Público: países, edad y género. `targeting_automation.advantage_audience` siempre se envía, porque Meta lo exige desde v23. Con Advantage+ la edad mínima va de 18 a 25 y no se envía edad máxima.
-- El destino de «Registros» es `<PUBLIC_WEB_URL>/registro?utm_source=meta&utm_medium=paid&utm_campaign=<slug del nombre>`. Resultados cruza la campaña por ese `utm_campaign` exacto. No se permiten dos lanzamientos con el mismo slug.
+- El destino de «Registros» es `<PUBLIC_WEB_URL>/registro?utm_source=meta&utm_medium=paid&utm_campaign=<slug del nombre>`, y el creativo lleva `url_tags = utm_id={{campaign.id}}&utm_content={{ad.name}}`: Meta llena el ID de la campaña y el nombre del anuncio en cada clic. No se permiten dos lanzamientos con el mismo slug.
 - Los montos se leen según la moneda de la cuenta: en COP «50.000» son cincuenta mil; en USD el último separador es el decimal.
 
 **Controles de dinero**
@@ -184,4 +185,51 @@ Panel de plataforma → **Publicidad** (`/platform/publicidad`), solo para `SUPE
 
 **Versión de la API**: este panel usaba `v21.0` fijo. Ahora usa `META_ADS_API_VERSION` (por defecto `v25.0`), igual que la Publicidad de clientes.
 
-**Pruebas**: `apps/api/test/platform-ads.spec.ts` (14, con un Meta falso, sin llamadas reales) y `apps/web/src/pages/platform/PublicidadLanzar.test.tsx` (5).
+### Resultados (pauta propia)
+
+`GET /platform/ads?range=today|7|14|30|custom&since=&until=&refresh=1` (solo `SUPER_ADMIN` y `DEV`). Lógica pura en `apps/api/src/common/ads/own-funnel.ts`; el servicio en `meta-ads.module.ts` (`overview`). Pantalla: `apps/web/src/pages/platform/PublicidadResultados.tsx`.
+
+**Qué muestra**
+- Arriba, qué cuenta se está leyendo (ID, moneda y zona horaria) y hace cuánto se trajeron los datos de Meta.
+- Alertas: anuncio o campaña rechazados (con el motivo de Meta), gasto mayor a X sin ningún registro, frecuencia mayor al máximo, CTR del enlace bajo el mínimo (después de N impresiones) y campaña activa que termina en menos de N horas. Los umbrales se editan en Configuración (`PlatformSetting` `META_ADS_ALERTS`).
+- Tarjetas: gasto, clics en el enlace (y CPC), registros, costo por registro, empresas que pagan (y CAC) y ROAS.
+- Gráfico diario de gasto contra registros (`time_increment=1`).
+- Tabla por campaña, desplegable: ritmo (presupuesto total o diario, gastado desde el inicio, % consumido, fin, días restantes y proyección simple al cierre), embudo y comparación de sus anuncios (gasto, clics, CTR, CPC, video 3 s, 25/50/75/100 %, ThruPlay, visitas, registros, costo por registro, empresas que pagan). Resalta el anuncio con mejor costo por registro.
+- «Sin atribuir»: lo que llegó desde Meta y no cruzó con ninguna campaña, con sus utm. Se puede asignar a una campaña desde ahí.
+- Registros atribuidos: fecha, empresa (con enlace a su ficha), rubro, estado (pagó, activa, onboarding), campaña, anuncio y por qué se atribuyó.
+
+**Embudo** (por sesión de registro, `SignupSession`): visitas (cada navegador que abre `/registro`) → empezaron → registros completados (`DONE`) → empresas creadas → empresas que pagan (pago Wompi `APPROVED` con factura) → ingreso cobrado a la fecha. Pagos en otra moneda cuentan como «paga» pero no suman al ingreso ni al ROAS; la pantalla lo avisa.
+
+**Derivados**: CTR del enlace, CPC, CPM, costo por registro, CAC y ROAS. Si el denominador es 0, o no hay gasto, el valor es `null` y la pantalla muestra «—».
+
+**Cuándo un registro cuenta para una campaña** (de lo más seguro a lo menos):
+1. `utm_id` igual al ID de la campaña.
+2. `utm_campaign` de un lanzamiento hecho desde el panel.
+3. Asignación manual campaña ↔ `utm_campaign` (`PlatformSetting` `META_ADS_UTM_MAP`, `PUT /platform/ads/mappings`). Un mismo `utm_campaign` no puede estar asignado a dos campañas.
+4. `utm_campaign` que trae el enlace de destino de un anuncio de esa campaña, leído de Meta (`creative{object_story_spec,url_tags,asset_feed_spec}`). Así se cruzan solas las campañas creadas en el Administrador de anuncios.
+5. `utm_campaign` igual al nombre de la campaña, normalizado.
+
+Si un `utm_campaign` apunta a dos campañas en el mismo paso, no se adivina: queda «Sin atribuir». El anuncio sale de `utm_content` (ID, nombre o el `utm_content` del enlace del anuncio), siempre dentro de la campaña ya elegida. Cuenta como «desde Meta» quien llega con `utm_source` facebook/instagram/meta/fb/ig/messenger, con `fbclid` o con un referente de Facebook o Instagram.
+
+**Captura en el registro**: además de `utm_source` y `utm_campaign`, se guardan `utm_medium`, `utm_content`, `utm_id`, `fbclid` y la primera página (`landingPath`). Son campos opcionales y de primer toque: lo que trajo a la persona la primera vez no se reemplaza. Los valores dinámicos sin reemplazar (`{{ad.name}}`) se descartan.
+
+**Meta**: una llamada por nivel (cuenta, campañas, conjuntos, anuncios, insights por campaña, por anuncio, por día, totales de la cuenta y gasto desde el inicio), en la zona horaria de la cuenta. Caché de 12 minutos en memoria; «Actualizar» la salta. Todo es lectura: no se agregó nada que gaste dinero (pausar y activar siguen en la tabla, con `confirm: true`).
+
+**Fechas**: «hoy» y los límites del rango se calculan con `Intl` en la zona de la cuenta (`America/Bogota` si no hay cuenta), nunca con `toISOString`. El rango personalizado llega hasta 90 días.
+
+**Errores de Meta**: token vencido (190), permisos (10/200/294), cuenta inexistente o sin acceso (100) y límite de consultas se explican en la pantalla. La respuesta nunca es un 500, y lo de BackOffice se sigue mostrando.
+
+**Base de datos**: `SignupSession` suma `utmMedium`, `utmContent`, `utmId`, `fbclid`, `landingPath` (opcionales, los registros viejos no cambian) y el índice `@@index([createdAt])`. En producción hace falta `npx prisma db push --skip-generate` para crear ese índice. Sin él funciona igual, solo más lento con volumen.
+
+**Configuración en Render**: el token conectado (Publicidad → Conectar Meta Ads) debe ser de un usuario del sistema con `ads_read` sobre la cuenta que se quiere leer (hoy `act_1397864565500673`, COP, America/Bogota). Para lanzar y pausar desde el panel también hace falta `ads_management`. La pantalla dice arriba qué cuenta está leyendo.
+
+**Para los anuncios creados en el Administrador de anuncios**: usar como URL `…/registro?utm_source=meta&utm_medium=paid_social&utm_campaign=<nombre_corto>` y en «Parámetros de URL» `utm_id={{campaign.id}}&utm_content={{ad.name}}`. La tarjeta «Enlace con seguimiento» los arma y los copia.
+
+### Fase 2 (pendiente, no implementada)
+
+Píxel de Meta y Conversions API enviando `CompleteRegistration` al completar el registro y `Purchase` al aprobarse un pago, para que Meta optimice por registros y no por clics. Antes hace falta:
+- Aviso de cookies con consentimiento (el píxel no se carga sin aceptar).
+- Actualizar la política de privacidad (Ley 1581): qué se envía a Meta, con qué finalidad y cómo oponerse.
+- Enviar los eventos del servidor con `event_id` para deduplicar con el píxel, y datos del usuario solo con hash.
+
+**Pruebas**: `apps/api/test/platform-ads.spec.ts` (32, con un Meta falso, sin llamadas reales: incluye el caso real de la campaña de prueba de 3 días, cruce por `utm_id`, asignación manual, «Sin atribuir», denominadores en cero, zona horaria, errores de Meta, caché, ritmo, estados y alertas), `apps/web/src/pages/platform/PublicidadLanzar.test.tsx` (6) y `apps/web/src/pages/platform/PublicidadResultados.test.tsx` (7).

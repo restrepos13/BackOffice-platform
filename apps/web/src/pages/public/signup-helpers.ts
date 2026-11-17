@@ -166,12 +166,34 @@ export function sessionToken(): string {
   }
 }
 
-/** Campaña de origen (?utm_source=facebook&utm_campaign=…), recordada mientras dura el registro. */
-function utm(): { utmSource?: string; utmCampaign?: string } {
+/** Origen de la visita que se manda con cada evento del registro. */
+export interface VisitOrigin {
+  utmSource?: string; utmMedium?: string; utmCampaign?: string; utmContent?: string; utmId?: string; fbclid?: string; landingPath?: string;
+}
+
+const UTM_PARAMS: Array<[string, keyof VisitOrigin]> = [
+  ['utm_source', 'utmSource'], ['utm_medium', 'utmMedium'], ['utm_campaign', 'utmCampaign'],
+  ['utm_content', 'utmContent'], ['utm_id', 'utmId'], ['fbclid', 'fbclid'],
+];
+
+/**
+ * De dónde llegó (utm_*, fbclid de Meta y la primera página), recordado
+ * mientras dura el registro en esta pestaña. El servidor guarda el primer
+ * toque y no lo reemplaza. Los valores dinámicos sin reemplazar
+ * ({{ad.name}}) se descartan.
+ */
+export function visitOrigin(search = typeof window !== 'undefined' ? window.location.search : '', path = typeof window !== 'undefined' ? window.location.pathname : ''): VisitOrigin {
   try {
-    const qs = new URLSearchParams(window.location.search);
-    const fresh = { utmSource: qs.get('utm_source') ?? undefined, utmCampaign: qs.get('utm_campaign') ?? undefined };
-    if (fresh.utmSource || fresh.utmCampaign) sessionStorage.setItem('bo_utm', JSON.stringify(fresh));
+    const qs = new URLSearchParams(search);
+    const fresh: VisitOrigin = {};
+    for (const [param, key] of UTM_PARAMS) {
+      const v = qs.get(param)?.trim();
+      if (v && !/\{\{.*\}\}/.test(v)) fresh[key] = v.slice(0, key === 'fbclid' ? 255 : 120);
+    }
+    if (Object.keys(fresh).length) {
+      fresh.landingPath = `${path}${search}`.slice(0, 200);
+      sessionStorage.setItem('bo_utm', JSON.stringify(fresh));
+    }
     return JSON.parse(sessionStorage.getItem('bo_utm') ?? '{}');
   } catch {
     return {};
@@ -195,7 +217,7 @@ export function track(event: 'view' | 'contact' | 'error', extra: Record<string,
     void fetch('/api/public/signup/track', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ session: sessionToken(), event, referrer: document.referrer || undefined, ...utm(), ...extra }),
+      body: JSON.stringify({ session: sessionToken(), event, referrer: document.referrer || undefined, ...visitOrigin(), ...extra }),
       keepalive: true,
     }).catch(() => undefined);
   } catch {

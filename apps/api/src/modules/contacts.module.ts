@@ -79,11 +79,29 @@ export class ContactsService {
       include: {
         assignedTo: { select: { id: true, name: true } },
         company: { select: { name: true, slug: true } },
-        _count: { select: { conversations: true } },
       },
       take: 500,
     });
-    return contacts.map((c) => this.serialize(c));
+    const counts = await this.conversationCounts(contacts);
+    return contacts.map((c) => this.serialize({ ...c, _count: { conversations: counts.get(c.id) ?? 0 } }));
+  }
+
+  /**
+   * Conversaciones por contacto de la página. NO usar `_count` de Prisma aquí:
+   * en MongoDB se traduce en un cruce por `contactId` que ningún índice cubre
+   * y recorre las conversaciones de TODAS las empresas por cada contacto
+   * (auditoría 17-nov-2026: 23 s con 59.000 conversaciones). Filtrando también
+   * por empresa usa el índice [companyId, contactId] y examina solo lo propio.
+   */
+  private async conversationCounts(contacts: Array<{ id: string; companyId: string }>) {
+    const counts = new Map<string, number>();
+    if (!contacts.length) return counts;
+    const rows = await this.prisma.conversation.findMany({
+      where: { companyId: { in: [...new Set(contacts.map((c) => c.companyId))] }, contactId: { in: contacts.map((c) => c.id) } },
+      select: { contactId: true },
+    });
+    for (const r of rows) counts.set(r.contactId, (counts.get(r.contactId) ?? 0) + 1);
+    return counts;
   }
 
   async create(user: AuthUser, dto: any) {

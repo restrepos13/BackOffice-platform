@@ -1,3 +1,4 @@
+import './threadpool'; // primero: tamaño del pool de hilos antes de cualquier E/S
 import 'reflect-metadata';
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
@@ -6,7 +7,7 @@ import { randomBytes } from 'crypto';
 import { existsSync, readFileSync } from 'fs';
 import { join, resolve } from 'path';
 import helmet from 'helmet';
-import { json, urlencoded } from 'express';
+import { json, static as serveStatic, urlencoded } from 'express';
 import { AppModule } from './app.module';
 import { BufferedLogger } from './common/log-buffer';
 import { perfMiddleware } from './common/perf-monitor';
@@ -84,7 +85,11 @@ async function bootstrap() {
       return html;
     };
     const previews = app.get(SharePreviewService);
-    app.useStaticAssets(webDist, { index: false, maxAge: '1h' });
+    // Archivos del panel web. Las rutas del API no pasan por aquí: buscar un
+    // archivo en disco por cada petición del API ocupaba el pool de hilos y,
+    // durante una ráfaga de logins, las dejaba esperando (auditoría 17-nov-2026).
+    const assets = serveStatic(webDist, { index: false, maxAge: '1h' });
+    app.use((req: any, res: any, next: any) => (req.path.startsWith('/api/') || req.path === '/api' ? next() : assets(req, res, next)));
     app.use(async (req: any, res: any, next: any) => {
       if (req.method !== 'GET' || req.path.startsWith('/api')) return next();
       const page = prerenderedFor(req.path);

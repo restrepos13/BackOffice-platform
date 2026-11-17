@@ -390,7 +390,7 @@ export class CompaniesService {
           jobTitle: dto.admin.jobTitle ?? 'Administrador',
           role: ROLES.COMPANY_ADMIN,
           companyId: company.id,
-          passwordHash: AuthService.hashPassword(dto.admin.password),
+          passwordHash: await AuthService.hashPassword(dto.admin.password),
         },
       });
     }

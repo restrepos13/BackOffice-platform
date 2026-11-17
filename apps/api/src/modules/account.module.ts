@@ -170,7 +170,7 @@ export class AccountService {
       user = await this.prisma.user.create({
         data: {
           email: row.email, name: (dto.name?.trim() || row.name || row.email.split('@')[0]).slice(0, 80), role: row.role,
-          companyId: row.companyId, opsProfile: row.opsProfile ?? null, passwordHash: AuthService.hashPassword(dto.password),
+          companyId: row.companyId, opsProfile: row.opsProfile ?? null, passwordHash: await AuthService.hashPassword(dto.password),
         },
       });
     } catch (e: any) {
@@ -226,7 +226,7 @@ export class AccountService {
     // Clave nueva: se cierran TODAS las sesiones abiertas y se limpia el bloqueo. El MFA sigue exigiéndose al entrar.
     await this.prisma.user.update({
       where: { id: user.id },
-      data: { passwordHash: AuthService.hashPassword(dto.password), sessionVersion: (user.sessionVersion ?? 0) + 1, failedLogins: 0, lockedUntil: null },
+      data: { passwordHash: await AuthService.hashPassword(dto.password), sessionVersion: (user.sessionVersion ?? 0) + 1, failedLogins: 0, lockedUntil: null },
     });
     forgetSession(user.id);
     const others: any[] = await this.prisma.authToken.findMany({ where: { kind: 'PASSWORD_RESET', userId: user.id, usedAt: null, revokedAt: null } });

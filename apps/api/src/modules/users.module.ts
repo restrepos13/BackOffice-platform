@@ -105,7 +105,7 @@ export class UsersService {
         companyId: isPlatformRole(dto.role) ? null : dto.companyId,
         jobTitle: dto.jobTitle,
         phone: dto.phone,
-        passwordHash: AuthService.hashPassword(dto.password),
+        passwordHash: await AuthService.hashPassword(dto.password),
       },
     });
     if (seat) await verifyWithinLimit(this.prisma, dto.companyId!, 'users', () => this.prisma.user.delete({ where: { id: user.id } }), onReached);
@@ -184,7 +184,7 @@ export class UsersService {
         phone: dto.phone,
         active: dto.active,
         ...(dto.password
-          ? { passwordHash: AuthService.hashPassword(dto.password), failedLogins: 0, lockedUntil: null }
+          ? { passwordHash: await AuthService.hashPassword(dto.password), failedLogins: 0, lockedUntil: null }
           : {}),
         // Clave, rol o estado nuevos: las sesiones abiertas de esa persona se cierran
         ...(dto.password || dto.active === false || (dto.role && dto.role !== target.role)

@@ -377,6 +377,17 @@ model Contact {
   externalId String?
   /// Primer origen del contacto (anuncio, publicación o directo); no se sobreescribe
   originJson String?
+
+  // Toda consulta trae companyId: va primero (separa a las empresas dentro del
+  // índice); después la igualdad que se busca y al final el orden. Sin estos
+  // índices cada búsqueda recorre los contactos de toda la plataforma
+  // (auditoría 17-nov-2026). Se crean con `prisma db push`.
+  @@index([companyId, lastActivityAt(sort: Desc)]) // listado de contactos
+  @@index([companyId, phone]) // mensaje entrante de WhatsApp, formularios
+  @@index([companyId, externalId]) // Instagram y Messenger
+  @@index([companyId, email]) // formularios instantáneos, registro
+  @@index([companyId, stage, lastActivityAt(sort: Desc)]) // filtro por etapa del embudo
+  @@index([companyId, createdAt(sort: Desc)]) // reportes, exportación y atribución por fecha
 }
 
 // ─── Conversaciones y mensajes ───────────────────────────────────────
@@ -422,6 +433,8 @@ model Conversation {
   @@index([companyId, lastMessageAt])
   @@index([companyId, assignedToId, lastMessageAt])
   @@index([companyId, channel, lastMessageAt])
+  @@index([companyId, integrationId]) // conversaciones por línea (listado de integraciones)
+  @@index([companyId, botId]) // conversaciones por asistente (listado de bots)
 }
 
 // direction: IN | OUT — author: CONTACT | BOT | AGENT
@@ -1135,6 +1148,8 @@ model AuditLog {
   detail    String?
   ip        String?
   createdAt DateTime @default(now())
+
+  @@index([companyId, createdAt(sort: Desc)]) // registro de actividad de la empresa (antes recorría todo el registro)
 }
 
 // ─── API keys (panel dev) ────────────────────────────────────────────
@@ -1603,9 +1618,18 @@ model SignupSession {
   companyId    String?
   referrer     String?
   userAgent    String?
-  /// Campaña de donde llegó (?utm_source=facebook&utm_campaign=…)
+  /// Campaña de donde llegó (?utm_source=facebook&utm_campaign=…). Primer toque: no se sobrescriben.
   utmSource    String?
   utmCampaign  String?
+  utmMedium    String?
+  /// Anuncio o pieza (en Meta: nombre del anuncio, {{ad.name}})
+  utmContent   String?
+  /// En Meta: ID de la campaña ({{campaign.id}}), el cruce más seguro
+  utmId        String?
+  /// Identificador de clic de Meta (llega solo, aunque el enlace no tenga utm)
+  fbclid       String?
+  /// Primera página a la que llegó (ruta y parámetros, sin dominio)
+  landingPath  String?
   /// Clientes que le escriben al día (lo dice en el registro; base de los cálculos de IA)
   dailyChats   Int?
   /// Seguimiento del equipo: NEW | CONTACTED | MEETING | DEMO_DONE | WON | LOST
@@ -1620,6 +1644,7 @@ model SignupSession {
 
   @@index([lastSeenAt])
   @@index([followStatus])
+  @@index([createdAt]) // resultados de la pauta por rango de fechas
 }
 
 /// Consumo mensual del extra "Redes sociales con IA" (lo paga BackOffice):

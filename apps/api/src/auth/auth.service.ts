@@ -4,7 +4,12 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
-import * as bcrypt from 'bcryptjs';
+// Hash nativo: corre en el pool de hilos de libuv y no bloquea el event loop.
+// bcryptjs (JavaScript puro) ocupaba el hilo principal ~444 ms por intento y
+// limitaba el login a ~2,3/s para toda la plataforma (auditoría 17-nov-2026).
+// Mismo algoritmo y formato: los hashes guardados siguen sirviendo.
+import { hash as bcryptHash, hashSync as bcryptHashSync, verify as bcryptVerify } from '@node-rs/bcrypt';
+import { randomBytes } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../modules/audit.module';
 import { decryptSecret, encryptSecret, isEncrypted } from '../common/crypto';
@@ -24,8 +29,36 @@ export const JWT_AUDIENCE = 'backoffice-web';
 const MFA_AUDIENCE = 'backoffice-mfa';
 
 /** Hash señuelo: se compara SIEMPRE aunque el correo no exista, para que el
- *  tiempo de respuesta no revele qué cuentas existen (anti-enumeración). */
-const DECOY_HASH = bcrypt.hashSync('decoy-password-no-usable', 10);
+ *  tiempo de respuesta no revele qué cuentas existen (anti-enumeración).
+ *  Con el MISMO costo que las cuentas reales: con un costo menor, la
+ *  diferencia de tiempo delataba qué correos existen. Hash de una clave
+ *  aleatoria que no se guarda en ningún lado (nadie la conoce); se calcula una
+ *  sola vez al arrancar. */
+const DECOY_HASH = bcryptHashSync(randomBytes(24).toString('base64url'), BCRYPT_COST);
+
+/**
+ * Hashes a la vez por proceso (HASH_CONCURRENCY, por defecto 4). El resto
+ * espera su turno sin bloquear nada. Así una ráfaga de logins no acapara el
+ * pool de hilos que también usan el disco y el DNS (ver threadpool.ts).
+ */
+const HASH_SLOTS = (() => {
+  const n = Math.floor(Number(process.env.HASH_CONCURRENCY));
+  return Number.isFinite(n) && n >= 1 && n <= 32 ? n : 4;
+})();
+let hashing = 0;
+const hashQueue: Array<() => void> = [];
+async function withHashSlot<T>(run: () => Promise<T>): Promise<T> {
+  if (hashing >= HASH_SLOTS) await new Promise<void>((ok) => hashQueue.push(ok));
+  hashing++;
+  try {
+    return await run();
+  } finally {
+    hashing--;
+    hashQueue.shift()?.();
+  }
+}
+const compare = (plain: string, hashed: string) => withHashSlot(() => bcryptVerify(plain, hashed)).catch(() => false);
+const hashSecret = (plain: string, cost: number) => withHashSlot(() => bcryptHash(plain, cost));
 
 /** Campos que jamás salen del API. */
 /** Recorridos guiados que el panel puede marcar como vistos (además del de bienvenida). */
@@ -93,7 +126,7 @@ export class AuthService {
 
     // La comparación corre SIEMPRE (usuario inexistente → señuelo) y el
     // mensaje es SIEMPRE el mismo: nada filtra si la cuenta existe o no.
-    const ok = await bcrypt.compare(String(password ?? ''), user?.passwordHash ?? DECOY_HASH);
+    const ok = await compare(String(password ?? ''), user?.passwordHash ?? DECOY_HASH);
     const locked = !!user?.lockedUntil && user.lockedUntil > new Date();
 
     if (!user || !user.active || locked || !ok) {
@@ -173,7 +206,7 @@ export class AuthService {
     let hashes: string[] = [];
     try { hashes = JSON.parse(user.mfaRecoveryJson ?? '[]'); } catch { hashes = []; }
     for (const [i, h] of hashes.entries()) {
-      if (await bcrypt.compare(clean, h)) return hashes.filter((_, j) => j !== i);
+      if (await compare(clean, h)) return hashes.filter((_, j) => j !== i);
     }
     return null;
   }
@@ -208,7 +241,7 @@ export class AuthService {
       where: { id: userId },
       data: {
         mfaEnabled: true, mfaLastStep: step,
-        mfaRecoveryJson: JSON.stringify(codes.map((c) => bcrypt.hashSync(c, 10))),
+        mfaRecoveryJson: JSON.stringify(await Promise.all(codes.map((c) => hashSecret(c, 10)))),
         // Las sesiones abiertas antes de activar el MFA se cierran
         sessionVersion: (u.sessionVersion ?? 0) + 1,
       },
@@ -223,7 +256,7 @@ export class AuthService {
   async mfaDisable(userId: string, password: string, code: string) {
     const u = await this.prisma.user.findUniqueOrThrow({ where: { id: userId } });
     if (!u.mfaEnabled) return { ok: true };
-    if (!(await bcrypt.compare(String(password ?? ''), u.passwordHash))) throw new UnauthorizedException('La contraseña no coincide');
+    if (!(await compare(String(password ?? ''), u.passwordHash))) throw new UnauthorizedException('La contraseña no coincide');
     if (verifyTotp(this.secretOf(u), code, u.mfaLastStep) == null && !(await this.consumeRecovery(u, code))) {
       throw new UnauthorizedException('Código inválido');
     }
@@ -259,11 +292,11 @@ export class AuthService {
       throw new BadRequestException('La nueva contraseña debe tener al menos 8 caracteres');
     }
     const user = await this.prisma.user.findUniqueOrThrow({ where: { id: userId } });
-    const ok = await bcrypt.compare(current, user.passwordHash);
+    const ok = await compare(current, user.passwordHash);
     if (!ok) throw new UnauthorizedException('La contraseña actual no coincide');
     const updated = await this.prisma.user.update({
       where: { id: userId },
-      data: { passwordHash: bcrypt.hashSync(next, BCRYPT_COST), sessionVersion: (user.sessionVersion ?? 0) + 1 },
+      data: { passwordHash: await hashSecret(next, BCRYPT_COST), sessionVersion: (user.sessionVersion ?? 0) + 1 },
       include: { company: { select: { id: true, name: true, slug: true, status: true } } },
     });
     forgetSession(userId);
@@ -292,8 +325,8 @@ export class AuthService {
     return { ok: true, tours: seen };
   }
 
-  static hashPassword(plain: string): string {
-    return bcrypt.hashSync(plain, BCRYPT_COST);
+  static hashPassword(plain: string): Promise<string> {
+    return hashSecret(plain, BCRYPT_COST);
   }
 }
 

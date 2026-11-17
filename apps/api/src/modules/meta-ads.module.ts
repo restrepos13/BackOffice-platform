@@ -11,9 +11,13 @@ import { AuthUser, ROLES, parseJson } from '../common/constants';
 import { decryptSecret, encryptSecret, isEncrypted } from '../common/crypto';
 import { publicWebUrl } from '../common/tracking';
 import { metaAdsVersion } from '../common/ads/meta-ads-provider';
-import { toMinor } from '../common/ads/provider';
+import { fromMinor, toMinor } from '../common/ads/provider';
 import { GOALS, LaunchDraft, buildLaunch, draftFrom, parseAmount, slugify, todayIn, validateLaunch } from '../common/ads/launch';
 import { AuditModule, AuditService } from './audit.module';
+import {
+  DateRange, Funnel, SessionLite, Thresholds, VIA_LABEL, addDaysIso, addToFunnel, alertsFor, attributionResolver, cleanThresholds, dayIn, deliveryOf, derived,
+  emptyFunnel, INSIGHT_FIELDS, isFromMeta, metaErrorKind, metaRow, norm, paceOf, rangeFor, utmFromUrl,
+} from '../common/ads/own-funnel';
 
 /**
  * Publicidad de BackOffice en Meta (Facebook / Instagram) — solo para el equipo.
@@ -43,7 +47,17 @@ const MAX_VIDEO = 64 * 1024 * 1024;
 // Meta procesa el video después de subirlo: se espera un poco antes de crear el creativo
 const VIDEO_WAIT_MS = 4_000;
 const VIDEO_WAIT_TRIES = 10;
-const META_SOURCES = ['facebook', 'instagram', 'fb', 'ig', 'meta', 'messenger'];
+const MAP_KEY = 'META_ADS_UTM_MAP';
+const ALERTS_KEY = 'META_ADS_ALERTS';
+/** Lo leído de Meta se reutiliza 12 minutos (botón «Actualizar» para pedirlo ya). */
+const META_CACHE_MS = 12 * 60_000;
+
+/** Error de Graph con su código (190 token vencido, 200 permisos…), para explicarlo en la pantalla. */
+export class MetaApiError extends BadRequestException {
+  constructor(public readonly code: number, message: string) {
+    super(message);
+  }
+}
 
 type FetchLike = (url: string, init?: any) => Promise<{ ok: boolean; status: number; json(): Promise<any> }>;
 
@@ -121,7 +135,7 @@ export class MetaAdsService {
       ? await this.fetchImpl(`${graphBase()}${path}?${qs}`)
       : await this.fetchImpl(`${graphBase()}${path}`, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: qs });
     const data = await res.json().catch(() => ({}));
-    if (!res.ok || data?.error) throw new BadRequestException(`Meta: ${data?.error?.message ?? `respondió ${res.status}`}`);
+    if (!res.ok || data?.error) throw new MetaApiError(Number(data?.error?.code) || res.status, `Meta: ${data?.error?.message ?? `respondió ${res.status}`}`);
     return data;
   }
 
@@ -168,93 +182,293 @@ export class MetaAdsService {
     return list;
   }
 
-  /** Registros que llegaron desde Meta en el rango, por campaña. */
-  private async attribution(since: Date) {
-    const rows = await this.prisma.signupSession.findMany({ where: { createdAt: { gte: since } }, take: 5000 });
-    const fromMeta = rows.filter((r: any) => META_SOURCES.includes(String(r.utmSource ?? '').toLowerCase()) || /facebook|instagram|fb\.com|l\.instagram/i.test(String(r.referrer ?? '')));
-    const byCampaign = new Map<string, { sessions: number; done: number }>();
-    for (const r of fromMeta) {
-      const key = (r.utmCampaign ?? '(sin campaña)').toLowerCase();
-      const c = byCampaign.get(key) ?? { sessions: 0, done: 0 };
-      c.sessions++;
-      if (r.step === 'DONE') c.done++;
-      byCampaign.set(key, c);
-    }
-    return {
-      totalSessions: rows.length,
-      metaSessions: fromMeta.length,
-      metaDone: fromMeta.filter((r: any) => r.step === 'DONE').length,
-      byCampaign,
-    };
+  /* ───────────────────────── Resultados de la pauta propia ───────────────────────── */
+
+  /** Caché de lo leído en Meta (Meta guarda el historial; no hace falta pedirlo en cada clic). */
+  private metaCache = new Map<string, { at: number; value: any }>();
+  /** Reemplazable en pruebas. */
+  clock: () => Date = () => new Date();
+
+  async thresholds(): Promise<Thresholds> {
+    return cleanThresholds(parseJson<Partial<Thresholds>>(await this.setting(ALERTS_KEY), {}));
   }
 
-  async overview(query: { days?: string }) {
-    const days = [7, 14, 30, 90].includes(Number(query.days)) ? Number(query.days) : 30;
-    const since = new Date(Date.now() - days * 86400e3);
-    const sinceDay = since.toISOString().slice(0, 10);
-    const attr = await this.attribution(since);
-    const manual = (await this.manual()).filter((m) => m.date >= sinceDay);
-    const cfg = await this.config();
-    // Las campañas lanzadas desde aquí se cruzan por su utm_campaign exacto
-    const launched = new Map((await this.launches()).filter((l) => l.ids.campaign).map((l) => [l.ids.campaign as string, l]));
+  async saveThresholds(actor: AuthUser, dto: any) {
+    const before = await this.thresholds();
+    const next = cleanThresholds(dto, before);
+    await this.put(ALERTS_KEY, JSON.stringify(next));
+    await this.audit.log({ actor, action: 'ads.alerts', entity: 'PlatformSetting', entityId: ALERTS_KEY, detail: JSON.stringify(next) });
+    return next;
+  }
 
-    let account: any = null;
-    let campaigns: any[] = [];
-    let error: string | null = null;
+  async mappings(): Promise<Record<string, string[]>> {
+    return parseJson<Record<string, string[]>>(await this.setting(MAP_KEY), {});
+  }
+
+  /** Asigna (o quita) un utm_campaign a una campaña de Meta. Lo que ya estaba atribuido a otra no se mueve. */
+  async setMapping(actor: AuthUser, dto: { campaignId?: unknown; utmCampaign?: unknown; remove?: unknown }) {
+    const campaignId = String(dto?.campaignId ?? '').trim();
+    const utm = String(dto?.utmCampaign ?? '').trim().slice(0, 120);
+    if (!/^\d{5,30}$/.test(campaignId)) throw new BadRequestException('Elige la campaña de Meta');
+    if (!norm(utm)) throw new BadRequestException('Escribe el utm_campaign que quieres asignar');
+    const map = await this.mappings();
+    const list = (map[campaignId] ?? []).filter((u) => norm(u) !== norm(utm));
+    if (dto?.remove !== true) {
+      const other = Object.entries(map).find(([id, utms]) => id !== campaignId && utms.some((u) => norm(u) === norm(utm)));
+      if (other) throw new ConflictException(`«${utm}» ya está asignado a otra campaña (${other[0]}). Quítalo de allá primero.`);
+      list.push(utm);
+    }
+    if (list.length > 20) throw new BadRequestException('Máximo 20 utm_campaign por campaña');
+    if (list.length) map[campaignId] = list;
+    else delete map[campaignId];
+    await this.put(MAP_KEY, JSON.stringify(map));
+    await this.audit.log({ actor, action: dto?.remove === true ? 'ads.mapping.remove' : 'ads.mapping', entity: 'MetaCampaign', entityId: campaignId, detail: utm });
+    this.metaCache.clear();
+    return map;
+  }
+
+  private async graphAll(path: string, token: string, params: Record<string, string>, maxPages = 5) {
+    const out: any[] = [];
+    let page = await this.graph(path, token, params);
+    for (let i = 0; ; i++) {
+      out.push(...(page?.data ?? []));
+      const next = page?.paging?.next;
+      if (!next || typeof next !== 'string' || !next.startsWith('https://graph.facebook.com/') || i + 1 >= maxPages) break;
+      const res = await this.fetchImpl(next);
+      page = await res.json().catch(() => ({}));
+      if (!res.ok || page?.error) throw new MetaApiError(Number(page?.error?.code) || res.status, `Meta: ${page?.error?.message ?? `respondió ${res.status}`}`);
+    }
+    return out;
+  }
+
+  /** Todo lo que se lee de Meta para el rango: una llamada por nivel. */
+  private async readMeta(cfg: { accountId: string; token: string }, range: DateRange, refresh: boolean) {
+    const key = `${cfg.accountId}|${range.since}|${range.until}`;
+    const hit = this.metaCache.get(key);
+    if (!refresh && hit && this.clock().getTime() - hit.at < META_CACHE_MS) return hit.value;
+    const act = cfg.accountId;
+    const time_range = JSON.stringify({ since: range.since, until: range.until });
+    const ins = (level: string, extra: Record<string, string> = {}, idFields = '') =>
+      this.graphAll(`/${act}/insights`, cfg.token, { level, time_range, fields: [idFields, INSIGHT_FIELDS].filter(Boolean).join(','), limit: '500', ...extra });
+    const [campaigns, adsets, ads, byCampaign, byAd, daily, account, lifetime] = await Promise.all([
+      this.graphAll(`/${act}/campaigns`, cfg.token, { fields: 'id,name,status,effective_status,objective,daily_budget,lifetime_budget,budget_remaining,start_time,stop_time,issues_info', limit: '200' }),
+      this.graphAll(`/${act}/adsets`, cfg.token, { fields: 'id,campaign_id,daily_budget,lifetime_budget,start_time,end_time,effective_status', limit: '200' }),
+      this.graphAll(`/${act}/ads`, cfg.token, { fields: 'id,name,campaign_id,adset_id,status,effective_status,ad_review_feedback,issues_info,creative{id,object_story_spec,url_tags,asset_feed_spec}', limit: '200' }),
+      ins('campaign', {}, 'campaign_id'),
+      ins('ad', {}, 'ad_id,campaign_id'),
+      this.graphAll(`/${act}/insights`, cfg.token, { level: 'account', time_range, time_increment: '1', fields: 'spend,impressions,inline_link_clicks', limit: '500' }),
+      ins('account'),
+      this.graphAll(`/${act}/insights`, cfg.token, { level: 'campaign', date_preset: 'maximum', fields: 'campaign_id,spend', limit: '500' }),
+    ]);
+    const value = { campaigns, adsets, ads, byCampaign, byAd, daily, account: account[0] ?? {}, lifetime, at: this.clock().toISOString() };
+    if (this.metaCache.size > 50) this.metaCache.clear();
+    this.metaCache.set(key, { at: this.clock().getTime(), value });
+    return value;
+  }
+
+  /**
+   * Tablero de la pauta propia: por campaña y por anuncio, cuánto se gastó,
+   * qué trajo (visitas, registros, empresas, pagos) y cuánto costó cada cosa.
+   * Meta se pide en vivo con caché; la base de BackOffice, siempre al día.
+   */
+  async overview(query: { range?: string; since?: string; until?: string; refresh?: string; days?: string }) {
+    // Compatibilidad: ?days=7|14|30|90
+    const q = query.range ? query : query.days ? (['7', '14', '30'].includes(String(query.days)) ? { range: String(query.days) } : { range: 'custom', since: '', until: '' }) : query;
+    const cfg = await this.config();
+    const now = this.clock();
+    let account: { id: string; name: string; currency: string; timezone: string; status: number } | null = null;
+    let error: { kind: string; message: string } | null = null;
     if (cfg) {
       try {
-        const [info, list, insights] = await Promise.all([
-          this.graph(`/${cfg.accountId}`, cfg.token, { fields: 'name,currency,account_status,amount_spent' }),
-          this.graph(`/${cfg.accountId}/campaigns`, cfg.token, { fields: 'id,name,status,effective_status,objective', limit: '50' }),
-          this.graph(`/${cfg.accountId}/insights`, cfg.token, {
-            level: 'campaign',
-            fields: 'campaign_id,campaign_name,spend,impressions,reach,clicks,ctr,cpc,actions',
-            time_range: JSON.stringify({ since: sinceDay, until: new Date().toISOString().slice(0, 10) }),
-            limit: '100',
-          }),
-        ]);
-        account = { id: cfg.accountId, name: info.name, currency: info.currency, status: info.account_status };
-        const ins = new Map((insights?.data ?? []).map((r: any) => [String(r.campaign_id), r]));
-        campaigns = (list?.data ?? []).map((c: any) => {
-          const r: any = ins.get(String(c.id)) ?? {};
-          const action = (type: RegExp) => (r.actions ?? []).filter((a: any) => type.test(a.action_type)).reduce((s: number, a: any) => s + Number(a.value || 0), 0);
-          const launch = launched.get(String(c.id));
-          const attributed = attr.byCampaign.get(launch?.utmCampaign ?? String(c.name).toLowerCase()) ?? { sessions: 0, done: 0 };
-          const spend = Number(r.spend ?? 0);
-          return {
-            id: c.id, name: c.name, status: c.status, effectiveStatus: c.effective_status, objective: c.objective, launchId: launch?.id ?? null,
-            spend, impressions: Number(r.impressions ?? 0), reach: Number(r.reach ?? 0), clicks: Number(r.clicks ?? 0),
-            ctr: Number(r.ctr ?? 0), cpc: Number(r.cpc ?? 0),
-            leads: action(/lead/), conversations: action(/messaging_conversation_started/), linkClicks: action(/^link_click$/),
-            signups: attributed.sessions, companies: attributed.done,
-            costPerSignup: attributed.sessions ? Math.round(spend / attributed.sessions) : null,
-            costPerCompany: attributed.done ? Math.round(spend / attributed.done) : null,
-          };
-        }).sort((a: any, b: any) => b.spend - a.spend);
+        const info = await this.graph(`/${cfg.accountId}`, cfg.token, { fields: 'name,currency,timezone_name,account_status' });
+        account = { id: cfg.accountId, name: String(info.name ?? cfg.accountId), currency: String(info.currency ?? 'COP'), timezone: String(info.timezone_name ?? 'America/Bogota'), status: Number(info.account_status) };
       } catch (err: any) {
-        error = err?.message ?? 'No se pudo leer Meta';
-        this.logger.warn(`overview: ${error}`);
+        error = metaErrorKind(Number(err?.code) || 0, String(err?.message ?? '').replace(/^Meta: /, ''));
       }
     }
+    const tz = account?.timezone ?? 'America/Bogota';
+    const currency = account?.currency ?? 'COP';
+    const range = rangeFor(q, tz, now);
+    const money = (n: number) => new Intl.NumberFormat('es-CO', { style: 'currency', currency, maximumFractionDigits: currency === 'COP' ? 0 : 2 }).format(n);
+
+    let meta: any = null;
+    if (cfg && account) {
+      try {
+        meta = await this.readMeta(cfg, range, query.refresh === '1');
+      } catch (err: any) {
+        error = metaErrorKind(Number(err?.code) || 0, String(err?.message ?? '').replace(/^Meta: /, ''));
+        this.logger.warn(`resultados: ${error.message}`);
+      }
+    }
+
+    // ── BackOffice: registros del rango y lo que pagaron esas empresas
+    const sessions: SessionLite[] = await this.prisma.signupSession.findMany({
+      where: { createdAt: { gte: range.start, lt: range.end } }, orderBy: { createdAt: 'desc' }, take: 20000,
+    });
+    const fromMeta = sessions.filter(isFromMeta);
+    const companyIds = [...new Set(fromMeta.map((s) => s.companyId).filter(Boolean))] as string[];
+    const [companies, payments] = companyIds.length
+      ? await Promise.all([
+        this.prisma.company.findMany({ where: { id: { in: companyIds } }, select: { id: true, name: true, status: true } }),
+        this.prisma.payment.findMany({ where: { companyId: { in: companyIds }, provider: 'WOMPI', status: 'APPROVED', invoiceId: { not: null } }, select: { companyId: true, amountInCents: true, currency: true } }),
+      ])
+      : [[], []];
+    const paid = new Map<string, number>();
+    let otherCurrency = false;
+    for (const p of payments as any[]) {
+      const same = String(p.currency ?? 'COP').toUpperCase() === currency.toUpperCase();
+      if (!same) otherCurrency = true;
+      paid.set(p.companyId, (paid.get(p.companyId) ?? 0) + (same ? (Number(p.amountInCents) || 0) / 100 : 0));
+    }
+    const companyById = new Map((companies as any[]).map((c) => [c.id, c]));
+
+    // ── Atribución
+    const launches = (await this.launches()).filter((l) => l.ids.campaign && l.accountId === cfg?.accountId);
+    const mappings = await this.mappings();
+    const campaignsRaw: any[] = meta?.campaigns ?? [];
+    const adsRaw: any[] = meta?.ads ?? [];
+    const adLinks = adsRaw.map((a) => {
+      const c = a?.creative ?? {};
+      const spec = c.object_story_spec ?? {};
+      const link = spec.link_data?.link ?? spec.link_data?.call_to_action?.value?.link ?? spec.video_data?.call_to_action?.value?.link ?? c.asset_feed_spec?.link_urls?.[0]?.website_url ?? null;
+      return { id: String(a.id), name: String(a.name ?? a.id), campaignId: String(a.campaign_id), link, ...utmFromUrl(link, c.url_tags) };
+    });
+    const resolve = attributionResolver({
+      campaigns: campaignsRaw.map((c) => ({ id: String(c.id), name: String(c.name ?? '') })),
+      ads: adLinks,
+      launches: launches.map((l) => ({ campaignId: l.ids.campaign as string, utmCampaign: l.utmCampaign })),
+      mappings,
+    });
+
+    const byCampaign = new Map<string, { funnel: Funnel; byAd: Map<string, Funnel>; noAd: Funnel }>();
+    const unattributed = new Map<string, { utmSource: string | null; utmMedium: string | null; utmCampaign: string | null; utmContent: string | null; utmId: string | null; fbclid: boolean; funnel: Funnel }>();
+    const total = emptyFunnel();
+    const dailyDone = new Map<string, number>();
+    const signups: any[] = [];
+    const campaignName = new Map(campaignsRaw.map((c) => [String(c.id), String(c.name ?? c.id)]));
+    const adName = new Map(adLinks.map((a) => [a.id, a.name]));
+    for (const s of fromMeta) {
+      addToFunnel(total, s, paid);
+      const at = resolve(s);
+      if (at.campaignId) {
+        const c = byCampaign.get(at.campaignId) ?? { funnel: emptyFunnel(), byAd: new Map(), noAd: emptyFunnel() };
+        addToFunnel(c.funnel, s, paid);
+        if (at.adId) {
+          const f = c.byAd.get(at.adId) ?? emptyFunnel();
+          addToFunnel(f, s, paid);
+          c.byAd.set(at.adId, f);
+        } else addToFunnel(c.noAd, s, paid);
+        byCampaign.set(at.campaignId, c);
+      } else {
+        const k = norm(s.utmCampaign) || '(sin utm_campaign)';
+        const u = unattributed.get(k) ?? { utmSource: s.utmSource ?? null, utmMedium: s.utmMedium ?? null, utmCampaign: s.utmCampaign ?? null, utmContent: s.utmContent ?? null, utmId: s.utmId ?? null, fbclid: !!s.fbclid, funnel: emptyFunnel() };
+        addToFunnel(u.funnel, s, paid);
+        unattributed.set(k, u);
+      }
+      if (s.step === 'DONE') {
+        const d = dayIn(new Date(s.createdAt), tz);
+        dailyDone.set(d, (dailyDone.get(d) ?? 0) + 1);
+      }
+      if (s.step === 'DONE' || s.companyId) {
+        const co = s.companyId ? companyById.get(s.companyId) : null;
+        signups.push({
+          id: s.id, createdAt: s.createdAt, companyId: s.companyId ?? null, companyName: co?.name ?? s.businessName ?? null, rubro: s.rubro ?? null,
+          status: s.companyId && paid.has(s.companyId) ? 'PAGÓ' : co?.status === 'ACTIVE' ? 'ACTIVA' : co?.status ?? 'SIN EMPRESA',
+          campaignId: at.campaignId, campaignName: at.campaignId ? campaignName.get(at.campaignId) ?? at.campaignId : null,
+          adId: at.adId, adName: at.adId ? adName.get(at.adId) ?? at.adId : null, via: at.via ? VIA_LABEL[at.via] : null,
+          utmCampaign: s.utmCampaign ?? null, utmContent: s.utmContent ?? null,
+        });
+      }
+    }
+
+    // ── Meta por campaña y por anuncio
+    const insC = new Map<string, any>((meta?.byCampaign ?? []).map((r: any) => [String(r.campaign_id), r]));
+    const insA = new Map<string, any>((meta?.byAd ?? []).map((r: any) => [String(r.ad_id), r]));
+    const life = new Map<string, number>((meta?.lifetime ?? []).map((r: any) => [String(r.campaign_id), Number(r.spend) || 0]));
+    const adsetsOf = new Map<string, any[]>();
+    for (const s of meta?.adsets ?? []) adsetsOf.set(String(s.campaign_id), [...(adsetsOf.get(String(s.campaign_id)) ?? []), s]);
+    const launchOf = new Map(launches.map((l) => [l.ids.campaign as string, l]));
+    const fromMinorC = (v: unknown) => fromMinor(v, currency);
+
+    const campaigns = campaignsRaw.map((c) => {
+      const id = String(c.id);
+      const sets = adsetsOf.get(id) ?? [];
+      const sum = (k: string) => sets.reduce((acc, x) => acc + (fromMinorC(x[k]) ?? 0), 0);
+      const dailyBudget = fromMinorC(c.daily_budget) ?? (sum('daily_budget') || null);
+      const lifetimeBudget = fromMinorC(c.lifetime_budget) ?? (sum('lifetime_budget') || null);
+      const startsAt = c.start_time ?? (sets.map((x) => x.start_time).filter(Boolean).sort()[0] ?? null);
+      const ends = sets.map((x) => x.end_time);
+      const endsAt = c.stop_time ?? (ends.length && ends.every(Boolean) ? ends.sort().slice(-1)[0] : null);
+      const m = metaRow(insC.get(id));
+      const att = byCampaign.get(id) ?? { funnel: emptyFunnel(), byAd: new Map(), noAd: emptyFunnel() };
+      const delivery = deliveryOf(c, { now, endsAt, startsAt, budgetRemaining: c.lifetime_budget ? fromMinorC(c.budget_remaining) : null });
+      const ads = adLinks.filter((a) => a.campaignId === id).map((a) => {
+        const raw = adsRaw.find((x) => String(x.id) === a.id);
+        const am = metaRow(insA.get(a.id));
+        const f = att.byAd.get(a.id) ?? emptyFunnel();
+        return {
+          id: a.id, name: a.name, utmContent: a.utmContent ?? null, link: a.link ?? null,
+          delivery: deliveryOf(raw, { now, endsAt }), metrics: am, funnel: f, derived: derived(am.spend, am, f),
+        };
+      }).sort((x, y) => y.metrics.spend - x.metrics.spend);
+      const utms = [...new Set([
+        ...(launchOf.get(id) ? [launchOf.get(id)!.utmCampaign] : []),
+        ...(mappings[id] ?? []),
+        ...adLinks.filter((a) => a.campaignId === id && a.utmCampaign).map((a) => a.utmCampaign as string),
+      ])];
+      return {
+        id, name: String(c.name ?? id), status: c.status, effectiveStatus: c.effective_status, objective: c.objective, delivery,
+        launchId: launchOf.get(id)?.id ?? null, utms, manualUtms: mappings[id] ?? [],
+        metrics: m, funnel: att.funnel, unmatchedAds: att.noAd, derived: derived(m.spend, m, att.funnel),
+        pace: paceOf({ dailyBudget, lifetimeBudget, spent: life.get(id) ?? m.spend, startsAt, endsAt, tz, now }),
+        endsAt, ads,
+      };
+    }).filter((c) => c.metrics.spend > 0 || c.funnel.visits > 0 || ['ACTIVE', 'IN_REVIEW', 'SCHEDULED', 'REJECTED', 'NO_BUDGET', 'ISSUES'].includes(c.delivery.code))
+      .sort((a, b) => b.metrics.spend - a.metrics.spend || b.funnel.visits - a.funnel.visits);
+
+    // ── Totales
+    const manual = (await this.manual()).filter((m) => m.date >= range.since && m.date <= range.until);
     const manualSpend = manual.reduce((s, m) => s + m.spend, 0);
-    const metaSpend = campaigns.reduce((s, c) => s + c.spend, 0);
+    const acc = metaRow(meta?.account);
+    const metaSpend = meta ? acc.spend : 0;
     const spend = metaSpend + manualSpend;
+    const daily: Array<{ date: string; spend: number; results: number }> = [];
+    const spendByDay = new Map<string, number>((meta?.daily ?? []).map((r: any) => [String(r.date_start), Number(r.spend) || 0]));
+    for (let d = range.since; d <= range.until; d = addDaysIso(d, 1)) {
+      const manualDay = manual.filter((m) => m.date === d).reduce((s, m) => s + m.spend, 0);
+      daily.push({ date: d, spend: Math.round((spendByDay.get(d) ?? 0) + manualDay), results: dailyDone.get(d) ?? 0 });
+    }
+    const thresholds = await this.thresholds();
+    const alerts = meta ? alertsFor(campaigns.map((c) => ({
+      id: c.id, name: c.name, delivery: c.delivery, spend: c.metrics.spend, completed: c.funnel.completed, frequency: c.metrics.frequency,
+      impressions: c.metrics.impressions, ctr: c.derived.ctr, endsAt: c.endsAt, running: c.delivery.code === 'ACTIVE', ads: c.ads,
+    })), thresholds, money, now) : [];
+    const unattributedList = [...unattributed.values()].map((u) => {
+      const ms = manual.filter((m) => norm(m.campaign) === norm(u.utmCampaign)).reduce((s, m) => s + m.spend, 0);
+      return { ...u, manualSpend: ms, derived: derived(ms, { impressions: 0, linkClicks: 0 }, u.funnel) };
+    }).sort((a, b) => b.funnel.visits - a.funnel.visits);
+
     return {
-      days,
+      range: { preset: range.preset, since: range.since, until: range.until, days: range.days, timezone: tz },
       connected: !!cfg,
       account,
       error,
-      campaigns,
-      manual,
+      cachedAt: meta?.at ?? null,
+      currency,
       totals: {
-        spend: Math.round(spend),
-        signupsFromMeta: attr.metaSessions,
-        companiesFromMeta: attr.metaDone,
-        signupsTotal: attr.totalSessions,
-        costPerSignup: attr.metaSessions ? Math.round(spend / attr.metaSessions) : null,
-        costPerCompany: attr.metaDone ? Math.round(spend / attr.metaDone) : null,
+        spend: Math.round(spend), metaSpend: Math.round(metaSpend), manualSpend,
+        impressions: acc.impressions, reach: acc.reach, frequency: acc.frequency, linkClicks: acc.linkClicks,
+        funnel: total, derived: derived(spend, acc, total),
+        visitsAll: sessions.length, revenueOtherCurrency: otherCurrency,
       },
-      attribution: [...attr.byCampaign.entries()].map(([campaign, v]) => ({ campaign, ...v })),
+      daily,
+      campaigns,
+      unattributed: unattributedList,
+      signups: signups.slice(0, 300),
+      alerts,
+      thresholds,
+      mappings,
+      manual,
     };
   }
 
@@ -664,8 +878,26 @@ export class MetaAdsController {
 
   @Get()
   @Roles(ROLES.SUPER_ADMIN, ROLES.DEV)
-  overview(@Query() query: { days?: string }) {
+  overview(@Query() query: { range?: string; since?: string; until?: string; refresh?: string; days?: string }) {
     return this.ads.overview(query);
+  }
+
+  @Put('mappings')
+  @Roles(ROLES.SUPER_ADMIN, ROLES.DEV)
+  setMapping(@CurrentUser() user: AuthUser, @Body() dto: any) {
+    return this.ads.setMapping(user, dto);
+  }
+
+  @Get('alerts')
+  @Roles(ROLES.SUPER_ADMIN, ROLES.DEV)
+  thresholds() {
+    return this.ads.thresholds();
+  }
+
+  @Put('alerts')
+  @Roles(ROLES.SUPER_ADMIN, ROLES.DEV)
+  saveThresholds(@CurrentUser() user: AuthUser, @Body() dto: any) {
+    return this.ads.saveThresholds(user, dto);
   }
 
   @Post('connect')

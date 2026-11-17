@@ -23,6 +23,7 @@ import {
   exchangeSignupCode, missingSignupSettings, newRegistrationPin, readPhoneNumber, readSignupSession, registerPhone, subscribeApp,
 } from '../common/whatsapp/embedded-signup';
 import { AuditService } from './audit.module';
+import { companyMessages } from '../common/inbox/company-messages';
 
 /**
  * WhatsApp por Meta directo (Cloud API), sin intermediarios:
@@ -352,10 +353,8 @@ export class WhatsappMetaService {
     const [y, m] = period.split('-').map(Number);
     const from = new Date(Date.UTC(y, m - 1, 1));
     const to = new Date(Date.UTC(y, m, 1));
-    const rows = await this.prisma.message.findMany({
-      where: { direction: 'OUT', createdAt: { gte: from, lt: to }, metaCategory: { not: null }, conversation: { companyId: company.id } },
-      select: { metaCategory: true, metaCostUsd: true, deliveryStatus: true },
-    });
+    const rows = await companyMessages<{ metaCategory: string; metaCostUsd: number | null; deliveryStatus: string | null }>(this.prisma, company.id,
+      { direction: 'OUT', createdAt: { $gte: from, $lt: to }, metaCategory: { $ne: null } }, ['metaCategory', 'metaCostUsd', 'deliveryStatus']);
     const by: Record<string, { count: number; usd: number }> = {};
     for (const r of rows) {
       if (r.deliveryStatus === 'SIMULATED' || r.deliveryStatus === 'FAILED' || r.deliveryStatus === 'CANCELLED') continue;
