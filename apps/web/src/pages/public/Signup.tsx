@@ -11,8 +11,10 @@ import type { AuthUser, InterviewTurn } from '../../lib/types';
 import { Button, Field, Input } from '../../components/ui';
 import {
   ACCOUNT_FIELDS, type AccountForm, type FieldErrors, type Msg, type Preview, clearDraft, emailSuggestion, formatPhone,
-  loadDraft, passwordStrength, referralCode, saveDraft, sessionToken, speechSupported, startDictation, track, validateAll, validateField,
+  loadDraft, passwordStrength, referralCode, saveDraft, sendContact, sessionToken, speechSupported, startDictation, track, validateAll, validateField, visitOrigin,
 } from './signup-helpers';
+import ContactStep from './signup/ContactStep';
+import IntroStep, { fromAd } from './signup/IntroStep';
 import InterviewStep from './signup/InterviewStep';
 import ProductsStep from './signup/ProductsStep';
 import ProposalStep from './signup/ProposalStep';
@@ -21,7 +23,8 @@ import { Notice, StepActions, StepTitle, Stepper, type StepNumber } from './sign
 
 /**
  * Registro autoservicio en 4 pasos:
- *  1. Tu negocio: entrevista adaptativa (IA o preguntas fijas), una pregunta a la vez.
+ *  1. Tu negocio: primero nombre y WhatsApp (para ayudar a quien abandona) y
+ *     después la entrevista adaptativa (IA o preguntas fijas), una pregunta a la vez.
  *  2. Propuesta: lo que entendimos, lo que resolvemos y el estado real de cada función.
  *  3. Productos: qué activar (ninguno es obligatorio) y la configuración inicial.
  *  4. Revisión y cuenta: resumen editable y datos de acceso.
@@ -33,6 +36,14 @@ const OPENING = '¡Hola! Te voy a hacer unas preguntas cortas para armar tu cuen
 const DRAFT_VERSION = 3;
 const EMPTY_FORM: AccountForm = { companyName: '', city: '', name: '', email: '', phone: '', password: '', accept: false };
 
+function touchScreen() {
+  return typeof window !== 'undefined' && typeof window.matchMedia === 'function' && window.matchMedia('(pointer: coarse)').matches;
+}
+
+function hasContact(f: AccountForm) {
+  return !validateField('name', f) && !validateField('phone', f);
+}
+
 function messageOf(e: unknown, fallback: string) {
   return e instanceof Error && e.message ? e.message : fallback;
 }
@@ -42,6 +53,10 @@ export default function Signup() {
   const navigate = useNavigate();
   const saved = useMemo(() => loadDraft(), []);
   const [resumeOffer, setResumeOffer] = useState(!!saved && (saved.step > 1 || saved.messages.length > 1));
+  // Nombre y WhatsApp ya dados (también si quedaron guardados de una visita anterior)
+  const [contactDone, setContactDone] = useState(() => !!saved && hasContact({ ...EMPTY_FORM, ...saved.form }));
+  // Quien llega de un anuncio ve primero una pantalla de entrada (una sola vez)
+  const [intro, setIntro] = useState(() => !resumeOffer && !contactDone && fromAd(visitOrigin()));
   const [step, setStep] = useState<StepNumber>(1);
   const [messages, setMessages] = useState<Msg[]>([{ role: 'assistant', content: OPENING }]);
   const [draft, setDraft] = useState('');
@@ -55,7 +70,7 @@ export default function Signup() {
   const [preview, setPreview] = useState<Preview | null>(null);
   const [nameError, setNameError] = useState<string | null>(null);
   const [productError, setProductError] = useState<string | null>(null);
-  const [form, setForm] = useState<AccountForm>(EMPTY_FORM);
+  const [form, setForm] = useState<AccountForm>(() => (saved && !resumeOffer ? { ...EMPTY_FORM, ...saved.form, password: '' } : EMPTY_FORM));
   const [touched, setTouched] = useState<Partial<Record<keyof AccountForm, boolean>>>({});
   const [errors, setErrors] = useState<FieldErrors>({});
   const [serverError, setServerError] = useState<{ message: string; code?: string } | null>(null);
@@ -72,6 +87,11 @@ export default function Signup() {
 
   useEffect(() => {
     document.title = 'Crea tu empresa · BackOffice';
+    // En el celular el teclado achica la página (no la tapa): «Continuar» queda a la vista.
+    // registro.html ya trae esto; aquí cubre a quien llega navegando desde otra página.
+    const viewport = document.querySelector<HTMLMetaElement>('meta[name="viewport"]');
+    const prevViewport = viewport?.content;
+    if (viewport && prevViewport && !prevViewport.includes('interactive-widget')) viewport.content = `${prevViewport}, interactive-widget=resizes-content`;
     track('view', { step: 'STARTED' });
     referralCode(); // guarda el ?ref= antes de que la URL cambie
     // El botón Atrás del navegador cambia de paso en vez de salir del registro
@@ -82,6 +102,7 @@ export default function Signup() {
     };
     window.addEventListener('popstate', onPop);
     return () => {
+      if (viewport && prevViewport !== undefined) viewport.content = prevViewport;
       window.removeEventListener('popstate', onPop);
       stopDictation.current?.();
     };
@@ -89,10 +110,10 @@ export default function Signup() {
   // Se guarda el avance (nunca la contraseña)
   useEffect(() => {
     if (resumeOffer) return;
-    if (messages.length < 2 && step === 1) return;
+    if (messages.length < 2 && step === 1 && !contactDone) return;
     const { password: _p, ...safeForm } = form;
     saveDraft({ v: DRAFT_VERSION, step, messages, interviewDone, preview, form: safeForm });
-  }, [step, messages, interviewDone, preview, form, resumeOffer]);
+  }, [step, messages, interviewDone, preview, form, resumeOffer, contactDone]);
   useEffect(() => {
     if (firstRender.current) {
       firstRender.current = false;
@@ -125,6 +146,7 @@ export default function Signup() {
     setInterviewDone(saved.interviewDone);
     setPreview(saved.preview);
     setForm({ ...EMPTY_FORM, ...saved.form, password: '' });
+    setContactDone(true); // quien retoma ya pasó por aquí (o deja sus datos en el paso 4)
     const n = (saved.preview ? savedStep : 1) as StepNumber;
     setStep(n);
     window.history.replaceState({ ...(window.history.state ?? {}), signupStep: n }, '');
@@ -140,7 +162,8 @@ export default function Signup() {
     setBuildError(null);
     setChatError(null);
     setDraft('');
-    setForm(EMPTY_FORM);
+    // Empezar de nuevo no vuelve a pedir nombre y WhatsApp
+    setForm((f) => ({ ...EMPTY_FORM, name: f.name || saved?.form.name || '', phone: f.phone || saved?.form.phone || '' }));
     setStep(1);
     setResumeOffer(false);
     track('view', { step: 'STARTED' });
@@ -200,7 +223,8 @@ export default function Signup() {
     } finally {
       setThinking(false);
       setWaking(false);
-      setTimeout(() => input.current?.focus(), 50);
+      // En el celular no: abrir el teclado taparía las opciones de la pregunta siguiente
+      if (!touchScreen()) setTimeout(() => input.current?.focus(), 50);
     }
   }
 
@@ -373,7 +397,11 @@ export default function Signup() {
       </header>
 
       <main className="mx-auto max-w-6xl px-4 pb-24 pt-8 md:px-6">
-        {!resumeOffer && <Stepper step={step} reachable={reachable} onGo={goTo} />}
+        {!resumeOffer && !intro && <Stepper step={step} reachable={reachable} onGo={goTo} />}
+
+        {intro && !resumeOffer && step === 1 && (
+          <IntroStep onStart={() => { setIntro(false); window.scrollTo({ top: 0 }); }} />
+        )}
 
         {resumeOffer && saved && (
           <div className="mx-auto max-w-2xl border-2 border-ink bg-paper p-6">
@@ -393,7 +421,20 @@ export default function Signup() {
           </div>
         )}
 
-        {step === 1 && !resumeOffer && (
+        {step === 1 && !resumeOffer && !intro && !contactDone && (
+          <ContactStep
+            name={form.name}
+            phone={form.phone}
+            onSubmit={(c) => {
+              setForm((f) => ({ ...f, ...c }));
+              setContactDone(true);
+              void sendContact(c);
+              window.scrollTo({ top: 0 });
+            }}
+          />
+        )}
+
+        {step === 1 && !resumeOffer && contactDone && (
           <InterviewStep
             messages={messages}
             draft={draft}

@@ -201,6 +201,30 @@ export class MetaAdsService {
     return next;
   }
 
+  /**
+   * Conjuntos de anuncios entregando ahora (para el despertador del servidor).
+   * Activo en Meta y sin fecha de fin vencida. null = no se pudo saber
+   * (sin cuenta conectada o Meta no respondió).
+   */
+  async deliveringNow(): Promise<{ id: string; name: string; campaign: string }[] | null> {
+    const cfg = await this.config();
+    if (!cfg) return null;
+    try {
+      const data = await this.graph(`/${cfg.accountId}/adsets`, cfg.token, {
+        fields: 'id,name,end_time,campaign{name}',
+        effective_status: JSON.stringify(['ACTIVE']),
+        limit: '25',
+      });
+      const now = this.clock().getTime();
+      return (data?.data ?? [])
+        .filter((a: any) => !a.end_time || Date.parse(a.end_time) > now)
+        .map((a: any) => ({ id: String(a.id), name: String(a.name ?? ''), campaign: String(a.campaign?.name ?? '') }));
+    } catch (e: any) {
+      this.logger.warn(`despertador: no se pudo leer Meta (${e?.message ?? e})`);
+      return null;
+    }
+  }
+
   async mappings(): Promise<Record<string, string[]>> {
     return parseJson<Record<string, string[]>>(await this.setting(MAP_KEY), {});
   }
@@ -1019,5 +1043,6 @@ export class MetaAdsController {
   imports: [AuditModule],
   controllers: [MetaAdsController],
   providers: [MetaAdsService],
+  exports: [MetaAdsService],
 })
 export class MetaAdsModule {}

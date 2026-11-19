@@ -11,7 +11,9 @@
  *  - /t/<token> → rastreo: solo el nombre de la empresa. Jamás datos del
  *                 cliente (nombre, dirección, productos): el link se reenvía.
  *  - /registro y el resto → tarjeta general de BackOffice.
- * En Vercel, /m y /t se reenvían a este servicio (apps/web/vercel.json).
+ * En Vercel, /m y /t se reenvían a este servicio (apps/web/vercel.json);
+ * /registro sale de Vercel como HTML fijo (SHELL_PAGES en entry-prerender.tsx,
+ * con este mismo texto) para que los anuncios no esperen a que el API despierte.
  */
 import { Injectable, Module } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';

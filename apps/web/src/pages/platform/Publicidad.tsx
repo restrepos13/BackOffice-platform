@@ -6,6 +6,7 @@ import { api } from '../../lib/api';
 import { fmtMoney } from '../../lib/format';
 import { Button, Card, Field, Input, Loading, Modal, PageHeader, Tabs } from '../../components/ui';
 import { AdsSetup, LaunchList, LaunchSetup, LaunchWizard } from './PublicidadLanzar';
+import KeepAwake from './KeepAwake';
 import { AlertSettings, CampaignRow, RangeQuery, Results, ResultsView, TrackingLink, todayInZone } from './PublicidadResultados';
 
 /**
@@ -134,6 +135,7 @@ export default function Publicidad() {
       )}
 
       {tab === 'results' && (<>
+      <KeepAwake />
       <ResultsView data={data} query={rangeQ} onQuery={setRangeQ} onRefresh={() => refreshMeta.mutate()} refreshing={refreshMeta.isPending} onStatus={onStatus} />
 
       {!data.connected && (

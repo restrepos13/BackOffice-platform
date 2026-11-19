@@ -1,13 +1,13 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { cleanup, render, screen } from '@testing-library/react';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { HOME, HOME_FAQ, PAGES, pageByPath } from './content';
 import { SITE_PAGE_PATHS } from './paths';
 import { estimateSavings } from './SavingsCalculator';
-import { pages } from '../../../entry-prerender';
+import { SHELL_PAGES, pages } from '../../../entry-prerender';
 import MarketingPage from './MarketingPage';
 import Landing from '../Landing';
 
@@ -43,6 +43,20 @@ describe('páginas públicas para buscadores', () => {
       expect(vercel.rewrites[i].destination).toBe(`${p.path}.html`);
       expect(i).toBeLessThan(vercel.rewrites.length - 1);
     }
+  });
+
+  it('/registro sale de Vercel como HTML fijo y nunca pasa por el API (que se duerme)', () => {
+    const r = vercel.rewrites.find((x) => x.source === '/registro');
+    expect(r?.destination).toBe('/registro.html');
+    for (const p of SHELL_PAGES) {
+      const i = vercel.rewrites.findIndex((x) => x.source === p.path);
+      expect(vercel.rewrites[i].destination, p.path).toBe(`${p.path}.html`);
+      expect(i).toBeLessThan(vercel.rewrites.length - 1);
+      expect(existsSync(resolve(__dirname, '../../../..', p.module)), p.module).toBe(true);
+    }
+    // Lo único que sigue yendo al API: /api y las vistas previas dinámicas (/m, /t)
+    const toApi = vercel.rewrites.filter((x) => x.destination.includes('onrender.com')).map((x) => x.source);
+    expect(toApi.sort()).toEqual(['/api/:path*', '/assets/:path*', '/m/:path*', '/t/:path*']);
   });
 
   it('títulos y descripciones caben en el resultado de Google y no se repiten', () => {

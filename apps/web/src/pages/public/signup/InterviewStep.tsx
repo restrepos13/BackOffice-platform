@@ -142,13 +142,14 @@ export default function InterviewStep(props: {
                 {/* Respuestas sugeridas */}
                 {!thinking && !failed && (answers === 0 && !props.correcting ? (
                   <div className="mt-5">
-                    <p className="mb-2 text-xs text-ink-3">Ejemplos para empezar (luego lo ajustas a tu caso):</p>
+                    <p className="mb-2 text-xs text-ink-3">Toca el que más se parezca a tu negocio (después lo ajustas) o escríbelo abajo:</p>
                     <div className="grid gap-2 sm:grid-cols-2">
                       {STARTERS.map(({ icon: Icon, text }) => (
                         <button
                           key={text}
                           type="button"
-                          onClick={() => { setDraft(text); props.inputRef.current?.focus(); }}
+                          // Tocar un ejemplo ya es responder: en el celular no abre el teclado ni esconde el botón
+                          onClick={() => props.onAnswer(text)}
                           className="flex cursor-pointer items-center gap-2.5 border-2 border-line bg-bone px-3 py-2.5 text-left text-sm transition-colors hover:border-ink focus-visible:border-ink"
                         >
                           <Icon size={16} className="shrink-0 text-ink-2" aria-hidden /> {text}
@@ -200,9 +201,10 @@ export default function InterviewStep(props: {
                       }
                     }}
                   />
-                  <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
-                    <p className="text-xs text-ink-3">Enter para enviar · Shift + Enter para otra línea</p>
-                    <div className="flex gap-2">
+                  {/* En el celular la barra queda pegada abajo (sobre el teclado): «Continuar» siempre a la vista */}
+                  <div className="sticky bottom-0 z-10 -mx-5 mt-3 flex flex-wrap items-center justify-between gap-2 border-t-2 border-line bg-paper px-5 py-3 sm:static sm:mx-0 sm:border-t-0 sm:bg-transparent sm:p-0">
+                    <p className="hidden text-xs text-ink-3 sm:block">Enter para enviar · Shift + Enter para otra línea</p>
+                    <div className="ml-auto flex gap-2">
                       {props.speech && (
                         <Button
                           type="button"

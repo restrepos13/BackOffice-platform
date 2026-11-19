@@ -113,7 +113,8 @@ export class SignupTracker {
       ...(clip(raw?.companyName, 80) ? { businessName: clip(raw?.companyName, 80) } : {}),
     };
     if (!Object.keys(patch).length) return;
-    await this.touch(token, { step: 'ACCOUNT' });
+    // Nombre y WhatsApp se piden al empezar: solo el correo (formulario de la cuenta) marca el paso ACCOUNT
+    await this.touch(token, patch.email ? { step: 'ACCOUNT' } : {});
     const current = await this.get(token);
     if (current) await this.prisma.signupSession.update({ where: { id: current.id }, data: patch }).catch(() => undefined);
   }

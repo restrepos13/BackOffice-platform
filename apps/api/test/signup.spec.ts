@@ -321,9 +321,14 @@ describe('plan B del plano y seguimiento del registro', () => {
     const row = db.signupSession[0];
     expect(row).toMatchObject({ step: 'ACCOUNT', answers: 3, aiCalls: 1, aiTokens: 120, email: 'rosa@panaderia.co', contactName: 'Rosa', dailyChats: 65, utmSource: 'facebook', utmCampaign: 'lanzamiento-oct' });
     expect(JSON.parse(row.errorsJson)[0].message).toContain('correo');
+    // Nombre y WhatsApp al empezar (antes de la entrevista): quedan guardados sin adelantar el paso
+    const early = 'sesion-de-prueba-temprana-123456';
+    await service.track({ session: early, event: 'view', step: 'STARTED' });
+    await service.track({ session: early, event: 'contact', data: { name: 'Rosa', phone: '300 123 4567' } });
+    expect(db.signupSession.find((s: any) => s.token === early)).toMatchObject({ step: 'STARTED', contactName: 'Rosa', phone: '300 123 4567' });
     // Tokens inválidos se ignoran sin romper nada
     expect(await service.track({ session: 'x', event: 'view' })).toEqual({ ok: true });
-    expect(db.signupSession).toHaveLength(1);
+    expect(db.signupSession).toHaveLength(2);
   });
 
   it('el equipo ve el embudo, quién abandonó, y agenda la reunión', async () => {

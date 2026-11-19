@@ -107,6 +107,26 @@ const webPage = (m: SeoMeta, type = 'WebPage') => ({
 
 const SECTION = { solucion: 'Soluciones', sector: 'Sectores', guia: 'Guías', herramienta: 'Herramientas' } as const;
 
+/** Página que se sirve como app vacía pero con su propio <head> (vista previa del link). */
+export interface ShellPage extends SeoMeta {
+  module: string;
+}
+
+/**
+ * Páginas sin texto prerenderizado que igual salen de Vercel como HTML fijo,
+ * para no depender del API (en el plan gratis de Render se duerme y muestra
+ * una pantalla negra ~1 min). /registro es el destino de los anuncios: su
+ * vista previa es fija (la misma que SIGNUP_META en share-preview.module.ts).
+ */
+export const SHELL_PAGES: ShellPage[] = [
+  {
+    path: '/registro',
+    title: 'Crea tu empresa con IA — BackOffice',
+    description: 'Cuéntale a la IA cómo funciona tu negocio y en minutos tienes tu WhatsApp atendiendo, vendiendo y cobrando solo.',
+    module: 'src/pages/public/Signup.tsx',
+  },
+];
+
 /** Todas las páginas que se escriben como HTML al compilar. */
 export function pages(plans?: PublicPlans): PrerenderPage[] {
   const home: PrerenderPage = {

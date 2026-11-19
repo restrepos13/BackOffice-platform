@@ -10,6 +10,7 @@
  *  dist/index.html            → portada prerenderizada
  *  dist/app.html              → la app vacía, para el panel y demás rutas
  *  dist/<ruta>.html           → soluciones, sectores, guías y legales
+ *  dist/registro.html         → app vacía con la vista previa del registro
  *
  * Si el API no responde, la sección de planes se prerenderiza sin precios y el
  * navegador los pide al cargar: el build nunca depende del servidor.
@@ -142,6 +143,21 @@ for (const page of pages) {
   const file = page.path === '/' ? join(dist, 'index.html') : join(dist, `${page.path.slice(1)}.html`);
   await mkdir(dirname(file), { recursive: true });
   await writeFile(file, html);
+}
+
+// Páginas de la app con su propia vista previa (p. ej. /registro): HTML fijo en
+// Vercel, sin pasar por el API. La app arranca de cero (sin data-ssr) y el
+// código de la página se precarga para que aparezca lo antes posible.
+for (const page of entry.SHELL_PAGES) {
+  const start = template.indexOf(OG_START) + OG_START.length;
+  const end = template.indexOf(OG_END);
+  let html = `${template.slice(0, start)}\n${headFor(page)}\n    ${template.slice(end)}`;
+  html = html.replace('</head>', `    ${preloads(manifest, page.module).join('\n    ')}\n  </head>`);
+  // Formularios en el celular: el teclado achica la página y la barra de «Continuar» queda a la vista
+  const viewport = '<meta name="viewport" content="width=device-width, initial-scale=1.0" />';
+  if (!html.includes(viewport)) throw new Error('[prerender] index.html cambió su viewport');
+  html = html.replace(viewport, '<meta name="viewport" content="width=device-width, initial-scale=1.0, interactive-widget=resizes-content" />');
+  await writeFile(join(dist, `${page.path.slice(1)}.html`), html);
 }
 
 const today = new Date().toISOString().slice(0, 10);

@@ -83,9 +83,18 @@ function server(opts: { preview?: Preview; createError?: unknown } = {}) {
   });
 }
 
-function mount() {
+function mount({ contact = true }: { contact?: boolean } = {}) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  return render(<QueryClientProvider client={client}><MemoryRouter><Signup /></MemoryRouter></QueryClientProvider>);
+  const r = render(<QueryClientProvider client={client}><MemoryRouter><Signup /></MemoryRouter></QueryClientProvider>);
+  // Lo primero es nombre y WhatsApp (si no hay un registro guardado que retomar)
+  if (contact && screen.queryByRole('form', { name: 'Tus datos de contacto' })) fillContact();
+  return r;
+}
+
+function fillContact(name = 'Rosa Pérez', phone = '3001234567') {
+  fireEvent.change(screen.getByLabelText(/Tu nombre/), { target: { value: name } });
+  fireEvent.change(screen.getByLabelText(/Tu WhatsApp/), { target: { value: phone } });
+  fireEvent.click(screen.getByRole('button', { name: /Empezar/ }));
 }
 
 async function answer(text: string) {
@@ -115,6 +124,77 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+describe('Registro · entrada desde un anuncio', () => {
+  afterEach(() => sessionStorage.clear());
+
+  it('quien viene de Meta ve primero la entrada (sin pasos) y con un toque pasa a nombre y WhatsApp', () => {
+    sessionStorage.setItem('bo_utm', JSON.stringify({ utmSource: 'meta', utmCampaign: 'prueba' }));
+    server();
+    mount();
+    expect(screen.getByRole('heading', { name: /Tu WhatsApp atendiendo solo/ })).toBeTruthy();
+    expect(screen.queryByRole('navigation', { name: 'Pasos del registro' })).toBeNull();
+    expect(screen.getByLabelText('Ejemplo de cómo responde el asistente')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: /Armar mi asistente gratis/ }));
+    expect(screen.getByRole('heading', { name: '¿Con quién hablamos?' })).toBeTruthy();
+    expect(screen.getByRole('navigation', { name: 'Pasos del registro' })).toBeTruthy();
+  });
+
+  it('con fbclid también; desde la web (sin anuncio) entra directo al formulario', () => {
+    sessionStorage.setItem('bo_utm', JSON.stringify({ fbclid: 'IwAR0abc' }));
+    mount({ contact: false });
+    expect(screen.getByRole('button', { name: /Armar mi asistente gratis/ })).toBeTruthy();
+    cleanup();
+    sessionStorage.setItem('bo_utm', JSON.stringify({ utmSource: 'google' }));
+    mount({ contact: false });
+    expect(screen.queryByRole('button', { name: /Armar mi asistente gratis/ })).toBeNull();
+    expect(screen.getByRole('heading', { name: '¿Con quién hablamos?' })).toBeTruthy();
+  });
+});
+
+describe('Registro · nombre y WhatsApp primero', () => {
+  it('pide nombre y WhatsApp antes de la entrevista, valida y los envía aunque el servidor esté despertando', async () => {
+    server();
+    let contactTries = 0;
+    const fetchMock = vi.fn(async (_url: string, init?: any) => {
+      if (String(init?.body).includes('"event":"contact"') && contactTries++ === 0) return { ok: false, status: 503 };
+      return { ok: true, status: 200 };
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    vi.useFakeTimers({ toFake: ['setTimeout'] });
+    try {
+      mount({ contact: false });
+      expect(screen.getByRole('heading', { name: '¿Con quién hablamos?' })).toBeTruthy();
+      expect(screen.queryByLabelText('Tu respuesta')).toBeNull();
+      fireEvent.click(screen.getByRole('button', { name: /Empezar/ }));
+      expect(screen.getByText('Escribe tu nombre')).toBeTruthy();
+      expect(screen.getByText('Escribe tu número de WhatsApp')).toBeTruthy();
+      fillContact('Rosa Pérez', '300123');
+      expect(screen.getByText(/Debe tener 10 números/)).toBeTruthy();
+      fillContact('Rosa Pérez', '3001234567');
+      expect(screen.getByLabelText('Tu respuesta')).toBeTruthy();
+      const contactCalls = () => fetchMock.mock.calls.filter(([, init]) => String(init?.body).includes('"event":"contact"'));
+      await vi.waitFor(() => expect(contactCalls()).toHaveLength(1));
+      await vi.advanceTimersByTimeAsync(4_000); // primer intento con 503 → reintenta
+      expect(contactCalls()).toHaveLength(2);
+      expect(JSON.parse(contactCalls()[1][1].body).data).toEqual({ name: 'Rosa Pérez', phone: '300 123 4567' });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('llegan cargados a la cuenta y empezar de nuevo no los vuelve a pedir', async () => {
+    server();
+    await toProposal();
+    const saved = JSON.parse(localStorage.getItem('bo_signup_v2')!);
+    expect(saved.form).toMatchObject({ name: 'Rosa Pérez', phone: '300 123 4567' });
+    cleanup();
+    mount({ contact: false });
+    fireEvent.click(screen.getByRole('button', { name: /Empezar de nuevo/ }));
+    expect(screen.queryByRole('form', { name: 'Tus datos de contacto' })).toBeNull();
+    expect(screen.getByLabelText('Tu respuesta')).toBeTruthy();
+  });
+});
+
 describe('Registro · entrevista', () => {
   it('una pregunta a la vez, con opciones sugeridas y avance aproximado (sin prometer un número)', async () => {
     server();
@@ -126,6 +206,16 @@ describe('Registro · entrevista', () => {
     expect(screen.getByRole('button', { name: 'Más de dos' })).toBeTruthy();
     expect(screen.getByText('Canchas de fútbol')).toBeTruthy(); // «Anotado: …»
     expect(screen.getByText('Conociendo tu negocio')).toBeTruthy();
+  });
+
+  it('tocar un ejemplo ya responde (sin abrir el teclado ni esconder el botón)', async () => {
+    server();
+    mount();
+    fireEvent.click(screen.getByRole('button', { name: /Tengo dos canchas de fútbol y la gente reserva por WhatsApp/ }));
+    expect(await screen.findByText('¿Cuántas canchas tienes?')).toBeTruthy();
+    const first = postWithRetry.mock.calls.find((c) => c[0] === '/public/signup/interview')!;
+    expect(first[1].messages.at(-1)).toEqual({ role: 'user', content: 'Tengo dos canchas de fútbol y la gente reserva por WhatsApp' });
+    expect(document.activeElement?.id).not.toBe('interview-answer');
   });
 
   it('corregir una respuesta retoma desde esa pregunta y no envía lo que venía después', async () => {
@@ -243,9 +333,11 @@ describe('Registro · productos, revisión y creación', () => {
     expect((screen.getByRole('checkbox', { name: /Ads Intelligence/ }) as HTMLInputElement).checked).toBe(true);
     fireEvent.click(screen.getByRole('button', { name: /Revisar y crear cuenta/ }));
     await screen.findByText('Revisa y crea tu cuenta');
-    // Validación local primero: sin datos no llama al servidor
+    // Nombre y WhatsApp ya vienen del paso inicial; sin correo ni clave no llama al servidor
+    expect((screen.getByLabelText(/Tu nombre/) as HTMLInputElement).value).toBe('Rosa Pérez');
+    expect((screen.getByLabelText(/Tu WhatsApp/) as HTMLInputElement).value).toBe('300 123 4567');
     fireEvent.click(screen.getByRole('button', { name: /Crear mi empresa/ }));
-    expect(screen.getByText('Escribe tu nombre')).toBeTruthy();
+    expect(screen.getByText('Escribe tu correo')).toBeTruthy();
     expect(postWithRetry.mock.calls.some((c) => c[0] === '/public/signup')).toBe(false);
     fireEvent.change(screen.getByLabelText(/Tu nombre/), { target: { value: 'Laura Gómez' } });
     fireEvent.change(screen.getByLabelText(/Tu WhatsApp/), { target: { value: '3001234567' } });

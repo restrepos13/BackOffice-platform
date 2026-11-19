@@ -225,6 +225,31 @@ export function track(event: 'view' | 'contact' | 'error', extra: Record<string,
   }
 }
 
+/** Esperas entre reintentos del contacto (el API puede estar despertando ~1 min). */
+export const CONTACT_RETRY_MS = [4_000, 10_000, 20_000, 40_000];
+
+/**
+ * Nombre y WhatsApp al empezar. A diferencia de track(), insiste: es el dato
+ * que permite ayudar a quien abandona, y justo al llegar de un anuncio el
+ * servidor puede estar dormido. No bloquea a la persona: corre por detrás.
+ */
+export function sendContact(data: { name: string; phone: string }, wait: (ms: number) => Promise<void> = (ms) => new Promise((r) => setTimeout(r, ms))): Promise<boolean> {
+  const body = JSON.stringify({ session: sessionToken(), event: 'contact', ...visitOrigin(), data });
+  const attempt = async (i: number): Promise<boolean> => {
+    try {
+      const res = await fetch('/api/public/signup/track', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body, keepalive: true });
+      if (res.ok) return true;
+      if (res.status < 500) return false; // datos rechazados: reintentar no cambia nada
+    } catch {
+      /* red caída o servidor despertando */
+    }
+    if (i >= CONTACT_RETRY_MS.length) return false;
+    await wait(CONTACT_RETRY_MS[i]);
+    return attempt(i + 1);
+  };
+  return attempt(0);
+}
+
 /* ── Dictado por voz (Chrome, Edge, Safari) ──────────────────────── */
 
 export function speechSupported(): boolean {

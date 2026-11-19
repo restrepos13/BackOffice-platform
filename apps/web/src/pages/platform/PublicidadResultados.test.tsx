@@ -11,6 +11,7 @@ vi.mock('../../components/charts', () => ({ AdsSpendChart: (p: any) => <p data-t
 
 import { ResultsView, todayInZone } from './PublicidadResultados';
 import { visitOrigin } from '../public/signup-helpers';
+import { KeepAwakeView, type KeepAwakeStatus } from './KeepAwake';
 
 const zero: Funnel = { visits: 0, started: 0, completed: 0, companies: 0, paying: 0, revenue: 0 };
 const nul = { ctr: null, cpc: null, cpm: null, costPerSignup: null, cac: null, roas: null };
@@ -125,5 +126,34 @@ describe('Registro · origen de la visita', () => {
     expect(visitOrigin('', '/registro')).toMatchObject({ utmCampaign: 'prueba_3dias_registro' });
     sessionStorage.clear();
     expect(visitOrigin('?utm_id={{campaign.id}}&utm_campaign=x', '/registro')).toEqual({ utmCampaign: 'x', landingPath: '/registro?utm_id={{campaign.id}}&utm_campaign=x' });
+  });
+});
+
+describe('Publicidad · despertador del servidor', () => {
+  const base: KeepAwakeStatus = {
+    mode: 'AUTO', url: 'https://x.onrender.com', active: true, reason: 'Automático: hay anuncios entregando en Meta.', campaigns: ['BO · Registro'],
+    lastCheckAt: new Date().toISOString(), lastPing: { at: new Date().toISOString(), ok: true, ms: 120 }, updatedAt: null, updatedBy: null,
+  };
+
+  it('muestra el modo elegido, el estado y la campaña que lo mantiene despierto; cambiar de modo avisa', () => {
+    const onMode = vi.fn();
+    mount(<KeepAwakeView data={base} onMode={onMode} saving={false} />);
+    const box = screen.getByTestId('keep-awake');
+    expect(within(box).getByRole('radio', { name: 'Con campaña activa' }).getAttribute('aria-checked')).toBe('true');
+    expect(box.textContent).toContain('Despierto');
+    expect(box.textContent).toContain('Entregando: BO · Registro');
+    expect(box.textContent).toContain('120 ms');
+    fireEvent.click(within(box).getByRole('radio', { name: 'Con campaña activa' }));
+    expect(onMode).not.toHaveBeenCalled();
+    fireEvent.click(within(box).getByRole('radio', { name: 'Siempre' }));
+    expect(onMode).toHaveBeenCalledWith('ON');
+  });
+
+  it('apagado y con el último llamado caído lo dice en palabras', () => {
+    mount(<KeepAwakeView data={{ ...base, mode: 'OFF', active: false, campaigns: [], reason: 'Apagado: el servidor se duerme tras 15 min sin visitas.', lastPing: { at: new Date().toISOString(), ok: false, ms: 20000, error: 'timeout' } }} onMode={noop} saving={false} />);
+    const box = screen.getByTestId('keep-awake');
+    expect(box.textContent).toContain('Puede dormirse');
+    expect(box.textContent).toContain('Último llamado falló');
+    expect(box.textContent).toContain('timeout');
   });
 });
