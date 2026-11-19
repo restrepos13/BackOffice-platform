@@ -52,6 +52,7 @@ import { CheckoutModule } from './modules/checkout.module';
 import { MetaAdsModule } from './modules/meta-ads.module';
 import { KeepAwakeModule } from './modules/keep-awake';
 import { TeamAlertsModule } from './modules/team-alerts';
+import { AdsPartnerModule } from './modules/ads-partner';
 import { IncidentsModule } from './modules/incidents.module';
 import { CommerceModule } from './modules/commerce.module';
 import { AddonEnginesModule } from './modules/addons/addon-engines.module';
@@ -135,6 +136,8 @@ import { schedulersEnabled } from './common/runtime-env';
     KeepAwakeModule,
     // Avisos al celular del equipo (Telegram): registros, ingresos de clientes, Ads conectados
     TeamAlertsModule,
+    // Meta Ads por acceso de socio: el cliente comparte su cuenta y BackOffice la conecta sola
+    AdsPartnerModule,
     IncidentsModule,
     CommerceModule,
     AddonEnginesModule,

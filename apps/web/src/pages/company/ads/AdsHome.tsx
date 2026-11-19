@@ -417,6 +417,7 @@ function Accounts({ q }: { q: string }) {
             oauth={!!meta?.oauth} partnerBusinessId={meta?.partnerBusinessId ?? null}
             onOAuth={() => oauth.mutate()} oauthPending={oauth.isPending}
             manual={manual} setManual={setManual} onConnect={() => connect.mutate()} connectPending={connect.isPending}
+            scope={q} onConnected={refresh}
           />
           <div className="space-y-6">
             {([['GOOGLE', 'google', 'Google Ads', 'Si también pautas en Google (búsquedas, YouTube, Maps), trae esas campañas al mismo resumen para comparar Meta y Google en un solo lugar.'], ['TIKTOK', 'tiktok', 'TikTok Ads', 'Si pautas en TikTok, trae esas campañas al mismo resumen y contrólalas desde aquí.']] as const).map(([key, slug, label, blurb]) => {

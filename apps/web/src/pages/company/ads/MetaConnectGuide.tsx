@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import PartnerConnect from './PartnerConnect';
 import { Badge, Button, Card, Field, Input } from '../../../components/ui';
 
 /** Lo que Meta concedió de verdad a una conexión (lo calcula el servidor). */
@@ -59,6 +60,9 @@ export function MetaConnectGuide(props: {
   setManual: (v: { accountId: string; token: string }) => void;
   onConnect: () => void;
   connectPending: boolean;
+  /** Empresa en pantalla (?companyId=) y qué refrescar cuando la conexión por socio termina */
+  scope?: string;
+  onConnected?: () => void;
 }) {
   const [way, setWay] = useState<'socio' | 'token'>(props.partnerBusinessId ? 'socio' : 'token');
   return (
@@ -83,16 +87,11 @@ export function MetaConnectGuide(props: {
                 className={`cursor-pointer border-2 px-3 py-1 ${way === 'socio' ? 'border-ink bg-ink text-bone' : 'border-line'}`}>Dar acceso a BackOffice (recomendado)</button>
             )}
             <button type="button" role="tab" aria-selected={way === 'token'} onClick={() => setWay('token')}
-              className={`cursor-pointer border-2 px-3 py-1 ${way === 'token' ? 'border-ink bg-ink text-bone' : 'border-line'}`}>Conectar con un token de tu negocio</button>
+              className={`cursor-pointer border-2 px-3 py-1 ${way === 'token' ? 'border-ink bg-ink text-bone' : 'border-line'}`}>Avanzado: con un token</button>
           </div>
 
           {way === 'socio' && props.partnerBusinessId ? (
-            <ol className="space-y-3" data-testid="guide-partner">
-              <Step n={1}>Entra a <b>business.facebook.com</b> con una cuenta que administre tu negocio y abre <b>Configuración</b>.</Step>
-              <Step n={2}>Ve a <b>Cuentas → Cuentas publicitarias</b>, elige la cuenta del negocio y toca <b>Asignar socios</b> (o «Compartir»).</Step>
-              <Step n={3}>Pega el ID del portafolio de BackOffice: <code className="border border-line bg-bone-2 px-1.5 py-0.5 font-mono">{props.partnerBusinessId}</code> y elige <b>Control total</b> (administrar campañas, ver rendimiento y administrar creatividades).</Step>
-              <Step n={4}>Avísale al equipo de BackOffice. Nosotros conectamos la cuenta desde nuestro lado y aparece aquí con «Permisos completos». No compartes contraseñas ni tokens.</Step>
-            </ol>
+            <PartnerConnect q={props.scope ?? ''} onConnected={() => props.onConnected?.()} />
           ) : (
             <div data-testid="guide-token">
               <ol className="space-y-3">

@@ -20,6 +20,7 @@ const get = vi.fn(async (path: string): Promise<unknown> => {
   if (path.startsWith('/ads/overview')) return overview;
   if (path.startsWith('/ads/accounts/acc1/syncs')) return syncs;
   if (path.startsWith('/ads/accounts')) return overview.accounts;
+  if (path.startsWith('/ads/meta/partner')) return { businessId: partnerBusinessId, automatic: true };
   if (path.startsWith('/ads/providers')) return [{ key: 'META', label: 'Meta Ads', capabilities: {}, missing: [], oauth: false, partnerBusinessId }, { key: 'GOOGLE', label: 'Google Ads', capabilities: {}, missing: googleReady ? [] : ['Developer token'], oauth: googleReady }, { key: 'TIKTOK', label: 'TikTok Ads', capabilities: {}, missing: ['App'], oauth: false }];
   if (path.startsWith('/ads/google/pending')) return [{ externalId: '5550005555', name: 'Constructora Google', currency: 'COP', active: true }];
   if (path.startsWith('/ads/google/oauth')) return { url: 'https://accounts.google.com/o/oauth2/v2/auth?x=1' };
@@ -76,7 +77,8 @@ beforeEach(() => {
   actions = [];
   leads = [];
   syncs = [];
-  post.mockClear();
+  post.mockReset();
+  post.mockImplementation(async () => ({}));
 });
 afterEach(cleanup);
 
@@ -227,8 +229,31 @@ describe('Ads · conexión con Meta', () => {
     const guide = await screen.findByTestId('guide-partner');
     expect(within(guide).getByText('1234567890')).toBeTruthy();
     expect(within(guide).getByText(/No compartes contraseñas ni tokens/)).toBeTruthy();
-    fireEvent.click(screen.getByText('Conectar con un token de tu negocio'));
+    fireEvent.click(screen.getByText('Avanzado: con un token'));
     expect(screen.getByTestId('guide-token')).toBeTruthy();
+  });
+
+  it('acceso de socio: con el número de la cuenta, «Ya la compartí» la busca y la conecta sola', async () => {
+    partnerBusinessId = '1234567890';
+    const assets = { page: { ok: true, name: 'Panadería La 14' }, instagram: { ok: false }, pixel: { ok: null } };
+    post.mockImplementation(async (path: string) => (path.startsWith('/ads/meta/partner/claim') ? { status: 'CONNECTED', account: { name: 'Cuenta Panadería' }, readOnly: false, assets } : path.startsWith('/ads/meta/partner/assets') ? { account: 'Cuenta Panadería', assets: { ...assets, instagram: { ok: true, name: '@la14' } } } : {}));
+    mount('cuentas');
+    const guide = await screen.findByTestId('guide-partner');
+    const button = within(guide).getByRole('button', { name: 'Ya la compartí' }) as HTMLButtonElement;
+    expect(button.disabled).toBe(true);
+    fireEvent.change(within(guide).getByLabelText('Número de la cuenta'), { target: { value: 'act_9876543210' } });
+    fireEvent.click(button);
+    await waitFor(() => expect(post).toHaveBeenCalledWith('/ads/meta/partner/claim', { accountId: 'act_9876543210' }));
+    // Pide compartir las 4 cosas y, al conectar, dice qué quedó y qué falta
+    expect(within(within(guide).getByTestId('share-items')).getAllByRole('listitem')).toHaveLength(4);
+    const list = await within(guide).findByTestId('partner-checklist');
+    expect(list.textContent).toContain('Faltan 2 cosas');
+    expect(list.textContent).toContain('Panadería La 14');
+    expect(list.textContent).toContain('no pudimos confirmarlo ahora');
+    fireEvent.click(within(list).getByRole('button', { name: 'Ya lo compartí, volver a revisar' }));
+    await waitFor(() => expect(within(guide).getByTestId('partner-checklist').textContent).toContain('Falta 1 cosa'));
+    expect(within(guide).getByText('Mandarle las instrucciones').closest('a')!.getAttribute('href')).toContain(encodeURIComponent('1234567890'));
+    post.mockReset();
   });
 });
 
