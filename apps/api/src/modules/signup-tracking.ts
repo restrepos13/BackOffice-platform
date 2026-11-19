@@ -101,8 +101,11 @@ export class SignupTracker {
     }
   }
 
-  /** Datos de contacto que la persona ya escribió bien (para ayudarle si abandona). */
-  async contact(token: unknown, raw: Record<string, unknown>) {
+  /**
+   * Datos de contacto que la persona ya escribió bien (para ayudarle si abandona).
+   * Devuelve si el WhatsApp es nuevo en esta sesión (para avisar una sola vez).
+   */
+  async contact(token: unknown, raw: Record<string, unknown>): Promise<{ phoneAdded: boolean; name: string | null; phone: string | null; campaign: string | null } | undefined> {
     if (!isSessionToken(token)) return;
     const email = clip(raw?.email, 120)?.toLowerCase();
     const phone = clip(raw?.phone, 25);
@@ -116,7 +119,14 @@ export class SignupTracker {
     // Nombre y WhatsApp se piden al empezar: solo el correo (formulario de la cuenta) marca el paso ACCOUNT
     await this.touch(token, patch.email ? { step: 'ACCOUNT' } : {});
     const current = await this.get(token);
-    if (current) await this.prisma.signupSession.update({ where: { id: current.id }, data: patch }).catch(() => undefined);
+    if (!current) return;
+    const saved = await this.prisma.signupSession.update({ where: { id: current.id }, data: patch }).then(() => true).catch(() => false);
+    return {
+      phoneAdded: saved && !!patch.phone && !current.phone,
+      name: patch.contactName ?? current.contactName ?? null,
+      phone: patch.phone ?? current.phone ?? null,
+      campaign: current.utmCampaign ?? (current.fbclid ? 'Meta (sin campaña)' : null),
+    };
   }
 
   /** Error que vio la persona (se guardan los últimos 10). */

@@ -30,6 +30,17 @@ export function interviewStage(answers: number): { label: string; pct: number } 
   return { label: 'Casi listo', pct: Math.min(92, 75 + (answers - 4) * 5) };
 }
 
+/** Tope de la entrevista (MAX_QUESTIONS en el servidor): nunca hay más preguntas que esto. */
+export const MAX_ANSWERS = 8;
+/** Desde cuántas respuestas se puede saltar a la propuesta (con menos, la IA no entiende el negocio). */
+export const EARLY_BUILD_AFTER = 3;
+
+/** «Como mucho N más»: honesto (la entrevista puede terminar antes) y le pone fin a la vista. */
+export function remainingLabel(answers: number): string {
+  const left = Math.max(0, MAX_ANSWERS - answers);
+  return left <= 1 ? 'Última pregunta' : `Como mucho ${left} preguntas más`;
+}
+
 export interface AnswerItem { index: number; question: string; answer: string; note?: string }
 
 export function answerHistory(messages: Msg[]): AnswerItem[] {
@@ -86,7 +97,7 @@ export default function InterviewStep(props: {
           <div className="border-b-2 border-line px-5 py-3">
             <div className="flex items-center justify-between gap-3 text-xs">
               <span className="font-semibold uppercase tracking-[0.1em] text-ink-2">{stage.label}</span>
-              {answers > 0 && <span className="text-ink-3">{answers} {answers === 1 ? 'respuesta' : 'respuestas'}</span>}
+              {answers > 0 && !interviewDone && <span className="text-ink-3">{remainingLabel(answers)}</span>}
             </div>
             <div className="mt-2 h-1 w-full bg-bone-2" role="progressbar" aria-label="Avance aproximado de la entrevista" aria-valuenow={stage.pct} aria-valuemin={0} aria-valuemax={100}>
               <div className="h-full bg-ink transition-[width] duration-500" style={{ width: `${stage.pct}%` }} />
@@ -174,6 +185,18 @@ export default function InterviewStep(props: {
                     </div>
                   </div>
                 ))}
+
+                {/* Atajo: quien ya contó lo esencial no tiene que contestar todo para ver su propuesta */}
+                {!thinking && !failed && !props.correcting && answers >= EARLY_BUILD_AFTER && (
+                  <button
+                    type="button"
+                    onClick={props.onBuild}
+                    className="mt-4 flex w-full cursor-pointer items-center justify-between gap-3 border-2 border-dashed border-ink-3 px-3 py-2.5 text-left text-sm hover:border-ink"
+                  >
+                    <span><b>¿Con prisa?</b> <span className="text-ink-2">Arma mi propuesta con lo que ya conté; lo demás lo ajusto después.</span></span>
+                    <ArrowRight size={15} className="shrink-0" aria-hidden />
+                  </button>
+                )}
 
                 {/* Respuesta libre */}
                 <form

@@ -218,6 +218,24 @@ describe('Registro · entrevista', () => {
     expect(document.activeElement?.id).not.toBe('interview-answer');
   });
 
+  it('desde la tercera respuesta se puede armar la propuesta sin contestar todo', async () => {
+    postWithRetry.mockImplementation(async (path: string) => {
+      if (path === '/public/signup/interview') return { done: false, question: '¿Haces domicilios?', options: ['Sí', 'No'], understood: '' };
+      if (path === '/public/signup/preview') return preview();
+      throw new Error(path);
+    });
+    mount();
+    await answer('Tengo dos canchas de fútbol');
+    await screen.findByText('¿Haces domicilios?');
+    expect(screen.queryByText('¿Con prisa?')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Sí' }));
+    await screen.findByText('¿Haces domicilios?');
+    fireEvent.click(screen.getByRole('button', { name: 'No' }));
+    await waitFor(() => expect(screen.getByText('¿Con prisa?')).toBeTruthy());
+    fireEvent.click(screen.getByText('¿Con prisa?'));
+    expect(await screen.findByText('Esto es lo que entendimos')).toBeTruthy();
+  });
+
   it('corregir una respuesta retoma desde esa pregunta y no envía lo que venía después', async () => {
     server();
     mount();

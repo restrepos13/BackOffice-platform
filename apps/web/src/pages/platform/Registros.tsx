@@ -7,6 +7,7 @@ import { toast } from 'sonner';
 import { api } from '../../lib/api';
 import { fmtNum, timeAgo } from '../../lib/format';
 import { Badge, Button, Card, EmptyState, Field, Input, Loading, Modal, PageHeader, Select, Stat, Tabs, Textarea } from '../../components/ui';
+import PhoneAlerts from './PhoneAlerts';
 
 /**
  * Registros por la web: el embudo completo (quién empezó, hasta dónde llegó,
@@ -138,6 +139,8 @@ export default function Registros() {
           </Select>
         }
       />
+
+      <PhoneAlerts />
 
       <div className="mb-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
         <Stat label="Empezaron" value={fmtNum(data.totals.sessions)} />

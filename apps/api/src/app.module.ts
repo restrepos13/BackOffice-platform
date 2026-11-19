@@ -51,6 +51,7 @@ import { TermsModule } from './modules/terms.module';
 import { CheckoutModule } from './modules/checkout.module';
 import { MetaAdsModule } from './modules/meta-ads.module';
 import { KeepAwakeModule } from './modules/keep-awake';
+import { TeamAlertsModule } from './modules/team-alerts';
 import { IncidentsModule } from './modules/incidents.module';
 import { CommerceModule } from './modules/commerce.module';
 import { AddonEnginesModule } from './modules/addons/addon-engines.module';
@@ -132,6 +133,8 @@ import { schedulersEnabled } from './common/runtime-env';
     MetaAdsModule,
     // Despertador del servidor (Render gratis se duerme): Plataforma → Publicidad
     KeepAwakeModule,
+    // Avisos al celular del equipo (Telegram): registros, ingresos de clientes, Ads conectados
+    TeamAlertsModule,
     IncidentsModule,
     CommerceModule,
     AddonEnginesModule,

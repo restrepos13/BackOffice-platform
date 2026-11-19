@@ -9,6 +9,7 @@ import {
   Module,
   NotFoundException,
   OnModuleInit,
+  Optional,
   Param,
   Patch,
   Post,
@@ -50,6 +51,7 @@ import {
 } from '../common/setup-profile';
 import { PRODUCTS, ProductKey, productsExplicit, readProducts, withProducts } from '../common/products';
 import { forgetCompanyProducts } from '../auth/products.guard';
+import { TeamAlertsService, tg, waLink } from './team-alerts';
 
 /** Origen de la visita: referente, navegador y campaña (utm_*, fbclid, primera página). */
 export interface SignupMeta {
@@ -138,6 +140,7 @@ export class SignupService implements OnModuleInit {
     private readonly emails: EmailsService,
     private readonly companies: CompaniesService,
     private readonly auth: AuthService,
+    @Optional() private readonly alerts?: TeamAlertsService,
   ) {
     this.pool = new GeminiPool(prisma);
     this.tracker = new SignupTracker(prisma);
@@ -315,8 +318,18 @@ export class SignupService implements OnModuleInit {
   async track(dto: any, meta: SignupMeta = {}) {
     const session = dto?.session;
     const step = ['STARTED', 'INTERVIEW', 'PREVIEW', 'ACCOUNT'].includes(dto?.step) ? (dto.step as SignupStep) : undefined;
-    if (dto?.event === 'contact') await this.tracker.contact(session, dto?.data ?? {});
-    else if (dto?.event === 'error') await this.tracker.error(session, step, String(dto?.message ?? ''));
+    if (dto?.event === 'contact') {
+      const added = await this.tracker.contact(session, dto?.data ?? {});
+      // Aviso al celular apenas deja su WhatsApp: se le puede escribir mientras sigue con el registro
+      if (added?.phoneAdded) {
+        const first = String(added.name ?? '').split(' ')[0];
+        void this.alerts?.send(
+          'SIGNUP_CONTACT',
+          `<b>Empezó el registro</b> ${tg(added.name ?? 'sin nombre')} · ${tg(added.phone)}${added.campaign ? `\nViene de: ${tg(added.campaign)}` : ''}\nSi se traba, escríbele ahora.`,
+          { text: 'Escribirle por WhatsApp', url: waLink(added.phone, `¡Hola${first ? ` ${first}` : ''}! Soy del equipo de BackOffice. Vi que estás creando tu asistente de WhatsApp, ¿te ayudo a terminarlo?`) },
+        );
+      }
+    } else if (dto?.event === 'error') await this.tracker.error(session, step, String(dto?.message ?? ''));
     else await this.tracker.touch(session, { step, ...meta });
     return { ok: true };
   }
@@ -431,7 +444,8 @@ export class SignupService implements OnModuleInit {
 
     if (dto?.referralCode) await linkReferral(this.prisma, companyId, dto.referralCode).catch(() => false);
     const session = await this.tracker.touch(dto?.session, { step: 'DONE', companyId, rubro, businessName: name, businessType: bp?.businessType });
-    // Aviso al equipo (si el correo falla, el registro igual queda hecho)
+    // Aviso al equipo por correo y al celular (si alguno falla, el registro igual queda hecho)
+    void this.alertNewCompany(companyId, name, adminName, phone, bp?.businessType || cfg.label);
     try {
       await this.notifyNewCompany(companyId);
       if (session) await this.tracker.markNotified(session.id);
@@ -439,6 +453,22 @@ export class SignupService implements OnModuleInit {
       this.logger.warn(`aviso de registro no enviado: ${err.message}`);
     }
     return this.auth.login(email, password);
+  }
+
+  /** Empresa nueva → aviso al celular del equipo con lo que falta y el WhatsApp del dueño. */
+  private async alertNewCompany(companyId: string, name: string, contactName: string, phone: string, label: string) {
+    try {
+      const status = await this.statusFor(companyId).catch(() => null);
+      const pending = status?.checklist.items.filter((i) => !i.done).length;
+      const first = String(contactName ?? '').split(' ')[0];
+      await this.alerts?.send(
+        'SIGNUP_DONE',
+        `<b>Empresa nueva: ${tg(name)}</b>\n${tg(label)}\n${tg(contactName)} · ${tg(phone)}${pending !== undefined ? `\nLe faltan ${pending} pasos para quedar funcionando.` : ''}`,
+        { text: 'Escribirle por WhatsApp', url: waLink(phone, `¡Hola${first ? ` ${first}` : ''}! Soy del equipo de BackOffice. Vi que creaste ${name}. ¿Te ayudo a conectar tu WhatsApp para que el asistente empiece a atender?`) },
+      );
+    } catch (err: any) {
+      this.logger.warn(`aviso al celular no enviado: ${err?.message ?? err}`);
+    }
   }
 
   /** A quién avisar: SIGNUP_NOTIFY_EMAIL (uno o varios separados por coma). */
@@ -464,6 +494,14 @@ export class SignupService implements OnModuleInit {
     for (const s of pending) {
       const v = SignupTracker.view(s);
       const wa = v.whatsapp ? ` · <a href="https://wa.me/${v.whatsapp}">escribirle por WhatsApp</a>` : '';
+      // Al celular primero (no depende del correo); si llegó, ya cuenta como avisado
+      const first = String(v.contactName ?? '').split(' ')[0];
+      const phoned = await (this.alerts?.send(
+        'SIGNUP_ABANDONED',
+        `<b>Dejó el registro a mitad</b> ${tg(v.contactName ?? v.businessName ?? 'sin nombre')} · ${tg(v.phone ?? '')}\nSe quedó en: ${tg(v.stepLabel)} (${v.answers} respuestas)${v.businessName ? `\nNegocio: ${tg(v.businessName)}` : ''}${v.description ? `\nContó: ${tg(String(v.description).slice(0, 200))}` : ''}`,
+        { text: 'Escribirle por WhatsApp', url: waLink(v.phone, `¡Hola${first ? ` ${first}` : ''}! Soy del equipo de BackOffice. Vi que empezaste a crear tu asistente de WhatsApp y no alcanzaste a terminar. ¿Te ayudo? Toma 2 minutos.`) },
+      ) ?? Promise.resolve(false));
+      if (phoned) await this.tracker.markNotified(s.id).catch(() => undefined);
       try {
         await this.sendToTeam(
           `Registro sin terminar: ${v.businessName ?? v.contactName ?? v.email ?? 'sin nombre'} — se quedó en "${v.stepLabel}"`,

@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   Injectable,
+  Optional,
   UnauthorizedException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
@@ -12,6 +13,7 @@ import { hash as bcryptHash, hashSync as bcryptHashSync, verify as bcryptVerify 
 import { randomBytes } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../modules/audit.module';
+import { TeamAlertsService } from '../modules/team-alerts';
 import { decryptSecret, encryptSecret, isEncrypted } from '../common/crypto';
 import { qrSvg } from '../common/qr';
 import { newRecoveryCodes, newTotpSecret, otpauthUri, verifyTotp } from '../common/totp';
@@ -77,7 +79,13 @@ export class AuthService {
     private readonly prisma: PrismaService,
     private readonly jwt: JwtService,
     private readonly audit: AuditService,
+    @Optional() private readonly alerts?: TeamAlertsService,
   ) {}
+
+  /** Aviso al celular del equipo cuando entra un cliente (nunca frena el login). */
+  private notifyLogin(user: any) {
+    void this.alerts?.clientLogin(user, user.lastLoginAt ?? null).catch(() => undefined);
+  }
 
   private async issue(user: any) {
     const token = await this.jwt.signAsync(
@@ -147,6 +155,7 @@ export class AuthService {
       where: { id: user.id },
       data: { lastLoginAt: new Date(), failedLogins: 0, lockedUntil: null },
     });
+    this.notifyLogin(user);
     return this.issue(user);
   }
 
@@ -187,6 +196,7 @@ export class AuthService {
     if (usedStep == null) {
       await this.audit.log({ actor: null, companyId: user.companyId, action: 'auth.mfa_recovery_used', entity: 'User', entityId: user.id, detail: `quedan ${recoveryLeft!.length} códigos` });
     }
+    this.notifyLogin(user);
     return this.issue(user);
   }
 
