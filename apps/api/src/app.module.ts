@@ -53,6 +53,7 @@ import { MetaAdsModule } from './modules/meta-ads.module';
 import { KeepAwakeModule } from './modules/keep-awake';
 import { TeamAlertsModule } from './modules/team-alerts';
 import { AdsPartnerModule } from './modules/ads-partner';
+import { MetaDevModule } from './modules/meta-dev.module';
 import { IncidentsModule } from './modules/incidents.module';
 import { CommerceModule } from './modules/commerce.module';
 import { AddonEnginesModule } from './modules/addons/addon-engines.module';
@@ -138,6 +139,8 @@ import { schedulersEnabled } from './common/runtime-env';
     TeamAlertsModule,
     // Meta Ads por acceso de socio: el cliente comparte su cuenta y BackOffice la conecta sola
     AdsPartnerModule,
+    // Meta Ads interna del equipo de desarrollo: solo responde con META_DEV_ENABLED=1 fuera de producción
+    MetaDevModule,
     IncidentsModule,
     CommerceModule,
     AddonEnginesModule,

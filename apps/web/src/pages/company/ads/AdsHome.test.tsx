@@ -12,6 +12,8 @@ let overview: any;
 let actions: any[] = [];
 let revenue: any;
 let leads: any[] = [];
+let leadStatus: any = null;
+let aiAnalysis: any = null;
 let syncs: any[] = [];
 let partnerBusinessId: string | null = null;
 let googleReady = false;
@@ -28,7 +30,9 @@ const get = vi.fn(async (path: string): Promise<unknown> => {
   if (path.startsWith('/ads/rules')) return { rules: [], metrics: { SPEND: { label: 'Gasto', unit: 'money' } } };
   if (path.startsWith('/ads/actions')) return actions;
   if (path.startsWith('/ads/revenue')) return revenue;
+  if (path.startsWith('/ads/leads/status')) return leadStatus;
   if (path.startsWith('/ads/leads')) return leads;
+  if (path.startsWith('/ads/ai/analysis')) return aiAnalysis;
   if (path.startsWith('/terms/status')) return { required: false };
   return [];
 });
@@ -76,6 +80,8 @@ beforeEach(() => {
   googleReady = false;
   actions = [];
   leads = [];
+  leadStatus = { connected: true, canRead: true, missing: [], everyMinutes: 10, pending: 0, lastImport: null };
+  aiAnalysis = { ai: { source: 'NINGUNA', trial: null }, last: null };
   syncs = [];
   post.mockReset();
   post.mockImplementation(async () => ({}));
@@ -174,6 +180,85 @@ describe('Ads · leads y ventas', () => {
     expect(await screen.findByText('Falta permiso')).toBeTruthy();
     fireEvent.click(screen.getByText('Pedir datos otra vez'));
     await waitFor(() => expect(post).toHaveBeenCalledWith('/ads/leads/l1/fetch', undefined));
+  });
+});
+
+describe('Ads · formularios instantáneos', () => {
+  const emptyRevenue = {
+    period: { since: '2026-09-28', until: '2026-10-27' }, connected: true, currency: 'COP', campaigns: [],
+    totals: { spend: 0, leads: 0, qualified: 0, customers: 0, sales: 0, revenue: 0, costPerLead: null, costPerQualified: null, cac: null, roas: null },
+    unattributedAds: 0, businessRevenue: 0, method: 'm',
+  };
+
+  it('sin el permiso explica qué falta y deja comprobarlo sin reconectar', async () => {
+    revenue = emptyRevenue;
+    leadStatus = { connected: true, canRead: false, missing: ['leads_retrieval', 'pages_manage_ads'], everyMinutes: 10, pending: 2, lastImport: null };
+    post.mockResolvedValueOnce({ status: 'NO_PERMISSION', error: 'Para leer los formularios hace falta el permiso leads_retrieval', created: 0, retried: 0, contacts: 0 });
+    mount('leads');
+    const box = await screen.findByTestId('lead-forms-status');
+    expect(within(box).getByText('Falta permiso')).toBeTruthy();
+    expect(box.textContent).toContain('leads_retrieval, pages_manage_ads');
+    expect(box.textContent).toContain('se completan los 2 que están en espera');
+    fireEvent.click(screen.getByText('Comprobar permiso'));
+    await waitFor(() => expect(post).toHaveBeenCalledWith('/ads/leads/import', undefined));
+  });
+
+  it('con el permiso muestra la última revisión y permite traerlos al instante', async () => {
+    revenue = emptyRevenue;
+    leadStatus = { connected: true, canRead: true, missing: [], everyMinutes: 10, pending: 0, lastImport: { at: '2026-10-27T15:00:00Z', status: 'OK', ads: 3, found: 12, created: 4, contacts: 4, retried: 1, more: false, error: null } };
+    post.mockResolvedValueOnce({ status: 'OK', created: 2, retried: 0, contacts: 2, error: null });
+    mount('leads');
+    const box = await screen.findByTestId('lead-forms-status');
+    expect(within(box).getByText('Lectura activa')).toBeTruthy();
+    expect(box.textContent).toContain('3 anuncios consultados · 12 formularios leídos · 5 nuevos');
+    fireEvent.click(screen.getByText('Traer formularios ahora'));
+    await waitFor(() => expect(post).toHaveBeenCalledWith('/ads/leads/import', undefined));
+  });
+});
+
+describe('Ads · análisis con IA', () => {
+  const stored = {
+    at: new Date().toISOString(), days: 30, period: { since: '2026-09-28', until: '2026-10-27' }, model: 'm', source: 'EMPRESA', dropped: 1, by: 'Admin A',
+    analysis: {
+      headline: 'Los chats concentran el gasto', summary: 'La campaña Chats trae las conversaciones.',
+      working: [{ title: 'Chats trae conversaciones', evidence: '120 conversaciones a 5.000 COP' }], notWorking: [],
+      actions: [{ title: 'Subir el presupuesto de Chats', why: 'Mejor costo', how: 'De a poco', priority: 'ALTA', spends: true }],
+      watch: ['La frecuencia'], missing: ['Ventas por campaña'], answer: null,
+    },
+  };
+
+  it('sin IA lo explica y no ofrece analizar', async () => {
+    mount('resumen');
+    const box = await screen.findByTestId('ai-analyst');
+    expect(box.textContent).toContain('todavía no tiene IA activa');
+    expect(screen.queryByText('Analizar con IA')).toBeNull();
+    expect(screen.queryByText('Preguntar')).toBeNull();
+  });
+
+  it('muestra el último análisis guardado sin gastar, marca lo que aumenta el gasto y responde preguntas', async () => {
+    aiAnalysis = { ai: { source: 'EMPRESA', trial: null }, last: stored };
+    mount('resumen');
+    const box = await screen.findByTestId('ai-analyst');
+    expect(await screen.findByText('Los chats concentran el gasto')).toBeTruthy();
+    expect(within(box).getByText('Subir el presupuesto de Chats')).toBeTruthy();
+    expect(within(box).getByText('Aumenta el gasto: lo decides tú')).toBeTruthy();
+    expect(within(box).getByText('Prioridad alta')).toBeTruthy();
+    expect(box.textContent).toContain('Se descartaron 1 afirmaciones');
+    expect(post).not.toHaveBeenCalled();
+    post.mockResolvedValueOnce({ status: 'OK', question: '¿Qué pauso?', ...stored, analysis: { ...stored.analysis, answer: 'Ninguno por ahora.' } });
+    fireEvent.change(within(box).getByPlaceholderText(/qué anuncio debería pausar/), { target: { value: '¿Qué pauso?' } });
+    fireEvent.click(within(box).getByText('Preguntar'));
+    await waitFor(() => expect(post).toHaveBeenCalledWith('/ads/ai/analysis', { days: 30, mode: 'REAL', question: '¿Qué pauso?' }));
+    expect((await screen.findByTestId('ai-answer')).textContent).toContain('Ninguno por ahora.');
+  });
+
+  it('pedir el análisis manda el periodo elegido', async () => {
+    aiAnalysis = { ai: { source: 'GENERICA', trial: { until: '2026-12-01', used: 2, limit: 20 } }, last: null };
+    post.mockResolvedValueOnce({ status: 'OK', question: null, ...stored });
+    mount('resumen');
+    fireEvent.click(await screen.findByText('Analizar con IA'));
+    await waitFor(() => expect(post).toHaveBeenCalledWith('/ads/ai/analysis', { days: 30, mode: 'REAL' }));
+    expect((await screen.findByTestId('ai-analyst')).textContent).toContain('IA de prueba: 2 de 20 usos hoy');
   });
 });
 

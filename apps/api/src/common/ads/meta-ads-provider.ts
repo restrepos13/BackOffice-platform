@@ -10,6 +10,21 @@ import { metaVersion } from '../meta-version';
  */
 
 export const META_ADS_SCOPES = ['ads_read', 'ads_management', 'business_management'];
+/** Para leer los formularios instantáneos (Lead Ads) con el mismo acceso de la cuenta publicitaria. */
+export const META_LEADS_SCOPE = 'leads_retrieval';
+/** Lo que Meta exige junto a leads_retrieval para leer los formularios de un anuncio. */
+export const META_LEADS_SCOPES = [META_LEADS_SCOPE, 'pages_show_list', 'pages_read_engagement', 'pages_manage_ads'];
+const KNOWN_SCOPE = /^[a-z_]{3,60}$/;
+
+/**
+ * Permisos que se piden al conectar con Facebook. Los de formularios solo se
+ * piden cuando la app ya los tiene aprobados (META_ADS_EXTRA_SCOPES): pedir un
+ * permiso sin aprobar hace que Meta rechace todo el inicio de sesión.
+ */
+export function metaAdsScopes(extra = process.env.META_ADS_EXTRA_SCOPES): string[] {
+  const more = String(extra ?? '').split(/[,\s]+/).map((x) => x.trim()).filter((x) => KNOWN_SCOPE.test(x));
+  return [...new Set([...META_ADS_SCOPES, ...more])];
+}
 
 /**
  * Qué permite una conexión según lo que Meta concedió de verdad:
@@ -25,7 +40,10 @@ export function accessFrom(stored: string[]) {
   const canAdvertise = !tasks.length || tasks.includes('MANAGE') || tasks.includes('ADVERTISE');
   const manage = verified && scopes.includes('ads_management') && canAdvertise;
   const missing = verified ? META_ADS_SCOPES.filter((s) => !scopes.includes(s)) : [];
-  return { verified, read, manage, missing, tasks, accountRoleLimited: tasks.length > 0 && !canAdvertise };
+  // Formularios: sin leads_retrieval Meta no entrega nombre, teléfono ni correo
+  const leads = verified ? scopes.includes(META_LEADS_SCOPE) : null;
+  const leadsMissing = verified ? META_LEADS_SCOPES.filter((s) => !scopes.includes(s)) : [];
+  return { verified, read, manage, missing, tasks, accountRoleLimited: tasks.length > 0 && !canAdvertise, leads, leadsMissing };
 }
 export const metaAdsVersion = () => metaVersion(process.env.META_ADS_API_VERSION);
 const MAX_PAGES = 25;
@@ -161,6 +179,32 @@ export class MetaAdsProvider implements AdsProvider {
     } catch {
       return null;
     }
+  }
+
+  /**
+   * Respuestas de los formularios instantáneos de UN anuncio desde una fecha.
+   * Exige leads_retrieval en el token; sin él Meta responde error de permisos.
+   * Tope de páginas propio: si hay más, se devuelve lo leído y `more: true`
+   * (la siguiente importación sigue desde el último lead guardado).
+   */
+  async fetchAdLeads(adId: string, token: string, since: Date, maxPages = 5): Promise<{ leads: any[]; more: boolean }> {
+    const leads: any[] = [];
+    let page = await this.get(`/${adId}/leads`, token, {
+      fields: 'id,created_time,ad_id,adset_id,campaign_id,form_id,field_data', limit: '100',
+      filtering: JSON.stringify([{ field: 'time_created', operator: 'GREATER_THAN', value: Math.floor(since.getTime() / 1000) }]),
+    });
+    for (let i = 0; ; i++) {
+      leads.push(...(page?.data ?? []));
+      const next = page?.paging?.next;
+      if (!next || typeof next !== 'string' || !next.startsWith('https://graph.facebook.com/')) return { leads, more: false };
+      if (i + 1 >= maxPages) return { leads, more: true };
+      page = await this.call(next);
+    }
+  }
+
+  /** Un lead por su ID (para completar los que llegaron por aviso sin datos). */
+  async fetchLead(leadgenId: string, token: string): Promise<any> {
+    return this.get(`/${leadgenId}`, token, { fields: 'field_data,created_time,ad_id,adset_id,campaign_id,form_id' });
   }
 
   async fetchEntities(account: AccountRef, token: string): Promise<RemoteEntity[]> {

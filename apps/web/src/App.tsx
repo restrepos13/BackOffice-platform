@@ -69,6 +69,8 @@ const CreativeHome = lazy(() => import('./pages/company/creative/CreativeHome'))
 const AdsHome = lazy(() => import('./pages/company/ads/AdsHome'));
 // Laboratorio visual: solo existe en desarrollo (no entra al build de producción)
 const CreativeLab = import.meta.env.DEV ? lazy(() => import('./pages/dev/CreativeLab')) : null;
+// Meta Ads interna del equipo: solo en el build local; el API además exige rol DEV y META_DEV_ENABLED=1
+const MetaAdsLab = import.meta.env.DEV ? lazy(() => import('./pages/dev/MetaAdsLab')) : null;
 const CreativeEditor = lazy(() => import('./pages/company/creative/Editor'));
 const Deliveries = lazy(() => import('./pages/company/Deliveries'));
 const CourierApp = lazy(() => import('./pages/courier/CourierApp'));
@@ -144,6 +146,7 @@ export default function App() {
       {/* Soluciones, sectores, calculadora y guías (prerenderizadas al compilar) */}
       {SITE_PAGE_PATHS.map((p) => <Route key={p} path={p} element={<MarketingPage />} />)}
       {CreativeLab && <Route path="/lab/creative" element={<CreativeLab />} />}
+      {MetaAdsLab && <Route path="/dev/meta-ads" element={<RequireAuth><MetaAdsLab /></RequireAuth>} />}
       <Route path="/print/order/:id" element={<RequireAuth><PrintOrder /></RequireAuth>} />
       {/* App móvil del domiciliario (fuera del panel) */}
       <Route path="/courier" element={<RequireAuth><RequireCourier><CourierApp /></RequireCourier></RequireAuth>} />

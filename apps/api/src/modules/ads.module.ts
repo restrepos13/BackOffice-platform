@@ -2,7 +2,7 @@ import { GOOGLE_ADS_SCOPE, GoogleAdsConfig, encodeGoogleCredential } from '../co
 import { TIKTOK_AUTH_URL, TikTokAdsConfig, TikTokAdsProvider } from '../common/ads/tiktok-ads-provider';
 import { authUrl as googleAuthUrl, exchangeCode as googleExchangeCode } from '../common/google-calendar';
 import {
-  BadRequestException, Body, ConflictException, Controller, Delete, ForbiddenException, Get, Injectable, Logger, Module, NotFoundException,
+  BadRequestException, Body, ConflictException, Controller, Delete, ForbiddenException, Get, Injectable, Logger, Module, NotFoundException, Optional,
   Param, Post, Put, Query, Res,
 } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
@@ -20,7 +20,7 @@ import { todayIn } from '../common/ads/launch';
 import { AdsCreateController, AdsCreateService } from './ads-create';
 import { AI_PROVIDER } from '../ai/types';
 import { DeepInfraProvider } from '../ai/deepinfra.provider';
-import { META_ADS_SCOPES, MetaAdsProvider, accessFrom } from '../common/ads/meta-ads-provider';
+import { META_ADS_SCOPES, META_LEADS_SCOPE, MetaAdsProvider, accessFrom, metaAdsScopes } from '../common/ads/meta-ads-provider';
 import { DemoAdsProvider } from '../common/ads/demo-provider';
 import { PROVIDER_KEYS, providerFor } from '../common/ads/registry';
 import {
@@ -35,6 +35,7 @@ import { Brief, buildProposal, validateBrief } from '../common/ads/proposal';
 import { OPEN, OppDraft, storeDetected } from '../common/opportunities/store';
 import { AuditModule, AuditService } from './audit.module';
 import { AdLeadsService } from './ads-leads';
+import { AdsAnalystController, AdsAnalystService } from './ads-analyst';
 import { Products } from '../auth/products.guard';
 import { ProductInactiveError, hasProduct } from '../common/products';
 
@@ -88,7 +89,9 @@ export class AdsService {
   now: () => Date = () => new Date();
   private cronBusy = false;
 
-  constructor(private readonly prisma: PrismaService, private readonly audit: AuditService) {}
+  private leadsBusy = false;
+
+  constructor(private readonly prisma: PrismaService, private readonly audit: AuditService, @Optional() private readonly leadForms?: AdLeadsService) {}
 
   /* ── Empresa y permisos ── */
 
@@ -188,7 +191,7 @@ export class AdsService {
       return {
         key: k, label: p.label, capabilities: p.capabilities, missing, oauth: k === 'META' ? metaReady : !missing.length, demoAvailable: true,
         // Para la guía de conexión: a quién agregar como socio de la cuenta publicitaria
-        ...(k === 'META' ? { partnerBusinessId: partnerId || null, requiredScopes: META_ADS_SCOPES } : {}),
+        ...(k === 'META' ? { partnerBusinessId: partnerId || null, requiredScopes: META_ADS_SCOPES, requestedScopes: metaAdsScopes() } : {}),
       };
     }));
   }
@@ -302,7 +305,7 @@ export class AdsService {
     const app = await this.metaApp();
     if (!app.appId || !app.appSecret) throw new BadRequestException('La conexión con Facebook aún no está habilitada (faltan META_APP_ID y META_APP_SECRET). Usa la conexión con token o pídele al equipo.');
     const state = signState({ c: c.id, u: user.id, k: 'ads' }, process.env.JWT_SECRET ?? 'dev');
-    return { url: oauthUrl({ appId: app.appId, redirectUri: await this.redirectUri(), state, scopes: META_ADS_SCOPES }) };
+    return { url: oauthUrl({ appId: app.appId, redirectUri: await this.redirectUri(), state, scopes: metaAdsScopes() }) };
   }
 
   async oauthCallback(code?: string, state?: string): Promise<string> {
@@ -480,6 +483,22 @@ export class AdsService {
     }
   }
 
+  /**
+   * Los permisos pueden cambiar sin reconectar (Meta aprueba uno nuevo, o la
+   * persona quita uno): en cada sincronización se guarda lo que Meta concede
+   * HOY. Si no se pueden consultar, se deja lo que había.
+   */
+  private async refreshScopes(a: any, p: AdsProvider, token: string) {
+    if (a.mode !== 'REAL' || !(p instanceof MetaAdsProvider)) return;
+    const granted = await p.grantedScopes(token);
+    if (!granted?.length) return;
+    const stored = parseJson<string[]>(a.scopesJson, []);
+    const next = [...granted, ...stored.filter((x) => x.startsWith('task:'))];
+    if (JSON.stringify([...next].sort()) === JSON.stringify([...stored].sort())) return;
+    await this.prisma.adAccount.update({ where: { id: a.id }, data: { scopesJson: JSON.stringify(next) } });
+    a.scopesJson = JSON.stringify(next);
+  }
+
   private async runSync(user: AuthUser | null, a: any, runId: string, start: Date) {
     const companyId = a.companyId as string;
     const p = this.provider(a.provider, a.mode);
@@ -494,6 +513,7 @@ export class AdsService {
     let entitiesSaved = false;
     try {
       const token = this.token(a);
+      await this.refreshScopes(a, p, token);
       counts.entities = await this.saveEntities(a, await p.fetchEntities(this.ref(a), token));
       entitiesSaved = true;
       const parts = chunks(since, until);
@@ -535,6 +555,13 @@ export class AdsService {
         status: accountStatusAfter(failure?.kind ?? null, a.status),
       },
     });
+    // Formularios instantáneos: con los anuncios ya guardados se traen los leads (si el acceso lo permite)
+    if (entitiesSaved && a.mode === 'REAL' && a.provider === 'META' && this.leadForms) {
+      const fresh = await this.prisma.adAccount.findUnique({ where: { id: a.id } });
+      if (fresh && parseJson<string[]>(fresh.scopesJson, []).includes(META_LEADS_SCOPE)) {
+        await this.leadForms.importAccount(fresh).catch((err) => this.logger.warn(`formularios ${a.id}: ${err.message}`));
+      }
+    }
     if (!failure) {
       // Los hallazgos solo se recalculan con datos completos
       await this.runAudit(companyId).catch((err) => this.logger.warn(`auditoría ${companyId}: ${err.message}`));
@@ -1376,6 +1403,43 @@ export class AdsService {
 
   /* ── Tareas programadas ── */
 
+  /** Formularios nuevos cada 10 minutos: un lead se enfría rápido, no puede esperar a la sincronización de 6 horas. */
+  @Cron('*/10 * * * *')
+  async leadTick() {
+    if (this.leadsBusy || !this.leadForms || process.env.ADS_CRON_DISABLED === '1') return;
+    this.leadsBusy = true;
+    try {
+      const accounts = (await this.prisma.adAccount.findMany({ where: { provider: 'META', mode: 'REAL', status: 'CONNECTED', scopesJson: { contains: META_LEADS_SCOPE } }, take: 100 }))
+        .filter((a) => parseJson<string[]>(a.scopesJson, []).includes(META_LEADS_SCOPE));
+      if (!accounts.length) return;
+      const owners = await this.prisma.company.findMany({ where: { id: { in: [...new Set(accounts.map((a) => a.companyId))] } }, select: { id: true, planId: true, productsJson: true } });
+      const withAds = new Set(owners.filter((c) => hasProduct(c, 'ADS')).map((c) => c.id));
+      for (const a of accounts.filter((x) => withAds.has(x.companyId))) {
+        await this.leadForms.importAccount(a).catch((err) => this.logger.warn(`formularios ${a.id}: ${err.message}`));
+      }
+    } finally {
+      this.leadsBusy = false;
+    }
+  }
+
+  /** «Traer formularios ahora»: primero confirma con Meta los permisos de hoy y luego importa. */
+  async importLeadsNow(user: AuthUser, companyId?: string) {
+    const c = await this.companyOf(user, companyId);
+    if (!this.leadForms) throw new BadRequestException('La lectura de formularios no está disponible');
+    const accounts = await this.prisma.adAccount.findMany({ where: { companyId: c.id, provider: 'META', mode: 'REAL', status: { in: ['CONNECTED', 'ERROR'] } } });
+    if (!accounts.length) throw new BadRequestException('Conecta primero tu cuenta publicitaria de Meta');
+    for (const a of accounts) {
+      try {
+        await this.refreshScopes(a, this.provider(a.provider, a.mode), this.token(a));
+      } catch {
+        /* sin conexión legible: la importación lo informa */
+      }
+    }
+    const result = await this.leadForms.importCompany(c.id);
+    await this.audit.log({ actor: user, companyId: c.id, action: 'ads.leads.import', entity: 'AdLead', detail: `${result.status} · ${result.found} leídos · ${result.created} nuevos · ${result.contacts} contactos` });
+    return { ...result, cursor: undefined };
+  }
+
   @Cron('*/30 * * * *')
   async tick() {
     if (this.cronBusy || process.env.ADS_CRON_DISABLED === '1') return;
@@ -1459,6 +1523,10 @@ export class AdsController {
 
   @Get('leads') @Roles(...READ)
   async leadList(@CurrentUser() u: AuthUser, @Query('companyId') c?: string) { return this.leads.list((await this.ads.companyOf(u, c)).id); }
+  @Get('leads/status') @Roles(...READ)
+  async leadStatus(@CurrentUser() u: AuthUser, @Query('companyId') c?: string) { return this.leads.status((await this.ads.companyOf(u, c)).id); }
+  @Post('leads/import') @Roles(...WRITE) @Throttle({ default: { ttl: 60_000, limit: 4 } })
+  leadImport(@CurrentUser() u: AuthUser, @Query('companyId') c?: string) { return this.ads.importLeadsNow(u, c); }
   @Post('leads/:id/fetch') @Roles(...WRITE) @Throttle({ default: { ttl: 60_000, limit: 10 } })
   async leadFetch(@CurrentUser() u: AuthUser, @Param('id') id: string, @Query('companyId') c?: string) {
     const company = await this.ads.companyOf(u, c);
@@ -1500,8 +1568,8 @@ export class AdsPublicController {
 
 @Module({
   imports: [AuditModule],
-  providers: [AdsService, AdLeadsService, AdsCreateService, { provide: AI_PROVIDER, useClass: DeepInfraProvider }],
-  controllers: [AdsController, AdsPublicController, AdsCreateController],
+  providers: [AdsService, AdLeadsService, AdsCreateService, AdsAnalystService, { provide: AI_PROVIDER, useClass: DeepInfraProvider }],
+  controllers: [AdsController, AdsPublicController, AdsCreateController, AdsAnalystController],
   exports: [AdsService, AdLeadsService],
 })
 export class AdsModule {}

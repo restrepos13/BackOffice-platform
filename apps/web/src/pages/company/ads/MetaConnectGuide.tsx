@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import PartnerConnect from './PartnerConnect';
 import { Badge, Button, Card, Field, Input } from '../../../components/ui';
+import PartnerConnect from './PartnerConnect';
 
 /** Lo que Meta concedió de verdad a una conexión (lo calcula el servidor). */
 export interface AccountAccess {
@@ -10,6 +10,9 @@ export interface AccountAccess {
   missing: string[];
   tasks: string[];
   accountRoleLimited: boolean;
+  /** Formularios instantáneos: null = sin verificar */
+  leads?: boolean | null;
+  leadsMissing?: string[];
 }
 
 /** Estado de permisos de una cuenta conectada, en palabras simples. */
@@ -36,6 +39,7 @@ export function AccessBadge({ access }: { access?: AccountAccess }) {
 }
 
 const SCOPES = ['ads_management', 'ads_read', 'business_management'];
+const LEAD_SCOPES = ['leads_retrieval', 'pages_show_list', 'pages_read_engagement', 'pages_manage_ads'];
 
 function Step({ n, children }: { n: number; children: React.ReactNode }) {
   return (
@@ -98,7 +102,7 @@ export function MetaConnectGuide(props: {
                 <Step n={1}>En <b>business.facebook.com → Configuración → Usuarios → Usuarios del sistema</b>, toca <b>Agregar</b>: nómbralo «BackOffice» con rol <b>Administrador</b>.</Step>
                 <Step n={2}>En ese usuario, toca <b>Asignar activos → Cuentas publicitarias</b>, elige tu cuenta y activa <b>Control total</b> (administrar la cuenta publicitaria).</Step>
                 <Step n={3}>Toca <b>Generar nuevo token</b>. Elige la app de tu negocio (si no tienes, créala gratis en developers.facebook.com con el tipo «Negocio»; solo sirve para generar el token). Caducidad: <b>Nunca</b>.</Step>
-                <Step n={4}>Marca estos permisos: {SCOPES.map((s, i) => <span key={s}><code className="font-mono text-xs">{s}</code>{i < SCOPES.length - 1 ? ', ' : ''}</span>)}. Copia el token.</Step>
+                <Step n={4}>Marca estos permisos: {SCOPES.map((s, i) => <span key={s}><code className="font-mono text-xs">{s}</code>{i < SCOPES.length - 1 ? ', ' : ''}</span>)}. Si tus anuncios usan formularios instantáneos, marca también {LEAD_SCOPES.map((s, i) => <span key={s}><code className="font-mono text-xs">{s}</code>{i < LEAD_SCOPES.length - 1 ? ', ' : ''}</span>)} para que BackOffice traiga a tu CRM a quienes los llenan. Copia el token.</Step>
                 <Step n={5}>Pega abajo el ID de la cuenta publicitaria (<code className="font-mono text-xs">act_…</code>, está junto a su nombre en el Administrador de anuncios) y el token. BackOffice comprueba con Meta qué permisos tiene y te lo muestra.</Step>
               </ol>
               <div className="mt-4 space-y-2 border-t-2 border-line pt-4">
@@ -125,6 +129,13 @@ export function CapabilitiesCard({ access }: { access?: AccountAccess }) {
     { ok: manage, title: 'Crear anuncios completos', detail: 'Imagen, texto, público, presupuesto y fechas. Se crean en pausa; tú decides cuándo activarlos.' },
     { ok: manage, title: 'Pausar, reanudar y activar', detail: 'Siempre con tu confirmación y dentro del tope diario que definas.' },
     { ok: manage, title: 'Programar la semana', detail: 'Fechas de inicio y fin de cada anuncio, en la zona horaria de tu cuenta.' },
+    {
+      ok: access.verified ? !!access.leads : null, title: 'Leer formularios instantáneos',
+      detail: access.leads
+        ? 'Cada 10 minutos trae quién llenó el formulario de tus anuncios y crea el contacto en tu CRM con el anuncio del que vino.'
+        : `Para traer nombre, teléfono y correo de quienes llenan tus formularios falta que Meta conceda: ${(access.leadsMissing?.length ? access.leadsMissing : ['leads_retrieval']).join(', ')}.`,
+    },
+    { ok: access.read, title: 'Analizar con IA', detail: 'Un resumen escrito de qué funciona, qué no y qué hacer esta semana. La IA interpreta las cifras; no las calcula ni cambia nada en tu cuenta.' },
   ];
   return (
     <Card kicker="Tu conexión con Meta" title="Qué puede hacer BackOffice">
@@ -137,7 +148,7 @@ export function CapabilitiesCard({ access }: { access?: AccountAccess }) {
         ))}
       </ul>
       <p className="mt-4 border-t-2 border-line pt-3 text-xs text-ink-3">
-        Lo que BackOffice nunca hace solo: subir presupuestos, activar campañas o gastar por encima de tu tope. Las recomendaciones con IA usan tu propio proveedor de IA (lo pagas aparte); sin él, se hacen con reglas.
+        Lo que BackOffice nunca hace solo: subir presupuestos, activar campañas o gastar por encima de tu tope. El análisis con IA usa la IA de tu empresa; sin ella, las oportunidades se siguen detectando con reglas.
       </p>
     </Card>
   );

@@ -183,6 +183,11 @@ export function createMockPrisma(opts: { atlasWithoutIndexes?: boolean } = {}) {
     inboundReceipt: [] as Doc[],
     subscriptionEvent: [] as Doc[],
     aiIncludedCounter: [] as Doc[],
+    metaDevConnection: [] as Doc[],
+    metaDevOAuthState: [] as Doc[],
+    metaDevObject: [] as Doc[],
+    metaDevInsight: [] as Doc[],
+    metaDevSyncRun: [] as Doc[],
   };
 
   // Filtros por relación (where: { conversation: {...} }) — resueltos por FK
@@ -571,6 +576,11 @@ export function createMockPrisma(opts: { atlasWithoutIndexes?: boolean } = {}) {
     inboundReceipt: model('inboundReceipt'),
     subscriptionEvent: model('subscriptionEvent', { refsJson: '{}' }),
     aiIncludedCounter: model('aiIncludedCounter', { used: 0 }),
+    metaDevConnection: model('metaDevConnection', { scope: 'DEV_INTERNAL', status: 'DISCONNECTED', scopesJson: '[]', declinedJson: '[]', syncLockUntil: null }),
+    metaDevOAuthState: model('metaDevOAuthState', { usedAt: null }),
+    metaDevObject: model('metaDevObject', { scope: 'DEV_INTERNAL', rawJson: '{}' }),
+    metaDevInsight: model('metaDevInsight', { scope: 'DEV_INTERNAL', level: 'CAMPAIGN', actionsJson: '[]', rawJson: '{}' }),
+    metaDevSyncRun: model('metaDevSyncRun', { scope: 'DEV_INTERNAL', status: 'RUNNING', countsJson: '{}', callsJson: '[]', warningsJson: '[]' }),
     productionSettings: model('productionSettings', { configJson: '{}' }),
     productionCounter: model('productionCounter', { seq: 0 }),
     production: model('production', { status: 'NUEVA', version: 1, priority: 'NORMAL', channel: 'OTHER', briefJson: '{}', isTest: false }),

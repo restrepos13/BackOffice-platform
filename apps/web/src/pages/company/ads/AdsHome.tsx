@@ -11,6 +11,7 @@ import { OpportunityList } from '../../../components/opportunities/Opportunities
 import { AdsTour } from '../../../components/Tour';
 import { AccessBadge, CapabilitiesCard, MetaConnectGuide, type AccountAccess } from './MetaConnectGuide';
 import { CreateAd } from './CreateAd';
+import { AiAnalyst } from './AiAnalyst';
 import { Week } from './Week';
 import { Term } from '../../../components/Term';
 import { Explainer } from '../../../components/Explainer';
@@ -240,6 +241,7 @@ function Summary({ q, mode, base }: { q: string; mode: Mode; base: Overview }) {
           <ul className="list-disc space-y-0.5 pl-4">{o.notes.map((n) => <li key={n}>{n}</li>)}</ul>
         </div>
       )}
+      <AiAnalyst q={q} mode={mode} days={days} />
       <Card kicker="Día a día" title={t.results === null ? 'Gasto' : 'Gasto y resultados'} className="mt-6">
         <AdsSpendChart data={o.daily} money={(v) => money(v, cur)} showResults={t.results !== null} resultsLabel={o.resultLabel ?? 'Resultados'} />
       </Card>
@@ -848,20 +850,65 @@ function Attribution({ a }: { a: NonNullable<RevenueRes['attribution']> }) {
   );
 }
 
+interface LeadStatus {
+  connected: boolean; canRead: boolean; missing: string[]; everyMinutes: number; pending: number;
+  lastImport: { at: string; status: 'OK' | 'NO_PERMISSION' | 'ERROR'; ads: number; found: number; created: number; contacts: number; retried: number; more: boolean; error: string | null } | null;
+}
+
 function LeadForms({ q, summary }: { q: string; summary?: RevenueRes['leadForms'] }) {
   const queryClient = useQueryClient();
   const { canWrite } = useCompanyScope();
   const { data } = useQuery({ queryKey: ['ads-leads', q], queryFn: () => api.get<LeadRow[]>(withScope('/ads/leads', q)) });
+  const { data: st } = useQuery({ queryKey: ['ads-leads-status', q], queryFn: () => api.get<LeadStatus>(withScope('/ads/leads/status', q)) });
+  const refresh = () => { for (const k of ['ads-leads', 'ads-leads-status', 'ads-revenue', 'ads-accounts']) queryClient.invalidateQueries({ queryKey: [k] }); };
   const fetchLead = useMutation({
     mutationFn: (id: string) => api.post<LeadRow>(withScope(`/ads/leads/${id}/fetch`, q)),
-    onSuccess: (r) => { queryClient.invalidateQueries({ queryKey: ['ads-leads'] }); queryClient.invalidateQueries({ queryKey: ['ads-revenue'] }); if (r.status === 'FETCHED') toast.success('Datos del lead recibidos'); else toast.error(r.error ?? 'Meta todavía no entrega los datos'); },
+    onSuccess: (r) => { refresh(); if (r.status === 'FETCHED') toast.success('Datos del lead recibidos'); else toast.error(r.error ?? 'Meta todavía no entrega los datos'); },
+    onError: (e) => toast.error(e instanceof Error ? e.message : 'Error'),
+  });
+  const importNow = useMutation({
+    mutationFn: () => api.post<NonNullable<LeadStatus['lastImport']>>(withScope('/ads/leads/import', q)),
+    onSuccess: (r) => {
+      refresh();
+      if (r.status === 'OK') toast.success(r.created || r.retried ? `${r.created + r.retried} formularios nuevos · ${r.contacts} contactos en tu CRM` : 'Sin formularios nuevos');
+      else toast.error(r.error ?? 'Meta no entregó los formularios');
+    },
     onError: (e) => toast.error(e instanceof Error ? e.message : 'Error'),
   });
   if (!data) return null;
+  const last = st?.lastImport;
   return (
-    <Card kicker="Meta Lead Ads" title="Formularios recibidos" className="mt-6">
+    <Card
+      kicker="Meta Lead Ads" title="Formularios instantáneos" className="mt-6"
+      actions={canWrite && st?.connected ? <Button size="sm" variant="outline" disabled={importNow.isPending} onClick={() => importNow.mutate()}>{importNow.isPending ? 'Consultando a Meta…' : st.canRead ? 'Traer formularios ahora' : 'Comprobar permiso'}</Button> : undefined}
+    >
+      {st && (
+        <div className="mb-3 border-2 border-line bg-paper px-3 py-2 text-sm" data-testid="lead-forms-status">
+          {!st.connected ? (
+            <p className="text-ink-2">Conecta tu cuenta publicitaria de Meta para recibir aquí los formularios de tus anuncios.</p>
+          ) : st.canRead ? (
+            <>
+              <p><Badge tone="ok">Lectura activa</Badge> <span className="text-ink-2">BackOffice revisa tus anuncios con formulario cada {st.everyMinutes} minutos y crea el contacto en tu CRM con el anuncio del que vino.</span></p>
+              {last && (
+                <p className="mt-1 text-xs text-ink-3">
+                  Última revisión: {new Date(last.at).toLocaleString('es-CO', { dateStyle: 'short', timeStyle: 'short' })} · {last.ads} anuncios consultados · {last.found} formularios leídos · {last.created + last.retried} nuevos
+                  {last.more ? ' · quedaron más por traer (sigue en la próxima revisión)' : ''}
+                </p>
+              )}
+              {last && last.status !== 'OK' && last.error && <p className="mt-1 text-xs text-bad">{last.error}</p>}
+            </>
+          ) : (
+            <>
+              <p><Badge tone="warn">Falta permiso</Badge> <span className="text-ink-2">Meta todavía no deja leer el nombre, el teléfono ni el correo de quienes llenan tus formularios.</span></p>
+              <p className="mt-1 text-xs text-ink-3">
+                Permisos que faltan en la conexión: {st.missing.join(', ') || 'leads_retrieval'}. Apenas estén, vuelve aquí y pulsa «Comprobar permiso»: se traen solos los formularios de los últimos 60 días{st.pending ? ` y se completan los ${st.pending} que están en espera` : ''}.
+              </p>
+            </>
+          )}
+        </div>
+      )}
       {!data.length ? (
-        <p className="text-sm text-ink-3">Aún no llega ningún formulario. Para recibirlos, la página debe estar conectada en BackOffice y suscrita al aviso «leadgen» de Meta, con el permiso <b>leads_retrieval</b> aprobado.</p>
+        <p className="text-sm text-ink-3">Aún no hay formularios recibidos.{st?.canRead ? ' Aparecerán aquí cuando alguien llene el formulario de uno de tus anuncios.' : ''}</p>
       ) : (
         <>
           {summary && <p className="mb-3 text-xs text-ink-3">En el periodo: {summary.received} recibidos · {summary.withContact} con datos · {summary.pendingPermission} esperando permiso · {summary.errors} con error.</p>}

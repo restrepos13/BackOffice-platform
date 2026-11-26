@@ -5,21 +5,57 @@ import { decryptSecret, isEncrypted } from '../common/crypto';
 import { entryStageFor } from '../common/pipelines';
 import { contactCreated } from '../common/domain-events';
 import { LeadgenEvent, contactFromFields, leadDocId } from '../common/ads/leads';
-import { classifyMetaError, metaAdsVersion } from '../common/ads/meta-ads-provider';
+import { META_LEADS_SCOPE, META_LEADS_SCOPES, MetaAdsProvider } from '../common/ads/meta-ads-provider';
 import type { FetchLike } from '../common/ads/provider';
 
 /**
  * Leads de formularios de Meta (Lead Ads).
  *  - Se aceptan solo para páginas conectadas a la empresa del webhook.
  *  - El _id sale del leadgen_id: los reintentos de Meta no duplican nada.
- *  - Los datos personales se piden a Graph con el token de esa página; sin
- *    token o sin `leads_retrieval`, el lead queda en PENDING_PERMISSION con
- *    sus IDs (sirven para atribuir) y no se crea ningún contacto inventado.
+ *  - Dos caminos: el aviso de Meta (webhook «leadgen») y la importación
+ *    directa por anuncio con el acceso de la cuenta publicitaria, cada
+ *    10 minutos. La segunda no depende de que la página esté suscrita.
+ *  - Los datos personales se piden a Graph con el token de la página o el de
+ *    la cuenta publicitaria; sin `leads_retrieval` el lead queda en
+ *    PENDING_PERMISSION con sus IDs (sirven para atribuir) y no se crea
+ *    ningún contacto inventado. Al llegar el permiso se completan solos.
  *  - El contacto conserva su primer origen; si es nuevo, el origen es el
  *    formulario (ID del anuncio incluido).
  */
 
 const PAGE_TYPES = ['META_SOCIAL', 'MESSENGER', 'INSTAGRAM'];
+/** Cada cuánto se revisan los formularios nuevos (minutos). */
+export const LEAD_IMPORT_EVERY_MIN = 10;
+/** Primera importación: Meta conserva los leads 90 días; se traen los de los últimos 60 (lo mismo que las métricas). */
+const FIRST_IMPORT_DAYS = 60;
+/** Se vuelve a mirar un rato antes de la última importación: Meta puede tardar en listar un lead recién creado. */
+const OVERLAP_MS = 30 * 60e3;
+const ADS_PER_RUN = 40;
+const RETRY_MAX = 50;
+const NO_PERMISSION = 'Para leer los formularios hace falta el permiso leads_retrieval en la conexión con Meta. Los leads quedan registrados con sus IDs y se completan apenas esté.';
+const DENIED = 'Meta no entregó los datos: falta el permiso leads_retrieval (App Review) o la conexión venció.';
+const importKey = (accountId: string) => `ads:leads:import:${accountId}`;
+
+export interface LeadImportResult {
+  at: string;
+  /** OK | NO_PERMISSION | ERROR */
+  status: 'OK' | 'NO_PERMISSION' | 'ERROR';
+  /** Anuncios consultados */
+  ads: number;
+  /** Leads que devolvió Meta */
+  found: number;
+  /** Leads nuevos guardados */
+  created: number;
+  /** Contactos creados o unidos */
+  contacts: number;
+  /** Leads que estaban esperando permiso y se completaron */
+  retried: number;
+  /** Quedó algo por traer (se sigue en la próxima) */
+  more: boolean;
+  error: string | null;
+  /** Hasta cuándo está al día (solo avanza con una importación completa) */
+  cursor: string | null;
+}
 
 @Injectable()
 export class AdLeadsService {
@@ -94,25 +130,33 @@ export class AdLeadsService {
     if (claim.count !== 1) return this.prisma.adLead.findUnique({ where: { id } });
     const lead = (await this.prisma.adLead.findUnique({ where: { id } }))!;
     const set = (data: Record<string, unknown>) => this.prisma.adLead.update({ where: { id }, data });
-    const page = (await this.pages(companyId)).find((p) => p.pageId === lead.pageId);
-    if (!page?.token) {
-      return set({ status: 'PENDING_PERMISSION', error: `La página ${lead.pageId} no tiene un token guardado en BackOffice. Conéctala con el permiso leads_retrieval.` });
+    // Primero el token de la página; si no hay o Meta lo rechaza, el de la cuenta publicitaria con leads_retrieval
+    const page = lead.pageId ? (await this.pages(companyId)).find((p) => p.pageId === lead.pageId) : undefined;
+    const tokens = [...(page?.token ? [page.token] : []), ...(await this.accountTokens(companyId)).map((t) => t.token)];
+    if (!tokens.length) return set({ status: 'PENDING_PERMISSION', error: NO_PERMISSION });
+    let data: any = null;
+    let failure: any = null;
+    for (const token of tokens) {
+      try {
+        data = await new MetaAdsProvider(this.fetchImpl).fetchLead(lead.leadgenId, token);
+        failure = null;
+        break;
+      } catch (err: any) {
+        failure = err;
+        if (err?.kind !== 'PERMISSION' && err?.kind !== 'AUTH') break;
+      }
     }
-    let data: any;
-    try {
-      const qs = new URLSearchParams({ fields: 'field_data,created_time,ad_id,adset_id,campaign_id,form_id', access_token: page.token });
-      const res = await this.fetchImpl(`https://graph.facebook.com/${metaAdsVersion()}/${lead.leadgenId}?${qs}`);
-      data = await res.json().catch(() => ({}));
-      if (!res.ok || data?.error) throw classifyMetaError(data?.error, res.status);
-    } catch (err: any) {
-      const kind = err?.kind;
-      return set({
-        status: kind === 'PERMISSION' || kind === 'AUTH' ? 'PENDING_PERMISSION' : 'ERROR',
-        error: kind === 'PERMISSION' || kind === 'AUTH'
-          ? 'Meta no entregó los datos: falta el permiso leads_retrieval (App Review) o el token de la página venció.'
-          : String(err?.message ?? 'Error al leer el lead').slice(0, 300),
-      });
+    if (failure) {
+      const denied = failure?.kind === 'PERMISSION' || failure?.kind === 'AUTH';
+      return set({ status: denied ? 'PENDING_PERMISSION' : 'ERROR', error: denied ? DENIED : String(failure?.message ?? 'Error al leer el lead').slice(0, 300) });
     }
+    return this.apply(lead, data);
+  }
+
+  /** Con los datos que entregó Meta: crea o une el contacto y cierra el lead. Los datos personales van al contacto, no al lead. */
+  private async apply(lead: any, data: any) {
+    const companyId = lead.companyId as string;
+    const set = (patch: Record<string, unknown>) => this.prisma.adLead.update({ where: { id: lead.id }, data: patch });
     const person = contactFromFields(data?.field_data);
     const ids = {
       adId: lead.adId ?? (data?.ad_id ? String(data.ad_id) : null),
@@ -138,6 +182,169 @@ export class AdLeadsService {
       await this.prisma.contact.update({ where: { id: contact.id }, data: { originJson: origin } });
     }
     return set({ status: 'FETCHED', fetchedAt: this.now(), contactId: contact.id, error: null, fieldNamesJson: JSON.stringify(person.fieldNames), ...ids });
+  }
+
+  /* ── Importación directa (sin depender del aviso de Meta) ── */
+
+  /** Cuentas publicitarias reales de Meta cuyo acceso incluye leads_retrieval, con su token. */
+  private async accountTokens(companyId: string, accountId?: string) {
+    const rows = await this.prisma.adAccount.findMany({ where: { companyId, provider: 'META', mode: 'REAL', status: { in: ['CONNECTED', 'ERROR'] }, ...(accountId ? { id: accountId } : {}) } });
+    const out: Array<{ accountId: string; token: string }> = [];
+    for (const a of rows) {
+      if (!a.tokenEnc || !parseJson<string[]>(a.scopesJson, []).includes(META_LEADS_SCOPE)) continue;
+      try {
+        out.push({ accountId: a.id, token: decryptSecret(a.tokenEnc) });
+      } catch {
+        /* conexión ilegible: se ignora, la sincronización ya lo reporta */
+      }
+    }
+    return out;
+  }
+
+  /** Estado de la lectura de formularios de la empresa (para la pantalla). */
+  async status(companyId: string) {
+    const accounts = await this.prisma.adAccount.findMany({ where: { companyId, provider: 'META', mode: 'REAL', status: { not: 'DISCONNECTED' } } });
+    const withScope = accounts.filter((a) => parseJson<string[]>(a.scopesJson, []).includes(META_LEADS_SCOPE));
+    const settings = accounts.length ? await this.prisma.platformSetting.findMany({ where: { key: { in: accounts.map((a) => importKey(a.id)) } } }) : [];
+    const runs = settings.map((x) => parseJson<LeadImportResult | null>(x.value, null)).filter(Boolean) as LeadImportResult[];
+    const last = runs.sort((x, y) => (x.at < y.at ? 1 : -1))[0] ?? null;
+    const pending = await this.prisma.adLead.count({ where: { companyId, status: { in: ['PENDING_PERMISSION', 'ERROR', 'RECEIVED'] } } });
+    return {
+      connected: accounts.length > 0,
+      canRead: withScope.length > 0,
+      missing: withScope.length ? [] : META_LEADS_SCOPES.filter((sc) => !accounts.some((a) => parseJson<string[]>(a.scopesJson, []).includes(sc))),
+      everyMinutes: LEAD_IMPORT_EVERY_MIN,
+      pending,
+      lastImport: last ? { at: last.at, status: last.status, ads: last.ads, found: last.found, created: last.created, contacts: last.contacts, retried: last.retried, more: last.more, error: last.error } : null,
+    };
+  }
+
+  /** Importa los formularios de todas las cuentas de la empresa que tengan el permiso. */
+  async importCompany(companyId: string): Promise<LeadImportResult> {
+    const accounts = await this.prisma.adAccount.findMany({ where: { companyId, provider: 'META', mode: 'REAL', status: { in: ['CONNECTED', 'ERROR'] } } });
+    const total: LeadImportResult = { at: this.now().toISOString(), status: 'NO_PERMISSION', ads: 0, found: 0, created: 0, contacts: 0, retried: 0, more: false, error: NO_PERMISSION, cursor: null };
+    for (const a of accounts) {
+      const r = await this.importAccount(a);
+      if (r.status === 'NO_PERMISSION' && total.status !== 'NO_PERMISSION') continue;
+      if (total.status === 'NO_PERMISSION' || r.status === 'ERROR') {
+        total.status = r.status;
+        total.error = r.error;
+      }
+      total.ads += r.ads; total.found += r.found; total.created += r.created; total.contacts += r.contacts; total.retried += r.retried; total.more = total.more || r.more;
+    }
+    return total;
+  }
+
+  /**
+   * Trae de Meta los formularios de una cuenta publicitaria, anuncio por
+   * anuncio, desde la última importación (la primera vez, 60 días):
+   *  - Solo anuncios de campañas de clientes potenciales o que ya reportaron leads.
+   *  - El _id sale del leadgen_id: repetir la importación no duplica nada.
+   *  - Si Meta niega el permiso, no se guarda nada y queda dicho por qué.
+   *  - Al terminar reintenta los leads que habían quedado esperando permiso.
+   */
+  async importAccount(a: any): Promise<LeadImportResult> {
+    const start = this.now();
+    const out: LeadImportResult = { at: start.toISOString(), status: 'OK', ads: 0, found: 0, created: 0, contacts: 0, retried: 0, more: false, error: null, cursor: null };
+    const key = importKey(a.id);
+    const prev = parseJson<LeadImportResult | null>((await this.prisma.platformSetting.findUnique({ where: { key } }))?.value, null);
+    out.cursor = prev?.cursor ?? null;
+    const save = async () => {
+      await this.prisma.platformSetting.upsert({ where: { key }, create: { key, value: JSON.stringify(out) }, update: { value: JSON.stringify(out) } });
+      return out;
+    };
+    const token = (await this.accountTokens(a.companyId, a.id))[0]?.token;
+    if (!token) {
+      out.status = 'NO_PERMISSION';
+      out.error = NO_PERMISSION;
+      return save();
+    }
+    const since = prev?.cursor ? new Date(new Date(prev.cursor).getTime() - OVERLAP_MS) : new Date(start.getTime() - FIRST_IMPORT_DAYS * 86400e3);
+    const ads = await this.leadAds(a, start);
+    const provider = new MetaAdsProvider(this.fetchImpl);
+    let failed = false;
+    for (const ad of ads) {
+      let res: { leads: any[]; more: boolean };
+      try {
+        res = await provider.fetchAdLeads(ad.externalId, token, since);
+      } catch (err: any) {
+        if (err?.kind === 'NOT_FOUND') continue; // anuncio borrado en Meta
+        failed = true;
+        const denied = err?.kind === 'PERMISSION' || err?.kind === 'AUTH';
+        out.status = denied ? 'NO_PERMISSION' : 'ERROR';
+        out.error = denied ? DENIED : String(err?.message ?? 'Error al leer los formularios').slice(0, 300);
+        break; // permisos o límite: los demás anuncios fallarían igual
+      }
+      out.ads++;
+      out.more = out.more || res.more;
+      for (const raw of res.leads) {
+        const leadgenId = /^\d{1,30}$/.test(String(raw?.id ?? '')) ? String(raw.id) : null;
+        if (!leadgenId) continue;
+        out.found++;
+        const r = await this.store(a.companyId, leadgenId, raw, ad);
+        if (r.created) out.created++;
+        if (r.contact) out.contacts++;
+      }
+    }
+    if (!failed) {
+      // Los que llegaron por aviso y quedaron sin datos: ahora sí se pueden pedir
+      const waiting = await this.prisma.adLead.findMany({ where: { companyId: a.companyId, status: { in: ['PENDING_PERMISSION', 'RECEIVED'] } }, orderBy: { receivedAt: 'desc' }, take: RETRY_MAX });
+      for (const w of waiting) {
+        const r = await this.fetch(a.companyId, w.id);
+        if (r?.status === 'FETCHED') {
+          out.retried++;
+          if (r.contactId) out.contacts++;
+        }
+      }
+      // Solo una importación completa mueve la marca: si faltó algo, la próxima vuelve a cubrirlo
+      if (!out.more) out.cursor = start.toISOString();
+    }
+    return save();
+  }
+
+  /** Anuncios que pueden tener formularios: campañas de clientes potenciales o anuncios que ya reportaron leads. */
+  private async leadAds(a: any, now: Date) {
+    const entities = await this.prisma.adEntity.findMany({ where: { companyId: a.companyId, accountId: a.id, level: { in: ['CAMPAIGN', 'AD'] } } });
+    const leadCampaigns = new Set(entities.filter((e) => e.level === 'CAMPAIGN' && /LEAD/i.test(String(e.objective ?? ''))).map((e) => e.externalId));
+    const sinceDay = new Date(now.getTime() - FIRST_IMPORT_DAYS * 86400e3).toISOString().slice(0, 10);
+    const withLeads = await this.prisma.adInsightDaily.findMany({ where: { companyId: a.companyId, accountId: a.id, level: 'AD', leads: { gt: 0 }, date: { gte: sinceDay } }, select: { externalId: true } });
+    const reported = new Set(withLeads.map((r) => r.externalId));
+    const active = (e: any) => ((e.effectiveStatus ?? e.status) === 'ACTIVE' ? 0 : 1);
+    return entities
+      .filter((e) => e.level === 'AD' && (reported.has(e.externalId) || (e.campaignExternalId && leadCampaigns.has(e.campaignExternalId))))
+      .sort((x, y) => active(x) - active(y) || (reported.has(y.externalId) ? 1 : 0) - (reported.has(x.externalId) ? 1 : 0))
+      .slice(0, ADS_PER_RUN);
+  }
+
+  /** Guarda un lead que ya viene con sus datos (importación). Devuelve si era nuevo y si quedó con contacto. */
+  private async store(companyId: string, leadgenId: string, raw: any, ad: { externalId: string; adsetExternalId?: string | null; campaignExternalId?: string | null }) {
+    const id = leadDocId(leadgenId);
+    const existing = await this.prisma.adLead.findUnique({ where: { id } });
+    if (existing) {
+      // De otra empresa: no se toca. Ya completo: nada que hacer.
+      if (existing.companyId !== companyId || existing.status === 'FETCHED' || existing.status === 'FETCHING') return { created: false, contact: false };
+      const claim = await this.prisma.adLead.updateMany({ where: { id, companyId, status: { in: ['RECEIVED', 'PENDING_PERMISSION', 'ERROR'] } }, data: { status: 'FETCHING' } });
+      if (claim.count !== 1) return { created: false, contact: false };
+      const done = await this.apply(existing, raw);
+      return { created: false, contact: !!done.contactId };
+    }
+    const t = Date.parse(String(raw?.created_time ?? ''));
+    const num = (v: unknown) => (/^\d{1,30}$/.test(String(v ?? '')) ? String(v) : null);
+    let lead;
+    try {
+      lead = await this.prisma.adLead.create({
+        data: {
+          id, companyId, leadgenId, pageId: null, formId: num(raw?.form_id), adId: num(raw?.ad_id) ?? ad.externalId,
+          adsetId: num(raw?.adset_id) ?? ad.adsetExternalId ?? null, campaignId: num(raw?.campaign_id) ?? ad.campaignExternalId ?? null,
+          status: 'FETCHING', fieldNamesJson: '[]', leadCreatedAt: Number.isFinite(t) ? new Date(t) : null, receivedAt: this.now(),
+        },
+      });
+    } catch (err: any) {
+      if (err?.code !== 'P2002') throw err;
+      return { created: false, contact: false }; // otra importación lo guardó a la vez
+    }
+    const done = await this.apply(lead, raw);
+    return { created: true, contact: !!done.contactId };
   }
 
   async list(companyId: string) {
