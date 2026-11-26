@@ -1,0 +1,5872 @@
+[
+ {
+  "file": "auth/auth.controller.ts",
+  "line": 62,
+  "verb": "POST",
+  "route": "/auth/login",
+  "roles": "",
+  "pub": true,
+  "thr": true,
+  "products": ""
+ },
+ {
+  "file": "auth/auth.controller.ts",
+  "line": 70,
+  "verb": "POST",
+  "route": "/auth/mfa/verify",
+  "roles": "",
+  "pub": true,
+  "thr": true,
+  "products": ""
+ },
+ {
+  "file": "auth/auth.controller.ts",
+  "line": 75,
+  "verb": "GET",
+  "route": "/auth/mfa",
+  "roles": "",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "auth/auth.controller.ts",
+  "line": 81,
+  "verb": "POST",
+  "route": "/auth/mfa/setup",
+  "roles": "",
+  "pub": false,
+  "thr": true,
+  "products": ""
+ },
+ {
+  "file": "auth/auth.controller.ts",
+  "line": 87,
+  "verb": "POST",
+  "route": "/auth/mfa/enable",
+  "roles": "",
+  "pub": false,
+  "thr": true,
+  "products": ""
+ },
+ {
+  "file": "auth/auth.controller.ts",
+  "line": 93,
+  "verb": "POST",
+  "route": "/auth/mfa/disable",
+  "roles": "",
+  "pub": false,
+  "thr": true,
+  "products": ""
+ },
+ {
+  "file": "auth/auth.controller.ts",
+  "line": 99,
+  "verb": "POST",
+  "route": "/auth/logout",
+  "roles": "",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "auth/auth.controller.ts",
+  "line": 104,
+  "verb": "GET",
+  "route": "/auth/me",
+  "roles": "",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "auth/auth.controller.ts",
+  "line": 109,
+  "verb": "POST",
+  "route": "/auth/change-password",
+  "roles": "",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "auth/auth.controller.ts",
+  "line": 115,
+  "verb": "POST",
+  "route": "/auth/tour-done",
+  "roles": "",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/account.module.ts",
+  "line": 244,
+  "verb": "GET",
+  "route": "/users/invitations",
+  "roles": "SUPER_ADMIN,DEV,COMPANY_ADMIN",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/account.module.ts",
+  "line": 247,
+  "verb": "POST",
+  "route": "/users/invitations",
+  "roles": "SUPER_ADMIN,DEV,COMPANY_ADMIN",
+  "pub": false,
+  "thr": true,
+  "products": ""
+ },
+ {
+  "file": "modules/account.module.ts",
+  "line": 250,
+  "verb": "DELETE",
+  "route": "/users/invitations/:id",
+  "roles": "SUPER_ADMIN,DEV,COMPANY_ADMIN",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/account.module.ts",
+  "line": 258,
+  "verb": "GET",
+  "route": "/public/account/invitations/:token",
+  "roles": "",
+  "pub": true,
+  "thr": true,
+  "products": ""
+ },
+ {
+  "file": "modules/account.module.ts",
+  "line": 261,
+  "verb": "POST",
+  "route": "/public/account/invitations/accept",
+  "roles": "",
+  "pub": true,
+  "thr": true,
+  "products": ""
+ },
+ {
+  "file": "modules/account.module.ts",
+  "line": 264,
+  "verb": "POST",
+  "route": "/public/account/password/forgot",
+  "roles": "",
+  "pub": true,
+  "thr": true,
+  "products": ""
+ },
+ {
+  "file": "modules/account.module.ts",
+  "line": 267,
+  "verb": "POST",
+  "route": "/public/account/password/reset",
+  "roles": "",
+  "pub": true,
+  "thr": true,
+  "products": ""
+ },
+ {
+  "file": "modules/addons/addon-engines.module.ts",
+  "line": 81,
+  "verb": "GET",
+  "route": "/addons/reactivation",
+  "roles": "",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/addons/addon-engines.module.ts",
+  "line": 88,
+  "verb": "PUT",
+  "route": "/addons/reactivation/auto",
+  "roles": "SUPER_ADMIN,DEV,COMPANY_ADMIN",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/addons/addon-engines.module.ts",
+  "line": 94,
+  "verb": "PUT",
+  "route": "/addons/reactivation/config",
+  "roles": "SUPER_ADMIN,DEV,COMPANY_ADMIN",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/addons/addon-engines.module.ts",
+  "line": 100,
+  "verb": "POST",
+  "route": "/addons/reactivation/run",
+  "roles": "SUPER_ADMIN,DEV,COMPANY_ADMIN",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/addons/addon-engines.module.ts",
+  "line": 108,
+  "verb": "GET",
+  "route": "/addons/collections",
+  "roles": "",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/addons/addon-engines.module.ts",
+  "line": 115,
+  "verb": "PUT",
+  "route": "/addons/collections/auto",
+  "roles": "SUPER_ADMIN,DEV,COMPANY_ADMIN",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/addons/addon-engines.module.ts",
+  "line": 121,
+  "verb": "PUT",
+  "route": "/addons/collections/config",
+  "roles": "SUPER_ADMIN,DEV,COMPANY_ADMIN",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/addons/addon-engines.module.ts",
+  "line": 127,
+  "verb": "POST",
+  "route": "/addons/collections/run",
+  "roles": "SUPER_ADMIN,DEV,COMPANY_ADMIN",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/addons/addon-engines.module.ts",
+  "line": 133,
+  "verb": "POST",
+  "route": "/addons/collections/receivables",
+  "roles": "SUPER_ADMIN,DEV,COMPANY_ADMIN",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/addons/addon-engines.module.ts",
+  "line": 140,
+  "verb": "PATCH",
+  "route": "/addons/collections/receivables/:id",
+  "roles": "SUPER_ADMIN,DEV,COMPANY_ADMIN",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/addons/addon-engines.module.ts",
+  "line": 147,
+  "verb": "GET",
+  "route": "/addons/sales-audit",
+  "roles": "",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/addons/addon-engines.module.ts",
+  "line": 154,
+  "verb": "PUT",
+  "route": "/addons/sales-audit/config",
+  "roles": "SUPER_ADMIN,DEV,COMPANY_ADMIN",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/addons/addon-engines.module.ts",
+  "line": 160,
+  "verb": "POST",
+  "route": "/addons/sales-audit/generate",
+  "roles": "SUPER_ADMIN,DEV,COMPANY_ADMIN",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/ads-create.ts",
+  "line": 557,
+  "verb": "GET",
+  "route": "/ads/create/setup",
+  "roles": "...READ",
+  "pub": false,
+  "thr": false,
+  "products": "Products('ADS')"
+ },
+ {
+  "file": "modules/ads-create.ts",
+  "line": 560,
+  "verb": "PUT",
+  "route": "/ads/create/budget-cap",
+  "roles": "...WRITE",
+  "pub": false,
+  "thr": false,
+  "products": "Products('ADS')"
+ },
+ {
+  "file": "modules/ads-create.ts",
+  "line": 564,
+  "verb": "POST",
+  "route": "/ads/create/review",
+  "roles": "...WRITE",
+  "pub": false,
+  "thr": true,
+  "products": "Products('ADS')"
+ },
+ {
+  "file": "modules/ads-create.ts",
+  "line": 567,
+  "verb": "POST",
+  "route": "/ads/create/preview",
+  "roles": "...WRITE",
+  "pub": false,
+  "thr": false,
+  "products": "Products('ADS')"
+ },
+ {
+  "file": "modules/ads-create.ts",
+  "line": 570,
+  "verb": "GET",
+  "route": "/ads/create/launches",
+  "roles": "...READ",
+  "pub": false,
+  "thr": false,
+  "products": "Products('ADS')"
+ },
+ {
+  "file": "modules/ads-create.ts",
+  "line": 573,
+  "verb": "POST",
+  "route": "/ads/create/launches",
+  "roles": "...WRITE",
+  "pub": false,
+  "thr": true,
+  "products": "Products('ADS')"
+ },
+ {
+  "file": "modules/ads-create.ts",
+  "line": 576,
+  "verb": "POST",
+  "route": "/ads/create/launches/:id/retry",
+  "roles": "...WRITE",
+  "pub": false,
+  "thr": true,
+  "products": "Products('ADS')"
+ },
+ {
+  "file": "modules/ads-create.ts",
+  "line": 579,
+  "verb": "POST",
+  "route": "/ads/create/launches/:id/activate",
+  "roles": "...WRITE",
+  "pub": false,
+  "thr": false,
+  "products": "Products('ADS')"
+ },
+ {
+  "file": "modules/ads-create.ts",
+  "line": 582,
+  "verb": "POST",
+  "route": "/ads/create/launches/:id/pause",
+  "roles": "...WRITE",
+  "pub": false,
+  "thr": false,
+  "products": "Products('ADS')"
+ },
+ {
+  "file": "modules/ads-create.ts",
+  "line": 585,
+  "verb": "DELETE",
+  "route": "/ads/create/launches/:id",
+  "roles": "...WRITE",
+  "pub": false,
+  "thr": false,
+  "products": "Products('ADS')"
+ },
+ {
+  "file": "modules/ads-create.ts",
+  "line": 588,
+  "verb": "GET",
+  "route": "/ads/create/week",
+  "roles": "...READ",
+  "pub": false,
+  "thr": false,
+  "products": "Products('ADS')"
+ },
+ {
+  "file": "modules/ads.module.ts",
+  "line": 1419,
+  "verb": "GET",
+  "route": "/ads/providers",
+  "roles": "...READ",
+  "pub": false,
+  "thr": false,
+  "products": "Products('ADS')"
+ },
+ {
+  "file": "modules/ads.module.ts",
+  "line": 1420,
+  "verb": "GET",
+  "route": "/ads/accounts",
+  "roles": "...READ",
+  "pub": false,
+  "thr": false,
+  "products": "Products('ADS')"
+ },
+ {
+  "file": "modules/ads.module.ts",
+  "line": 1421,
+  "verb": "POST",
+  "route": "/ads/accounts/demo",
+  "roles": "...WRITE",
+  "pub": false,
+  "thr": false,
+  "products": "Products('ADS')"
+ },
+ {
+  "file": "modules/ads.module.ts",
+  "line": 1423,
+  "verb": "POST",
+  "route": "/ads/accounts/manual",
+  "roles": "...WRITE",
+  "pub": false,
+  "thr": true,
+  "products": "Products('ADS')"
+ },
+ {
+  "file": "modules/ads.module.ts",
+  "line": 1424,
+  "verb": "DELETE",
+  "route": "/ads/demo",
+  "roles": "...WRITE",
+  "pub": false,
+  "thr": false,
+  "products": "Products('ADS')"
+ },
+ {
+  "file": "modules/ads.module.ts",
+  "line": 1425,
+  "verb": "DELETE",
+  "route": "/ads/accounts/:id",
+  "roles": "...WRITE",
+  "pub": false,
+  "thr": false,
+  "products": "Products('ADS')"
+ },
+ {
+  "file": "modules/ads.module.ts",
+  "line": 1427,
+  "verb": "POST",
+  "route": "/ads/accounts/:id/sync",
+  "roles": "...WRITE",
+  "pub": false,
+  "thr": true,
+  "products": "Products('ADS')"
+ },
+ {
+  "file": "modules/ads.module.ts",
+  "line": 1428,
+  "verb": "GET",
+  "route": "/ads/accounts/:id/syncs",
+  "roles": "...READ",
+  "pub": false,
+  "thr": false,
+  "products": "Products('ADS')"
+ },
+ {
+  "file": "modules/ads.module.ts",
+  "line": 1429,
+  "verb": "GET",
+  "route": "/ads/meta/oauth",
+  "roles": "...WRITE",
+  "pub": false,
+  "thr": false,
+  "products": "Products('ADS')"
+ },
+ {
+  "file": "modules/ads.module.ts",
+  "line": 1430,
+  "verb": "GET",
+  "route": "/ads/google/oauth",
+  "roles": "...WRITE",
+  "pub": false,
+  "thr": false,
+  "products": "Products('ADS')"
+ },
+ {
+  "file": "modules/ads.module.ts",
+  "line": 1431,
+  "verb": "GET",
+  "route": "/ads/tiktok/oauth",
+  "roles": "...WRITE",
+  "pub": false,
+  "thr": false,
+  "products": "Products('ADS')"
+ },
+ {
+  "file": "modules/ads.module.ts",
+  "line": 1432,
+  "verb": "GET",
+  "route": "/ads/:provider/pending",
+  "roles": "...WRITE",
+  "pub": false,
+  "thr": false,
+  "products": "Products('ADS')"
+ },
+ {
+  "file": "modules/ads.module.ts",
+  "line": 1433,
+  "verb": "POST",
+  "route": "/ads/:provider/select",
+  "roles": "...WRITE",
+  "pub": false,
+  "thr": false,
+  "products": "Products('ADS')"
+ },
+ {
+  "file": "modules/ads.module.ts",
+  "line": 1434,
+  "verb": "GET",
+  "route": "/ads/meta/pending",
+  "roles": "...WRITE",
+  "pub": false,
+  "thr": false,
+  "products": "Products('ADS')"
+ },
+ {
+  "file": "modules/ads.module.ts",
+  "line": 1435,
+  "verb": "POST",
+  "route": "/ads/meta/select",
+  "roles": "...WRITE",
+  "pub": false,
+  "thr": false,
+  "products": "Products('ADS')"
+ },
+ {
+  "file": "modules/ads.module.ts",
+  "line": 1437,
+  "verb": "GET",
+  "route": "/ads/overview",
+  "roles": "...READ",
+  "pub": false,
+  "thr": false,
+  "products": "Products('ADS')"
+ },
+ {
+  "file": "modules/ads.module.ts",
+  "line": 1438,
+  "verb": "GET",
+  "route": "/ads/campaigns",
+  "roles": "...READ",
+  "pub": false,
+  "thr": false,
+  "products": "Products('ADS')"
+ },
+ {
+  "file": "modules/ads.module.ts",
+  "line": 1439,
+  "verb": "POST",
+  "route": "/ads/entities/:id/status",
+  "roles": "...WRITE",
+  "pub": false,
+  "thr": false,
+  "products": "Products('ADS')"
+ },
+ {
+  "file": "modules/ads.module.ts",
+  "line": 1441,
+  "verb": "POST",
+  "route": "/ads/audit",
+  "roles": "...WRITE",
+  "pub": false,
+  "thr": true,
+  "products": "Products('ADS')"
+ },
+ {
+  "file": "modules/ads.module.ts",
+  "line": 1443,
+  "verb": "GET",
+  "route": "/ads/actions",
+  "roles": "...READ",
+  "pub": false,
+  "thr": false,
+  "products": "Products('ADS')"
+ },
+ {
+  "file": "modules/ads.module.ts",
+  "line": 1444,
+  "verb": "POST",
+  "route": "/ads/actions/:id/decide",
+  "roles": "...WRITE",
+  "pub": false,
+  "thr": false,
+  "products": "Products('ADS')"
+ },
+ {
+  "file": "modules/ads.module.ts",
+  "line": 1446,
+  "verb": "POST",
+  "route": "/ads/actions/:id/retry",
+  "roles": "...WRITE",
+  "pub": false,
+  "thr": true,
+  "products": "Products('ADS')"
+ },
+ {
+  "file": "modules/ads.module.ts",
+  "line": 1447,
+  "verb": "POST",
+  "route": "/ads/actions/:id/revert",
+  "roles": "...WRITE",
+  "pub": false,
+  "thr": false,
+  "products": "Products('ADS')"
+ },
+ {
+  "file": "modules/ads.module.ts",
+  "line": 1449,
+  "verb": "GET",
+  "route": "/ads/settings",
+  "roles": "...READ",
+  "pub": false,
+  "thr": false,
+  "products": "Products('ADS')"
+ },
+ {
+  "file": "modules/ads.module.ts",
+  "line": 1450,
+  "verb": "PUT",
+  "route": "/ads/settings",
+  "roles": "...WRITE",
+  "pub": false,
+  "thr": false,
+  "products": "Products('ADS')"
+ },
+ {
+  "file": "modules/ads.module.ts",
+  "line": 1451,
+  "verb": "GET",
+  "route": "/ads/rules",
+  "roles": "...READ",
+  "pub": false,
+  "thr": false,
+  "products": "Products('ADS')"
+ },
+ {
+  "file": "modules/ads.module.ts",
+  "line": 1452,
+  "verb": "POST",
+  "route": "/ads/rules",
+  "roles": "...WRITE",
+  "pub": false,
+  "thr": false,
+  "products": "Products('ADS')"
+ },
+ {
+  "file": "modules/ads.module.ts",
+  "line": 1453,
+  "verb": "PUT",
+  "route": "/ads/rules/:id",
+  "roles": "...WRITE",
+  "pub": false,
+  "thr": false,
+  "products": "Products('ADS')"
+ },
+ {
+  "file": "modules/ads.module.ts",
+  "line": 1454,
+  "verb": "DELETE",
+  "route": "/ads/rules/:id",
+  "roles": "...WRITE",
+  "pub": false,
+  "thr": false,
+  "products": "Products('ADS')"
+ },
+ {
+  "file": "modules/ads.module.ts",
+  "line": 1455,
+  "verb": "GET",
+  "route": "/ads/rules/:id/test",
+  "roles": "...READ",
+  "pub": false,
+  "thr": false,
+  "products": "Products('ADS')"
+ },
+ {
+  "file": "modules/ads.module.ts",
+  "line": 1456,
+  "verb": "POST",
+  "route": "/ads/rules/run",
+  "roles": "...WRITE",
+  "pub": false,
+  "thr": true,
+  "products": "Products('ADS')"
+ },
+ {
+  "file": "modules/ads.module.ts",
+  "line": 1458,
+  "verb": "GET",
+  "route": "/ads/revenue",
+  "roles": "...READ",
+  "pub": false,
+  "thr": false,
+  "products": "Products('ADS')"
+ },
+ {
+  "file": "modules/ads.module.ts",
+  "line": 1461,
+  "verb": "GET",
+  "route": "/ads/leads",
+  "roles": "...READ",
+  "pub": false,
+  "thr": false,
+  "products": "Products('ADS')"
+ },
+ {
+  "file": "modules/ads.module.ts",
+  "line": 1463,
+  "verb": "POST",
+  "route": "/ads/leads/:id/fetch",
+  "roles": "...WRITE",
+  "pub": false,
+  "thr": true,
+  "products": "Products('ADS')"
+ },
+ {
+  "file": "modules/ads.module.ts",
+  "line": 1470,
+  "verb": "GET",
+  "route": "/ads/briefs",
+  "roles": "...READ",
+  "pub": false,
+  "thr": false,
+  "products": "Products('ADS')"
+ },
+ {
+  "file": "modules/ads.module.ts",
+  "line": 1471,
+  "verb": "POST",
+  "route": "/ads/briefs",
+  "roles": "...WRITE",
+  "pub": false,
+  "thr": false,
+  "products": "Products('ADS')"
+ },
+ {
+  "file": "modules/ads.module.ts",
+  "line": 1473,
+  "verb": "POST",
+  "route": "/ads/briefs/:id/create",
+  "roles": "...WRITE",
+  "pub": false,
+  "thr": true,
+  "products": "Products('ADS')"
+ },
+ {
+  "file": "modules/ads.module.ts",
+  "line": 1483,
+  "verb": "GET",
+  "route": "/public/ads/meta/callback",
+  "roles": "",
+  "pub": true,
+  "thr": false,
+  "products": "Products('ADS')"
+ },
+ {
+  "file": "modules/ads.module.ts",
+  "line": 1489,
+  "verb": "GET",
+  "route": "/public/ads/google/callback",
+  "roles": "",
+  "pub": true,
+  "thr": false,
+  "products": "Products('ADS')"
+ },
+ {
+  "file": "modules/ads.module.ts",
+  "line": 1496,
+  "verb": "GET",
+  "route": "/public/ads/tiktok/callback",
+  "roles": "",
+  "pub": true,
+  "thr": false,
+  "products": "Products('ADS')"
+ },
+ {
+  "file": "modules/agent-calls.module.ts",
+  "line": 263,
+  "verb": "GET",
+  "route": "/agent-calls/slots",
+  "roles": "",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/agent-calls.module.ts",
+  "line": 268,
+  "verb": "GET",
+  "route": "/agent-calls/mine",
+  "roles": "",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/agent-calls.module.ts",
+  "line": 274,
+  "verb": "POST",
+  "route": "/agent-calls",
+  "roles": "SUPER_ADMIN,DEV,COMPANY_ADMIN,COMPANY_VIEWER",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/agent-calls.module.ts",
+  "line": 280,
+  "verb": "POST",
+  "route": "/agent-calls/:id/cancel",
+  "roles": "SUPER_ADMIN,DEV,COMPANY_ADMIN,COMPANY_VIEWER",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/agent-calls.module.ts",
+  "line": 286,
+  "verb": "GET",
+  "route": "/agent-calls/all",
+  "roles": "SUPER_ADMIN,DEV",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/agent-calls.module.ts",
+  "line": 292,
+  "verb": "PATCH",
+  "route": "/agent-calls/:id",
+  "roles": "SUPER_ADMIN,DEV",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/ai-cost.module.ts",
+  "line": 97,
+  "verb": "GET",
+  "route": "/ai-costs/estimate",
+  "roles": "",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/ai-credits.module.ts",
+  "line": 145,
+  "verb": "GET",
+  "route": "/ai-credits/packages",
+  "roles": "",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/ai-credits.module.ts",
+  "line": 151,
+  "verb": "POST",
+  "route": "/ai-credits/packages",
+  "roles": "SUPER_ADMIN,DEV",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/ai-credits.module.ts",
+  "line": 157,
+  "verb": "PATCH",
+  "route": "/ai-credits/packages/:id",
+  "roles": "SUPER_ADMIN,DEV",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/ai-credits.module.ts",
+  "line": 163,
+  "verb": "DELETE",
+  "route": "/ai-credits/packages/:id",
+  "roles": "SUPER_ADMIN,DEV",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/ai-credits.module.ts",
+  "line": 169,
+  "verb": "GET",
+  "route": "/ai-credits/status",
+  "roles": "SUPER_ADMIN,DEV,COMPANY_ADMIN,COMPANY_VIEWER",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/ai-credits.module.ts",
+  "line": 175,
+  "verb": "POST",
+  "route": "/ai-credits/checkout",
+  "roles": "SUPER_ADMIN,DEV,COMPANY_ADMIN",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/ai-credits.module.ts",
+  "line": 181,
+  "verb": "POST",
+  "route": "/ai-credits/grant",
+  "roles": "SUPER_ADMIN,DEV",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/ai-setup.module.ts",
+  "line": 263,
+  "verb": "POST",
+  "route": "/ai-setup/preview",
+  "roles": "SUPER_ADMIN,DEV,COMPANY_ADMIN",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/ai-setup.module.ts",
+  "line": 269,
+  "verb": "POST",
+  "route": "/ai-setup/apply",
+  "roles": "SUPER_ADMIN,DEV,COMPANY_ADMIN",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/ai-trial.module.ts",
+  "line": 85,
+  "verb": "GET",
+  "route": "/platform/companies/:id/ai-trial",
+  "roles": "...PLATFORM",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/ai-trial.module.ts",
+  "line": 88,
+  "verb": "PUT",
+  "route": "/platform/companies/:id/ai-trial",
+  "roles": "...PLATFORM",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/ai-trial.module.ts",
+  "line": 91,
+  "verb": "DELETE",
+  "route": "/platform/companies/:id/ai-trial",
+  "roles": "...PLATFORM",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/aimodels.module.ts",
+  "line": 93,
+  "verb": "GET",
+  "route": "/ai-models",
+  "roles": "",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/aimodels.module.ts",
+  "line": 100,
+  "verb": "POST",
+  "route": "/ai-models",
+  "roles": "SUPER_ADMIN,DEV",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/aimodels.module.ts",
+  "line": 106,
+  "verb": "PATCH",
+  "route": "/ai-models/:id",
+  "roles": "SUPER_ADMIN,DEV",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/aimodels.module.ts",
+  "line": 112,
+  "verb": "DELETE",
+  "route": "/ai-models/:id",
+  "roles": "SUPER_ADMIN",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/aiusage.module.ts",
+  "line": 383,
+  "verb": "GET",
+  "route": "/ai-usage/company",
+  "roles": "",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/aiusage.module.ts",
+  "line": 394,
+  "verb": "GET",
+  "route": "/ai-usage/consumption",
+  "roles": "",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/aiusage.module.ts",
+  "line": 404,
+  "verb": "GET",
+  "route": "/ai-usage/platform",
+  "roles": "SUPER_ADMIN,DEV",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/audit.module.ts",
+  "line": 38,
+  "verb": "GET",
+  "route": "/audit",
+  "roles": "SUPER_ADMIN,DEV,COMPANY_ADMIN",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/automations.module.ts",
+  "line": 411,
+  "verb": "GET",
+  "route": "/automations/catalog",
+  "roles": "",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/automations.module.ts",
+  "line": 412,
+  "verb": "GET",
+  "route": "/automations/runs",
+  "roles": "",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/automations.module.ts",
+  "line": 413,
+  "verb": "GET",
+  "route": "/automations/runs/:id",
+  "roles": "",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/automations.module.ts",
+  "line": 414,
+  "verb": "POST",
+  "route": "/automations/runs/:id/cancel",
+  "roles": "...WRITE",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/automations.module.ts",
+  "line": 415,
+  "verb": "POST",
+  "route": "/automations/simulate",
+  "roles": "...WRITE",
+  "pub": false,
+  "thr": true,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/automations.module.ts",
+  "line": 416,
+  "verb": "PUT",
+  "route": "/automations/migrations/courier-assignment",
+  "roles": "...WRITE",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/automations.module.ts",
+  "line": 418,
+  "verb": "GET",
+  "route": "/automations",
+  "roles": "",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/automations.module.ts",
+  "line": 419,
+  "verb": "GET",
+  "route": "/automations/:id",
+  "roles": "",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/automations.module.ts",
+  "line": 420,
+  "verb": "POST",
+  "route": "/automations",
+  "roles": "...WRITE",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/automations.module.ts",
+  "line": 421,
+  "verb": "PATCH",
+  "route": "/automations/:id",
+  "roles": "...WRITE",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/automations.module.ts",
+  "line": 422,
+  "verb": "POST",
+  "route": "/automations/:id/status",
+  "roles": "...WRITE",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/automations.module.ts",
+  "line": 423,
+  "verb": "DELETE",
+  "route": "/automations/:id",
+  "roles": "...WRITE",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/billing.module.ts",
+  "line": 313,
+  "verb": "GET",
+  "route": "/billing/summary",
+  "roles": "",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/billing.module.ts",
+  "line": 318,
+  "verb": "GET",
+  "route": "/billing/invoices",
+  "roles": "",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/billing.module.ts",
+  "line": 324,
+  "verb": "GET",
+  "route": "/billing/forecast",
+  "roles": "SUPER_ADMIN,DEV,COMPANY_ADMIN,COMPANY_VIEWER",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/billing.module.ts",
+  "line": 330,
+  "verb": "GET",
+  "route": "/billing/adjustments",
+  "roles": "SUPER_ADMIN,DEV",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/billing.module.ts",
+  "line": 336,
+  "verb": "POST",
+  "route": "/billing/adjustments",
+  "roles": "SUPER_ADMIN,DEV",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/billing.module.ts",
+  "line": 342,
+  "verb": "PATCH",
+  "route": "/billing/adjustments/:id",
+  "roles": "SUPER_ADMIN,DEV",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/billing.module.ts",
+  "line": 348,
+  "verb": "DELETE",
+  "route": "/billing/adjustments/:id",
+  "roles": "SUPER_ADMIN,DEV",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/billing.module.ts",
+  "line": 354,
+  "verb": "PATCH",
+  "route": "/billing/invoices/:id",
+  "roles": "SUPER_ADMIN,DEV",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/billing.module.ts",
+  "line": 360,
+  "verb": "POST",
+  "route": "/billing/invoices/issue",
+  "roles": "SUPER_ADMIN,DEV",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/bookings.module.ts",
+  "line": 678,
+  "verb": "GET",
+  "route": "/bookings/config",
+  "roles": "...READ",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/bookings.module.ts",
+  "line": 681,
+  "verb": "PUT",
+  "route": "/bookings/config",
+  "roles": "...WRITE",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/bookings.module.ts",
+  "line": 684,
+  "verb": "GET",
+  "route": "/bookings/availability",
+  "roles": "...READ",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/bookings.module.ts",
+  "line": 687,
+  "verb": "POST",
+  "route": "/bookings",
+  "roles": "...WRITE",
+  "pub": false,
+  "thr": true,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/bookings.module.ts",
+  "line": 690,
+  "verb": "POST",
+  "route": "/bookings/:id/cancel",
+  "roles": "...WRITE",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/bookings.module.ts",
+  "line": 693,
+  "verb": "POST",
+  "route": "/bookings/:id/reschedule",
+  "roles": "...WRITE",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/bookings.module.ts",
+  "line": 696,
+  "verb": "GET",
+  "route": "/bookings/:id",
+  "roles": "...READ",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/bots.module.ts",
+  "line": 227,
+  "verb": "GET",
+  "route": "/bots",
+  "roles": "",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/bots.module.ts",
+  "line": 232,
+  "verb": "GET",
+  "route": "/bots/agent-catalog",
+  "roles": "",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/bots.module.ts",
+  "line": 237,
+  "verb": "GET",
+  "route": "/bots/:id",
+  "roles": "",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/bots.module.ts",
+  "line": 243,
+  "verb": "POST",
+  "route": "/bots",
+  "roles": "SUPER_ADMIN,DEV,COMPANY_ADMIN",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/bots.module.ts",
+  "line": 249,
+  "verb": "PATCH",
+  "route": "/bots/:id",
+  "roles": "SUPER_ADMIN,DEV,COMPANY_ADMIN",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/bots.module.ts",
+  "line": 255,
+  "verb": "DELETE",
+  "route": "/bots/:id",
+  "roles": "SUPER_ADMIN,DEV,COMPANY_ADMIN",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/calendar-sync.module.ts",
+  "line": 720,
+  "verb": "GET",
+  "route": "/calendar/google",
+  "roles": "...READ",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/calendar-sync.module.ts",
+  "line": 723,
+  "verb": "GET",
+  "route": "/calendar/google/overlay",
+  "roles": "...READ",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/calendar-sync.module.ts",
+  "line": 726,
+  "verb": "POST",
+  "route": "/calendar/google/connect",
+  "roles": "...WRITE",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/calendar-sync.module.ts",
+  "line": 729,
+  "verb": "POST",
+  "route": "/calendar/google/calendar",
+  "roles": "...WRITE",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/calendar-sync.module.ts",
+  "line": 732,
+  "verb": "PUT",
+  "route": "/calendar/google/settings",
+  "roles": "...WRITE",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/calendar-sync.module.ts",
+  "line": 735,
+  "verb": "POST",
+  "route": "/calendar/google/sync",
+  "roles": "...WRITE",
+  "pub": false,
+  "thr": true,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/calendar-sync.module.ts",
+  "line": 738,
+  "verb": "POST",
+  "route": "/calendar/google/conflicts/:id/resolve",
+  "roles": "...WRITE",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/calendar-sync.module.ts",
+  "line": 741,
+  "verb": "DELETE",
+  "route": "/calendar/google",
+  "roles": "...WRITE",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/calendar-sync.module.ts",
+  "line": 752,
+  "verb": "GET",
+  "route": "/public/calendar/google/callback",
+  "roles": "",
+  "pub": true,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/calendar-sync.module.ts",
+  "line": 760,
+  "verb": "POST",
+  "route": "/public/calendar/google/notify",
+  "roles": "",
+  "pub": true,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/campaigns.module.ts",
+  "line": 518,
+  "verb": "GET",
+  "route": "/campaigns",
+  "roles": "SUPER_ADMIN,DEV,COMPANY_ADMIN,COMPANY_VIEWER",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/campaigns.module.ts",
+  "line": 524,
+  "verb": "POST",
+  "route": "/campaigns/preview",
+  "roles": "SUPER_ADMIN,DEV,COMPANY_ADMIN",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/campaigns.module.ts",
+  "line": 530,
+  "verb": "POST",
+  "route": "/campaigns",
+  "roles": "SUPER_ADMIN,DEV,COMPANY_ADMIN",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/campaigns.module.ts",
+  "line": 536,
+  "verb": "GET",
+  "route": "/campaigns/:id",
+  "roles": "SUPER_ADMIN,DEV,COMPANY_ADMIN,COMPANY_VIEWER",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/campaigns.module.ts",
+  "line": 542,
+  "verb": "POST",
+  "route": "/campaigns/:id/send",
+  "roles": "SUPER_ADMIN,DEV,COMPANY_ADMIN",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/campaigns.module.ts",
+  "line": 548,
+  "verb": "POST",
+  "route": "/campaigns/:id/cancel",
+  "roles": "SUPER_ADMIN,DEV,COMPANY_ADMIN",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/campaigns.module.ts",
+  "line": 554,
+  "verb": "POST",
+  "route": "/campaigns/:id/retarget",
+  "roles": "SUPER_ADMIN,DEV,COMPANY_ADMIN",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/catalog.module.ts",
+  "line": 235,
+  "verb": "GET",
+  "route": "/catalog/products",
+  "roles": "",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/catalog.module.ts",
+  "line": 245,
+  "verb": "POST",
+  "route": "/catalog/products",
+  "roles": "...WRITE_ROLES",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/catalog.module.ts",
+  "line": 251,
+  "verb": "PATCH",
+  "route": "/catalog/products/:id",
+  "roles": "...WRITE_ROLES",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/catalog.module.ts",
+  "line": 257,
+  "verb": "DELETE",
+  "route": "/catalog/products/:id",
+  "roles": "...WRITE_ROLES",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/catalog.module.ts",
+  "line": 262,
+  "verb": "GET",
+  "route": "/catalog/areas",
+  "roles": "",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/catalog.module.ts",
+  "line": 268,
+  "verb": "POST",
+  "route": "/catalog/areas",
+  "roles": "...WRITE_ROLES",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/catalog.module.ts",
+  "line": 274,
+  "verb": "PATCH",
+  "route": "/catalog/areas/:id",
+  "roles": "...WRITE_ROLES",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/catalog.module.ts",
+  "line": 285,
+  "verb": "GET",
+  "route": "/customers",
+  "roles": "",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/catalog.module.ts",
+  "line": 295,
+  "verb": "POST",
+  "route": "/customers",
+  "roles": "...WRITE_ROLES",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/catalog.module.ts",
+  "line": 301,
+  "verb": "PATCH",
+  "route": "/customers/:id",
+  "roles": "...WRITE_ROLES",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/catalog.module.ts",
+  "line": 307,
+  "verb": "DELETE",
+  "route": "/customers/:id",
+  "roles": "...WRITE_ROLES",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/checkout.module.ts",
+  "line": 486,
+  "verb": "GET",
+  "route": "/onboarding/checkout",
+  "roles": "",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/checkout.module.ts",
+  "line": 492,
+  "verb": "POST",
+  "route": "/onboarding/checkout",
+  "roles": "SUPER_ADMIN,DEV,COMPANY_ADMIN",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/checkout.module.ts",
+  "line": 498,
+  "verb": "GET",
+  "route": "/platform/payment-methods",
+  "roles": "SUPER_ADMIN,DEV",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/checkout.module.ts",
+  "line": 504,
+  "verb": "PUT",
+  "route": "/platform/payment-methods",
+  "roles": "SUPER_ADMIN,DEV",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/checkout.module.ts",
+  "line": 511,
+  "verb": "POST",
+  "route": "/platform/payment-methods/qr",
+  "roles": "SUPER_ADMIN,DEV",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/checkout.module.ts",
+  "line": 517,
+  "verb": "GET",
+  "route": "/platform/payment-methods/qr",
+  "roles": "SUPER_ADMIN,DEV",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/checkout.module.ts",
+  "line": 523,
+  "verb": "GET",
+  "route": "/platform/plan-orders",
+  "roles": "SUPER_ADMIN,DEV",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/checkout.module.ts",
+  "line": 529,
+  "verb": "GET",
+  "route": "/platform/plan-orders/:id/message",
+  "roles": "SUPER_ADMIN,DEV",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/checkout.module.ts",
+  "line": 535,
+  "verb": "PATCH",
+  "route": "/platform/plan-orders/:id",
+  "roles": "SUPER_ADMIN,DEV",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/checkout.module.ts",
+  "line": 541,
+  "verb": "POST",
+  "route": "/platform/plan-orders/:id/activate",
+  "roles": "SUPER_ADMIN,DEV",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/commerce.module.ts",
+  "line": 304,
+  "verb": "GET",
+  "route": "/company/addons",
+  "roles": "",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/commerce.module.ts",
+  "line": 310,
+  "verb": "POST",
+  "route": "/company/addons/:key/request",
+  "roles": "SUPER_ADMIN,DEV,COMPANY_ADMIN",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/commerce.module.ts",
+  "line": 316,
+  "verb": "POST",
+  "route": "/company/addons/:key/cancel",
+  "roles": "SUPER_ADMIN,DEV,COMPANY_ADMIN",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/commerce.module.ts",
+  "line": 322,
+  "verb": "GET",
+  "route": "/public/plans",
+  "roles": "",
+  "pub": true,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/commerce.module.ts",
+  "line": 327,
+  "verb": "GET",
+  "route": "/company/plan",
+  "roles": "",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/commerce.module.ts",
+  "line": 332,
+  "verb": "GET",
+  "route": "/company/landing",
+  "roles": "",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/commerce.module.ts",
+  "line": 337,
+  "verb": "GET",
+  "route": "/company/referrals",
+  "roles": "",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/commerce.module.ts",
+  "line": 343,
+  "verb": "PATCH",
+  "route": "/platform/companies/:id/addons/:key",
+  "roles": "SUPER_ADMIN,DEV",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/commerce.module.ts",
+  "line": 349,
+  "verb": "GET",
+  "route": "/platform/addon-requests",
+  "roles": "SUPER_ADMIN,DEV",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/commerce.module.ts",
+  "line": 355,
+  "verb": "GET",
+  "route": "/platform/addon-catalog",
+  "roles": "SUPER_ADMIN,DEV",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/commerce.module.ts",
+  "line": 361,
+  "verb": "PUT",
+  "route": "/platform/addon-catalog",
+  "roles": "SUPER_ADMIN,DEV",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/commerce.module.ts",
+  "line": 367,
+  "verb": "GET",
+  "route": "/platform/landings",
+  "roles": "SUPER_ADMIN,DEV",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/commerce.module.ts",
+  "line": 373,
+  "verb": "PATCH",
+  "route": "/platform/companies/:id/landing",
+  "roles": "SUPER_ADMIN,DEV",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/companies.module.ts",
+  "line": 829,
+  "verb": "GET",
+  "route": "/companies",
+  "roles": "",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/companies.module.ts",
+  "line": 837,
+  "verb": "GET",
+  "route": "/companies/templates",
+  "roles": "SUPER_ADMIN,DEV",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/companies.module.ts",
+  "line": 850,
+  "verb": "GET",
+  "route": "/companies/:id",
+  "roles": "",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/companies.module.ts",
+  "line": 856,
+  "verb": "POST",
+  "route": "/companies",
+  "roles": "SUPER_ADMIN,DEV",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/companies.module.ts",
+  "line": 862,
+  "verb": "PATCH",
+  "route": "/companies/:id",
+  "roles": "SUPER_ADMIN,DEV,COMPANY_ADMIN",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/companies.module.ts",
+  "line": 869,
+  "verb": "GET",
+  "route": "/companies/:id/data-footprint",
+  "roles": "SUPER_ADMIN,DEV",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/companies.module.ts",
+  "line": 875,
+  "verb": "DELETE",
+  "route": "/companies/:id",
+  "roles": "SUPER_ADMIN",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/contacts.module.ts",
+  "line": 193,
+  "verb": "GET",
+  "route": "/contacts",
+  "roles": "",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/contacts.module.ts",
+  "line": 205,
+  "verb": "POST",
+  "route": "/contacts",
+  "roles": "SUPER_ADMIN,DEV,COMPANY_ADMIN",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/contacts.module.ts",
+  "line": 211,
+  "verb": "PATCH",
+  "route": "/contacts/:id",
+  "roles": "SUPER_ADMIN,DEV,COMPANY_ADMIN",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/contacts.module.ts",
+  "line": 217,
+  "verb": "DELETE",
+  "route": "/contacts/:id",
+  "roles": "SUPER_ADMIN,DEV,COMPANY_ADMIN",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/conversations.module.ts",
+  "line": 686,
+  "verb": "GET",
+  "route": "/conversations",
+  "roles": "",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/conversations.module.ts",
+  "line": 703,
+  "verb": "GET",
+  "route": "/conversations/inbox",
+  "roles": "",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/conversations.module.ts",
+  "line": 708,
+  "verb": "GET",
+  "route": "/conversations/channels",
+  "roles": "",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/conversations.module.ts",
+  "line": 715,
+  "verb": "POST",
+  "route": "/conversations/channels/:integrationId/verify",
+  "roles": "...WRITE_ROLES",
+  "pub": false,
+  "thr": true,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/conversations.module.ts",
+  "line": 720,
+  "verb": "GET",
+  "route": "/conversations/assignees",
+  "roles": "",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/conversations.module.ts",
+  "line": 725,
+  "verb": "GET",
+  "route": "/conversations/messages/:messageId/file",
+  "roles": "",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/conversations.module.ts",
+  "line": 734,
+  "verb": "GET",
+  "route": "/conversations/:id/insights",
+  "roles": "",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/conversations.module.ts",
+  "line": 739,
+  "verb": "GET",
+  "route": "/conversations/:id/messages",
+  "roles": "",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/conversations.module.ts",
+  "line": 744,
+  "verb": "GET",
+  "route": "/conversations/:id/window",
+  "roles": "",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/conversations.module.ts",
+  "line": 749,
+  "verb": "GET",
+  "route": "/conversations/:id/notes",
+  "roles": "",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/conversations.module.ts",
+  "line": 755,
+  "verb": "POST",
+  "route": "/conversations/:id/notes",
+  "roles": "...WRITE_ROLES",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/conversations.module.ts",
+  "line": 761,
+  "verb": "PATCH",
+  "route": "/conversations/:id/assign",
+  "roles": "...WRITE_ROLES",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/conversations.module.ts",
+  "line": 767,
+  "verb": "POST",
+  "route": "/conversations/:id/messages/:messageId/resend",
+  "roles": "...WRITE_ROLES",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/conversations.module.ts",
+  "line": 772,
+  "verb": "GET",
+  "route": "/conversations/:id",
+  "roles": "",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/conversations.module.ts",
+  "line": 778,
+  "verb": "POST",
+  "route": "/conversations/:id/messages",
+  "roles": "...WRITE_ROLES",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/conversations.module.ts",
+  "line": 790,
+  "verb": "PATCH",
+  "route": "/conversations/:id/mode",
+  "roles": "...WRITE_ROLES",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/conversations.module.ts",
+  "line": 803,
+  "verb": "PATCH",
+  "route": "/conversations/:id",
+  "roles": "...WRITE_ROLES",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/creative-copy.ts",
+  "line": 211,
+  "verb": "GET",
+  "route": "/creative/copy/status",
+  "roles": "...READ",
+  "pub": false,
+  "thr": false,
+  "products": "Products('CREATIVE', 'ADS')"
+ },
+ {
+  "file": "modules/creative-copy.ts",
+  "line": 214,
+  "verb": "POST",
+  "route": "/creative/copy/suggest",
+  "roles": "...WRITE",
+  "pub": false,
+  "thr": true,
+  "products": "Products('CREATIVE', 'ADS')"
+ },
+ {
+  "file": "modules/creative-create.ts",
+  "line": 400,
+  "verb": "GET",
+  "route": "/creative/create/start",
+  "roles": "...READ",
+  "pub": false,
+  "thr": false,
+  "products": "Products('CREATIVE')"
+ },
+ {
+  "file": "modules/creative-create.ts",
+  "line": 403,
+  "verb": "POST",
+  "route": "/creative/create/intent",
+  "roles": "...WRITE",
+  "pub": false,
+  "thr": true,
+  "products": "Products('CREATIVE')"
+ },
+ {
+  "file": "modules/creative-create.ts",
+  "line": 407,
+  "verb": "POST",
+  "route": "/creative/create/cutout",
+  "roles": "...WRITE",
+  "pub": false,
+  "thr": true,
+  "products": "Products('CREATIVE')"
+ },
+ {
+  "file": "modules/creative-create.ts",
+  "line": 410,
+  "verb": "POST",
+  "route": "/creative/create/to-ads/:designId",
+  "roles": "...WRITE",
+  "pub": false,
+  "thr": true,
+  "products": "Products('CREATIVE')"
+ },
+ {
+  "file": "modules/creative-create.ts",
+  "line": 413,
+  "verb": "GET",
+  "route": "/creative/create/what-works",
+  "roles": "...READ",
+  "pub": false,
+  "thr": false,
+  "products": "Products('CREATIVE')"
+ },
+ {
+  "file": "modules/creative-create.ts",
+  "line": 416,
+  "verb": "GET",
+  "route": "/creative/create/ad-usage/:designId",
+  "roles": "...READ",
+  "pub": false,
+  "thr": false,
+  "products": "Products('CREATIVE')"
+ },
+ {
+  "file": "modules/creative-stock.ts",
+  "line": 180,
+  "verb": "GET",
+  "route": "/creative/stock/status",
+  "roles": "...READ",
+  "pub": false,
+  "thr": false,
+  "products": "Products('CREATIVE', 'ADS')"
+ },
+ {
+  "file": "modules/creative-stock.ts",
+  "line": 183,
+  "verb": "GET",
+  "route": "/creative/stock/search",
+  "roles": "...READ",
+  "pub": false,
+  "thr": true,
+  "products": "Products('CREATIVE', 'ADS')"
+ },
+ {
+  "file": "modules/creative-stock.ts",
+  "line": 186,
+  "verb": "POST",
+  "route": "/creative/stock/import",
+  "roles": "...WRITE",
+  "pub": false,
+  "thr": true,
+  "products": "Products('CREATIVE', 'ADS')"
+ },
+ {
+  "file": "modules/creative.module.ts",
+  "line": 816,
+  "verb": "GET",
+  "route": "/creative/templates",
+  "roles": "",
+  "pub": false,
+  "thr": false,
+  "products": "Products('CREATIVE')"
+ },
+ {
+  "file": "modules/creative.module.ts",
+  "line": 821,
+  "verb": "GET",
+  "route": "/creative/catalog-products",
+  "roles": "",
+  "pub": false,
+  "thr": false,
+  "products": "Products('CREATIVE')"
+ },
+ {
+  "file": "modules/creative.module.ts",
+  "line": 828,
+  "verb": "POST",
+  "route": "/creative/assets/from-product",
+  "roles": "...WRITE",
+  "pub": false,
+  "thr": true,
+  "products": "Products('CREATIVE')"
+ },
+ {
+  "file": "modules/creative.module.ts",
+  "line": 833,
+  "verb": "GET",
+  "route": "/creative/art/catalog",
+  "roles": "",
+  "pub": false,
+  "thr": false,
+  "products": "Products('CREATIVE')"
+ },
+ {
+  "file": "modules/creative.module.ts",
+  "line": 838,
+  "verb": "GET",
+  "route": "/creative/art/stats",
+  "roles": "",
+  "pub": false,
+  "thr": false,
+  "products": "Products('CREATIVE')"
+ },
+ {
+  "file": "modules/creative.module.ts",
+  "line": 845,
+  "verb": "POST",
+  "route": "/creative/art/proposals",
+  "roles": "...WRITE",
+  "pub": false,
+  "thr": true,
+  "products": "Products('CREATIVE')"
+ },
+ {
+  "file": "modules/creative.module.ts",
+  "line": 852,
+  "verb": "POST",
+  "route": "/creative/design-events",
+  "roles": "...WRITE",
+  "pub": false,
+  "thr": true,
+  "products": "Products('CREATIVE')"
+ },
+ {
+  "file": "modules/creative.module.ts",
+  "line": 857,
+  "verb": "GET",
+  "route": "/creative/brand/visual",
+  "roles": "",
+  "pub": false,
+  "thr": false,
+  "products": "Products('CREATIVE')"
+ },
+ {
+  "file": "modules/creative.module.ts",
+  "line": 863,
+  "verb": "PUT",
+  "route": "/creative/brand/visual",
+  "roles": "...WRITE",
+  "pub": false,
+  "thr": false,
+  "products": "Products('CREATIVE')"
+ },
+ {
+  "file": "modules/creative.module.ts",
+  "line": 869,
+  "verb": "POST",
+  "route": "/creative/brand/visual/suggest",
+  "roles": "...WRITE",
+  "pub": false,
+  "thr": false,
+  "products": "Products('CREATIVE')"
+ },
+ {
+  "file": "modules/creative.module.ts",
+  "line": 876,
+  "verb": "POST",
+  "route": "/creative/designs/:id/adapt",
+  "roles": "...WRITE",
+  "pub": false,
+  "thr": true,
+  "products": "Products('CREATIVE')"
+ },
+ {
+  "file": "modules/creative.module.ts",
+  "line": 882,
+  "verb": "POST",
+  "route": "/creative/designs/:id/check",
+  "roles": "",
+  "pub": false,
+  "thr": true,
+  "products": "Products('CREATIVE')"
+ },
+ {
+  "file": "modules/creative.module.ts",
+  "line": 888,
+  "verb": "GET",
+  "route": "/creative/brand",
+  "roles": "",
+  "pub": false,
+  "thr": false,
+  "products": "Products('CREATIVE') Products('CREATIVE', 'ADS')"
+ },
+ {
+  "file": "modules/creative.module.ts",
+  "line": 894,
+  "verb": "PUT",
+  "route": "/creative/brand",
+  "roles": "...WRITE",
+  "pub": false,
+  "thr": false,
+  "products": "Products('CREATIVE')"
+ },
+ {
+  "file": "modules/creative.module.ts",
+  "line": 901,
+  "verb": "POST",
+  "route": "/creative/brand/suggest",
+  "roles": "...WRITE",
+  "pub": false,
+  "thr": true,
+  "products": "Products('CREATIVE')"
+ },
+ {
+  "file": "modules/creative.module.ts",
+  "line": 908,
+  "verb": "PUT",
+  "route": "/creative/policy",
+  "roles": "...WRITE",
+  "pub": false,
+  "thr": false,
+  "products": "Products('CREATIVE') Products('CREATIVE', 'ADS')"
+ },
+ {
+  "file": "modules/creative.module.ts",
+  "line": 913,
+  "verb": "GET",
+  "route": "/creative/assets",
+  "roles": "",
+  "pub": false,
+  "thr": false,
+  "products": "Products('CREATIVE')"
+ },
+ {
+  "file": "modules/creative.module.ts",
+  "line": 921,
+  "verb": "POST",
+  "route": "/creative/assets",
+  "roles": "...WRITE",
+  "pub": false,
+  "thr": true,
+  "products": "Products('CREATIVE')"
+ },
+ {
+  "file": "modules/creative.module.ts",
+  "line": 926,
+  "verb": "GET",
+  "route": "/creative/assets/:id/file",
+  "roles": "",
+  "pub": false,
+  "thr": false,
+  "products": "Products('CREATIVE')"
+ },
+ {
+  "file": "modules/creative.module.ts",
+  "line": 932,
+  "verb": "DELETE",
+  "route": "/creative/assets/:id",
+  "roles": "...WRITE",
+  "pub": false,
+  "thr": false,
+  "products": "Products('CREATIVE')"
+ },
+ {
+  "file": "modules/creative.module.ts",
+  "line": 937,
+  "verb": "GET",
+  "route": "/creative/designs",
+  "roles": "",
+  "pub": false,
+  "thr": false,
+  "products": "Products('CREATIVE')"
+ },
+ {
+  "file": "modules/creative.module.ts",
+  "line": 943,
+  "verb": "POST",
+  "route": "/creative/designs",
+  "roles": "...WRITE",
+  "pub": false,
+  "thr": false,
+  "products": "Products('CREATIVE')"
+ },
+ {
+  "file": "modules/creative.module.ts",
+  "line": 948,
+  "verb": "GET",
+  "route": "/creative/designs/:id",
+  "roles": "",
+  "pub": false,
+  "thr": false,
+  "products": "Products('CREATIVE')"
+ },
+ {
+  "file": "modules/creative.module.ts",
+  "line": 955,
+  "verb": "PUT",
+  "route": "/creative/designs/:id",
+  "roles": "...WRITE",
+  "pub": false,
+  "thr": true,
+  "products": "Products('CREATIVE')"
+ },
+ {
+  "file": "modules/creative.module.ts",
+  "line": 961,
+  "verb": "POST",
+  "route": "/creative/designs/:id/duplicate",
+  "roles": "...WRITE",
+  "pub": false,
+  "thr": false,
+  "products": "Products('CREATIVE')"
+ },
+ {
+  "file": "modules/creative.module.ts",
+  "line": 967,
+  "verb": "DELETE",
+  "route": "/creative/designs/:id",
+  "roles": "...WRITE",
+  "pub": false,
+  "thr": false,
+  "products": "Products('CREATIVE')"
+ },
+ {
+  "file": "modules/creative.module.ts",
+  "line": 972,
+  "verb": "GET",
+  "route": "/creative/designs/:id/versions",
+  "roles": "",
+  "pub": false,
+  "thr": false,
+  "products": "Products('CREATIVE')"
+ },
+ {
+  "file": "modules/creative.module.ts",
+  "line": 978,
+  "verb": "POST",
+  "route": "/creative/designs/:id/versions/:version/restore",
+  "roles": "...WRITE",
+  "pub": false,
+  "thr": false,
+  "products": "Products('CREATIVE')"
+ },
+ {
+  "file": "modules/creative.module.ts",
+  "line": 986,
+  "verb": "POST",
+  "route": "/creative/designs/:id/export",
+  "roles": "...WRITE",
+  "pub": false,
+  "thr": true,
+  "products": "Products('CREATIVE')"
+ },
+ {
+  "file": "modules/creative.module.ts",
+  "line": 991,
+  "verb": "GET",
+  "route": "/creative/designs/:id/export",
+  "roles": "",
+  "pub": false,
+  "thr": false,
+  "products": "Products('CREATIVE')"
+ },
+ {
+  "file": "modules/creative.module.ts",
+  "line": 997,
+  "verb": "POST",
+  "route": "/creative/designs/:id/to-piece",
+  "roles": "...WRITE",
+  "pub": false,
+  "thr": false,
+  "products": "Products('CREATIVE')"
+ },
+ {
+  "file": "modules/creative.module.ts",
+  "line": 1003,
+  "verb": "GET",
+  "route": "/creative/calendar",
+  "roles": "",
+  "pub": false,
+  "thr": false,
+  "products": "Products('CREATIVE') Products('CREATIVE', 'ADS')"
+ },
+ {
+  "file": "modules/creative.module.ts",
+  "line": 1010,
+  "verb": "POST",
+  "route": "/creative/pieces/:id/submit",
+  "roles": "...WRITE",
+  "pub": false,
+  "thr": false,
+  "products": "Products('CREATIVE') Products('CREATIVE', 'ADS')"
+ },
+ {
+  "file": "modules/creative.module.ts",
+  "line": 1017,
+  "verb": "POST",
+  "route": "/creative/pieces/:id/approve",
+  "roles": "SUPER_ADMIN,DEV,COMPANY_ADMIN",
+  "pub": false,
+  "thr": false,
+  "products": "Products('CREATIVE') Products('CREATIVE', 'ADS')"
+ },
+ {
+  "file": "modules/creative.module.ts",
+  "line": 1024,
+  "verb": "POST",
+  "route": "/creative/pieces/:id/reject",
+  "roles": "SUPER_ADMIN,DEV,COMPANY_ADMIN",
+  "pub": false,
+  "thr": false,
+  "products": "Products('CREATIVE') Products('CREATIVE', 'ADS')"
+ },
+ {
+  "file": "modules/creative.module.ts",
+  "line": 1029,
+  "verb": "GET",
+  "route": "/creative/credits",
+  "roles": "",
+  "pub": false,
+  "thr": false,
+  "products": "Products('CREATIVE')"
+ },
+ {
+  "file": "modules/creative.module.ts",
+  "line": 1035,
+  "verb": "POST",
+  "route": "/creative/credits/:companyId/grant",
+  "roles": "SUPER_ADMIN,DEV",
+  "pub": false,
+  "thr": false,
+  "products": "Products('CREATIVE')"
+ },
+ {
+  "file": "modules/data-export.module.ts",
+  "line": 143,
+  "verb": "GET",
+  "route": "/company/data-export/sections",
+  "roles": "",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/data-export.module.ts",
+  "line": 150,
+  "verb": "GET",
+  "route": "/company/data-export/pdf",
+  "roles": "SUPER_ADMIN,DEV,COMPANY_ADMIN",
+  "pub": false,
+  "thr": true,
+  "products": ""
+ },
+ {
+  "file": "modules/delivery.module.ts",
+  "line": 680,
+  "verb": "GET",
+  "route": "/delivery/board",
+  "roles": "SUPER_ADMIN,DEV,COMPANY_ADMIN,COMPANY_VIEWER",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/delivery.module.ts",
+  "line": 686,
+  "verb": "POST",
+  "route": "/delivery/orders/:id/assign",
+  "roles": "SUPER_ADMIN,DEV,COMPANY_ADMIN",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/delivery.module.ts",
+  "line": 693,
+  "verb": "POST",
+  "route": "/delivery/geocode",
+  "roles": "SUPER_ADMIN,DEV,COMPANY_ADMIN",
+  "pub": false,
+  "thr": true,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/delivery.module.ts",
+  "line": 700,
+  "verb": "POST",
+  "route": "/delivery/quote",
+  "roles": "SUPER_ADMIN,DEV,COMPANY_ADMIN,COMPANY_VIEWER",
+  "pub": false,
+  "thr": true,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/delivery.module.ts",
+  "line": 706,
+  "verb": "GET",
+  "route": "/delivery/branches",
+  "roles": "SUPER_ADMIN,DEV,COMPANY_ADMIN,COMPANY_VIEWER",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/delivery.module.ts",
+  "line": 712,
+  "verb": "POST",
+  "route": "/delivery/branches",
+  "roles": "SUPER_ADMIN,DEV,COMPANY_ADMIN",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/delivery.module.ts",
+  "line": 718,
+  "verb": "PATCH",
+  "route": "/delivery/branches/:id",
+  "roles": "SUPER_ADMIN,DEV,COMPANY_ADMIN",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/delivery.module.ts",
+  "line": 724,
+  "verb": "DELETE",
+  "route": "/delivery/branches/:id",
+  "roles": "SUPER_ADMIN,DEV,COMPANY_ADMIN",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/delivery.module.ts",
+  "line": 730,
+  "verb": "GET",
+  "route": "/delivery/couriers/:id/trail",
+  "roles": "SUPER_ADMIN,DEV,COMPANY_ADMIN,COMPANY_VIEWER",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/delivery.module.ts",
+  "line": 736,
+  "verb": "GET",
+  "route": "/delivery/orders/:id/proof",
+  "roles": "SUPER_ADMIN,DEV,COMPANY_ADMIN,COMPANY_VIEWER",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/delivery.module.ts",
+  "line": 746,
+  "verb": "GET",
+  "route": "/delivery/me/route",
+  "roles": "COMPANY_COURIER",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/delivery.module.ts",
+  "line": 752,
+  "verb": "POST",
+  "route": "/delivery/me/shift",
+  "roles": "COMPANY_COURIER",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/delivery.module.ts",
+  "line": 759,
+  "verb": "POST",
+  "route": "/delivery/me/location",
+  "roles": "COMPANY_COURIER",
+  "pub": false,
+  "thr": true,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/delivery.module.ts",
+  "line": 765,
+  "verb": "POST",
+  "route": "/delivery/me/orders/:id/pickup",
+  "roles": "COMPANY_COURIER",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/delivery.module.ts",
+  "line": 772,
+  "verb": "POST",
+  "route": "/delivery/me/orders/:id/deliver",
+  "roles": "COMPANY_COURIER",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/delivery.module.ts",
+  "line": 786,
+  "verb": "GET",
+  "route": "/public/track/:token",
+  "roles": "",
+  "pub": true,
+  "thr": true,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/devtools.module.ts",
+  "line": 381,
+  "verb": "GET",
+  "route": "/health",
+  "roles": "",
+  "pub": true,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/devtools.module.ts",
+  "line": 392,
+  "verb": "GET",
+  "route": "/dev/health",
+  "roles": "SUPER_ADMIN,DEV",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/devtools.module.ts",
+  "line": 397,
+  "verb": "GET",
+  "route": "/dev/status",
+  "roles": "SUPER_ADMIN,DEV",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/devtools.module.ts",
+  "line": 402,
+  "verb": "GET",
+  "route": "/dev/logs",
+  "roles": "SUPER_ADMIN,DEV",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/devtools.module.ts",
+  "line": 407,
+  "verb": "POST",
+  "route": "/dev/queues/retry-failed",
+  "roles": "SUPER_ADMIN,DEV",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/devtools.module.ts",
+  "line": 412,
+  "verb": "POST",
+  "route": "/dev/simulate-inbound",
+  "roles": "SUPER_ADMIN,DEV",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/devtools.module.ts",
+  "line": 417,
+  "verb": "POST",
+  "route": "/dev/test-email",
+  "roles": "SUPER_ADMIN,DEV",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/devtools.module.ts",
+  "line": 422,
+  "verb": "POST",
+  "route": "/dev/test-deepinfra",
+  "roles": "SUPER_ADMIN,DEV",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/devtools.module.ts",
+  "line": 427,
+  "verb": "GET",
+  "route": "/dev/apikeys",
+  "roles": "SUPER_ADMIN,DEV",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/devtools.module.ts",
+  "line": 432,
+  "verb": "POST",
+  "route": "/dev/apikeys",
+  "roles": "SUPER_ADMIN,DEV",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/devtools.module.ts",
+  "line": 437,
+  "verb": "DELETE",
+  "route": "/dev/apikeys/:id",
+  "roles": "SUPER_ADMIN,DEV",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/devtools.module.ts",
+  "line": 442,
+  "verb": "GET",
+  "route": "/dev/trm",
+  "roles": "SUPER_ADMIN,DEV",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/devtools.module.ts",
+  "line": 447,
+  "verb": "POST",
+  "route": "/dev/trm/refresh",
+  "roles": "SUPER_ADMIN,DEV",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/devtools.module.ts",
+  "line": 452,
+  "verb": "GET",
+  "route": "/dev/settings",
+  "roles": "SUPER_ADMIN,DEV",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/devtools.module.ts",
+  "line": 457,
+  "verb": "PUT",
+  "route": "/dev/settings",
+  "roles": "SUPER_ADMIN,DEV",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/drive.module.ts",
+  "line": 215,
+  "verb": "GET",
+  "route": "/drive",
+  "roles": "...READ",
+  "pub": false,
+  "thr": false,
+  "products": "Products('CREATIVE', 'ADS')"
+ },
+ {
+  "file": "modules/drive.module.ts",
+  "line": 218,
+  "verb": "POST",
+  "route": "/drive/connect",
+  "roles": "...WRITE",
+  "pub": false,
+  "thr": false,
+  "products": "Products('CREATIVE', 'ADS')"
+ },
+ {
+  "file": "modules/drive.module.ts",
+  "line": 221,
+  "verb": "POST",
+  "route": "/drive/picker",
+  "roles": "...WRITE",
+  "pub": false,
+  "thr": true,
+  "products": "Products('CREATIVE', 'ADS')"
+ },
+ {
+  "file": "modules/drive.module.ts",
+  "line": 224,
+  "verb": "POST",
+  "route": "/drive/import",
+  "roles": "...WRITE",
+  "pub": false,
+  "thr": true,
+  "products": "Products('CREATIVE', 'ADS')"
+ },
+ {
+  "file": "modules/drive.module.ts",
+  "line": 227,
+  "verb": "DELETE",
+  "route": "/drive",
+  "roles": "...WRITE",
+  "pub": false,
+  "thr": false,
+  "products": "Products('CREATIVE', 'ADS')"
+ },
+ {
+  "file": "modules/drive.module.ts",
+  "line": 236,
+  "verb": "GET",
+  "route": "/public/drive/callback",
+  "roles": "",
+  "pub": true,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/emails.module.ts",
+  "line": 210,
+  "verb": "GET",
+  "route": "/emails",
+  "roles": "SUPER_ADMIN,DEV",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/emails.module.ts",
+  "line": 215,
+  "verb": "POST",
+  "route": "/emails",
+  "roles": "SUPER_ADMIN,DEV",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/emails.module.ts",
+  "line": 220,
+  "verb": "POST",
+  "route": "/emails/resend",
+  "roles": "SUPER_ADMIN,DEV",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/engine.module.ts",
+  "line": 1031,
+  "verb": "POST",
+  "route": "/engine/simulate",
+  "roles": "SUPER_ADMIN,DEV,COMPANY_ADMIN",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/events.module.ts",
+  "line": 74,
+  "verb": "GET",
+  "route": "/events/stream",
+  "roles": "",
+  "pub": true,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/events.module.ts",
+  "line": 128,
+  "verb": "POST",
+  "route": "/events/typing",
+  "roles": "",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/inbound-orders.module.ts",
+  "line": 260,
+  "verb": "POST",
+  "route": "/inbound/orders",
+  "roles": "",
+  "pub": true,
+  "thr": true,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/inbound-orders.module.ts",
+  "line": 267,
+  "verb": "PATCH",
+  "route": "/einvoice/config",
+  "roles": "SUPER_ADMIN,DEV,COMPANY_ADMIN",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/inbound-orders.module.ts",
+  "line": 273,
+  "verb": "POST",
+  "route": "/orders/:id/einvoice",
+  "roles": "SUPER_ADMIN,DEV,COMPANY_ADMIN",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/incidents.module.ts",
+  "line": 106,
+  "verb": "GET",
+  "route": "/platform/incidents",
+  "roles": "SUPER_ADMIN,DEV",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/incidents.module.ts",
+  "line": 112,
+  "verb": "POST",
+  "route": "/platform/incidents/:id/resolve",
+  "roles": "SUPER_ADMIN,DEV",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/integrations.module.ts",
+  "line": 232,
+  "verb": "GET",
+  "route": "/integrations",
+  "roles": "",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/integrations.module.ts",
+  "line": 237,
+  "verb": "GET",
+  "route": "/integrations/:id",
+  "roles": "",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/integrations.module.ts",
+  "line": 243,
+  "verb": "POST",
+  "route": "/integrations/:id/clone",
+  "roles": "SUPER_ADMIN,DEV,COMPANY_ADMIN",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/integrations.module.ts",
+  "line": 249,
+  "verb": "POST",
+  "route": "/integrations",
+  "roles": "SUPER_ADMIN,DEV,COMPANY_ADMIN",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/integrations.module.ts",
+  "line": 255,
+  "verb": "PATCH",
+  "route": "/integrations/:id",
+  "roles": "SUPER_ADMIN,DEV,COMPANY_ADMIN",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/integrations.module.ts",
+  "line": 261,
+  "verb": "DELETE",
+  "route": "/integrations/:id",
+  "roles": "SUPER_ADMIN,DEV,COMPANY_ADMIN",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/jobs.module.ts",
+  "line": 171,
+  "verb": "POST",
+  "route": "/jobs/invoices",
+  "roles": "SUPER_ADMIN,DEV",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/jobs.module.ts",
+  "line": 182,
+  "verb": "POST",
+  "route": "/jobs/demo-reset",
+  "roles": "SUPER_ADMIN,DEV",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/jobs.module.ts",
+  "line": 193,
+  "verb": "POST",
+  "route": "/jobs/executive-emails",
+  "roles": "SUPER_ADMIN,DEV",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/knowledge.module.ts",
+  "line": 168,
+  "verb": "GET",
+  "route": "/knowledge",
+  "roles": "",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/knowledge.module.ts",
+  "line": 174,
+  "verb": "POST",
+  "route": "/knowledge/text",
+  "roles": "SUPER_ADMIN,DEV,COMPANY_ADMIN",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/knowledge.module.ts",
+  "line": 180,
+  "verb": "POST",
+  "route": "/knowledge/url",
+  "roles": "SUPER_ADMIN,DEV,COMPANY_ADMIN",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/knowledge.module.ts",
+  "line": 187,
+  "verb": "POST",
+  "route": "/knowledge/pdf",
+  "roles": "SUPER_ADMIN,DEV,COMPANY_ADMIN",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/knowledge.module.ts",
+  "line": 197,
+  "verb": "POST",
+  "route": "/knowledge/search",
+  "roles": "",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/knowledge.module.ts",
+  "line": 203,
+  "verb": "DELETE",
+  "route": "/knowledge/:id",
+  "roles": "SUPER_ADMIN,DEV,COMPANY_ADMIN",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/library.module.ts",
+  "line": 299,
+  "verb": "GET",
+  "route": "/library/assets",
+  "roles": "...READ",
+  "pub": false,
+  "thr": false,
+  "products": "Products('CREATIVE', 'ADS')"
+ },
+ {
+  "file": "modules/library.module.ts",
+  "line": 305,
+  "verb": "GET",
+  "route": "/library/assets/:id",
+  "roles": "...READ",
+  "pub": false,
+  "thr": false,
+  "products": "Products('CREATIVE', 'ADS')"
+ },
+ {
+  "file": "modules/library.module.ts",
+  "line": 311,
+  "verb": "GET",
+  "route": "/library/assets/:id/file",
+  "roles": "...READ",
+  "pub": false,
+  "thr": false,
+  "products": "Products('CREATIVE', 'ADS')"
+ },
+ {
+  "file": "modules/library.module.ts",
+  "line": 319,
+  "verb": "POST",
+  "route": "/library/assets",
+  "roles": "...WRITE",
+  "pub": false,
+  "thr": true,
+  "products": "Products('CREATIVE', 'ADS')"
+ },
+ {
+  "file": "modules/library.module.ts",
+  "line": 325,
+  "verb": "PATCH",
+  "route": "/library/assets/:id",
+  "roles": "...WRITE",
+  "pub": false,
+  "thr": false,
+  "products": "Products('CREATIVE', 'ADS')"
+ },
+ {
+  "file": "modules/library.module.ts",
+  "line": 331,
+  "verb": "DELETE",
+  "route": "/library/assets/:id",
+  "roles": "...WRITE",
+  "pub": false,
+  "thr": false,
+  "products": "Products('CREATIVE', 'ADS')"
+ },
+ {
+  "file": "modules/library.module.ts",
+  "line": 338,
+  "verb": "GET",
+  "route": "/library/ad-entities",
+  "roles": "...READ",
+  "pub": false,
+  "thr": false,
+  "products": "Products('CREATIVE', 'ADS') Products('ADS')"
+ },
+ {
+  "file": "modules/library.module.ts",
+  "line": 345,
+  "verb": "POST",
+  "route": "/library/assets/:id/links",
+  "roles": "...WRITE",
+  "pub": false,
+  "thr": false,
+  "products": "Products('CREATIVE', 'ADS') Products('ADS')"
+ },
+ {
+  "file": "modules/library.module.ts",
+  "line": 352,
+  "verb": "DELETE",
+  "route": "/library/assets/:id/links/:linkId",
+  "roles": "...WRITE",
+  "pub": false,
+  "thr": false,
+  "products": "Products('CREATIVE', 'ADS') Products('ADS')"
+ },
+ {
+  "file": "modules/library.module.ts",
+  "line": 359,
+  "verb": "POST",
+  "route": "/library/from-design/:designId",
+  "roles": "...WRITE",
+  "pub": false,
+  "thr": false,
+  "products": "Products('CREATIVE', 'ADS') Products('CREATIVE')"
+ },
+ {
+  "file": "modules/marketing.module.ts",
+  "line": 472,
+  "verb": "GET",
+  "route": "/marketing/summary",
+  "roles": "...READ_ROLES",
+  "pub": false,
+  "thr": false,
+  "products": "Products('CREATIVE')"
+ },
+ {
+  "file": "modules/marketing.module.ts",
+  "line": 478,
+  "verb": "GET",
+  "route": "/marketing/campaigns",
+  "roles": "...READ_ROLES",
+  "pub": false,
+  "thr": false,
+  "products": "Products('CREATIVE')"
+ },
+ {
+  "file": "modules/marketing.module.ts",
+  "line": 484,
+  "verb": "POST",
+  "route": "/marketing/campaigns",
+  "roles": "...WRITE_ROLES",
+  "pub": false,
+  "thr": false,
+  "products": "Products('CREATIVE')"
+ },
+ {
+  "file": "modules/marketing.module.ts",
+  "line": 490,
+  "verb": "PATCH",
+  "route": "/marketing/campaigns/:id",
+  "roles": "...WRITE_ROLES",
+  "pub": false,
+  "thr": false,
+  "products": "Products('CREATIVE')"
+ },
+ {
+  "file": "modules/marketing.module.ts",
+  "line": 496,
+  "verb": "GET",
+  "route": "/marketing/pieces",
+  "roles": "...READ_ROLES",
+  "pub": false,
+  "thr": false,
+  "products": "Products('CREATIVE')"
+ },
+ {
+  "file": "modules/marketing.module.ts",
+  "line": 508,
+  "verb": "POST",
+  "route": "/marketing/pieces",
+  "roles": "...WRITE_ROLES",
+  "pub": false,
+  "thr": false,
+  "products": "Products('CREATIVE')"
+ },
+ {
+  "file": "modules/marketing.module.ts",
+  "line": 514,
+  "verb": "PATCH",
+  "route": "/marketing/pieces/:id",
+  "roles": "...WRITE_ROLES",
+  "pub": false,
+  "thr": false,
+  "products": "Products('CREATIVE')"
+ },
+ {
+  "file": "modules/marketing.module.ts",
+  "line": 520,
+  "verb": "DELETE",
+  "route": "/marketing/pieces/:id",
+  "roles": "...WRITE_ROLES",
+  "pub": false,
+  "thr": false,
+  "products": "Products('CREATIVE')"
+ },
+ {
+  "file": "modules/marketing.module.ts",
+  "line": 526,
+  "verb": "POST",
+  "route": "/marketing/pieces/:id/generate-copy",
+  "roles": "...WRITE_ROLES",
+  "pub": false,
+  "thr": false,
+  "products": "Products('CREATIVE')"
+ },
+ {
+  "file": "modules/marketing.module.ts",
+  "line": 532,
+  "verb": "POST",
+  "route": "/marketing/pieces/:id/render-video",
+  "roles": "...WRITE_ROLES",
+  "pub": false,
+  "thr": false,
+  "products": "Products('CREATIVE')"
+ },
+ {
+  "file": "modules/marketing.module.ts",
+  "line": 538,
+  "verb": "GET",
+  "route": "/marketing/video-jobs/:id",
+  "roles": "...READ_ROLES",
+  "pub": false,
+  "thr": false,
+  "products": "Products('CREATIVE')"
+ },
+ {
+  "file": "modules/media.module.ts",
+  "line": 175,
+  "verb": "GET",
+  "route": "/media",
+  "roles": "",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/media.module.ts",
+  "line": 182,
+  "verb": "POST",
+  "route": "/media",
+  "roles": "SUPER_ADMIN,DEV,COMPANY_ADMIN",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/media.module.ts",
+  "line": 192,
+  "verb": "PATCH",
+  "route": "/media/:id",
+  "roles": "SUPER_ADMIN,DEV,COMPANY_ADMIN",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/media.module.ts",
+  "line": 198,
+  "verb": "DELETE",
+  "route": "/media/:id",
+  "roles": "SUPER_ADMIN,DEV,COMPANY_ADMIN",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/media.module.ts",
+  "line": 203,
+  "verb": "GET",
+  "route": "/media/:id/file",
+  "roles": "",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/menu.module.ts",
+  "line": 215,
+  "verb": "GET",
+  "route": "/public/menu/:slug",
+  "roles": "",
+  "pub": true,
+  "thr": true,
+  "products": ""
+ },
+ {
+  "file": "modules/menu.module.ts",
+  "line": 221,
+  "verb": "GET",
+  "route": "/public/menu/:slug/products/:id/image",
+  "roles": "",
+  "pub": true,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/menu.module.ts",
+  "line": 231,
+  "verb": "GET",
+  "route": "/public/menu/:slug/qr.svg",
+  "roles": "",
+  "pub": true,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/menu.module.ts",
+  "line": 237,
+  "verb": "GET",
+  "route": "/menu/info",
+  "roles": "SUPER_ADMIN,DEV,COMPANY_ADMIN,COMPANY_VIEWER",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/menu.module.ts",
+  "line": 244,
+  "verb": "POST",
+  "route": "/catalog/products/:id/image",
+  "roles": "SUPER_ADMIN,DEV,COMPANY_ADMIN",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/menu.module.ts",
+  "line": 250,
+  "verb": "DELETE",
+  "route": "/catalog/products/:id/image",
+  "roles": "SUPER_ADMIN,DEV,COMPANY_ADMIN",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/menu.module.ts",
+  "line": 255,
+  "verb": "GET",
+  "route": "/catalog/products/:id/image",
+  "roles": "",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/menu.module.ts",
+  "line": 263,
+  "verb": "PATCH",
+  "route": "/catalog/products/:id/sold-out",
+  "roles": "SUPER_ADMIN,DEV,COMPANY_ADMIN,COMPANY_AREA",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/meta-ads.module.ts",
+  "line": 667,
+  "verb": "GET",
+  "route": "/platform/ads",
+  "roles": "SUPER_ADMIN,DEV",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/meta-ads.module.ts",
+  "line": 673,
+  "verb": "POST",
+  "route": "/platform/ads/connect",
+  "roles": "SUPER_ADMIN,DEV",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/meta-ads.module.ts",
+  "line": 679,
+  "verb": "DELETE",
+  "route": "/platform/ads/connect",
+  "roles": "SUPER_ADMIN,DEV",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/meta-ads.module.ts",
+  "line": 685,
+  "verb": "POST",
+  "route": "/platform/ads/manual",
+  "roles": "SUPER_ADMIN,DEV",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/meta-ads.module.ts",
+  "line": 691,
+  "verb": "DELETE",
+  "route": "/platform/ads/manual/:id",
+  "roles": "SUPER_ADMIN,DEV",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/meta-ads.module.ts",
+  "line": 697,
+  "verb": "POST",
+  "route": "/platform/ads/campaigns/:id/status",
+  "roles": "SUPER_ADMIN,DEV",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/meta-ads.module.ts",
+  "line": 703,
+  "verb": "GET",
+  "route": "/platform/ads/setup",
+  "roles": "SUPER_ADMIN,DEV",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/meta-ads.module.ts",
+  "line": 709,
+  "verb": "PUT",
+  "route": "/platform/ads/setup",
+  "roles": "SUPER_ADMIN,DEV",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/meta-ads.module.ts",
+  "line": 717,
+  "verb": "POST",
+  "route": "/platform/ads/images",
+  "roles": "SUPER_ADMIN,DEV",
+  "pub": false,
+  "thr": true,
+  "products": ""
+ },
+ {
+  "file": "modules/meta-ads.module.ts",
+  "line": 725,
+  "verb": "POST",
+  "route": "/platform/ads/videos",
+  "roles": "SUPER_ADMIN,DEV",
+  "pub": false,
+  "thr": true,
+  "products": ""
+ },
+ {
+  "file": "modules/meta-ads.module.ts",
+  "line": 731,
+  "verb": "GET",
+  "route": "/platform/ads/videos/:id",
+  "roles": "SUPER_ADMIN,DEV",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/meta-ads.module.ts",
+  "line": 737,
+  "verb": "GET",
+  "route": "/platform/ads/launches",
+  "roles": "SUPER_ADMIN,DEV",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/meta-ads.module.ts",
+  "line": 743,
+  "verb": "POST",
+  "route": "/platform/ads/launches/preview",
+  "roles": "SUPER_ADMIN,DEV",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/meta-ads.module.ts",
+  "line": 750,
+  "verb": "POST",
+  "route": "/platform/ads/launches",
+  "roles": "SUPER_ADMIN,DEV",
+  "pub": false,
+  "thr": true,
+  "products": ""
+ },
+ {
+  "file": "modules/meta-ads.module.ts",
+  "line": 757,
+  "verb": "POST",
+  "route": "/platform/ads/launches/:id/retry",
+  "roles": "SUPER_ADMIN,DEV",
+  "pub": false,
+  "thr": true,
+  "products": ""
+ },
+ {
+  "file": "modules/meta-ads.module.ts",
+  "line": 763,
+  "verb": "POST",
+  "route": "/platform/ads/launches/:id/activate",
+  "roles": "SUPER_ADMIN,DEV",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/meta-ads.module.ts",
+  "line": 769,
+  "verb": "POST",
+  "route": "/platform/ads/launches/:id/pause",
+  "roles": "SUPER_ADMIN,DEV",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/meta-ads.module.ts",
+  "line": 775,
+  "verb": "PUT",
+  "route": "/platform/ads/launches/:id/budget",
+  "roles": "SUPER_ADMIN,DEV",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/meta-ads.module.ts",
+  "line": 781,
+  "verb": "DELETE",
+  "route": "/platform/ads/launches/:id",
+  "roles": "SUPER_ADMIN,DEV",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/meta-dev.module.ts",
+  "line": 647,
+  "verb": "GET",
+  "route": "/dev/meta-ads/status",
+  "roles": "",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/meta-dev.module.ts",
+  "line": 650,
+  "verb": "GET",
+  "route": "/dev/meta-ads/connect",
+  "roles": "",
+  "pub": false,
+  "thr": true,
+  "products": ""
+ },
+ {
+  "file": "modules/meta-dev.module.ts",
+  "line": 657,
+  "verb": "GET",
+  "route": "/dev/meta-ads/accounts",
+  "roles": "",
+  "pub": false,
+  "thr": true,
+  "products": ""
+ },
+ {
+  "file": "modules/meta-dev.module.ts",
+  "line": 658,
+  "verb": "POST",
+  "route": "/dev/meta-ads/select",
+  "roles": "",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/meta-dev.module.ts",
+  "line": 659,
+  "verb": "POST",
+  "route": "/dev/meta-ads/sync",
+  "roles": "",
+  "pub": false,
+  "thr": true,
+  "products": ""
+ },
+ {
+  "file": "modules/meta-dev.module.ts",
+  "line": 660,
+  "verb": "GET",
+  "route": "/dev/meta-ads/runs",
+  "roles": "",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/meta-dev.module.ts",
+  "line": 661,
+  "verb": "GET",
+  "route": "/dev/meta-ads/objects",
+  "roles": "",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/meta-dev.module.ts",
+  "line": 662,
+  "verb": "GET",
+  "route": "/dev/meta-ads/insights",
+  "roles": "",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/meta-dev.module.ts",
+  "line": 663,
+  "verb": "GET",
+  "route": "/dev/meta-ads/raw",
+  "roles": "",
+  "pub": false,
+  "thr": true,
+  "products": ""
+ },
+ {
+  "file": "modules/meta-dev.module.ts",
+  "line": 664,
+  "verb": "GET",
+  "route": "/dev/meta-ads/credential",
+  "roles": "",
+  "pub": false,
+  "thr": true,
+  "products": ""
+ },
+ {
+  "file": "modules/meta-dev.module.ts",
+  "line": 667,
+  "verb": "DELETE",
+  "route": "/dev/meta-ads/connection",
+  "roles": "",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/meta-dev.module.ts",
+  "line": 680,
+  "verb": "GET",
+  "route": "/dev/meta-ads/callback",
+  "roles": "",
+  "pub": true,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/metrics.module.ts",
+  "line": 260,
+  "verb": "GET",
+  "route": "/metrics/platform",
+  "roles": "SUPER_ADMIN,DEV",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/metrics.module.ts",
+  "line": 265,
+  "verb": "GET",
+  "route": "/metrics/company",
+  "roles": "",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/opportunities.module.ts",
+  "line": 427,
+  "verb": "GET",
+  "route": "/opportunities",
+  "roles": "...READ",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION', 'CREATIVE', 'ADS')"
+ },
+ {
+  "file": "modules/opportunities.module.ts",
+  "line": 428,
+  "verb": "POST",
+  "route": "/opportunities/detect",
+  "roles": "...WRITE",
+  "pub": false,
+  "thr": true,
+  "products": "Products('AUTOMATION', 'CREATIVE', 'ADS')"
+ },
+ {
+  "file": "modules/opportunities.module.ts",
+  "line": 429,
+  "verb": "GET",
+  "route": "/opportunities/:id/contacts",
+  "roles": "...READ",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION', 'CREATIVE', 'ADS')"
+ },
+ {
+  "file": "modules/opportunities.module.ts",
+  "line": 430,
+  "verb": "POST",
+  "route": "/opportunities/:id/move",
+  "roles": "...WRITE",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION', 'CREATIVE', 'ADS')"
+ },
+ {
+  "file": "modules/opportunities.module.ts",
+  "line": 431,
+  "verb": "POST",
+  "route": "/opportunities/:id/act",
+  "roles": "...WRITE",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION', 'CREATIVE', 'ADS')"
+ },
+ {
+  "file": "modules/opportunities.module.ts",
+  "line": 432,
+  "verb": "POST",
+  "route": "/opportunities/:id/result",
+  "roles": "...WRITE",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION', 'CREATIVE', 'ADS')"
+ },
+ {
+  "file": "modules/opportunities.module.ts",
+  "line": 434,
+  "verb": "GET",
+  "route": "/creative/context",
+  "roles": "...READ",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION', 'CREATIVE', 'ADS')"
+ },
+ {
+  "file": "modules/opportunities.module.ts",
+  "line": 435,
+  "verb": "PUT",
+  "route": "/creative/context/:key",
+  "roles": "...WRITE",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION', 'CREATIVE', 'ADS')"
+ },
+ {
+  "file": "modules/opportunities.module.ts",
+  "line": 436,
+  "verb": "POST",
+  "route": "/creative/events",
+  "roles": "...READ",
+  "pub": false,
+  "thr": true,
+  "products": "Products('AUTOMATION', 'CREATIVE', 'ADS')"
+ },
+ {
+  "file": "modules/ops.module.ts",
+  "line": 406,
+  "verb": "GET",
+  "route": "/appointments",
+  "roles": "",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/ops.module.ts",
+  "line": 418,
+  "verb": "POST",
+  "route": "/appointments",
+  "roles": "SUPER_ADMIN,DEV,COMPANY_ADMIN",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/ops.module.ts",
+  "line": 424,
+  "verb": "PATCH",
+  "route": "/appointments/:id",
+  "roles": "SUPER_ADMIN,DEV,COMPANY_ADMIN",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/ops.module.ts",
+  "line": 430,
+  "verb": "DELETE",
+  "route": "/appointments/:id",
+  "roles": "SUPER_ADMIN,DEV,COMPANY_ADMIN",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/ops.module.ts",
+  "line": 441,
+  "verb": "GET",
+  "route": "/followups",
+  "roles": "",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/ops.module.ts",
+  "line": 451,
+  "verb": "POST",
+  "route": "/followups",
+  "roles": "SUPER_ADMIN,DEV,COMPANY_ADMIN",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/ops.module.ts",
+  "line": 457,
+  "verb": "PATCH",
+  "route": "/followups/:id",
+  "roles": "SUPER_ADMIN,DEV,COMPANY_ADMIN",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/ops.module.ts",
+  "line": 463,
+  "verb": "DELETE",
+  "route": "/followups/:id",
+  "roles": "SUPER_ADMIN,DEV,COMPANY_ADMIN",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/ops.module.ts",
+  "line": 475,
+  "verb": "GET",
+  "route": "/ops/executive",
+  "roles": "",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/orders.module.ts",
+  "line": 1089,
+  "verb": "GET",
+  "route": "/orders",
+  "roles": "",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/orders.module.ts",
+  "line": 1101,
+  "verb": "GET",
+  "route": "/orders/calendar",
+  "roles": "",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/orders.module.ts",
+  "line": 1112,
+  "verb": "GET",
+  "route": "/orders/area-view",
+  "roles": "SUPER_ADMIN,DEV,COMPANY_ADMIN,COMPANY_VIEWER,COMPANY_AREA",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/orders.module.ts",
+  "line": 1123,
+  "verb": "POST",
+  "route": "/orders",
+  "roles": "SUPER_ADMIN,DEV,COMPANY_ADMIN",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/orders.module.ts",
+  "line": 1129,
+  "verb": "GET",
+  "route": "/orders/:id/pdf",
+  "roles": "",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/orders.module.ts",
+  "line": 1146,
+  "verb": "GET",
+  "route": "/orders/:id",
+  "roles": "",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/orders.module.ts",
+  "line": 1152,
+  "verb": "PATCH",
+  "route": "/orders/:id",
+  "roles": "SUPER_ADMIN,DEV,COMPANY_ADMIN",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/orders.module.ts",
+  "line": 1158,
+  "verb": "POST",
+  "route": "/orders/:id/status",
+  "roles": "SUPER_ADMIN,DEV,COMPANY_ADMIN",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/orders.module.ts",
+  "line": 1169,
+  "verb": "POST",
+  "route": "/orders/items/:itemId/ready",
+  "roles": "SUPER_ADMIN,DEV,COMPANY_ADMIN,COMPANY_AREA",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/orders.module.ts",
+  "line": 1183,
+  "verb": "GET",
+  "route": "/reminders",
+  "roles": "",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/orders.module.ts",
+  "line": 1203,
+  "verb": "POST",
+  "route": "/reminders/dispatch",
+  "roles": "SUPER_ADMIN,DEV",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/payments.module.ts",
+  "line": 448,
+  "verb": "GET",
+  "route": "/payments",
+  "roles": "",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/payments.module.ts",
+  "line": 454,
+  "verb": "POST",
+  "route": "/payments/checkout",
+  "roles": "SUPER_ADMIN,DEV,COMPANY_ADMIN",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/payments.module.ts",
+  "line": 461,
+  "verb": "POST",
+  "route": "/payments/wompi/events",
+  "roles": "",
+  "pub": true,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/payments.module.ts",
+  "line": 468,
+  "verb": "POST",
+  "route": "/payments/wompi/:slug/events",
+  "roles": "",
+  "pub": true,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/payments.module.ts",
+  "line": 475,
+  "verb": "GET",
+  "route": "/payments/config",
+  "roles": "SUPER_ADMIN,DEV,COMPANY_ADMIN,COMPANY_VIEWER",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/payments.module.ts",
+  "line": 482,
+  "verb": "PATCH",
+  "route": "/payments/config",
+  "roles": "SUPER_ADMIN,DEV,COMPANY_ADMIN",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/payments.module.ts",
+  "line": 489,
+  "verb": "POST",
+  "route": "/payments/orders/:id/link",
+  "roles": "SUPER_ADMIN,DEV,COMPANY_ADMIN",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/payments.module.ts",
+  "line": 496,
+  "verb": "POST",
+  "route": "/payments/orders/:id/mark-paid",
+  "roles": "SUPER_ADMIN,DEV,COMPANY_ADMIN",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/personas.module.ts",
+  "line": 129,
+  "verb": "GET",
+  "route": "/personas",
+  "roles": "",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/personas.module.ts",
+  "line": 135,
+  "verb": "POST",
+  "route": "/personas",
+  "roles": "SUPER_ADMIN,DEV,COMPANY_ADMIN",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/personas.module.ts",
+  "line": 141,
+  "verb": "PATCH",
+  "route": "/personas/:id",
+  "roles": "SUPER_ADMIN,DEV,COMPANY_ADMIN",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/personas.module.ts",
+  "line": 147,
+  "verb": "DELETE",
+  "route": "/personas/:id",
+  "roles": "SUPER_ADMIN,DEV,COMPANY_ADMIN",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/pipelines.module.ts",
+  "line": 116,
+  "verb": "GET",
+  "route": "/pipelines",
+  "roles": "",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/pipelines.module.ts",
+  "line": 122,
+  "verb": "POST",
+  "route": "/pipelines",
+  "roles": "SUPER_ADMIN,DEV,COMPANY_ADMIN",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/pipelines.module.ts",
+  "line": 128,
+  "verb": "PATCH",
+  "route": "/pipelines/:id",
+  "roles": "SUPER_ADMIN,DEV,COMPANY_ADMIN",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/pipelines.module.ts",
+  "line": 134,
+  "verb": "DELETE",
+  "route": "/pipelines/:id",
+  "roles": "SUPER_ADMIN,DEV,COMPANY_ADMIN",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/plans.module.ts",
+  "line": 158,
+  "verb": "GET",
+  "route": "/plans",
+  "roles": "",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/plans.module.ts",
+  "line": 164,
+  "verb": "POST",
+  "route": "/plans",
+  "roles": "SUPER_ADMIN,DEV",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/plans.module.ts",
+  "line": 170,
+  "verb": "PATCH",
+  "route": "/plans/:id",
+  "roles": "SUPER_ADMIN,DEV",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/plans.module.ts",
+  "line": 176,
+  "verb": "DELETE",
+  "route": "/plans/:id",
+  "roles": "SUPER_ADMIN",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/platform-health.module.ts",
+  "line": 429,
+  "verb": "GET",
+  "route": "/platform/health",
+  "roles": "SUPER_ADMIN,DEV",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/platform-health.module.ts",
+  "line": 434,
+  "verb": "GET",
+  "route": "/platform/health/summary",
+  "roles": "SUPER_ADMIN,DEV",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/platform-health.module.ts",
+  "line": 439,
+  "verb": "GET",
+  "route": "/platform/health/history",
+  "roles": "SUPER_ADMIN,DEV",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/platform-health.module.ts",
+  "line": 444,
+  "verb": "GET",
+  "route": "/platform/health/config",
+  "roles": "SUPER_ADMIN,DEV",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/platform-health.module.ts",
+  "line": 449,
+  "verb": "PUT",
+  "route": "/platform/health/config",
+  "roles": "SUPER_ADMIN,DEV",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/productions/productions.module.ts",
+  "line": 28,
+  "verb": "GET",
+  "route": "/productions/overview",
+  "roles": "",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION') Section('productions')"
+ },
+ {
+  "file": "modules/productions/productions.module.ts",
+  "line": 29,
+  "verb": "GET",
+  "route": "/productions",
+  "roles": "",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION') Section('productions')"
+ },
+ {
+  "file": "modules/productions/productions.module.ts",
+  "line": 30,
+  "verb": "POST",
+  "route": "/productions",
+  "roles": "",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION') Section('productions')"
+ },
+ {
+  "file": "modules/productions/productions.module.ts",
+  "line": 31,
+  "verb": "POST",
+  "route": "/productions/from-conversation",
+  "roles": "",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION') Section('productions')"
+ },
+ {
+  "file": "modules/productions/productions.module.ts",
+  "line": 34,
+  "verb": "GET",
+  "route": "/productions/resources",
+  "roles": "",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION') Section('productions')"
+ },
+ {
+  "file": "modules/productions/productions.module.ts",
+  "line": 35,
+  "verb": "POST",
+  "route": "/productions/resources",
+  "roles": "",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION') Section('productions')"
+ },
+ {
+  "file": "modules/productions/productions.module.ts",
+  "line": 36,
+  "verb": "PATCH",
+  "route": "/productions/resources/:rid",
+  "roles": "",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION') Section('productions')"
+ },
+ {
+  "file": "modules/productions/productions.module.ts",
+  "line": 37,
+  "verb": "POST",
+  "route": "/productions/resources/:rid/rates",
+  "roles": "",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION') Section('productions')"
+ },
+ {
+  "file": "modules/productions/productions.module.ts",
+  "line": 38,
+  "verb": "GET",
+  "route": "/productions/team",
+  "roles": "",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION') Section('productions')"
+ },
+ {
+  "file": "modules/productions/productions.module.ts",
+  "line": 39,
+  "verb": "PUT",
+  "route": "/productions/team/:userId",
+  "roles": "",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION') Section('productions')"
+ },
+ {
+  "file": "modules/productions/productions.module.ts",
+  "line": 40,
+  "verb": "GET",
+  "route": "/productions/settings",
+  "roles": "",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION') Section('productions')"
+ },
+ {
+  "file": "modules/productions/productions.module.ts",
+  "line": 41,
+  "verb": "PUT",
+  "route": "/productions/settings",
+  "roles": "",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION') Section('productions')"
+ },
+ {
+  "file": "modules/productions/productions.module.ts",
+  "line": 42,
+  "verb": "GET",
+  "route": "/productions/runs",
+  "roles": "",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION') Section('productions')"
+ },
+ {
+  "file": "modules/productions/productions.module.ts",
+  "line": 45,
+  "verb": "GET",
+  "route": "/productions/integrations",
+  "roles": "",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION') Section('productions')"
+ },
+ {
+  "file": "modules/productions/productions.module.ts",
+  "line": 51,
+  "verb": "POST",
+  "route": "/productions/integrations/whatsapp/validate",
+  "roles": "",
+  "pub": false,
+  "thr": true,
+  "products": "Products('AUTOMATION') Section('productions')"
+ },
+ {
+  "file": "modules/productions/productions.module.ts",
+  "line": 57,
+  "verb": "PATCH",
+  "route": "/productions/tasks/:taskId",
+  "roles": "",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION') Section('productions')"
+ },
+ {
+  "file": "modules/productions/productions.module.ts",
+  "line": 58,
+  "verb": "POST",
+  "route": "/productions/issues/:issueId/resolve",
+  "roles": "",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION') Section('productions')"
+ },
+ {
+  "file": "modules/productions/productions.module.ts",
+  "line": 59,
+  "verb": "PATCH",
+  "route": "/productions/assignments/:aid",
+  "roles": "",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION') Section('productions')"
+ },
+ {
+  "file": "modules/productions/productions.module.ts",
+  "line": 60,
+  "verb": "POST",
+  "route": "/productions/assignments/:aid/availability",
+  "roles": "",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION') Section('productions')"
+ },
+ {
+  "file": "modules/productions/productions.module.ts",
+  "line": 61,
+  "verb": "POST",
+  "route": "/productions/assignments/:aid/hold",
+  "roles": "",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION') Section('productions')"
+ },
+ {
+  "file": "modules/productions/productions.module.ts",
+  "line": 62,
+  "verb": "POST",
+  "route": "/productions/assignments/:aid/request-confirmation",
+  "roles": "",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION') Section('productions')"
+ },
+ {
+  "file": "modules/productions/productions.module.ts",
+  "line": 63,
+  "verb": "POST",
+  "route": "/productions/assignments/:aid/confirm",
+  "roles": "",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION') Section('productions')"
+ },
+ {
+  "file": "modules/productions/productions.module.ts",
+  "line": 64,
+  "verb": "POST",
+  "route": "/productions/assignments/:aid/release",
+  "roles": "",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION') Section('productions')"
+ },
+ {
+  "file": "modules/productions/productions.module.ts",
+  "line": 65,
+  "verb": "PUT",
+  "route": "/productions/quotes/:qid",
+  "roles": "",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION') Section('productions')"
+ },
+ {
+  "file": "modules/productions/productions.module.ts",
+  "line": 66,
+  "verb": "POST",
+  "route": "/productions/quotes/:qid/submit",
+  "roles": "",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION') Section('productions')"
+ },
+ {
+  "file": "modules/productions/productions.module.ts",
+  "line": 67,
+  "verb": "POST",
+  "route": "/productions/quotes/:qid/decision",
+  "roles": "",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION') Section('productions')"
+ },
+ {
+  "file": "modules/productions/productions.module.ts",
+  "line": 68,
+  "verb": "POST",
+  "route": "/productions/quotes/:qid/mark-sent",
+  "roles": "",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION') Section('productions')"
+ },
+ {
+  "file": "modules/productions/productions.module.ts",
+  "line": 71,
+  "verb": "GET",
+  "route": "/productions/:id",
+  "roles": "",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION') Section('productions')"
+ },
+ {
+  "file": "modules/productions/productions.module.ts",
+  "line": 72,
+  "verb": "PATCH",
+  "route": "/productions/:id",
+  "roles": "",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION') Section('productions')"
+ },
+ {
+  "file": "modules/productions/productions.module.ts",
+  "line": 73,
+  "verb": "PUT",
+  "route": "/productions/:id/brief",
+  "roles": "",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION') Section('productions')"
+ },
+ {
+  "file": "modules/productions/productions.module.ts",
+  "line": 74,
+  "verb": "POST",
+  "route": "/productions/:id/transition",
+  "roles": "",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION') Section('productions')"
+ },
+ {
+  "file": "modules/productions/productions.module.ts",
+  "line": 75,
+  "verb": "POST",
+  "route": "/productions/:id/tasks",
+  "roles": "",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION') Section('productions')"
+ },
+ {
+  "file": "modules/productions/productions.module.ts",
+  "line": 76,
+  "verb": "POST",
+  "route": "/productions/:id/issues",
+  "roles": "",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION') Section('productions')"
+ },
+ {
+  "file": "modules/productions/productions.module.ts",
+  "line": 77,
+  "verb": "POST",
+  "route": "/productions/:id/assignments",
+  "roles": "",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION') Section('productions')"
+ },
+ {
+  "file": "modules/productions/productions.module.ts",
+  "line": 78,
+  "verb": "POST",
+  "route": "/productions/:id/quotes",
+  "roles": "",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION') Section('productions')"
+ },
+ {
+  "file": "modules/products.module.ts",
+  "line": 90,
+  "verb": "GET",
+  "route": "/products",
+  "roles": "",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/products.module.ts",
+  "line": 97,
+  "verb": "POST",
+  "route": "/products/:key/request",
+  "roles": "COMPANY_ADMIN",
+  "pub": false,
+  "thr": true,
+  "products": ""
+ },
+ {
+  "file": "modules/products.module.ts",
+  "line": 103,
+  "verb": "GET",
+  "route": "/platform/companies/:id/products",
+  "roles": "SUPER_ADMIN,DEV",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/products.module.ts",
+  "line": 109,
+  "verb": "PUT",
+  "route": "/platform/companies/:id/products",
+  "roles": "SUPER_ADMIN,DEV",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/products.module.ts",
+  "line": 115,
+  "verb": "GET",
+  "route": "/platform/product-requests",
+  "roles": "SUPER_ADMIN,DEV",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/promotions.module.ts",
+  "line": 134,
+  "verb": "GET",
+  "route": "/promotions",
+  "roles": "",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/promotions.module.ts",
+  "line": 140,
+  "verb": "POST",
+  "route": "/promotions",
+  "roles": "SUPER_ADMIN,DEV,COMPANY_ADMIN",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/promotions.module.ts",
+  "line": 146,
+  "verb": "PATCH",
+  "route": "/promotions/:id",
+  "roles": "SUPER_ADMIN,DEV,COMPANY_ADMIN",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/promotions.module.ts",
+  "line": 152,
+  "verb": "DELETE",
+  "route": "/promotions/:id",
+  "roles": "SUPER_ADMIN,DEV,COMPANY_ADMIN",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/promotions.module.ts",
+  "line": 157,
+  "verb": "GET",
+  "route": "/quick-replies",
+  "roles": "",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/promotions.module.ts",
+  "line": 163,
+  "verb": "POST",
+  "route": "/quick-replies",
+  "roles": "SUPER_ADMIN,DEV,COMPANY_ADMIN",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/promotions.module.ts",
+  "line": 169,
+  "verb": "PATCH",
+  "route": "/quick-replies/:id",
+  "roles": "SUPER_ADMIN,DEV,COMPANY_ADMIN",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/promotions.module.ts",
+  "line": 175,
+  "verb": "DELETE",
+  "route": "/quick-replies/:id",
+  "roles": "SUPER_ADMIN,DEV,COMPANY_ADMIN",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/reports.module.ts",
+  "line": 876,
+  "verb": "GET",
+  "route": "/reports/daily",
+  "roles": "...READ_ROLES",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/reports.module.ts",
+  "line": 889,
+  "verb": "POST",
+  "route": "/reports/daily/run",
+  "roles": "...WRITE_ROLES",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/reports.module.ts",
+  "line": 902,
+  "verb": "GET",
+  "route": "/reports/daily/pdf",
+  "roles": "...READ_ROLES",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/reports.module.ts",
+  "line": 922,
+  "verb": "GET",
+  "route": "/reports/history",
+  "roles": "...READ_ROLES",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/reports.module.ts",
+  "line": 928,
+  "verb": "GET",
+  "route": "/reports/compare",
+  "roles": "...READ_ROLES",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/reports.module.ts",
+  "line": 942,
+  "verb": "GET",
+  "route": "/reports/compare/summary",
+  "roles": "...READ_ROLES",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/reports.module.ts",
+  "line": 952,
+  "verb": "GET",
+  "route": "/reports/feedback",
+  "roles": "...READ_ROLES",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/reports.module.ts",
+  "line": 963,
+  "verb": "GET",
+  "route": "/reports/ops-health",
+  "roles": "...READ_ROLES",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/reports.module.ts",
+  "line": 971,
+  "verb": "POST",
+  "route": "/reports/ask",
+  "roles": "...READ_ROLES",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/signup.module.ts",
+  "line": 912,
+  "verb": "POST",
+  "route": "/public/signup/interview",
+  "roles": "",
+  "pub": true,
+  "thr": true,
+  "products": ""
+ },
+ {
+  "file": "modules/signup.module.ts",
+  "line": 919,
+  "verb": "POST",
+  "route": "/public/signup/track",
+  "roles": "",
+  "pub": true,
+  "thr": true,
+  "products": ""
+ },
+ {
+  "file": "modules/signup.module.ts",
+  "line": 926,
+  "verb": "POST",
+  "route": "/public/signup/preview",
+  "roles": "",
+  "pub": true,
+  "thr": true,
+  "products": ""
+ },
+ {
+  "file": "modules/signup.module.ts",
+  "line": 933,
+  "verb": "POST",
+  "route": "/public/signup",
+  "roles": "",
+  "pub": true,
+  "thr": true,
+  "products": ""
+ },
+ {
+  "file": "modules/signup.module.ts",
+  "line": 939,
+  "verb": "GET",
+  "route": "/public/setup/catalog",
+  "roles": "",
+  "pub": true,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/signup.module.ts",
+  "line": 946,
+  "verb": "POST",
+  "route": "/public/setup/evaluate",
+  "roles": "",
+  "pub": true,
+  "thr": true,
+  "products": ""
+ },
+ {
+  "file": "modules/signup.module.ts",
+  "line": 952,
+  "verb": "POST",
+  "route": "/platform/setup/evaluate",
+  "roles": "SUPER_ADMIN,DEV",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/signup.module.ts",
+  "line": 959,
+  "verb": "POST",
+  "route": "/platform/setup/propose",
+  "roles": "SUPER_ADMIN,DEV",
+  "pub": false,
+  "thr": true,
+  "products": ""
+ },
+ {
+  "file": "modules/signup.module.ts",
+  "line": 965,
+  "verb": "GET",
+  "route": "/platform/companies/:id/setup",
+  "roles": "SUPER_ADMIN,DEV",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/signup.module.ts",
+  "line": 971,
+  "verb": "PUT",
+  "route": "/platform/companies/:id/setup",
+  "roles": "SUPER_ADMIN,DEV",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/signup.module.ts",
+  "line": 976,
+  "verb": "GET",
+  "route": "/onboarding",
+  "roles": "",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/signup.module.ts",
+  "line": 983,
+  "verb": "POST",
+  "route": "/onboarding/chat",
+  "roles": "SUPER_ADMIN,DEV,COMPANY_ADMIN",
+  "pub": false,
+  "thr": true,
+  "products": ""
+ },
+ {
+  "file": "modules/signup.module.ts",
+  "line": 989,
+  "verb": "POST",
+  "route": "/onboarding/team",
+  "roles": "SUPER_ADMIN,DEV,COMPANY_ADMIN",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/signup.module.ts",
+  "line": 995,
+  "verb": "POST",
+  "route": "/onboarding/request-plan",
+  "roles": "COMPANY_ADMIN",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/signup.module.ts",
+  "line": 1001,
+  "verb": "GET",
+  "route": "/onboarding/signups",
+  "roles": "SUPER_ADMIN,DEV",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/signup.module.ts",
+  "line": 1007,
+  "verb": "GET",
+  "route": "/onboarding/ai-status",
+  "roles": "SUPER_ADMIN,DEV",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/signup.module.ts",
+  "line": 1013,
+  "verb": "GET",
+  "route": "/onboarding/registros",
+  "roles": "SUPER_ADMIN,DEV",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/signup.module.ts",
+  "line": 1019,
+  "verb": "GET",
+  "route": "/onboarding/registros/summary",
+  "roles": "SUPER_ADMIN,DEV",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/signup.module.ts",
+  "line": 1025,
+  "verb": "PATCH",
+  "route": "/onboarding/registros/:id",
+  "roles": "SUPER_ADMIN,DEV",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/signup.module.ts",
+  "line": 1031,
+  "verb": "GET",
+  "route": "/onboarding/ai-chain",
+  "roles": "SUPER_ADMIN,DEV",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/signup.module.ts",
+  "line": 1037,
+  "verb": "POST",
+  "route": "/onboarding/ai-chain",
+  "roles": "SUPER_ADMIN,DEV",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/signup.module.ts",
+  "line": 1043,
+  "verb": "POST",
+  "route": "/onboarding/ai-chain/reset",
+  "roles": "SUPER_ADMIN,DEV",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/signup.module.ts",
+  "line": 1050,
+  "verb": "POST",
+  "route": "/onboarding/ai-chain/refresh-models",
+  "roles": "SUPER_ADMIN,DEV",
+  "pub": false,
+  "thr": true,
+  "products": ""
+ },
+ {
+  "file": "modules/signup.module.ts",
+  "line": 1057,
+  "verb": "POST",
+  "route": "/onboarding/ai-chain/test",
+  "roles": "SUPER_ADMIN,DEV",
+  "pub": false,
+  "thr": true,
+  "products": ""
+ },
+ {
+  "file": "modules/social.module.ts",
+  "line": 622,
+  "verb": "GET",
+  "route": "/social/status",
+  "roles": "...READ",
+  "pub": false,
+  "thr": false,
+  "products": "Products('CREATIVE')"
+ },
+ {
+  "file": "modules/social.module.ts",
+  "line": 628,
+  "verb": "POST",
+  "route": "/social/request",
+  "roles": "...WRITE",
+  "pub": false,
+  "thr": false,
+  "products": "Products('CREATIVE')"
+ },
+ {
+  "file": "modules/social.module.ts",
+  "line": 635,
+  "verb": "POST",
+  "route": "/social/pieces/:id/copy",
+  "roles": "...WRITE",
+  "pub": false,
+  "thr": true,
+  "products": "Products('CREATIVE')"
+ },
+ {
+  "file": "modules/social.module.ts",
+  "line": 642,
+  "verb": "POST",
+  "route": "/social/pieces/:id/image",
+  "roles": "...WRITE",
+  "pub": false,
+  "thr": true,
+  "products": "Products('CREATIVE')"
+ },
+ {
+  "file": "modules/social.module.ts",
+  "line": 648,
+  "verb": "GET",
+  "route": "/social/pieces/:id/asset",
+  "roles": "...READ",
+  "pub": false,
+  "thr": false,
+  "products": "Products('CREATIVE')"
+ },
+ {
+  "file": "modules/social.module.ts",
+  "line": 659,
+  "verb": "POST",
+  "route": "/social/pieces/:id/schedule",
+  "roles": "...WRITE",
+  "pub": false,
+  "thr": false,
+  "products": "Products('CREATIVE') Products('ADS')"
+ },
+ {
+  "file": "modules/social.module.ts",
+  "line": 668,
+  "verb": "POST",
+  "route": "/social/pieces/:id/publish",
+  "roles": "...WRITE",
+  "pub": false,
+  "thr": true,
+  "products": "Products('CREATIVE') Products('ADS')"
+ },
+ {
+  "file": "modules/social.module.ts",
+  "line": 675,
+  "verb": "POST",
+  "route": "/social/plan",
+  "roles": "...WRITE",
+  "pub": false,
+  "thr": true,
+  "products": "Products('CREATIVE')"
+ },
+ {
+  "file": "modules/social.module.ts",
+  "line": 681,
+  "verb": "GET",
+  "route": "/social/meta/oauth",
+  "roles": "...WRITE",
+  "pub": false,
+  "thr": false,
+  "products": "Products('CREATIVE')"
+ },
+ {
+  "file": "modules/social.module.ts",
+  "line": 687,
+  "verb": "GET",
+  "route": "/public/social/meta/callback",
+  "roles": "",
+  "pub": true,
+  "thr": false,
+  "products": "Products('CREATIVE')"
+ },
+ {
+  "file": "modules/social.module.ts",
+  "line": 693,
+  "verb": "POST",
+  "route": "/social/meta/select",
+  "roles": "...WRITE",
+  "pub": false,
+  "thr": false,
+  "products": "Products('CREATIVE')"
+ },
+ {
+  "file": "modules/social.module.ts",
+  "line": 699,
+  "verb": "POST",
+  "route": "/social/meta/manual",
+  "roles": "...WRITE",
+  "pub": false,
+  "thr": false,
+  "products": "Products('CREATIVE')"
+ },
+ {
+  "file": "modules/social.module.ts",
+  "line": 705,
+  "verb": "DELETE",
+  "route": "/social/meta",
+  "roles": "...WRITE",
+  "pub": false,
+  "thr": false,
+  "products": "Products('CREATIVE')"
+ },
+ {
+  "file": "modules/social.module.ts",
+  "line": 711,
+  "verb": "GET",
+  "route": "/social/report",
+  "roles": "SUPER_ADMIN,DEV",
+  "pub": false,
+  "thr": false,
+  "products": "Products('CREATIVE')"
+ },
+ {
+  "file": "modules/social.module.ts",
+  "line": 718,
+  "verb": "GET",
+  "route": "/public/content/:token",
+  "roles": "",
+  "pub": true,
+  "thr": true,
+  "products": "Products('CREATIVE')"
+ },
+ {
+  "file": "modules/subscriptions.module.ts",
+  "line": 502,
+  "verb": "GET",
+  "route": "/subscriptions",
+  "roles": "...PLATFORM",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/subscriptions.module.ts",
+  "line": 505,
+  "verb": "GET",
+  "route": "/subscriptions/policy",
+  "roles": "...PLATFORM",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/subscriptions.module.ts",
+  "line": 508,
+  "verb": "PUT",
+  "route": "/subscriptions/policy",
+  "roles": "SUPER_ADMIN",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/subscriptions.module.ts",
+  "line": 511,
+  "verb": "POST",
+  "route": "/subscriptions/run",
+  "roles": "SUPER_ADMIN",
+  "pub": false,
+  "thr": true,
+  "products": ""
+ },
+ {
+  "file": "modules/subscriptions.module.ts",
+  "line": 515,
+  "verb": "GET",
+  "route": "/subscriptions/me",
+  "roles": "COMPANY_ADMIN,COMPANY_VIEWER",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/subscriptions.module.ts",
+  "line": 518,
+  "verb": "POST",
+  "route": "/subscriptions/me/cancel",
+  "roles": "COMPANY_ADMIN",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/subscriptions.module.ts",
+  "line": 521,
+  "verb": "POST",
+  "route": "/subscriptions/me/undo-cancel",
+  "roles": "COMPANY_ADMIN",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/subscriptions.module.ts",
+  "line": 524,
+  "verb": "POST",
+  "route": "/subscriptions/invoices/:invoiceId/manual-payment",
+  "roles": "SUPER_ADMIN",
+  "pub": false,
+  "thr": true,
+  "products": ""
+ },
+ {
+  "file": "modules/subscriptions.module.ts",
+  "line": 527,
+  "verb": "GET",
+  "route": "/subscriptions/:companyId",
+  "roles": "...PLATFORM",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/subscriptions.module.ts",
+  "line": 530,
+  "verb": "GET",
+  "route": "/subscriptions/:companyId/economics",
+  "roles": "...PLATFORM",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/subscriptions.module.ts",
+  "line": 533,
+  "verb": "POST",
+  "route": "/subscriptions/:companyId/transition",
+  "roles": "SUPER_ADMIN",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/terms.module.ts",
+  "line": 116,
+  "verb": "GET",
+  "route": "/public/terms",
+  "roles": "",
+  "pub": true,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/terms.module.ts",
+  "line": 121,
+  "verb": "GET",
+  "route": "/terms/status",
+  "roles": "",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/terms.module.ts",
+  "line": 126,
+  "verb": "POST",
+  "route": "/terms/accept",
+  "roles": "",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/terms.module.ts",
+  "line": 132,
+  "verb": "GET",
+  "route": "/platform/terms",
+  "roles": "SUPER_ADMIN,DEV",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/terms.module.ts",
+  "line": 138,
+  "verb": "PUT",
+  "route": "/platform/terms",
+  "roles": "SUPER_ADMIN,DEV",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/twilio.module.ts",
+  "line": 816,
+  "verb": "POST",
+  "route": "/webhooks/:slug/twilio",
+  "roles": "",
+  "pub": true,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/twilio.module.ts",
+  "line": 848,
+  "verb": "POST",
+  "route": "/webhooks/:slug/twilio/status",
+  "roles": "",
+  "pub": true,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/users.module.ts",
+  "line": 243,
+  "verb": "GET",
+  "route": "/users",
+  "roles": "SUPER_ADMIN,DEV,COMPANY_ADMIN,COMPANY_VIEWER",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/users.module.ts",
+  "line": 249,
+  "verb": "POST",
+  "route": "/users",
+  "roles": "SUPER_ADMIN,DEV,COMPANY_ADMIN",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/users.module.ts",
+  "line": 255,
+  "verb": "PATCH",
+  "route": "/users/:id",
+  "roles": "SUPER_ADMIN,DEV,COMPANY_ADMIN",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/users.module.ts",
+  "line": 265,
+  "verb": "DELETE",
+  "route": "/users/:id",
+  "roles": "SUPER_ADMIN,DEV,COMPANY_ADMIN",
+  "pub": false,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/webhooks.module.ts",
+  "line": 318,
+  "verb": "GET",
+  "route": "/webhooks/whatsapp-cloud",
+  "roles": "",
+  "pub": true,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/webhooks.module.ts",
+  "line": 323,
+  "verb": "POST",
+  "route": "/webhooks/whatsapp-cloud",
+  "roles": "",
+  "pub": true,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/webhooks.module.ts",
+  "line": 329,
+  "verb": "GET",
+  "route": "/webhooks/:slug/whatsapp",
+  "roles": "",
+  "pub": true,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/webhooks.module.ts",
+  "line": 334,
+  "verb": "POST",
+  "route": "/webhooks/:slug/whatsapp",
+  "roles": "",
+  "pub": true,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/webhooks.module.ts",
+  "line": 341,
+  "verb": "GET",
+  "route": "/webhooks/:slug/meta",
+  "roles": "",
+  "pub": true,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/webhooks.module.ts",
+  "line": 346,
+  "verb": "POST",
+  "route": "/webhooks/:slug/meta",
+  "roles": "",
+  "pub": true,
+  "thr": false,
+  "products": ""
+ },
+ {
+  "file": "modules/whatsapp-meta.module.ts",
+  "line": 390,
+  "verb": "GET",
+  "route": "/whatsapp/meta/config",
+  "roles": "...READ",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/whatsapp-meta.module.ts",
+  "line": 393,
+  "verb": "POST",
+  "route": "/whatsapp/meta/connect",
+  "roles": "...WRITE",
+  "pub": false,
+  "thr": true,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/whatsapp-meta.module.ts",
+  "line": 396,
+  "verb": "GET",
+  "route": "/whatsapp/templates",
+  "roles": "...READ",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/whatsapp-meta.module.ts",
+  "line": 399,
+  "verb": "POST",
+  "route": "/whatsapp/templates",
+  "roles": "...WRITE",
+  "pub": false,
+  "thr": true,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/whatsapp-meta.module.ts",
+  "line": 402,
+  "verb": "POST",
+  "route": "/whatsapp/templates/library/:key",
+  "roles": "...WRITE",
+  "pub": false,
+  "thr": true,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/whatsapp-meta.module.ts",
+  "line": 405,
+  "verb": "POST",
+  "route": "/whatsapp/templates/sync",
+  "roles": "...WRITE",
+  "pub": false,
+  "thr": true,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/whatsapp-meta.module.ts",
+  "line": 412,
+  "verb": "DELETE",
+  "route": "/whatsapp/templates/:key",
+  "roles": "...WRITE",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ },
+ {
+  "file": "modules/whatsapp-meta.module.ts",
+  "line": 415,
+  "verb": "GET",
+  "route": "/whatsapp/meta/costs",
+  "roles": "...READ",
+  "pub": false,
+  "thr": false,
+  "products": "Products('AUTOMATION')"
+ }
+]

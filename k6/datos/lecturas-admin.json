@@ -1,0 +1,582 @@
+[
+ {
+  "ruta": "/auth/mfa",
+  "ms": 1,
+  "bytes": 39
+ },
+ {
+  "ruta": "/auth/me",
+  "ms": 2,
+  "bytes": 649
+ },
+ {
+  "ruta": "/users/invitations",
+  "ms": 2,
+  "bytes": 2
+ },
+ {
+  "ruta": "/addons/reactivation",
+  "ms": 8,
+  "bytes": 446
+ },
+ {
+  "ruta": "/addons/collections",
+  "ms": 7,
+  "bytes": 512
+ },
+ {
+  "ruta": "/addons/sales-audit",
+  "ms": 3,
+  "bytes": 49
+ },
+ {
+  "ruta": "/ads/create/setup",
+  "ms": 4,
+  "bytes": 810
+ },
+ {
+  "ruta": "/ads/create/launches",
+  "ms": 3,
+  "bytes": 2
+ },
+ {
+  "ruta": "/ads/create/week",
+  "ms": 5,
+  "bytes": 338
+ },
+ {
+  "ruta": "/ads/providers",
+  "ms": 5,
+  "bytes": 1115
+ },
+ {
+  "ruta": "/ads/accounts",
+  "ms": 3,
+  "bytes": 2
+ },
+ {
+  "ruta": "/ads/meta/pending",
+  "ms": 3,
+  "bytes": 2
+ },
+ {
+  "ruta": "/ads/overview",
+  "ms": 4,
+  "bytes": 3456
+ },
+ {
+  "ruta": "/ads/campaigns",
+  "ms": 3,
+  "bytes": 83
+ },
+ {
+  "ruta": "/ads/actions",
+  "ms": 4,
+  "bytes": 2
+ },
+ {
+  "ruta": "/ads/settings",
+  "ms": 3,
+  "bytes": 136
+ },
+ {
+  "ruta": "/ads/rules",
+  "ms": 3,
+  "bytes": 373
+ },
+ {
+  "ruta": "/ads/revenue",
+  "ms": 7,
+  "bytes": 1011
+ },
+ {
+  "ruta": "/ads/leads",
+  "ms": 3,
+  "bytes": 2
+ },
+ {
+  "ruta": "/ads/briefs",
+  "ms": 3,
+  "bytes": 2
+ },
+ {
+  "ruta": "/agent-calls/slots",
+  "ms": 2,
+  "bytes": 5875
+ },
+ {
+  "ruta": "/agent-calls/mine",
+  "ms": 1,
+  "bytes": 420
+ },
+ {
+  "ruta": "/ai-costs/estimate",
+  "ms": 3,
+  "bytes": 5475
+ },
+ {
+  "ruta": "/ai-credits/packages",
+  "ms": 1,
+  "bytes": 792
+ },
+ {
+  "ruta": "/ai-credits/status",
+  "ms": 5,
+  "bytes": 1071
+ },
+ {
+  "ruta": "/ai-models",
+  "ms": 2,
+  "bytes": 2146
+ },
+ {
+  "ruta": "/ai-usage/company",
+  "ms": 13,
+  "bytes": 4076
+ },
+ {
+  "ruta": "/ai-usage/consumption",
+  "ms": 7,
+  "bytes": 528
+ },
+ {
+  "ruta": "/audit",
+  "ms": 2,
+  "bytes": 758
+ },
+ {
+  "ruta": "/automations/catalog",
+  "ms": 2,
+  "bytes": 3974
+ },
+ {
+  "ruta": "/automations/runs",
+  "ms": 3,
+  "bytes": 30
+ },
+ {
+  "ruta": "/automations",
+  "ms": 15,
+  "bytes": 1710
+ },
+ {
+  "ruta": "/billing/summary",
+  "ms": 7,
+  "bytes": 1113
+ },
+ {
+  "ruta": "/billing/invoices",
+  "ms": 2,
+  "bytes": 1112
+ },
+ {
+  "ruta": "/billing/forecast",
+  "ms": 7,
+  "bytes": 465
+ },
+ {
+  "ruta": "/bookings/config",
+  "ms": 2,
+  "bytes": 312
+ },
+ {
+  "ruta": "/bookings/availability",
+  "ms": 2,
+  "bytes": 98
+ },
+ {
+  "ruta": "/bots",
+  "ms": 3,
+  "bytes": 2741
+ },
+ {
+  "ruta": "/bots/agent-catalog",
+  "ms": 0,
+  "bytes": 5654
+ },
+ {
+  "ruta": "/calendar/google",
+  "ms": 4,
+  "bytes": 87
+ },
+ {
+  "ruta": "/calendar/google/overlay",
+  "ms": 2,
+  "bytes": 41
+ },
+ {
+  "ruta": "/campaigns",
+  "ms": 1,
+  "bytes": 2
+ },
+ {
+  "ruta": "/catalog/products",
+  "ms": 2,
+  "bytes": 2
+ },
+ {
+  "ruta": "/catalog/areas",
+  "ms": 1,
+  "bytes": 2
+ },
+ {
+  "ruta": "/customers",
+  "ms": 2,
+  "bytes": 2
+ },
+ {
+  "ruta": "/onboarding/checkout",
+  "ms": 6,
+  "bytes": 5384
+ },
+ {
+  "ruta": "/company/addons",
+  "ms": 3,
+  "bytes": 2900
+ },
+ {
+  "ruta": "/company/plan",
+  "ms": 3,
+  "bytes": 1482
+ },
+ {
+  "ruta": "/company/landing",
+  "ms": 3,
+  "bytes": 251
+ },
+ {
+  "ruta": "/company/referrals",
+  "ms": 3,
+  "bytes": 90
+ },
+ {
+  "ruta": "/companies",
+  "ms": 3,
+  "bytes": 3787
+ },
+ {
+  "ruta": "/contacts",
+  "ms": 3,
+  "bytes": 4991
+ },
+ {
+  "ruta": "/conversations",
+  "ms": 6,
+  "bytes": 7344
+ },
+ {
+  "ruta": "/conversations/inbox",
+  "ms": 8,
+  "bytes": 6874
+ },
+ {
+  "ruta": "/conversations/channels",
+  "ms": 2,
+  "bytes": 398
+ },
+ {
+  "ruta": "/conversations/assignees",
+  "ms": 1,
+  "bytes": 87
+ },
+ {
+  "ruta": "/creative/copy/status",
+  "ms": 3,
+  "bytes": 160
+ },
+ {
+  "ruta": "/creative/create/start",
+  "ms": 6,
+  "bytes": 685
+ },
+ {
+  "ruta": "/creative/create/what-works",
+  "ms": 4,
+  "bytes": 390
+ },
+ {
+  "ruta": "/creative/stock/status",
+  "ms": 1,
+  "bytes": 20
+ },
+ {
+  "ruta": "/creative/stock/search",
+  "ms": 3,
+  "bytes": 48
+ },
+ {
+  "ruta": "/creative/templates",
+  "ms": 1,
+  "bytes": 1891
+ },
+ {
+  "ruta": "/creative/catalog-products",
+  "ms": 3,
+  "bytes": 2
+ },
+ {
+  "ruta": "/creative/art/catalog",
+  "ms": 1,
+  "bytes": 2111
+ },
+ {
+  "ruta": "/creative/art/stats",
+  "ms": 3,
+  "bytes": 146
+ },
+ {
+  "ruta": "/creative/brand/visual",
+  "ms": 5,
+  "bytes": 912
+ },
+ {
+  "ruta": "/creative/brand",
+  "ms": 4,
+  "bytes": 1178
+ },
+ {
+  "ruta": "/creative/assets",
+  "ms": 3,
+  "bytes": 2
+ },
+ {
+  "ruta": "/creative/designs",
+  "ms": 3,
+  "bytes": 2
+ },
+ {
+  "ruta": "/creative/calendar",
+  "ms": 4,
+  "bytes": 2
+ },
+ {
+  "ruta": "/creative/credits",
+  "ms": 3,
+  "bytes": 101
+ },
+ {
+  "ruta": "/company/data-export/sections",
+  "ms": 1,
+  "bytes": 188
+ },
+ {
+  "ruta": "/delivery/board",
+  "ms": 5,
+  "bytes": 98
+ },
+ {
+  "ruta": "/delivery/branches",
+  "ms": 1,
+  "bytes": 2
+ },
+ {
+  "ruta": "/drive",
+  "ms": 2,
+  "bytes": 73
+ },
+ {
+  "ruta": "/integrations",
+  "ms": 4,
+  "bytes": 5277
+ },
+ {
+  "ruta": "/knowledge",
+  "ms": 2,
+  "bytes": 2
+ },
+ {
+  "ruta": "/library/assets",
+  "ms": 3,
+  "bytes": 139
+ },
+ {
+  "ruta": "/library/ad-entities",
+  "ms": 3,
+  "bytes": 2
+ },
+ {
+  "ruta": "/marketing/summary",
+  "ms": 2,
+  "bytes": 91
+ },
+ {
+  "ruta": "/marketing/campaigns",
+  "ms": 2,
+  "bytes": 2
+ },
+ {
+  "ruta": "/marketing/pieces",
+  "ms": 2,
+  "bytes": 2
+ },
+ {
+  "ruta": "/media",
+  "ms": 2,
+  "bytes": 2
+ },
+ {
+  "ruta": "/menu/info",
+  "ms": 10,
+  "bytes": 6299
+ },
+ {
+  "ruta": "/metrics/company",
+  "ms": 5,
+  "bytes": 4387
+ },
+ {
+  "ruta": "/opportunities",
+  "ms": 4,
+  "bytes": 2
+ },
+ {
+  "ruta": "/creative/context",
+  "ms": 7,
+  "bytes": 3796
+ },
+ {
+  "ruta": "/appointments",
+  "ms": 2,
+  "bytes": 2
+ },
+ {
+  "ruta": "/followups",
+  "ms": 1,
+  "bytes": 2
+ },
+ {
+  "ruta": "/ops/executive",
+  "ms": 6,
+  "bytes": 864
+ },
+ {
+  "ruta": "/orders",
+  "ms": 3,
+  "bytes": 2
+ },
+ {
+  "ruta": "/orders/calendar",
+  "ms": 3,
+  "bytes": 40
+ },
+ {
+  "ruta": "/reminders",
+  "ms": 2,
+  "bytes": 2
+ },
+ {
+  "ruta": "/payments",
+  "ms": 2,
+  "bytes": 2
+ },
+ {
+  "ruta": "/payments/config",
+  "ms": 3,
+  "bytes": 241
+ },
+ {
+  "ruta": "/personas",
+  "ms": 1,
+  "bytes": 2
+ },
+ {
+  "ruta": "/pipelines",
+  "ms": 1,
+  "bytes": 347
+ },
+ {
+  "ruta": "/plans",
+  "ms": 2,
+  "bytes": 3825
+ },
+ {
+  "ruta": "/products",
+  "ms": 3,
+  "bytes": 898
+ },
+ {
+  "ruta": "/promotions",
+  "ms": 1,
+  "bytes": 2
+ },
+ {
+  "ruta": "/quick-replies",
+  "ms": 1,
+  "bytes": 2
+ },
+ {
+  "ruta": "/reports/daily",
+  "ms": 11,
+  "bytes": 1019
+ },
+ {
+  "ruta": "/reports/daily/pdf",
+  "ms": 16,
+  "bytes": 2937
+ },
+ {
+  "ruta": "/reports/history",
+  "ms": 2,
+  "bytes": 2
+ },
+ {
+  "ruta": "/reports/compare",
+  "ms": 2,
+  "bytes": 1248
+ },
+ {
+  "ruta": "/reports/compare/summary",
+  "ms": 2,
+  "bytes": 289
+ },
+ {
+  "ruta": "/reports/feedback",
+  "ms": 2,
+  "bytes": 241
+ },
+ {
+  "ruta": "/reports/ops-health",
+  "ms": 3,
+  "bytes": 226
+ },
+ {
+  "ruta": "/onboarding",
+  "ms": 5,
+  "bytes": 1807
+ },
+ {
+  "ruta": "/social/status",
+  "ms": 5,
+  "bytes": 300
+ },
+ {
+  "ruta": "/subscriptions/me",
+  "ms": 9,
+  "bytes": 1691
+ },
+ {
+  "ruta": "/terms/status",
+  "ms": 2,
+  "bytes": 99
+ },
+ {
+  "ruta": "/users",
+  "ms": 3,
+  "bytes": 1195
+ },
+ {
+  "ruta": "/whatsapp/meta/config",
+  "ms": 4,
+  "bytes": 1859
+ },
+ {
+  "ruta": "/whatsapp/templates",
+  "ms": 3,
+  "bytes": 5174
+ },
+ {
+  "ruta": "/whatsapp/meta/costs",
+  "ms": 6,
+  "bytes": 1786
+ }
+]
