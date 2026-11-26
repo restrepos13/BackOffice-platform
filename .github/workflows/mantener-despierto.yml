@@ -1,0 +1,19 @@
+# El plan Free de Render apaga el servidor tras 15 minutos sin visitas y el
+# siguiente cliente espera ~40 segundos. Este ping cada 10 minutos lo mantiene
+# despierto. Se puede borrar al pasar el servicio al plan Starter (no se duerme).
+name: Mantener despierto el API
+
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Ping a /api/health
+        run: curl --silent --show-error --fail --max-time 90 --retry 2 https://backoffice-platform-90ic.onrender.com/api/health
