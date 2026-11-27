@@ -270,6 +270,22 @@ describe('Link opcional (Instagram o web)', () => {
   });
 });
 
+describe('Avisos simultáneos', () => {
+  it('si otro aviso ya creó la sesión (índice único), se actualiza esa en vez de duplicarla', async () => {
+    const { service, db, prisma } = setup();
+    const create = prisma.signupSession.create;
+    // Simula la carrera: entre buscar y crear, el otro aviso ya la guardó
+    (prisma.signupSession as any).create = jest.fn(async (args: any) => {
+      await create({ data: { token: args.data.token, step: 'STARTED', lastSeenAt: new Date() } });
+      throw Object.assign(new Error('Unique constraint failed'), { code: 'P2002' });
+    });
+    await service.event({ session: 'sesion-carrera-simultanea-01', type: 'registro_abierto' }, { utmSource: 'meta' });
+    expect(db.signupSession.filter((s: any) => s.token === 'sesion-carrera-simultanea-01')).toHaveLength(1);
+    expect(db.signupSession[0].utmSource).toBe('meta');
+    expect(db.signupEvent).toHaveLength(1);
+  });
+});
+
 describe('Vista para el equipo', () => {
   it('los registros de antes (sin eventos ni fuente nueva) se siguen viendo igual', () => {
     const v = SignupTracker.view({ id: 'x', step: 'PREVIEW', answers: 4, aiCalls: 1, aiTokens: 10, followStatus: 'NEW', createdAt: new Date(), lastSeenAt: new Date(), description: 'Canchas' });

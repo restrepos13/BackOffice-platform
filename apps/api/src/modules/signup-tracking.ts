@@ -251,9 +251,16 @@ export class SignupTracker {
         ...(patch.ai ? { aiCalls: (current?.aiCalls ?? 0) + patch.ai.calls, aiTokens: (current?.aiTokens ?? 0) + patch.ai.tokens } : {}),
       };
       if (current) return await this.prisma.signupSession.update({ where: { id: current.id }, data });
-      return await this.prisma.signupSession.create({
-        data: { token, ...data, referrer: externalHost(referrer) ? referrer : undefined, userAgent: clip(patch.userAgent, 200) },
-      });
+      try {
+        return await this.prisma.signupSession.create({
+          data: { token, ...data, referrer: externalHost(referrer) ? referrer : undefined, userAgent: clip(patch.userAgent, 200) },
+        });
+      } catch (err: any) {
+        // Dos avisos a la vez al cargar (early.js y la app): el otro ya la creó → se actualiza esa
+        if (err?.code !== 'P2002') throw err;
+        const created = await this.get(token);
+        return created ? await this.prisma.signupSession.update({ where: { id: created.id }, data }) : null;
+      }
     } catch {
       return null; // el seguimiento nunca rompe el registro
     }
