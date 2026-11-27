@@ -341,7 +341,8 @@ describe('plan B del plano y seguimiento del registro', () => {
       { id: 's3', token: 't3', step: 'STARTED', answers: 0, aiCalls: 0, aiTokens: 0, followStatus: 'NEW', createdAt: old, lastSeenAt: old },
     );
     const r = await service.tracker.list({});
-    expect(r.funnel.map((f: any) => f.count)).toEqual([3, 2, 2, 1, 1]);
+    // Abrió · Dejó contacto · Preguntas · Plan · Datos · Empresa (los de antes cuentan en «Dejó contacto» si pasaron de ahí)
+    expect(r.funnel.map((f: any) => f.count)).toEqual([3, 2, 2, 2, 1, 1]);
     expect(r.totals).toMatchObject({ done: 1, abandoned: 2, pendingFollow: 2, avgTokens: 2500 });
     expect(r.sessions.find((x: any) => x.id === 's1').whatsapp).toBe('573001234567');
     const v = await service.tracker.follow({ name: 'Santi' } as any, 's2', { meetingAt: '2026-10-21T15:00:00.000Z', followNotes: 'Llamar martes' });

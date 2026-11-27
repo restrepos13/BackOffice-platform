@@ -1,99 +1,106 @@
 import { clsx } from 'clsx';
 import { ArrowLeft, ArrowRight, Eye, EyeOff, Lock, RotateCcw } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
+import { Suspense, lazy, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { Link, Navigate, useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { ApiError, postWithRetry } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
 import { fmtMoney } from '../../lib/format';
+import { fbpCookie, pixelEvent } from '../../lib/meta-pixel';
 import type { SetupProfile } from '../../lib/setup';
-import type { AuthUser, InterviewTurn } from '../../lib/types';
-import { Button, Field, Input } from '../../components/ui';
+import type { AuthUser } from '../../lib/types';
+import { Button, Field, Input, Loading } from '../../components/ui';
 import {
-  ACCOUNT_FIELDS, type AccountForm, type FieldErrors, type Msg, type Preview, clearDraft, emailSuggestion, formatPhone,
-  loadDraft, passwordStrength, referralCode, saveDraft, sendContact, sessionToken, speechSupported, startDictation, track, validateAll, validateField, visitOrigin,
+  ACCOUNT_FIELDS, type AccountForm, type FieldErrors, type Preview, adoptSession, clearDraft, emailSuggestion, formatPhone, funnel,
+  loadDraft, passwordStrength, referralCode, saveDraft, sendContact, sessionToken, takeEarlyContact, track, validateAll, validateField,
 } from './signup-helpers';
-import ContactStep from './signup/ContactStep';
-import IntroStep, { fromAd } from './signup/IntroStep';
-import InterviewStep from './signup/InterviewStep';
-import ProductsStep from './signup/ProductsStep';
-import ProposalStep from './signup/ProposalStep';
-import ReviewSummary from './signup/ReviewSummary';
+import ContactStep, { type ContactValues } from './signup/ContactStep';
+import QuestionsStep from './signup/QuestionsStep';
+import QuickContact from './signup/QuickContact';
+import { QUESTION_COUNT, categoryOf, questionsFor, toMessages, type Answers } from './signup/questions';
 import { Notice, StepActions, StepTitle, Stepper, type StepNumber } from './signup/parts';
 
+// Los pasos 2 a 4 se descargan cuando hacen falta: la pantalla de entrada carga liviana
+const ProposalStep = lazy(() => import('./signup/ProposalStep'));
+const ProductsStep = lazy(() => import('./signup/ProductsStep'));
+const ReviewSummary = lazy(() => import('./signup/ReviewSummary'));
+
 /**
- * Registro autoservicio en 4 pasos:
- *  1. Tu negocio: primero nombre y WhatsApp (para ayudar a quien abandona) y
- *     después la entrevista adaptativa (IA o preguntas fijas), una pregunta a la vez.
- *  2. Propuesta: lo que entendimos, lo que resolvemos y el estado real de cada función.
- *  3. Productos: qué activar (ninguno es obligatorio) y la configuración inicial.
- *  4. Revisión y cuenta: resumen editable y datos de acceso.
- * Nunca se pierde lo escrito: el avance queda en el navegador (sin la contraseña),
- * el botón Atrás del navegador vuelve de paso, y el servidor valida y recalcula todo.
+ * Registro autoservicio:
+ *  0. Contacto primero (una sola pantalla con la entrada): nombre del negocio y
+ *     WhatsApp. Sin IA y sin esperar al servidor. Desde aquí queda «Por contactar».
+ *  1. Cinco preguntas fijas que se responden tocando, con barra de avance y un
+ *     adelanto después de la 2. Sin IA.
+ *  2. Propuesta: UNA llamada de IA con las respuestas.
+ *  3. Productos.  4. Revisión y cuenta.
+ * El avance se guarda en el navegador (sin la contraseña) y en el servidor
+ * (para retomar desde el correo). Cada pantalla deja un evento del embudo.
  */
 
-const OPENING = '¡Hola! Te voy a hacer unas preguntas cortas para armar tu cuenta. Para empezar: ¿qué hace tu negocio?';
-const DRAFT_VERSION = 3;
+const DRAFT_VERSION = 4;
 const EMPTY_FORM: AccountForm = { companyName: '', city: '', name: '', email: '', phone: '', password: '', accept: false };
-
-function touchScreen() {
-  return typeof window !== 'undefined' && typeof window.matchMedia === 'function' && window.matchMedia('(pointer: coarse)').matches;
-}
-
-function hasContact(f: AccountForm) {
-  return !validateField('name', f) && !validateField('phone', f);
-}
 
 function messageOf(e: unknown, fallback: string) {
   return e instanceof Error && e.message ? e.message : fallback;
+}
+
+/** Primera pregunta sin responder (para retomar). */
+function firstOpen(answers: Answers): number {
+  const qs = questionsFor(categoryOf(answers.tipo));
+  const i = qs.findIndex((q) => !answers[q.id]);
+  return i === -1 ? QUESTION_COUNT - 1 : i;
 }
 
 export default function Signup() {
   const { user, loading, adopt } = useAuth();
   const navigate = useNavigate();
   const saved = useMemo(() => loadDraft(), []);
-  const [resumeOffer, setResumeOffer] = useState(!!saved && (saved.step > 1 || saved.messages.length > 1));
-  // Nombre y WhatsApp ya dados (también si quedaron guardados de una visita anterior)
-  const [contactDone, setContactDone] = useState(() => !!saved && hasContact({ ...EMPTY_FORM, ...saved.form }));
-  // Quien llega de un anuncio ve primero una pantalla de entrada (una sola vez)
-  const [intro, setIntro] = useState(() => !resumeOffer && !contactDone && fromAd(visitOrigin()));
+  const early = useMemo(() => takeEarlyContact(), []);
+  const savedV4 = saved && (saved.v ?? 0) >= 4 ? saved : null;
+  // Se ofrece retomar si había avance de verdad (una pregunta respondida o una propuesta)
+  const [resumeOffer, setResumeOffer] = useState(() => !early && !!saved && (saved.step > 1 || (!!savedV4?.contactDone && Object.keys(savedV4.answers ?? {}).length > 0)));
+  const [contactDone, setContactDone] = useState(() => !early && !!savedV4?.contactDone);
   const [step, setStep] = useState<StepNumber>(1);
-  const [messages, setMessages] = useState<Msg[]>([{ role: 'assistant', content: OPENING }]);
-  const [draft, setDraft] = useState('');
-  const [thinking, setThinking] = useState(false);
-  const [waking, setWaking] = useState(false);
-  const [chatError, setChatError] = useState<string | null>(null);
-  const [interviewDone, setInterviewDone] = useState(false);
-  const [correcting, setCorrecting] = useState(false);
+  const [answers, setAnswers] = useState<Answers>({});
+  const [link, setLink] = useState('');
+  const [qIndex, setQIndex] = useState(0);
+  const [showValue, setShowValue] = useState(false);
   const [building, setBuilding] = useState(false);
+  const [waking, setWaking] = useState(false);
   const [buildError, setBuildError] = useState<string | null>(null);
   const [preview, setPreview] = useState<Preview | null>(null);
   const [nameError, setNameError] = useState<string | null>(null);
   const [productError, setProductError] = useState<string | null>(null);
-  const [form, setForm] = useState<AccountForm>(() => (saved && !resumeOffer ? { ...EMPTY_FORM, ...saved.form, password: '' } : EMPTY_FORM));
+  const [form, setForm] = useState<AccountForm>(() => {
+    if (early) return { ...EMPTY_FORM, companyName: early.companyName, phone: early.phone, email: early.email };
+    // Un borrador viejo (entrevista libre) no se retoma, pero su contacto sí se aprovecha
+    return saved && !resumeOffer ? { ...EMPTY_FORM, ...saved.form, password: '' } : EMPTY_FORM;
+  });
   const [touched, setTouched] = useState<Partial<Record<keyof AccountForm, boolean>>>({});
   const [errors, setErrors] = useState<FieldErrors>({});
   const [serverError, setServerError] = useState<{ message: string; code?: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
-  const [listening, setListening] = useState(false);
-  const stopDictation = useRef<(() => void) | null>(null);
-  const dictationBase = useRef('');
-  const input = useRef<HTMLTextAreaElement>(null);
   const fieldRefs = useRef<Partial<Record<keyof AccountForm, HTMLElement | null>>>({});
   const previewRef = useRef<Preview | null>(null);
   previewRef.current = preview;
   const firstRender = useRef(true);
 
+  const questions = questionsFor(categoryOf(answers.tipo));
+  const question = questions[Math.min(qIndex, QUESTION_COUNT - 1)];
+
   useEffect(() => {
     document.title = 'Crea tu empresa · BackOffice';
+    (window as unknown as { __signupReact?: boolean }).__signupReact = true; // early.js deja de atender el formulario
     // En el celular el teclado achica la página (no la tapa): «Continuar» queda a la vista.
-    // registro.html ya trae esto; aquí cubre a quien llega navegando desde otra página.
     const viewport = document.querySelector<HTMLMetaElement>('meta[name="viewport"]');
     const prevViewport = viewport?.content;
     if (viewport && prevViewport && !prevViewport.includes('interactive-widget')) viewport.content = `${prevViewport}, interactive-widget=resizes-content`;
     track('view', { step: 'STARTED' });
+    funnel('registro_abierto'); // early.js ya lo mandó si llegó directo; el servidor cuenta uno
+    if (!contactDone) funnel('presentacion_vista');
     referralCode(); // guarda el ?ref= antes de que la URL cambie
+    void resumeFromEmail();
     // El botón Atrás del navegador cambia de paso en vez de salir del registro
     window.history.replaceState({ ...(window.history.state ?? {}), signupStep: 1 }, '');
     const onPop = (e: PopStateEvent) => {
@@ -104,22 +111,31 @@ export default function Signup() {
     return () => {
       if (viewport && prevViewport !== undefined) viewport.content = prevViewport;
       window.removeEventListener('popstate', onPop);
-      stopDictation.current?.();
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
   // Se guarda el avance (nunca la contraseña)
   useEffect(() => {
-    if (resumeOffer) return;
-    if (messages.length < 2 && step === 1 && !contactDone) return;
+    if (resumeOffer || !contactDone) return;
     const { password: _p, ...safeForm } = form;
-    saveDraft({ v: DRAFT_VERSION, step, messages, interviewDone, preview, form: safeForm });
-  }, [step, messages, interviewDone, preview, form, resumeOffer, contactDone]);
+    saveDraft({ v: DRAFT_VERSION, step, contactDone, qIndex, showValue, answers, link, preview, form: safeForm });
+  }, [step, contactDone, qIndex, showValue, answers, link, preview, form, resumeOffer]);
+
+  // «Vio la pregunta N» (una vez por pregunta en el servidor)
+  useEffect(() => {
+    if (!contactDone || resumeOffer || step !== 1 || showValue || building) return;
+    funnel('pregunta_vista', { questionNo: question.n, questionId: question.id });
+  }, [contactDone, resumeOffer, step, showValue, building, question.n, question.id]);
+
   useEffect(() => {
     if (firstRender.current) {
       firstRender.current = false;
       return;
     }
     if (step > 1) track('view', { step: step === 4 ? 'ACCOUNT' : 'PREVIEW' });
+    if (step === 2) funnel('plan_revisado');
+    if (step === 4) funnel('datos_llenados');
     window.scrollTo({ top: 0, behavior: 'smooth' });
     // El foco va al título del paso (teclado y lectores de pantalla)
     setTimeout(() => document.getElementById('step-title')?.focus({ preventScroll: true }), 60);
@@ -127,7 +143,6 @@ export default function Signup() {
 
   if (!loading && user) return <Navigate to="/" replace />;
 
-  const transcript = (list = messages) => list.filter((m) => !m.failed).map(({ role, content }) => ({ role, content }));
   const setup = preview?.setup ?? null;
   const setSetup = (next: SetupProfile) => setPreview((prev) => (prev ? { ...prev, setup: next } : prev));
 
@@ -136,17 +151,49 @@ export default function Signup() {
     setStep(n);
     window.history.pushState({ ...(window.history.state ?? {}), signupStep: n }, '');
   }
-  const reachable = (n: StepNumber) => n === 1 || (!!preview && !correcting && !building);
+  const reachable = (n: StepNumber) => n === 1 || (!!preview && !building);
+
+  /** ?retomar=… del correo «Te quedaste en la pregunta X»: sigue exactamente donde iba. */
+  async function resumeFromEmail() {
+    const t = new URLSearchParams(window.location.search).get('retomar');
+    if (!t) return;
+    const url = new URL(window.location.href);
+    url.searchParams.delete('retomar');
+    window.history.replaceState(window.history.state, '', `${url.pathname}${url.search}`);
+    try {
+      const r = await postWithRetry<{ session: string; answers: Answers; link: string | null; contact: { companyName: string; phone: string; email: string } }>(
+        '/public/signup/resume', { t }, { tries: 3, onRetry: () => setWaking(true) },
+      );
+      adoptSession(r.session);
+      setForm((f) => ({ ...f, companyName: r.contact.companyName || f.companyName, phone: formatPhone(r.contact.phone || f.phone), email: r.contact.email || f.email }));
+      setAnswers(r.answers ?? {});
+      setLink(r.link ?? '');
+      setQIndex(firstOpen(r.answers ?? {}));
+      setShowValue(false);
+      setContactDone(true);
+      setResumeOffer(false);
+      setStep(1);
+      toast.success('¡Bienvenido de vuelta! Sigues donde ibas.');
+    } catch (e) {
+      toast.error(messageOf(e, 'No pudimos abrir tu registro. Empieza de nuevo: tus datos ya los tenemos.'));
+    } finally {
+      setWaking(false);
+    }
+  }
 
   function resume() {
     if (!saved) return;
-    // Borradores de antes (3 pasos): su paso 3 era «Tus datos», que ahora es el 4
-    const savedStep = (saved.v ?? 2) < DRAFT_VERSION && saved.step === 3 ? 4 : saved.step;
-    setMessages(saved.messages.filter((m) => !m.failed));
-    setInterviewDone(saved.interviewDone);
     setPreview(saved.preview);
     setForm({ ...EMPTY_FORM, ...saved.form, password: '' });
-    setContactDone(true); // quien retoma ya pasó por aquí (o deja sus datos en el paso 4)
+    setContactDone(true);
+    if (savedV4) {
+      setAnswers((savedV4.answers ?? {}) as Answers);
+      setLink(savedV4.link ?? '');
+      setQIndex(Math.min(QUESTION_COUNT - 1, savedV4.qIndex ?? firstOpen((savedV4.answers ?? {}) as Answers)));
+      setShowValue(!!savedV4.showValue);
+    }
+    // Borradores de antes (3 pasos): su paso 3 era «Tus datos», que ahora es el 4
+    const savedStep = (saved.v ?? 2) < 3 && saved.step === 3 ? 4 : saved.step;
     const n = (saved.preview ? savedStep : 1) as StepNumber;
     setStep(n);
     window.history.replaceState({ ...(window.history.state ?? {}), signupStep: n }, '');
@@ -155,112 +202,74 @@ export default function Signup() {
 
   function restart() {
     clearDraft();
-    setMessages([{ role: 'assistant', content: OPENING }]);
+    setAnswers({});
+    setLink('');
+    setQIndex(0);
+    setShowValue(false);
     setPreview(null);
-    setInterviewDone(false);
-    setCorrecting(false);
     setBuildError(null);
-    setChatError(null);
-    setDraft('');
-    // Empezar de nuevo no vuelve a pedir nombre y WhatsApp
-    setForm((f) => ({ ...EMPTY_FORM, name: f.name || saved?.form.name || '', phone: f.phone || saved?.form.phone || '' }));
+    // Empezar de nuevo no vuelve a pedir el contacto
+    const kept = { ...EMPTY_FORM, companyName: form.companyName || saved?.form.companyName || '', phone: form.phone || saved?.form.phone || '', email: form.email || saved?.form.email || '', name: form.name || saved?.form.name || '' };
+    setForm(kept);
+    setContactDone(!validateField('companyName', kept) && !validateField('phone', kept));
     setStep(1);
     setResumeOffer(false);
     track('view', { step: 'STARTED' });
   }
 
-  function toggleDictation() {
-    if (listening) {
-      stopDictation.current?.();
-      return;
-    }
-    dictationBase.current = draft ? `${draft.trim()} ` : '';
-    const stop = startDictation(
-      (text) => setDraft(`${dictationBase.current}${text}`.slice(0, 1200)),
-      () => {
-        setListening(false);
-        stopDictation.current = null;
-      },
-    );
-    if (!stop) {
-      toast.error('No pudimos usar el micrófono. Revisa que el navegador tenga permiso.');
-      return;
-    }
-    stopDictation.current = stop;
-    setListening(true);
+  /* ── Paso 0: contacto ── */
+
+  function submitContact(c: ContactValues) {
+    setForm((f) => ({ ...f, companyName: c.companyName, phone: c.phone, email: c.email || f.email }));
+    setContactDone(true);
+    setQIndex(0);
+    void sendContact({ companyName: c.companyName, phone: c.phone, ...(c.email ? { email: c.email } : {}) });
+    pixelEvent('Lead', `lead-${sessionToken()}`);
+    window.scrollTo({ top: 0 });
   }
 
-  async function answer(text: string) {
-    const t = text.trim();
-    if (!t || thinking) return;
-    stopDictation.current?.();
-    const base = messages.filter((m) => !m.failed);
-    const next: Msg[] = [...base, { role: 'user', content: t }];
-    setMessages(next);
-    setDraft('');
-    setChatError(null);
-    setThinking(true);
-    try {
-      const turn = await postWithRetry<InterviewTurn & { mode?: string }>(
-        '/public/signup/interview',
-        { session: sessionToken(), messages: transcript(next) },
-        { onRetry: () => setWaking(true) },
-      );
-      const withNote = next.map((m, i) => (i === next.length - 1 && turn.understood ? { ...m, note: turn.understood } : m));
-      if (turn.done) {
-        setMessages([...withNote, { role: 'assistant', content: '¡Listo! Ya entendí cómo funciona tu negocio. Ahora armo tu propuesta.' }]);
-        setInterviewDone(true);
-        void build(transcript(withNote));
-      } else {
-        setMessages([...withNote, { role: 'assistant', content: turn.question, options: turn.options }]);
-      }
-    } catch (e) {
-      // La respuesta no se pierde: queda marcada para reintentar
-      setMessages(next.map((m, i) => (i === next.length - 1 ? { ...m, failed: true } : m)));
-      const msg = messageOf(e, 'No pudimos enviar tu respuesta.');
-      setChatError(msg);
-      track('error', { step: 'INTERVIEW', message: msg });
-    } finally {
-      setThinking(false);
-      setWaking(false);
-      // En el celular no: abrir el teclado taparía las opciones de la pregunta siguiente
-      if (!touchScreen()) setTimeout(() => input.current?.focus(), 50);
+  /* ── Las 5 preguntas ── */
+
+  function answer(value: string) {
+    const q = question;
+    let next: Answers = { ...answers, [q.id]: value };
+    // Cambió el tipo de negocio: las opciones de 3 y 4 ya no aplican
+    if (q.id === 'tipo' && categoryOf(value) !== categoryOf(answers.tipo)) {
+      next = { tipo: value, ...(answers.oferta ? { oferta: answers.oferta } : {}) };
+    }
+    setAnswers(next);
+    funnel('pregunta_respondida', { questionNo: q.n, questionId: q.id, progress: next as Record<string, string>, ...(link ? { link } : {}) });
+    if (q.n === 2) {
+      // El adelanto se muestra «antes» de la pregunta 3
+      setQIndex(2);
+      setShowValue(true);
+      funnel('adelanto_visto');
+    } else if (q.n >= QUESTION_COUNT) {
+      void build(next);
+    } else {
+      setQIndex(q.n);
     }
   }
 
-  function retryFailed() {
-    const failed = [...messages].reverse().find((m) => m.failed);
-    if (!failed) return;
-    setMessages(messages.filter((m) => m !== failed));
-    void answer(failed.content);
+  function back() {
+    if (showValue) {
+      setShowValue(false);
+      setQIndex(1);
+    } else if (qIndex > 0) {
+      setQIndex(qIndex - 1);
+    }
   }
 
-  /** Corregir una respuesta: la conversación sigue desde esa pregunta (el motor vuelve a preguntar lo siguiente). */
-  function correct(index: number) {
-    const target = messages[index];
-    if (!target || target.role !== 'user') return;
-    stopDictation.current?.();
-    setMessages(messages.slice(0, index));
-    setDraft(target.content);
-    setInterviewDone(false);
-    setCorrecting(true);
-    setBuildError(null);
-    setChatError(null);
-    if (step !== 1) goTo(1);
-    setTimeout(() => {
-      input.current?.focus();
-      input.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    }, 80);
-  }
-
-  async function build(history = transcript()) {
-    setInterviewDone(true);
+  async function build(current = answers) {
     setBuilding(true);
     setBuildError(null);
     try {
-      const r = await postWithRetry<Preview>('/public/signup/preview', { session: sessionToken(), messages: history }, { onRetry: () => setWaking(true) });
+      const r = await postWithRetry<Preview>(
+        '/public/signup/preview',
+        { session: sessionToken(), messages: toMessages(form.companyName, current, link), ...(link ? { link } : {}) },
+        { onRetry: () => setWaking(true) },
+      );
       setPreview(r);
-      setCorrecting(false);
       setForm((f) => ({ ...f, companyName: f.companyName || r.company.name, city: f.city || r.company.city }));
       setStep(2);
       window.history.pushState({ ...(window.history.state ?? {}), signupStep: 2 }, '');
@@ -268,13 +277,6 @@ export default function Signup() {
       const msg = messageOf(e, 'No pudimos armar tu propuesta.');
       setBuildError(msg);
       track('error', { step: 'PREVIEW', message: msg });
-      // Si faltó contar más, se vuelve a la entrevista para seguir
-      if (e instanceof ApiError && e.code === 'TOO_SHORT') {
-        setInterviewDone(false);
-        setMessages((list) => [...list, { role: 'assistant', content: 'Cuéntame un poquito más: ¿qué vendes y a quién?' }]);
-        setBuildError(null);
-        setStep(1);
-      }
     } finally {
       setBuilding(false);
       setWaking(false);
@@ -340,12 +342,13 @@ export default function Signup() {
     }
     setBusy(true);
     setServerError(null);
+    const session = sessionToken();
     try {
       const res = await postWithRetry<{ token: string; user: AuthUser }>(
         '/public/signup',
         {
-          session: sessionToken(),
-          messages: transcript(),
+          session,
+          messages: toMessages(form.companyName, answers, link),
           rubro: preview.rubro,
           proposal: preview.proposal,
           blueprint: preview.blueprint,
@@ -354,9 +357,11 @@ export default function Signup() {
           admin: { name: form.name, email: form.email.trim(), phone: form.phone, password: form.password },
           acceptTerms: form.accept,
           referralCode: referralCode(),
+          fbp: fbpCookie(),
         },
         { tries: 2, onRetry: () => setWaking(true) },
       );
+      pixelEvent('CompleteRegistration', `reg-${session}`);
       clearDraft();
       adopt(res.token, res.user);
       toast.success('¡Tu empresa quedó creada!');
@@ -382,11 +387,12 @@ export default function Signup() {
   const strength = passwordStrength(form.password);
   const suggestion = emailSuggestion(form.email);
   const invalid = (f: keyof AccountForm) => (errors[f] ? true : undefined);
+  const onContact = step === 1 && !resumeOffer && !contactDone;
 
   return (
     <div className="min-h-screen bg-bone text-ink">
       <header className="border-b-2 border-line">
-        <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-4 md:px-6">
+        <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3 md:px-6 md:py-4">
           <Link to="/" className="display text-2xl leading-none">
             BackOffice<span className="text-ok">.</span>
           </Link>
@@ -396,12 +402,8 @@ export default function Signup() {
         </div>
       </header>
 
-      <main className="mx-auto max-w-6xl px-4 pb-24 pt-8 md:px-6">
-        {!resumeOffer && !intro && <Stepper step={step} reachable={reachable} onGo={goTo} />}
-
-        {intro && !resumeOffer && step === 1 && (
-          <IntroStep onStart={() => { setIntro(false); window.scrollTo({ top: 0 }); }} />
-        )}
+      <main className={clsx('mx-auto max-w-6xl px-4 pb-24 md:px-6', onContact ? 'pt-5 sm:pt-10' : 'pt-6 sm:pt-8')}>
+        {!resumeOffer && step > 1 && <Stepper step={step} reachable={reachable} onGo={goTo} />}
 
         {resumeOffer && saved && (
           <div className="mx-auto max-w-2xl border-2 border-ink bg-paper p-6">
@@ -421,237 +423,237 @@ export default function Signup() {
           </div>
         )}
 
-        {step === 1 && !resumeOffer && !intro && !contactDone && (
+        {onContact && (
           <ContactStep
-            name={form.name}
-            phone={form.phone}
-            onSubmit={(c) => {
-              setForm((f) => ({ ...f, ...c }));
-              setContactDone(true);
-              void sendContact(c);
-              window.scrollTo({ top: 0 });
-            }}
+            initial={{ companyName: form.companyName, phone: form.phone, email: form.email }}
+            autoSubmit={!!early?.submitted}
+            onSubmit={submitContact}
+            onSeen={() => funnel('formulario_visto')}
+            onTyping={() => funnel('formulario_empezado')}
+            onAttempt={() => funnel('contacto_enviado')}
           />
         )}
 
         {step === 1 && !resumeOffer && contactDone && (
-          <InterviewStep
-            messages={messages}
-            draft={draft}
-            setDraft={setDraft}
-            thinking={thinking}
-            building={building}
-            buildError={buildError}
-            chatError={chatError}
-            interviewDone={interviewDone}
-            correcting={correcting}
-            listening={listening}
-            speech={speechSupported()}
-            inputRef={input}
-            hasProposal={!!preview && !correcting}
+          <QuestionsStep
+            question={question}
+            answers={answers}
+            link={link}
+            onLink={setLink}
             onAnswer={answer}
-            onRetryFailed={retryFailed}
-            onBuild={() => void build()}
-            onCorrect={correct}
-            onToggleDictation={toggleDictation}
-            onRestart={restart}
-            onReturnToProposal={() => goTo(2)}
-          />
-        )}
-
-        {step === 2 && preview && (
-          <ProposalStep
-            preview={preview}
-            companyName={form.companyName}
-            onCompanyName={(v) => {
-              setForm({ ...form, companyName: v });
-              if (v.trim()) setNameError(null);
-            }}
-            nameError={nameError}
-            setup={setup}
-            onSetup={setSetup}
+            onBack={back}
+            showValue={showValue}
+            onContinueValue={() => { setShowValue(false); setQIndex(2); }}
             building={building}
             buildError={buildError}
-            onRegenerate={() => void build()}
-            onCorrectAnswers={() => goTo(1)}
-            onNext={toProducts}
+            onRetryBuild={() => void build()}
+            phone={form.phone}
           />
         )}
 
-        {step === 3 && preview && (
-          <ProductsStep
-            preview={preview}
-            setPreview={setPreview}
-            setup={setup}
-            onSetup={(s) => {
-              setSetup(s);
-              if (s.products.selected.length) setProductError(null);
-            }}
-            error={productError}
-            onBack={() => goTo(2)}
-            onNext={toReview}
-          />
-        )}
+        <Suspense fallback={<Loading />}>
+          {step === 2 && preview && (
+            <ProposalStep
+              preview={preview}
+              companyName={form.companyName}
+              onCompanyName={(v) => {
+                setForm({ ...form, companyName: v });
+                if (v.trim()) setNameError(null);
+              }}
+              nameError={nameError}
+              setup={setup}
+              onSetup={setSetup}
+              building={building}
+              buildError={buildError}
+              onRegenerate={() => void build()}
+              onCorrectAnswers={() => { setQIndex(0); setShowValue(false); goTo(1); }}
+              onNext={toProducts}
+            />
+          )}
 
-        {step === 4 && preview && (
-          <div>
-            <StepTitle kicker="Paso 4 · Revisión y cuenta" title="Revisa y crea tu cuenta">
-              Confirma que todo esté bien y pon tus datos de acceso. Con esto entras a tu panel.
-            </StepTitle>
-            <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_360px]">
-              <form noValidate onSubmit={create} className="order-2 space-y-5 self-start border-2 border-ink bg-paper p-5 sm:p-6 lg:order-1" aria-labelledby="account-title">
-                <h2 id="account-title" className="text-lg font-semibold">Tus datos</h2>
+          {step === 3 && preview && (
+            <ProductsStep
+              preview={preview}
+              setPreview={setPreview}
+              setup={setup}
+              onSetup={(s) => {
+                setSetup(s);
+                if (s.products.selected.length) setProductError(null);
+              }}
+              error={productError}
+              onBack={() => goTo(2)}
+              onNext={toReview}
+            />
+          )}
 
-                {serverError && (
-                  <Notice
-                    tone="bad"
-                    action={serverError.code === 'EMAIL_TAKEN' ? <Link to="/login" className="text-sm font-semibold underline">Entrar con ese correo</Link> : undefined}
-                  >
-                    {serverError.message}
-                  </Notice>
-                )}
+          {step === 4 && preview && (
+            <div>
+              <StepTitle kicker="Paso 4 · Revisión y cuenta" title="Revisa y crea tu cuenta">
+                Confirma que todo esté bien y pon tus datos de acceso. Con esto entras a tu panel.
+              </StepTitle>
+              <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_360px]">
+                <form noValidate onSubmit={create} className="order-2 space-y-5 self-start border-2 border-ink bg-paper p-5 sm:p-6 lg:order-1" aria-labelledby="account-title">
+                  <h2 id="account-title" className="text-lg font-semibold">Tus datos</h2>
 
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <Field label="Nombre de tu negocio" required error={errors.companyName}>
-                    <Input
-                      ref={(el) => { fieldRefs.current.companyName = el; }}
-                      value={form.companyName}
-                      maxLength={80}
-                      aria-invalid={invalid('companyName')}
-                      onChange={(e) => setField('companyName', e.target.value)}
-                      onBlur={() => blur('companyName')}
-                    />
-                  </Field>
-                  <Field label="Ciudad" hint="Opcional">
-                    <Input value={form.city} maxLength={60} autoComplete="address-level2" onChange={(e) => setField('city', e.target.value)} />
-                  </Field>
-                  <Field label="Tu nombre" required error={errors.name}>
-                    <Input
-                      ref={(el) => { fieldRefs.current.name = el; }}
-                      autoComplete="name"
-                      value={form.name}
-                      maxLength={80}
-                      aria-invalid={invalid('name')}
-                      onChange={(e) => setField('name', e.target.value)}
-                      onBlur={() => blur('name')}
-                    />
-                  </Field>
-                  <Field label="Tu WhatsApp" required error={errors.phone} hint="Por aquí te escribimos para dejar todo listo">
-                    <Input
-                      ref={(el) => { fieldRefs.current.phone = el; }}
-                      type="tel"
-                      inputMode="tel"
-                      autoComplete="tel"
-                      placeholder="300 123 4567"
-                      value={form.phone}
-                      aria-invalid={invalid('phone')}
-                      onChange={(e) => setField('phone', formatPhone(e.target.value))}
-                      onBlur={() => blur('phone')}
-                    />
-                  </Field>
-                  <Field label="Tu correo" required error={errors.email} hint={suggestion ? undefined : 'Con este correo entras a tu cuenta'}>
-                    <Input
-                      ref={(el) => { fieldRefs.current.email = el; }}
-                      type="email"
-                      inputMode="email"
-                      autoComplete="email"
-                      autoCapitalize="none"
-                      placeholder="nombre@gmail.com"
-                      value={form.email}
-                      aria-invalid={invalid('email')}
-                      onChange={(e) => setField('email', e.target.value.replace(/\s/g, ''))}
-                      onBlur={() => blur('email')}
-                    />
-                  </Field>
-                  <Field label="Crea una contraseña" required error={errors.password} hint="Mínimo 8 caracteres">
-                    <span className="relative block">
+                  {serverError && (
+                    <Notice
+                      tone="bad"
+                      action={serverError.code === 'EMAIL_TAKEN' ? <Link to="/login" className="text-sm font-semibold underline">Entrar con ese correo</Link> : undefined}
+                    >
+                      {serverError.message}
+                    </Notice>
+                  )}
+
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <Field label="Nombre de tu negocio" required error={errors.companyName}>
                       <Input
-                        ref={(el) => { fieldRefs.current.password = el; }}
-                        type={showPassword ? 'text' : 'password'}
-                        autoComplete="new-password"
-                        value={form.password}
-                        aria-invalid={invalid('password')}
-                        className="!pr-11"
-                        onChange={(e) => setField('password', e.target.value)}
-                        onBlur={() => blur('password')}
+                        ref={(el) => { fieldRefs.current.companyName = el; }}
+                        value={form.companyName}
+                        maxLength={80}
+                        aria-invalid={invalid('companyName')}
+                        onChange={(e) => setField('companyName', e.target.value)}
+                        onBlur={() => blur('companyName')}
                       />
-                      <button
-                        type="button"
-                        onClick={() => setShowPassword((v) => !v)}
-                        aria-label={showPassword ? 'Ocultar contraseña' : 'Ver contraseña'}
-                        className="absolute right-2 top-1/2 -translate-y-1/2 cursor-pointer p-1 text-ink-3 hover:text-ink"
-                      >
-                        {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
-                      </button>
-                    </span>
-                    {form.password && !errors.password && (
-                      <span className={clsx('mt-1 block text-xs font-semibold', strength.tone === 'ok' ? 'text-ok' : strength.tone === 'warn' ? 'text-warn' : 'text-bad')}>
-                        {strength.label}
+                    </Field>
+                    <Field label="Ciudad" hint="Opcional">
+                      <Input value={form.city} maxLength={60} autoComplete="address-level2" onChange={(e) => setField('city', e.target.value)} />
+                    </Field>
+                    <Field label="Tu nombre" required error={errors.name}>
+                      <Input
+                        ref={(el) => { fieldRefs.current.name = el; }}
+                        autoComplete="name"
+                        value={form.name}
+                        maxLength={80}
+                        aria-invalid={invalid('name')}
+                        onChange={(e) => setField('name', e.target.value)}
+                        onBlur={() => blur('name')}
+                      />
+                    </Field>
+                    <Field label="Tu WhatsApp" required error={errors.phone} hint="Por aquí te escribimos para dejar todo listo">
+                      <Input
+                        ref={(el) => { fieldRefs.current.phone = el; }}
+                        type="tel"
+                        inputMode="tel"
+                        autoComplete="tel"
+                        placeholder="300 123 4567"
+                        value={form.phone}
+                        aria-invalid={invalid('phone')}
+                        onChange={(e) => setField('phone', formatPhone(e.target.value))}
+                        onBlur={() => blur('phone')}
+                      />
+                    </Field>
+                    <Field label="Tu correo" required error={errors.email} hint={suggestion ? undefined : 'Con este correo entras a tu cuenta'}>
+                      <Input
+                        ref={(el) => { fieldRefs.current.email = el; }}
+                        type="email"
+                        inputMode="email"
+                        autoComplete="email"
+                        autoCapitalize="none"
+                        placeholder="nombre@gmail.com"
+                        value={form.email}
+                        aria-invalid={invalid('email')}
+                        onChange={(e) => setField('email', e.target.value.replace(/\s/g, ''))}
+                        onBlur={() => blur('email')}
+                      />
+                    </Field>
+                    <Field label="Crea una contraseña" required error={errors.password} hint="Mínimo 8 caracteres">
+                      <span className="relative block">
+                        <Input
+                          ref={(el) => { fieldRefs.current.password = el; }}
+                          type={showPassword ? 'text' : 'password'}
+                          autoComplete="new-password"
+                          value={form.password}
+                          aria-invalid={invalid('password')}
+                          className="!pr-11"
+                          onChange={(e) => setField('password', e.target.value)}
+                          onBlur={() => blur('password')}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowPassword((v) => !v)}
+                          aria-label={showPassword ? 'Ocultar contraseña' : 'Ver contraseña'}
+                          className="absolute right-2 top-1/2 -translate-y-1/2 cursor-pointer p-1 text-ink-3 hover:text-ink"
+                        >
+                          {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                        </button>
                       </span>
-                    )}
-                  </Field>
-                </div>
+                      {form.password && !errors.password && (
+                        <span className={clsx('mt-1 block text-xs font-semibold', strength.tone === 'ok' ? 'text-ok' : strength.tone === 'warn' ? 'text-warn' : 'text-bad')}>
+                          {strength.label}
+                        </span>
+                      )}
+                    </Field>
+                  </div>
 
-                {suggestion && (
-                  <button type="button" onClick={() => setField('email', suggestion)} className="cursor-pointer text-sm font-semibold underline">
-                    ¿Quisiste decir {suggestion}? Toca para corregir
-                  </button>
-                )}
+                  {suggestion && (
+                    <button type="button" onClick={() => setField('email', suggestion)} className="cursor-pointer text-sm font-semibold underline">
+                      ¿Quisiste decir {suggestion}? Toca para corregir
+                    </button>
+                  )}
 
-                <div>
-                  <label className={clsx('flex cursor-pointer items-start gap-3 border-2 p-3 text-sm', errors.accept ? 'border-bad bg-bad-soft' : 'border-line')}>
-                    <input
-                      ref={(el) => { fieldRefs.current.accept = el; }}
-                      type="checkbox"
-                      className="mt-0.5 h-5 w-5 shrink-0 cursor-pointer accent-[#1a1a1a]"
-                      checked={form.accept}
-                      aria-invalid={invalid('accept')}
-                      onChange={(e) => {
-                        setField('accept', e.target.checked);
-                        if (e.target.checked) setErrors((x) => ({ ...x, accept: undefined }));
-                      }}
-                    />
-                    <span>
-                      Acepto los{' '}
-                      <Link to="/terminos" target="_blank" className="font-semibold underline" onClick={(e) => e.stopPropagation()}>términos y condiciones</Link>{' '}
-                      y autorizo el tratamiento de mis datos según la{' '}
-                      <Link to="/privacidad" target="_blank" className="font-semibold underline" onClick={(e) => e.stopPropagation()}>política de tratamiento de datos personales</Link>{' '}
-                      (Ley 1581 de 2012).
-                    </span>
-                  </label>
-                  {errors.accept && <p role="alert" className="mt-1 text-xs font-semibold text-bad">{errors.accept}</p>}
-                </div>
+                  <div>
+                    <label className={clsx('flex cursor-pointer items-start gap-3 border-2 p-3 text-sm', errors.accept ? 'border-bad bg-bad-soft' : 'border-line')}>
+                      <input
+                        ref={(el) => { fieldRefs.current.accept = el; }}
+                        type="checkbox"
+                        className="mt-0.5 h-5 w-5 shrink-0 cursor-pointer accent-[#1a1a1a]"
+                        checked={form.accept}
+                        aria-invalid={invalid('accept')}
+                        onChange={(e) => {
+                          setField('accept', e.target.checked);
+                          if (e.target.checked) setErrors((x) => ({ ...x, accept: undefined }));
+                        }}
+                      />
+                      <span>
+                        Acepto los{' '}
+                        <Link to="/terminos" target="_blank" className="font-semibold underline" onClick={(e) => e.stopPropagation()}>términos y condiciones</Link>{' '}
+                        y autorizo el tratamiento de mis datos según la{' '}
+                        <Link to="/privacidad" target="_blank" className="font-semibold underline" onClick={(e) => e.stopPropagation()}>política de tratamiento de datos personales</Link>{' '}
+                        (Ley 1581 de 2012).
+                      </span>
+                    </label>
+                    {errors.accept && <p role="alert" className="mt-1 text-xs font-semibold text-bad">{errors.accept}</p>}
+                  </div>
 
-                <StepActions
-                  back={<Button type="button" variant="outline" onClick={() => goTo(3)}><ArrowLeft size={14} /> Atrás</Button>}
-                  next={
-                    <Button type="submit" disabled={busy} className="!px-5 !py-2.5">
-                      {busy ? 'Creando tu empresa…' : <>Crear mi empresa <ArrowRight size={15} /></>}
-                    </Button>
-                  }
-                />
-                <p className="flex items-start gap-2 text-xs text-ink-3">
-                  <Lock size={13} className="mt-0.5 shrink-0" aria-hidden />
-                  No te pedimos tarjeta. Tu contraseña no se guarda en el navegador; el resto del avance sí, para que no lo pierdas.
-                </p>
-              </form>
+                  <StepActions
+                    back={<Button type="button" variant="outline" onClick={() => goTo(3)}><ArrowLeft size={14} /> Atrás</Button>}
+                    next={
+                      <Button type="submit" disabled={busy} className="!px-5 !py-2.5">
+                        {busy ? 'Creando tu empresa…' : <>Crear mi empresa <ArrowRight size={15} /></>}
+                      </Button>
+                    }
+                  />
+                  <p className="flex items-start gap-2 text-xs text-ink-3">
+                    <Lock size={13} className="mt-0.5 shrink-0" aria-hidden />
+                    No te pedimos tarjeta. Tu contraseña no se guarda en el navegador; el resto del avance sí, para que no lo pierdas.
+                  </p>
+                </form>
 
-              <aside className="order-1 space-y-4 lg:sticky lg:top-6 lg:order-2 lg:self-start">
-                <ReviewSummary preview={preview} setup={setup} companyName={form.companyName} city={form.city} onEdit={goTo} />
-                <div className="space-y-2 text-sm">
-                  <p className="kicker">Qué pasa después</p>
-                  <ol className="space-y-2 text-ink-2">
-                    <li className="border-l-2 border-ink pl-3"><b className="text-ink">Entras a tu panel</b> con lo que armamos.</li>
-                    <li className="border-l-2 border-ink pl-3"><b className="text-ink">Te escribimos por WhatsApp</b> para conectar lo que falte.</li>
-                    <li className="border-l-2 border-ink pl-3"><b className="text-ink">Eliges tu plan</b> cuando todo esté funcionando.</li>
-                  </ol>
-                  <p className="text-xs text-ink-3">Desde {fmtMoney(preview.rubro === 'SERVICIOS' ? 129000 : preview.rubro === 'COMIDAS' ? 149000 : preview.rubro === 'WEBCAM' ? 390000 : 199000)} al mes, IVA incluido.</p>
-                </div>
-              </aside>
+                <aside className="order-1 space-y-4 lg:sticky lg:top-6 lg:order-2 lg:self-start">
+                  <ReviewSummary preview={preview} setup={setup} companyName={form.companyName} city={form.city} onEdit={goTo} />
+                  <div className="space-y-2 text-sm">
+                    <p className="kicker">Qué pasa después</p>
+                    <ol className="space-y-2 text-ink-2">
+                      <li className="border-l-2 border-ink pl-3"><b className="text-ink">Entras a tu panel</b> con lo que armamos.</li>
+                      <li className="border-l-2 border-ink pl-3"><b className="text-ink">Te escribimos por WhatsApp</b> para conectar lo que falte.</li>
+                      <li className="border-l-2 border-ink pl-3"><b className="text-ink">Eliges tu plan</b> cuando todo esté funcionando.</li>
+                    </ol>
+                    <p className="text-xs text-ink-3">Desde {fmtMoney(preview.rubro === 'SERVICIOS' ? 129000 : preview.rubro === 'COMIDAS' ? 149000 : preview.rubro === 'WEBCAM' ? 390000 : 199000)} al mes, IVA incluido.</p>
+                  </div>
+                  <QuickContact compact phone={form.phone} />
+                </aside>
+              </div>
             </div>
-          </div>
+          )}
+        </Suspense>
+
+        {step === 1 && !resumeOffer && contactDone && Object.keys(answers).length > 0 && !building && (
+          <p className="mx-auto mt-4 max-w-xl text-right">
+            <button type="button" onClick={restart} className="cursor-pointer text-xs text-ink-3 underline hover:text-ink">Empezar de nuevo</button>
+          </p>
         )}
       </main>
     </div>
   );
 }
+

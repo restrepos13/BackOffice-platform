@@ -1632,6 +1632,20 @@ model SignupSession {
   landingPath  String?
   /// Clientes que le escriben al día (lo dice en el registro; base de los cálculos de IA)
   dailyChats   Int?
+  /// Grupo de Facebook por ciudad de donde llegó (?g=manizales). Primer toque.
+  g            String?
+  /// Cuándo dejó su contacto (paso 0): desde aquí cuenta el tiempo de respuesta del equipo
+  contactAt    DateTime?
+  /// Primer contacto del equipo (quien marcó «Contactado» y cuándo)
+  firstContactAt DateTime?
+  firstContactBy String?
+  /// Pregunta en la que va (1 a 5) y respuestas dadas, para retomar donde iba
+  questionNo   Int?
+  progressJson String?
+  /// Lo que pidió: TODAY (que le escriban hoy) | CALL (videollamada agendada en meetingAt)
+  contactPreference String?
+  /// Correo «Te quedaste en la pregunta X» ya enviado
+  resumeEmailAt DateTime?
   /// Seguimiento del equipo: NEW | CONTACTED | MEETING | DEMO_DONE | WON | LOST
   followStatus String    @default("NEW")
   meetingAt    DateTime?
@@ -1645,6 +1659,21 @@ model SignupSession {
   @@index([lastSeenAt])
   @@index([followStatus])
   @@index([createdAt]) // resultados de la pauta por rango de fechas
+}
+
+/// Un paso del registro (embudo detallado: pantalla de entrada, cada pregunta, propuesta, cuenta).
+model SignupEvent {
+  id         String   @id @default(cuid()) @map("_id")
+  sessionId  String
+  /// registro_abierto | presentacion_vista | formulario_visto | formulario_empezado | contacto_enviado |
+  /// contacto_dejado | pregunta_vista | pregunta_respondida | adelanto_visto | plan_revisado | datos_llenados | empresa_creada
+  type       String
+  questionId String?
+  questionNo Int?
+  at         DateTime @default(now())
+
+  @@index([sessionId])
+  @@index([at])
 }
 
 /// Consumo mensual del extra "Redes sociales con IA" (lo paga BackOffice):

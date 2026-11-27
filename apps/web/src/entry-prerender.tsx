@@ -110,6 +110,8 @@ const SECTION = { solucion: 'Soluciones', sector: 'Sectores', guia: 'Guías', he
 /** Página que se sirve como app vacía pero con su propio <head> (vista previa del link). */
 export interface ShellPage extends SeoMeta {
   module: string;
+  /** Prerenderiza el primer paso y comprueba que traiga este id (p. ej. el formulario) */
+  early?: string;
 }
 
 /**
@@ -124,6 +126,7 @@ export const SHELL_PAGES: ShellPage[] = [
     title: 'Crea tu empresa con IA — BackOffice',
     description: 'Cuéntale a la IA cómo funciona tu negocio y en minutos tienes tu WhatsApp atendiendo, vendiendo y cobrando solo.',
     module: 'src/pages/public/Signup.tsx',
+    early: 'id="signup-contact"',
   },
 ];
 

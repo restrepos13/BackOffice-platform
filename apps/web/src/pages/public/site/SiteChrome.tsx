@@ -104,7 +104,36 @@ export function SiteLayout({ children }: { children: ReactNode }) {
       <SiteHeader />
       <main id="contenido">{children}</main>
       <SiteFooter />
+      <WhatsAppFloat />
     </div>
+  );
+}
+
+/**
+ * Número de WhatsApp de BackOffice para el botón flotante: VITE_PUBLIC_WHATSAPP
+ * (Vercel), con indicativo. Sin número configurado, el botón no aparece.
+ */
+export function publicWhatsapp(env: Record<string, string | undefined> = import.meta.env as Record<string, string | undefined>): string | null {
+  const d = String(env.VITE_PUBLIC_WHATSAPP ?? '').replace(/\D/g, '');
+  if (d.length === 10 && d.startsWith('3')) return `57${d}`;
+  return d.length >= 11 && d.length <= 15 ? d : null;
+}
+
+export function WhatsAppFloat({ number = publicWhatsapp() }: { number?: string | null }) {
+  if (!number) return null;
+  const href = `https://wa.me/${number}?text=${encodeURIComponent('¡Hola! Quiero saber más de BackOffice para mi negocio.')}`;
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      aria-label="Escríbenos por WhatsApp"
+      className="fixed bottom-4 right-4 z-40 flex h-14 w-14 items-center justify-center rounded-full bg-[#25D366] text-white shadow-[0_6px_18px_rgba(0,0,0,0.25)] transition-transform hover:-translate-y-0.5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink sm:bottom-6 sm:right-6"
+    >
+      <svg viewBox="0 0 32 32" width="28" height="28" fill="currentColor" aria-hidden>
+        <path d="M16.04 3C8.86 3 3.03 8.82 3.03 16c0 2.29.6 4.53 1.74 6.5L3 29l6.68-1.75A12.96 12.96 0 0 0 16.04 29C23.2 29 29 23.18 29 16S23.2 3 16.04 3Zm0 23.62c-2.02 0-4-.54-5.72-1.57l-.41-.24-3.96 1.04 1.06-3.86-.27-.4A10.6 10.6 0 0 1 5.4 16c0-5.86 4.77-10.62 10.64-10.62 5.86 0 10.6 4.76 10.6 10.62s-4.74 10.62-10.6 10.62Zm5.82-7.95c-.32-.16-1.9-.94-2.19-1.04-.3-.11-.51-.16-.72.16-.21.32-.83 1.04-1.02 1.26-.19.21-.37.24-.69.08-.32-.16-1.35-.5-2.57-1.59-.95-.85-1.59-1.9-1.78-2.22-.19-.32-.02-.49.14-.65.14-.14.32-.37.48-.56.16-.19.21-.32.32-.53.11-.21.05-.4-.03-.56-.08-.16-.72-1.74-.99-2.38-.26-.62-.52-.54-.72-.55h-.61c-.21 0-.56.08-.85.4-.29.32-1.12 1.09-1.12 2.66s1.15 3.09 1.31 3.3c.16.21 2.26 3.45 5.47 4.84.76.33 1.36.53 1.83.68.77.24 1.47.21 2.02.13.62-.09 1.9-.78 2.17-1.53.27-.75.27-1.39.19-1.53-.08-.13-.29-.21-.61-.37Z" />
+      </svg>
+    </a>
   );
 }
 

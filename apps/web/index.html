@@ -32,10 +32,10 @@
     <link rel="manifest" href="/site.webmanifest" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Anton&family=Playfair+Display:ital,wght@0,400;0,600;1,400;1,600&family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap"
-      rel="stylesheet"
-    />
+    <!-- Fuentes sin bloquear el primer pintado: se precargan y early.js las aplica -->
+    <link id="bo-fonts" rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Anton&family=Playfair+Display:ital,wght@0,400;0,600;1,400;1,600&family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap" data-href="https://fonts.googleapis.com/css2?family=Anton&family=Playfair+Display:ital,wght@0,400;0,600;1,400;1,600&family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap" />
+    <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Anton&family=Playfair+Display:ital,wght@0,400;0,600;1,400;1,600&family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap" /></noscript>
+    <script src="/early.js" async></script>
   </head>
   <body>
     <div id="root"></div>

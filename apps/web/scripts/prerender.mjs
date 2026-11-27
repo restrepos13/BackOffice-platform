@@ -10,7 +10,7 @@
  *  dist/index.html            → portada prerenderizada
  *  dist/app.html              → la app vacía, para el panel y demás rutas
  *  dist/<ruta>.html           → soluciones, sectores, guías y legales
- *  dist/registro.html         → app vacía con la vista previa del registro
+ *  dist/registro.html         → pantalla de entrada del registro ya dibujada (y su vista previa)
  *
  * Si el API no responde, la sección de planes se prerenderiza sin precios y el
  * navegador los pide al cargar: el build nunca depende del servidor.
@@ -86,8 +86,12 @@ function preloads(manifest, module) {
     if (!chunk.isEntry) files.push(chunk.file);
     for (const k of chunk.imports ?? []) walk(k);
   };
-  walk(module);
-  if (!manifest[module]) console.warn(`[prerender] ${module} no está en el manifiesto`);
+  // Si otros trozos importan de la página (p. ej. los pasos diferidos del registro),
+  // Vite la guarda como trozo compartido «_Nombre-hash.js» en vez de por su ruta
+  const name = module.split('/').pop().replace(/\.[jt]sx?$/, '');
+  const key = manifest[module] ? module : Object.keys(manifest).find((k) => manifest[k].isDynamicEntry && manifest[k].name === name && k.startsWith('_'));
+  if (key) walk(key);
+  else console.warn(`[prerender] ${module} no está en el manifiesto`);
   // Lo que index.html ya precarga (vendor) no se repite
   return files.filter((f) => !template.includes(`/${f}"`)).map((f) => `<link rel="modulepreload" crossorigin href="/${f}" />`);
 }
@@ -157,6 +161,14 @@ for (const page of entry.SHELL_PAGES) {
   const viewport = '<meta name="viewport" content="width=device-width, initial-scale=1.0" />';
   if (!html.includes(viewport)) throw new Error('[prerender] index.html cambió su viewport');
   html = html.replace(viewport, '<meta name="viewport" content="width=device-width, initial-scale=1.0, interactive-widget=resizes-content" />');
+  // La pantalla de entrada ya dibujada: se ve apenas llega el HTML, antes que el
+  // JavaScript (en el celular con datos, eso son segundos). La app la reemplaza
+  // al arrancar (sin data-ssr) y recoge lo que alcanzó a escribir (data-early).
+  if (page.early) {
+    const body = await render(entry.element(page.path, {}));
+    if (!body.includes(page.early)) throw new Error(`[prerender] ${page.path} no trae ${page.early}`);
+    html = html.replace('<div id="root"></div>', `<div id="root" data-early="${page.path}">${body}</div>`);
+  }
   await writeFile(join(dist, `${page.path.slice(1)}.html`), html);
 }
 

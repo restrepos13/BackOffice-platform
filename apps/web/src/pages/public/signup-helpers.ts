@@ -1,3 +1,5 @@
+import { captureOrigin, type VisitOrigin } from '../../lib/origin';
+import { fbpCookie } from '../../lib/meta-pixel';
 import type { SetupProfile } from '../../lib/setup';
 /**
  * Ayudas del registro: validación en palabras simples, avance guardado en el
@@ -114,11 +116,18 @@ const SESSION_KEY = 'bo_signup_session';
 const DRAFT_TTL_MS = 7 * 86400e3;
 
 export interface SignupDraft {
-  /** Desde v3 hay 4 pasos (antes el 3 era «Tus datos») */
+  /** v3: 4 pasos con entrevista libre · v4: contacto primero + 5 preguntas fijas */
   v?: number;
   step: 1 | 2 | 3 | 4;
-  messages: Msg[];
-  interviewDone: boolean;
+  /** Entrevista vieja (v3 y antes) */
+  messages?: Msg[];
+  interviewDone?: boolean;
+  /** v4 */
+  contactDone?: boolean;
+  qIndex?: number;
+  showValue?: boolean;
+  answers?: Record<string, string>;
+  link?: string;
   preview: Preview | null;
   form: Omit<AccountForm, 'password'>;
   savedAt: number;
@@ -129,7 +138,8 @@ export function loadDraft(): SignupDraft | null {
     const raw = localStorage.getItem(DRAFT_KEY);
     if (!raw) return null;
     const d = JSON.parse(raw) as SignupDraft;
-    if (!d?.savedAt || Date.now() - d.savedAt > DRAFT_TTL_MS || !Array.isArray(d.messages)) return null;
+    if (!d?.savedAt || Date.now() - d.savedAt > DRAFT_TTL_MS || !d.form) return null;
+    if ((d.v ?? 0) < 4 && !Array.isArray(d.messages)) return null;
     return d;
   } catch {
     return null;
@@ -153,6 +163,28 @@ export function clearDraft() {
   }
 }
 
+/** Retomar desde el enlace del correo: se sigue con la MISMA sesión del servidor. */
+export function adoptSession(token: string) {
+  try {
+    if (/^[A-Za-z0-9_-]{16,64}$/.test(token)) localStorage.setItem(SESSION_KEY, token);
+  } catch {
+    /* sin almacenamiento */
+  }
+}
+
+/**
+ * Lo que la persona escribió en la pantalla de entrada ANTES de que cargara el
+ * JavaScript (registro.html prerenderizado; lo recoge main.tsx). Una sola vez.
+ */
+export interface EarlyContact { companyName: string; phone: string; email: string; submitted: boolean }
+export function takeEarlyContact(): EarlyContact | null {
+  if (typeof window === 'undefined') return null;
+  const w = window as unknown as { __signupEarly?: EarlyContact };
+  const v = w.__signupEarly ?? null;
+  delete w.__signupEarly;
+  return v && (v.companyName || v.phone || v.email || v.submitted) ? v : null;
+}
+
 /** Token de esta sesión de registro (para el seguimiento del equipo). */
 export function sessionToken(): string {
   try {
@@ -166,38 +198,10 @@ export function sessionToken(): string {
   }
 }
 
-/** Origen de la visita que se manda con cada evento del registro. */
-export interface VisitOrigin {
-  utmSource?: string; utmMedium?: string; utmCampaign?: string; utmContent?: string; utmId?: string; fbclid?: string; landingPath?: string;
-}
-
-const UTM_PARAMS: Array<[string, keyof VisitOrigin]> = [
-  ['utm_source', 'utmSource'], ['utm_medium', 'utmMedium'], ['utm_campaign', 'utmCampaign'],
-  ['utm_content', 'utmContent'], ['utm_id', 'utmId'], ['fbclid', 'fbclid'],
-];
-
-/**
- * De dónde llegó (utm_*, fbclid de Meta y la primera página), recordado
- * mientras dura el registro en esta pestaña. El servidor guarda el primer
- * toque y no lo reemplaza. Los valores dinámicos sin reemplazar
- * ({{ad.name}}) se descartan.
- */
-export function visitOrigin(search = typeof window !== 'undefined' ? window.location.search : '', path = typeof window !== 'undefined' ? window.location.pathname : ''): VisitOrigin {
-  try {
-    const qs = new URLSearchParams(search);
-    const fresh: VisitOrigin = {};
-    for (const [param, key] of UTM_PARAMS) {
-      const v = qs.get(param)?.trim();
-      if (v && !/\{\{.*\}\}/.test(v)) fresh[key] = v.slice(0, key === 'fbclid' ? 255 : 120);
-    }
-    if (Object.keys(fresh).length) {
-      fresh.landingPath = `${path}${search}`.slice(0, 200);
-      sessionStorage.setItem('bo_utm', JSON.stringify(fresh));
-    }
-    return JSON.parse(sessionStorage.getItem('bo_utm') ?? '{}');
-  } catch {
-    return {};
-  }
+/** Origen de la visita (se captura en todo el sitio, ver lib/origin.ts). */
+export type { VisitOrigin } from '../../lib/origin';
+export function visitOrigin(search?: string, path?: string): VisitOrigin {
+  return captureOrigin(search, path);
 }
 
 /** Código de quien lo invitó (?ref=ABC123), recordado durante el registro. */
@@ -217,7 +221,26 @@ export function track(event: 'view' | 'contact' | 'error', extra: Record<string,
     void fetch('/api/public/signup/track', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ session: sessionToken(), event, referrer: document.referrer || undefined, ...visitOrigin(), ...extra }),
+      body: JSON.stringify({ session: sessionToken(), event, ...visitOrigin(), ...extra }),
+      keepalive: true,
+    }).catch(() => undefined);
+  } catch {
+    /* seguimiento opcional */
+  }
+}
+
+/** Pasos del embudo detallado (los mismos nombres que ve el equipo en Registros). */
+export type FunnelEvent =
+  | 'registro_abierto' | 'presentacion_vista' | 'formulario_visto' | 'formulario_empezado' | 'contacto_enviado'
+  | 'pregunta_vista' | 'pregunta_respondida' | 'adelanto_visto' | 'plan_revisado' | 'datos_llenados';
+
+/** Un paso del embudo. Nunca bloquea: si el servidor duerme, se pierde ese dato y nada más. */
+export function funnel(type: FunnelEvent, extra: { questionNo?: number; questionId?: string; progress?: Record<string, string>; link?: string } = {}) {
+  try {
+    void fetch('/api/public/signup/event', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ session: sessionToken(), type, ...visitOrigin(), ...extra }),
       keepalive: true,
     }).catch(() => undefined);
   } catch {
@@ -228,18 +251,22 @@ export function track(event: 'view' | 'contact' | 'error', extra: Record<string,
 /** Esperas entre reintentos del contacto (el API puede estar despertando ~1 min). */
 export const CONTACT_RETRY_MS = [4_000, 10_000, 20_000, 40_000];
 
+export interface ContactData { companyName: string; phone: string; email?: string }
+
 /**
- * Nombre y WhatsApp al empezar. A diferencia de track(), insiste: es el dato
- * que permite ayudar a quien abandona, y justo al llegar de un anuncio el
- * servidor puede estar dormido. No bloquea a la persona: corre por detrás.
+ * Contacto de la pantalla de entrada. Insiste: es el dato que permite ayudar a
+ * quien abandona, y justo al llegar de un anuncio el servidor puede estar
+ * dormido. No bloquea a la persona: corre por detrás mientras responde.
  */
-export function sendContact(data: { name: string; phone: string }, wait: (ms: number) => Promise<void> = (ms) => new Promise((r) => setTimeout(r, ms))): Promise<boolean> {
-  const body = JSON.stringify({ session: sessionToken(), event: 'contact', ...visitOrigin(), data });
+export function sendContact(data: ContactData, wait: (ms: number) => Promise<void> = (ms) => new Promise((r) => setTimeout(r, ms))): Promise<boolean> {
+  const body = JSON.stringify({
+    session: sessionToken(), ...visitOrigin(), ...data, accept: true, fbp: fbpCookie(),
+  });
   const attempt = async (i: number): Promise<boolean> => {
     try {
-      const res = await fetch('/api/public/signup/track', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body, keepalive: true });
+      const res = await fetch('/api/public/signup/contact', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body, keepalive: true });
       if (res.ok) return true;
-      if (res.status < 500) return false; // datos rechazados: reintentar no cambia nada
+      if (res.status < 500 && res.status !== 429) return false; // datos rechazados: reintentar no cambia nada
     } catch {
       /* red caída o servidor despertando */
     }

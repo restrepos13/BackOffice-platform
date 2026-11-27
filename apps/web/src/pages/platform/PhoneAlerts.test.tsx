@@ -1,7 +1,6 @@
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { PhoneAlertsView, type AlertsStatus } from './PhoneAlerts';
-import { remainingLabel } from '../public/signup/InterviewStep';
 
 const labels = {
   SIGNUP_CONTACT: 'Alguien empezó el registro y dejó su WhatsApp',
@@ -39,12 +38,5 @@ describe('Registros · avisos al celular', () => {
     expect(h.onEvents).toHaveBeenCalledWith({ CLIENT_LOGIN: false });
     fireEvent.click(screen.getByRole('button', { name: 'Enviarme una prueba' }));
     expect(h.onTest).toHaveBeenCalled();
-  });
-});
-
-describe('Registro · cuánto falta', () => {
-  it('dice el máximo que queda, nunca un número exacto', () => {
-    expect(remainingLabel(1)).toBe('Como mucho 7 preguntas más');
-    expect(remainingLabel(7)).toBe('Última pregunta');
   });
 });

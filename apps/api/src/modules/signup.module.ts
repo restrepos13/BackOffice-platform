@@ -29,7 +29,11 @@ import { AiProviderName, CHAIN_PROVIDERS, ChainEntry, GeminiPool, chainId, isAiU
 import { KEYED_PROVIDERS, KeyedProviderName } from '../ai/openai-compat';
 import { benchMany } from '../ai/setup-ai-bench';
 import { parseDailyChats } from '../common/ai-cost';
-import { SignupStep, SignupTracker } from './signup-tracking';
+import { QUESTION_COUNT, SignupStep, SignupTracker, answersLine, isSessionToken, resumeToken } from './signup-tracking';
+import { sendCapiEvent } from '../common/meta-capi';
+import { peekLine, peekLink } from '../common/site-peek';
+import { publicWebUrl } from '../common/tracking';
+import { AgentCallsModule, AgentCallsService, slotLabel } from './agent-calls.module';
 import { linkReferral } from './commerce.module';
 import { codeBlueprint, codeInterviewTurn, toPairs } from '../common/blueprint-engine';
 import { TEAM_SIZES, detectProfile, fitToProfile, interviewHint, profileOfCompany } from '../common/business-profile';
@@ -56,8 +60,11 @@ import { TeamAlertsService, tg, waLink } from './team-alerts';
 /** Origen de la visita: referente, navegador y campaña (utm_*, fbclid, primera página). */
 export interface SignupMeta {
   referrer?: string; userAgent?: string; utmSource?: string; utmCampaign?: string;
-  utmMedium?: string; utmContent?: string; utmId?: string; fbclid?: string; landingPath?: string;
+  utmMedium?: string; utmContent?: string; utmId?: string; fbclid?: string; landingPath?: string; g?: string;
 }
+
+/** Datos del navegador para la API de Conversiones (IP real detrás de Vercel y la cookie _fbp). */
+interface ClientInfo { ip?: string; userAgent?: string; fbp?: string }
 
 
 /**
@@ -141,6 +148,7 @@ export class SignupService implements OnModuleInit {
     private readonly companies: CompaniesService,
     private readonly auth: AuthService,
     @Optional() private readonly alerts?: TeamAlertsService,
+    @Optional() private readonly agentCalls?: AgentCallsService,
   ) {
     this.pool = new GeminiPool(prisma);
     this.tracker = new SignupTracker(prisma);
@@ -223,12 +231,14 @@ export class SignupService implements OnModuleInit {
 
   /* ── 2. Plano a la medida (público) ─────────────────────────────── */
 
-  async preview(dto: { description?: string; messages?: unknown; session?: unknown }) {
+  async preview(dto: { description?: string; messages?: unknown; session?: unknown; link?: unknown }) {
     const { msgs, answers } = this.cleanConversation(dto?.messages);
     // Transcripción compacta: la pregunta corta, la respuesta completa (ahorra contexto)
-    const transcript = msgs.length
+    // Link opcional (Instagram o web): de una web se leen título y descripción
+    const site = dto?.link ? peekLine(await peekLink(dto.link)) : '';
+    const transcript = (msgs.length
       ? msgs.map((m) => (m.role === 'assistant' ? `P: ${m.content.slice(0, 140)}` : `R: ${m.content}`)).join('\n')
-      : String(dto?.description ?? '').trim();
+      : String(dto?.description ?? '').trim()) + (site ? `\n${site}` : '');
     const ownerText = msgs.length ? answers.map((a) => a.content).join(' ') : transcript;
     if (ownerText.length < 40) {
       throw fieldError('message', 'Cuéntanos un poquito más: qué vendes, a quién y cómo atiendes. Con una o dos frases basta.', 'TOO_SHORT');
@@ -312,6 +322,123 @@ export class SignupService implements OnModuleInit {
       this.previewCache.set(cacheKey, { at: Date.now(), value });
     }
     return value;
+  }
+
+  /* ── 0. Contacto primero (sin IA) ─────────────────────────────── */
+
+  /**
+   * Pantalla de entrada: nombre del negocio, WhatsApp y (opcional) correo.
+   * Desde aquí la persona queda «Por contactar» aunque no responda nada más:
+   * aviso al celular del equipo, correo de confirmación y evento Lead para Meta.
+   */
+  async startContact(dto: any, meta: SignupMeta = {}, client: ClientInfo = {}) {
+    const session = dto?.session;
+    if (!isSessionToken(session)) throw fieldError('session', 'Recarga la página e intenta de nuevo.');
+    const companyName = String(dto?.companyName ?? '').trim().slice(0, 80);
+    const phone = String(dto?.phone ?? '').trim().slice(0, 25);
+    const email = String(dto?.email ?? '').trim().toLowerCase().slice(0, 120);
+    if (companyName.length < 2) throw fieldError('companyName', 'Escribe el nombre de tu negocio');
+    if (!whatsappDigits(phone)) throw fieldError('phone', 'Escribe tu WhatsApp de 10 números. Ejemplo: 300 123 4567');
+    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)) throw fieldError('email', 'A ese correo le falta algo. Ejemplo: nombre@gmail.com');
+    if (dto?.accept !== true) throw fieldError('accept', 'Necesitamos tu autorización para escribirte');
+    await this.tracker.touch(session, { ...meta, businessName: companyName });
+    const added = await this.tracker.contact(session, { companyName, phone, ...(email ? { email } : {}) }, { step: 'CONTACT' });
+    await this.tracker.event(session, 'contacto_dejado');
+    if (added?.phoneAdded) void this.alertContact(added);
+    if (added?.emailAdded && added.email) void this.sendReceivedEmail(added.email, companyName);
+    // Meta: el mismo event_id que el píxel del navegador (lead-<sesión>)
+    void sendCapiEvent({
+      name: 'Lead', eventId: `lead-${session}`, sourceUrl: `${await publicWebUrl(this.prisma).catch(() => '')}/registro`,
+      phone, email: email || null, externalId: session, fbclid: added?.session?.fbclid, clickAt: added?.session?.createdAt,
+      fbp: client.fbp, ip: client.ip, userAgent: client.userAgent,
+    });
+    return { ok: true };
+  }
+
+  /** Aviso al celular apenas deja su contacto: se le puede escribir mientras responde. */
+  private async alertContact(a: { businessName: string | null; phone: string | null; source: string; campaign: string | null }) {
+    const business = a.businessName ?? 'sin nombre';
+    await this.alerts?.send(
+      'SIGNUP_CONTACT',
+      `<b>Dejó su contacto</b> ${tg(business)} · ${tg(a.phone)}\nVa en: antes de la pregunta 1 de ${QUESTION_COUNT}\nFuente: ${tg(a.source)}${a.campaign ? ` (${tg(a.campaign)})` : ''}\nEscríbele ahora: responder en menos de 5 minutos cambia todo.`,
+      { text: 'Escribirle por WhatsApp', url: waLink(a.phone, `¡Hola! Soy del equipo de BackOffice. Vi que estás armando el asistente de WhatsApp para ${business}. ¿Te ayudo a terminarlo? Toma 2 minutos.`) },
+    ).catch(() => false);
+  }
+
+  /** Correo inmediato al dejar el contacto (si dejó correo). */
+  private async sendReceivedEmail(toEmail: string, business: string) {
+    try {
+      await this.emails.systemSend({
+        toEmail,
+        subject: 'Recibimos tu solicitud · BackOffice',
+        body: `<p>¡Hola!</p>
+          <p>Recibimos tu solicitud para <b>${esc(business)}</b>. Te escribimos en minutos por WhatsApp para ayudarte a dejar tu asistente funcionando.</p>
+          <p>Mientras tanto, puedes seguir con las preguntas: son 5 y toman unos 2 minutos.</p>
+          <p>— Equipo BackOffice</p>`,
+      });
+    } catch (err: any) {
+      this.logger.warn(`correo de recibido no enviado: ${err?.message ?? err}`);
+    }
+  }
+
+  /** Un paso del embudo (pantalla de entrada, cada pregunta, adelanto, propuesta…). */
+  async event(dto: any, meta: SignupMeta = {}) {
+    await this.tracker.event(dto?.session, dto?.type, { questionNo: dto?.questionNo, questionId: dto?.questionId, progress: dto?.progress, link: dto?.link }, meta);
+    return { ok: true };
+  }
+
+  /** Enlace del correo «Te quedaste en la pregunta X». */
+  resume(dto: any) {
+    return this.tracker.resume(dto?.t);
+  }
+
+  /** Horarios libres del equipo para la videollamada de 15 min (los mismos de Citas). */
+  async leadSlots(now = new Date()) {
+    if (!this.agentCalls) return { days: [] };
+    const { days } = await this.agentCalls.slots(now);
+    const taken: any[] = await this.prisma.signupSession.findMany({
+      where: { contactPreference: 'CALL', meetingAt: { gte: now } },
+      select: { meetingAt: true },
+    }).catch(() => []);
+    const busy = new Set(taken.map((t) => new Date(t.meetingAt).toISOString()));
+    return { days: days.map((d) => ({ ...d, slots: d.slots.filter((x) => !busy.has(x.at)) })).filter((d) => d.slots.length) };
+  }
+
+  /** «Que me escriban hoy» o «Agendar una videollamada de 15 min». */
+  async quickContact(dto: any) {
+    const session = dto?.session;
+    const kind = dto?.kind === 'CALL' ? 'CALL' : dto?.kind === 'TODAY' ? 'TODAY' : null;
+    if (!isSessionToken(session) || !kind) throw new BadRequestException('Solicitud inválida');
+    const s = await this.prisma.signupSession.findUnique({ where: { token: session } });
+    if (!s?.phone) throw fieldError('phone', 'Primero déjanos tu WhatsApp');
+    let at: Date | undefined;
+    if (kind === 'CALL') {
+      const wanted = new Date(String(dto?.at ?? ''));
+      const { days } = await this.leadSlots();
+      if (Number.isNaN(wanted.getTime()) || !days.some((d) => d.slots.some((x) => x.at === wanted.toISOString()))) {
+        throw fieldError('at', 'Esa hora ya no está disponible. Elige otra, por favor.');
+      }
+      at = wanted;
+    }
+    await this.tracker.preference(session, kind, at);
+    const when = at ? slotLabel(at) : null;
+    const v = SignupTracker.view(s);
+    const business = v.businessName ?? v.contactName ?? 'sin nombre';
+    void this.alerts?.send(
+      'SIGNUP_CONTACT',
+      kind === 'CALL'
+        ? `<b>Agendó videollamada</b> ${tg(business)} · ${tg(v.phone)}\nCuándo: ${tg(when)} (15 min)\nFuente: ${tg(v.sourceLabel)}`
+        : `<b>Pidió que le escriban hoy</b> ${tg(business)} · ${tg(v.phone)}\nVa en: ${tg(v.stepLabel)}\nFuente: ${tg(v.sourceLabel)}`,
+      { text: 'Escribirle por WhatsApp', url: waLink(v.phone, this.waOpening(v)) },
+    ).catch(() => false);
+    return { ok: true, kind, when };
+  }
+
+  /** Primer mensaje de WhatsApp con el nombre del negocio y lo que respondió. */
+  waOpening(v: { businessName?: string | null; answersMap?: Record<string, string> }) {
+    const business = v.businessName ?? 'tu negocio';
+    const what = v.answersMap?.oferta ?? v.answersMap?.tipo;
+    return `¡Hola! Soy del equipo de BackOffice. Vi que estás armando el asistente de WhatsApp para ${business}${what ? ` (${what.slice(0, 80)})` : ''}. ¿Te ayudo a dejarlo funcionando? Toma 2 minutos.`;
   }
 
   /** Eventos sueltos del navegador: vio un paso, escribió su contacto, vio un error. */
@@ -444,6 +571,12 @@ export class SignupService implements OnModuleInit {
 
     if (dto?.referralCode) await linkReferral(this.prisma, companyId, dto.referralCode).catch(() => false);
     const session = await this.tracker.touch(dto?.session, { step: 'DONE', companyId, rubro, businessName: name, businessType: bp?.businessType });
+    await this.tracker.event(dto?.session, 'empresa_creada');
+    void sendCapiEvent({
+      name: 'CompleteRegistration', eventId: `reg-${dto?.session}`, sourceUrl: `${await publicWebUrl(this.prisma).catch(() => '')}/registro`,
+      phone, email, firstName: adminName, externalId: isSessionToken(dto?.session) ? dto.session : null,
+      fbclid: session?.fbclid, clickAt: session?.createdAt, fbp: typeof dto?.fbp === 'string' ? dto.fbp.slice(0, 80) : undefined, ip: meta.ip, userAgent: meta.userAgent,
+    });
     // Aviso al equipo por correo y al celular (si alguno falla, el registro igual queda hecho)
     void this.alertNewCompany(companyId, name, adminName, phone, bp?.businessType || cfg.label);
     try {
@@ -490,16 +623,17 @@ export class SignupService implements OnModuleInit {
    */
   @Cron('*/15 * * * *')
   async notifyAbandoned() {
+    await this.sendResumeEmails().catch((err) => this.logger.warn(`correos para retomar no enviados: ${err?.message ?? err}`));
     const pending = await this.tracker.pendingNotifications().catch(() => []);
     for (const s of pending) {
       const v = SignupTracker.view(s);
       const wa = v.whatsapp ? ` · <a href="https://wa.me/${v.whatsapp}">escribirle por WhatsApp</a>` : '';
       // Al celular primero (no depende del correo); si llegó, ya cuenta como avisado
-      const first = String(v.contactName ?? '').split(' ')[0];
+      const said = answersLine(v.answersMap) || v.description;
       const phoned = await (this.alerts?.send(
         'SIGNUP_ABANDONED',
-        `<b>Dejó el registro a mitad</b> ${tg(v.contactName ?? v.businessName ?? 'sin nombre')} · ${tg(v.phone ?? '')}\nSe quedó en: ${tg(v.stepLabel)} (${v.answers} respuestas)${v.businessName ? `\nNegocio: ${tg(v.businessName)}` : ''}${v.description ? `\nContó: ${tg(String(v.description).slice(0, 200))}` : ''}`,
-        { text: 'Escribirle por WhatsApp', url: waLink(v.phone, `¡Hola${first ? ` ${first}` : ''}! Soy del equipo de BackOffice. Vi que empezaste a crear tu asistente de WhatsApp y no alcanzaste a terminar. ¿Te ayudo? Toma 2 minutos.`) },
+        `<b>Dejó el registro a mitad</b> ${tg(v.businessName ?? v.contactName ?? 'sin nombre')} · ${tg(v.phone ?? '')}\nSe quedó en: ${tg(v.stepLabel)}\nFuente: ${tg(v.sourceLabel)}${said ? `\nContó: ${tg(String(said).slice(0, 220))}` : ''}`,
+        { text: 'Escribirle por WhatsApp', url: waLink(v.phone, this.waOpening(v)) },
       ) ?? Promise.resolve(false));
       if (phoned) await this.tracker.markNotified(s.id).catch(() => undefined);
       try {
@@ -518,6 +652,41 @@ export class SignupService implements OnModuleInit {
         this.logger.warn(`aviso de abandono no enviado: ${err.message}`);
       }
     }
+  }
+
+  /** «Te quedaste en la pregunta X»: a quien dejó correo, con un enlace que retoma donde iba (72 h). */
+  async sendResumeEmails() {
+    const pending = await this.tracker.pendingResumeEmails();
+    if (!pending.length) return 0;
+    const base = await publicWebUrl(this.prisma);
+    let sent = 0;
+    for (const s of pending) {
+      const v = SignupTracker.view(s);
+      const n = v.questionNo ?? 1;
+      const where = v.step === 'CONTACT' || v.step === 'STARTED'
+        ? 'antes de la primera pregunta'
+        : v.step === 'INTERVIEW' ? `en la pregunta ${n} de ${QUESTION_COUNT}` : 'casi al final';
+      const link = `${base}/registro?retomar=${encodeURIComponent(resumeToken(s.id))}`;
+      const body = (cta: string) => `<p>¡Hola!</p>
+        <p>Estabas armando el asistente de WhatsApp para <b>${esc(v.businessName ?? 'tu negocio')}</b> y te quedaste ${where}. Guardamos tus respuestas.</p>
+        <p>${cta}</p>
+        <p>Si prefieres, respóndenos por WhatsApp y lo terminamos contigo.</p>
+        <p>— Equipo BackOffice</p>`;
+      try {
+        await this.emails.systemSend({
+          toEmail: v.email!,
+          subject: v.step === 'INTERVIEW' ? `Te quedaste en la pregunta ${n} · BackOffice` : 'Tu asistente de WhatsApp está a medias · BackOffice',
+          body: body(`<a href="${link}" style="display:inline-block;background:#1a1a1a;color:#fff;padding:12px 18px;text-decoration:none;font-weight:600">Seguir donde iba</a><br><span style="font-size:12px;color:#666">El enlace vence en 72 horas.</span>`),
+          storedBody: body('[enlace para retomar, oculto]'),
+        });
+        sent++;
+      } catch (err: any) {
+        this.logger.warn(`correo para retomar no enviado: ${err?.message ?? err}`);
+      }
+      // Una sola vez, aunque falle (no insistir con el mismo correo cada 15 min)
+      await this.tracker.markResumeEmailed(s.id);
+    }
+    return sent;
   }
 
   async notifyNewCompany(companyId: string) {
@@ -935,9 +1104,17 @@ export class SignupService implements OnModuleInit {
   }
 }
 
+/** IP real (Vercel → Render) y la cookie _fbp: solo para la API de Conversiones. */
+function clientInfo(req: any): ClientInfo {
+  const fwd = String(req?.headers?.['x-forwarded-for'] ?? '').split(',')[0]?.trim();
+  const fbp = typeof req?.body?.fbp === 'string' ? req.body.fbp.slice(0, 80) : undefined;
+  return { ip: fwd || req?.ip || undefined, userAgent: String(req?.headers?.['user-agent'] ?? '').slice(0, 300) || undefined, fbp };
+}
+
 /** De dónde llegó y desde qué dispositivo (sin IP ni datos personales). */
 function requestMeta(req: any): SignupMeta {
   return {
+    g: typeof req?.body?.g === 'string' ? req.body.g : undefined,
     referrer: String(req?.body?.referrer ?? req?.headers?.referer ?? '').slice(0, 200) || undefined,
     userAgent: String(req?.headers?.['user-agent'] ?? '').slice(0, 200) || undefined,
     // Campaña (ej. Meta Ads con ?utm_source=facebook&utm_campaign=…)
@@ -967,6 +1144,42 @@ export class SignupController {
   @Post('public/signup/track')
   track(@Body() dto: any, @Req() req: any) {
     return this.signup.track(dto, requestMeta(req));
+  }
+
+  @Public()
+  @Throttle({ default: { ttl: 10 * 60_000, limit: 10 } })
+  @Post('public/signup/contact')
+  startContact(@Body() dto: any, @Req() req: any) {
+    return this.signup.startContact(dto, requestMeta(req), clientInfo(req));
+  }
+
+  /** Pasos del embudo: varias personas pueden compartir IP (datos móviles), por eso el tope es alto. */
+  @Public()
+  @Throttle({ default: { ttl: 10 * 60_000, limit: 400 } })
+  @Post('public/signup/event')
+  event(@Body() dto: any, @Req() req: any) {
+    return this.signup.event(dto, requestMeta(req));
+  }
+
+  @Public()
+  @Throttle({ default: { ttl: 10 * 60_000, limit: 20 } })
+  @Post('public/signup/resume')
+  resume(@Body() dto: any) {
+    return this.signup.resume(dto);
+  }
+
+  @Public()
+  @Throttle({ default: { ttl: 60_000, limit: 30 } })
+  @Get('public/signup/slots')
+  leadSlots() {
+    return this.signup.leadSlots();
+  }
+
+  @Public()
+  @Throttle({ default: { ttl: 10 * 60_000, limit: 10 } })
+  @Post('public/signup/quick-contact')
+  quickContact(@Body() dto: any) {
+    return this.signup.quickContact(dto);
   }
 
   @Public()
@@ -1059,8 +1272,8 @@ export class SignupController {
 
   @Get('onboarding/registros')
   @Roles(ROLES.SUPER_ADMIN, ROLES.DEV)
-  registros(@Query('state') state?: string, @Query('days') days?: string) {
-    return this.signup.tracker.list({ state, days: Number(days) || 30 });
+  registros(@Query('state') state?: string, @Query('days') days?: string, @Query('source') source?: string) {
+    return this.signup.tracker.list({ state, days: Number(days) || 30, source });
   }
 
   @Get('onboarding/registros/summary')
@@ -1109,7 +1322,7 @@ export class SignupController {
 }
 
 @Module({
-  imports: [AuthModule, AuditModule, EmailsModule, CompaniesModule],
+  imports: [AuthModule, AuditModule, EmailsModule, CompaniesModule, AgentCallsModule],
   controllers: [SignupController],
   providers: [SignupService],
 })
